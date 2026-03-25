@@ -1,0 +1,15 @@
+# -----------------------------------------------------------------------------
+# System dependency (not installable via pip): FFmpeg
+# You must install ffmpeg on the OS and have `ffmpeg` on PATH.
+#   - macOS:  brew install ffmpeg
+#   - Ubuntu: sudo apt install ffmpeg
+# moviepy / faster-whisper / many pipelines expect it for decode/encode.
+# -----------------------------------------------------------------------------
+
+faster-whisper>=1.0.0
+moviepy>=1.0.3
+openai>=1.0.0
+lark-oapi>=1.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-dotenv>=1.0.0

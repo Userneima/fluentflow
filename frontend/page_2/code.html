@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FluentFlow Editor &amp; Summary</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary": "#495e8a",
+              "primary": "#0058be",
+              "inverse-surface": "#2c3134",
+              "on-secondary-container": "#405682",
+              "on-secondary-fixed": "#001a42",
+              "surface": "#f6fafe",
+              "surface-container": "#eaeef2",
+              "outline-variant": "#c2c6d6",
+              "on-tertiary-container": "#fffbff",
+              "on-background": "#171c1f",
+              "primary-container": "#2170e4",
+              "surface-tint": "#005ac2",
+              "inverse-primary": "#adc6ff",
+              "surface-dim": "#d6dade",
+              "surface-variant": "#dfe3e7",
+              "on-primary-fixed-variant": "#004395",
+              "surface-container-highest": "#dfe3e7",
+              "on-primary-fixed": "#001a42",
+              "on-tertiary-fixed-variant": "#5516be",
+              "primary-fixed-dim": "#adc6ff",
+              "surface-container-lowest": "#ffffff",
+              "background": "#f6fafe",
+              "inverse-on-surface": "#edf1f5",
+              "on-primary": "#ffffff",
+              "tertiary-container": "#8455ef",
+              "tertiary": "#6b38d4",
+              "on-error": "#ffffff",
+              "secondary-fixed-dim": "#b1c6f9",
+              "secondary-container": "#b6ccff",
+              "tertiary-fixed-dim": "#d0bcff",
+              "surface-container-high": "#e4e9ed",
+              "on-surface": "#171c1f",
+              "on-secondary-fixed-variant": "#304671",
+              "error-container": "#ffdad6",
+              "on-tertiary": "#ffffff",
+              "tertiary-fixed": "#e9ddff",
+              "on-secondary": "#ffffff",
+              "on-surface-variant": "#424754",
+              "secondary-fixed": "#d8e2ff",
+              "on-primary-container": "#fefcff",
+              "primary-fixed": "#d8e2ff",
+              "outline": "#727785",
+              "on-error-container": "#93000a",
+              "surface-bright": "#f6fafe",
+              "error": "#ba1a1a",
+              "on-tertiary-fixed": "#23005c",
+              "surface-container-low": "#f0f4f8"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface overflow-hidden">
+<!-- SideNavBar (Authority: JSON) -->
+<nav class="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-50 border-r-0 p-4 transition-colors duration-200 ease-in-out">
+<div class="text-xl font-bold text-slate-900 mb-8 font-headline">
+<span class="text-primary">Fluent</span>Flow
+            <p class="text-xs font-normal text-slate-500 font-body">Video-to-Lark AI</p>
+</div>
+<div class="flex flex-col gap-1 flex-grow">
+<!-- Active State: Recent Projects (Contextual for Editor) -->
+<a class="text-slate-500 hover:text-slate-900 px-4 py-3 font-manrope text-sm tracking-tight transition-colors duration-200 ease-in-out flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                Dashboard
+            </a>
+<a class="bg-blue-50 text-blue-700 font-semibold rounded-lg px-4 py-3 font-manrope text-sm tracking-tight transition-colors duration-200 ease-in-out flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+                Recent Projects
+            </a>
+<a class="text-slate-500 hover:text-slate-900 px-4 py-3 font-manrope text-sm tracking-tight transition-colors duration-200 ease-in-out flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                Settings
+            </a>
+</div>
+<div class="mt-auto pt-4">
+<button class="w-full bg-primary text-white py-3 px-4 rounded-full font-semibold flex items-center justify-center gap-2 hover:shadow-lg transition-all">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+                New Project
+            </button>
+</div>
+</nav>
+<!-- TopNavBar (Authority: JSON) -->
+<header class="docked full-width top-0 sticky z-40 flex justify-between items-center h-16 px-8 ml-64 bg-white/80 backdrop-blur-xl shadow-sm transition-all duration-300">
+<div class="flex items-center gap-8">
+<div class="relative">
+<span class="absolute inset-y-0 left-3 flex items-center text-slate-400">
+<span class="material-symbols-outlined text-sm" data-icon="search">search</span>
+</span>
+<input class="pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 w-64 transition-all" placeholder="Search projects..." type="text"/>
+</div>
+<nav class="flex gap-6 items-center">
+<a class="text-slate-600 font-manrope headline-md -tracking-tight hover:text-blue-500 transition-all" href="#">Projects</a>
+<a class="text-slate-600 font-manrope headline-md -tracking-tight hover:text-blue-500 transition-all" href="#">Integrations</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden bg-slate-200">
+<img alt="User Profile" data-alt="Close up portrait of a professional man with a friendly expression in a modern office environment with soft lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCPWmbvFh2ZbjqHtw7rUWEu3PuHd4UQ16fpu9UXcFEYeAx6HRIcELpQNcm_2fidHMt4zJbqMyL7vrHp_zCx1rARrv-Vt9Qm-o4DTc8m0xVGOM_-ea7g0_ZBNYWFHLfLx_8ew-lbEKgGEDZChTjdKO9pCos3Xto4aevz05aIgvFZoQLcVnEui_6sPh0UakDZ-Yf89qemSCH9gnlIXKfSTmRZHPQbjhYKrNMPQ8DS2GVDuqqFvc1EGtGJqfhd_g3U0AUO9HtJZVt3GTQ"/>
+</div>
+</div>
+</header>
+<!-- Main Workspace -->
+<main class="ml-64 pt-6 pb-12 px-8 h-[calc(100vh-4rem-2rem)] overflow-hidden">
+<div class="max-w-7xl mx-auto h-full flex flex-col gap-6">
+<!-- Editor Header Actions -->
+<div class="flex justify-between items-end">
+<div>
+<h1 class="text-3xl font-extrabold font-headline tracking-tight text-on-surface">Product Strategy Meeting</h1>
+<p class="text-on-surface-variant mt-1">Recorded: Oct 24, 2023 • 42 minutes • <span class="text-tertiary font-semibold uppercase tracking-wider text-[10px]">AI Processed</span></p>
+</div>
+<div class="flex gap-3">
+<button class="px-6 py-2.5 rounded-full border border-outline-variant/20 text-primary font-semibold text-sm hover:bg-primary/5 transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="share">share</span>
+                        Share
+                    </button>
+<button class="px-6 py-2.5 rounded-full bg-gradient-to-r from-primary to-primary-container text-white font-bold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="publish">publish</span>
+                        Export to Lark (Feishu)
+                    </button>
+</div>
+</div>
+<!-- Editor Split View -->
+<div class="flex-grow flex gap-4 overflow-hidden">
+<!-- Left Pane: Transcription -->
+<section class="flex-1 bg-surface-container-low rounded-xl flex flex-col overflow-hidden">
+<div class="p-5 flex justify-between items-center border-b-0">
+<h2 class="font-headline font-bold text-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="subject">subject</span>
+                            Full Transcription
+                        </h2>
+<span class="px-3 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-500">faster-whisper-v3</span>
+</div>
+<div class="flex-grow overflow-y-auto p-6 space-y-8 hide-scrollbar">
+<!-- Timestamp Entry -->
+<div class="group flex gap-6">
+<span class="text-xs font-mono text-slate-400 pt-1.5 w-12 flex-shrink-0">00:00</span>
+<div class="space-y-2">
+<p class="text-xs font-bold text-primary uppercase tracking-widest">Speaker 1</p>
+<p class="text-on-surface leading-relaxed text-sm">Alright everyone, let's dive into the Q4 product roadmap. We've seen some incredible growth in our video-to-Lark workflow tools, but I want to focus on how we're integrating the new 'faster-whisper' model today.</p>
+</div>
+</div>
+<div class="group flex gap-6">
+<span class="text-xs font-mono text-slate-400 pt-1.5 w-12 flex-shrink-0">02:14</span>
+<div class="space-y-2">
+<p class="text-xs font-bold text-secondary uppercase tracking-widest">Speaker 2</p>
+<p class="text-on-surface leading-relaxed text-sm">The processing speeds have tripled. We're looking at a sub-5-minute window for a 1-hour recording. The accuracy on technical jargon has also improved by about 12% according to our internal benchmarks.</p>
+</div>
+</div>
+<div class="group flex gap-6">
+<span class="text-xs font-mono text-slate-400 pt-1.5 w-12 flex-shrink-0">05:45</span>
+<div class="space-y-2">
+<p class="text-xs font-bold text-primary uppercase tracking-widest">Speaker 1</p>
+<p class="text-on-surface leading-relaxed text-sm">That's huge. Our users are asking for better markdown formatting when exporting to Lark. Can we ensure the AI summaries respect the hierarchical structure we discussed last week?</p>
+</div>
+</div>
+<div class="group flex gap-6">
+<span class="text-xs font-mono text-slate-400 pt-1.5 w-12 flex-shrink-0">12:30</span>
+<div class="space-y-2">
+<p class="text-xs font-bold text-tertiary uppercase tracking-widest">Speaker 3</p>
+<p class="text-on-surface leading-relaxed text-sm">Yes, the new summary agent is now tuned to detect action items, key decisions, and stakeholder mentions automatically. It generates a clean Markdown structure that pastes perfectly into Lark Docs.</p>
+</div>
+</div>
+<div class="group flex gap-6">
+<span class="text-xs font-mono text-slate-400 pt-1.5 w-12 flex-shrink-0">18:12</span>
+<div class="space-y-2">
+<p class="text-xs font-bold text-secondary uppercase tracking-widest">Speaker 2</p>
+<p class="text-on-surface leading-relaxed text-sm">We also need to consider the multi-language support. Whisper v3 is excellent at switching between English and Mandarin mid-sentence, which is critical for our international teams.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Pane: AI Summary -->
+<section class="flex-1 bg-surface-container-lowest rounded-xl flex flex-col shadow-sm overflow-hidden">
+<div class="p-5 flex justify-between items-center bg-tertiary/5 border-b-0">
+<h2 class="font-headline font-bold text-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary" data-icon="psychology">psychology</span>
+                            AI Executive Summary
+                        </h2>
+<button class="text-tertiary hover:bg-tertiary/10 p-1.5 rounded-lg transition-colors">
+<span class="material-symbols-outlined" data-icon="edit">edit</span>
+</button>
+</div>
+<div class="flex-grow overflow-y-auto p-8 prose prose-slate max-w-none hide-scrollbar">
+<div class="space-y-6">
+<div>
+<h3 class="text-xl font-headline font-bold text-on-surface mb-3 tracking-tight">Overview</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">The team discussed the Q4 roadmap focusing on the integration of <strong>faster-whisper-v3</strong>. Key improvements include significant speed gains and enhanced technical accuracy.</p>
+</div>
+<div class="bg-surface p-5 rounded-xl border-none">
+<h3 class="text-sm font-bold text-tertiary uppercase tracking-widest mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="auto_awesome">auto_awesome</span>
+                                    Key Takeaways
+                                </h3>
+<ul class="space-y-3">
+<li class="flex gap-3 text-sm text-on-surface">
+<span class="text-tertiary mt-1 text-xs">•</span>
+<span><strong>Performance Boost:</strong> Transcription speeds tripled, achieving sub-5-minute processing for 60-minute files.</span>
+</li>
+<li class="flex gap-3 text-sm text-on-surface">
+<span class="text-tertiary mt-1 text-xs">•</span>
+<span><strong>Technical Precision:</strong> 12% improvement in industry-specific jargon recognition.</span>
+</li>
+<li class="flex gap-3 text-sm text-on-surface">
+<span class="text-tertiary mt-1 text-xs">•</span>
+<span><strong>Lark Integration:</strong> Improved Markdown export for seamless Feishu documentation.</span>
+</li>
+</ul>
+</div>
+<div>
+<h3 class="text-xl font-headline font-bold text-on-surface mb-3 tracking-tight">Action Items</h3>
+<div class="space-y-4">
+<div class="flex items-start gap-3 p-3 rounded-lg hover:bg-slate-50 transition-colors group">
+<div class="mt-1 w-5 h-5 rounded border border-outline-variant/50 flex items-center justify-center group-hover:border-primary transition-colors">
+<span class="material-symbols-outlined text-[14px] text-white" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div>
+<p class="text-sm font-semibold text-on-surface">Finalize Whisper v3 Migration</p>
+<p class="text-xs text-on-surface-variant">Assign to Engineering Team • Due Oct 30</p>
+</div>
+</div>
+<div class="flex items-start gap-3 p-3 rounded-lg hover:bg-slate-50 transition-colors group">
+<div class="mt-1 w-5 h-5 rounded border border-outline-variant/50 flex items-center justify-center group-hover:border-primary transition-colors"></div>
+<div>
+<p class="text-sm font-semibold text-on-surface">Update Markdown Export Templates</p>
+<p class="text-xs text-on-surface-variant">Assign to Product Design • Due Nov 2</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Status Indicator within Panel -->
+<div class="p-4 bg-tertiary-fixed border-t-0 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary text-sm" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span class="text-[10px] font-bold text-on-tertiary-fixed-variant uppercase tracking-widest">Summary Confidence: 98.4%</span>
+</div>
+<button class="text-[10px] font-bold text-tertiary uppercase tracking-widest hover:underline">Regenerate</button>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Authority: JSON - Used as status bar) -->
+<footer class="fixed bottom-0 right-0 h-8 left-64 bg-slate-100/50 backdrop-blur-md flex items-center justify-between px-6 w-full">
+<div class="flex items-center gap-6">
+<div class="text-slate-400 flex items-center gap-2 text-xs uppercase tracking-widest font-inter">
+<span class="material-symbols-outlined text-[16px]" data-icon="memory">memory</span>
+                Processing STT...
+            </div>
+<div class="text-purple-600 flex items-center gap-2 text-xs uppercase tracking-widest font-inter animate-pulse">
+<span class="material-symbols-outlined text-[16px]" data-icon="psychology">psychology</span>
+                AI Summary Active
+            </div>
+</div>
+<div class="flex items-center gap-4 text-[10px] text-slate-500 font-bold uppercase tracking-tighter">
+<span>Server: US-East-1</span>
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+</div>
+</footer>
+</body></html>

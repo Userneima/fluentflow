@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO="/Users/yuchao/Documents/GitHub/fluentflow"
+API_PORT=8000
+APP_URL="http://127.0.0.1:${API_PORT}/"
+
+wait_listen() {
+	local port="$1" tries="${2:-80}" i=0
+	while [[ "$i" -lt "$tries" ]]; do
+		if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 0.25
+		i=$((i + 1))
+	done
+	return 1
+}
+
+err_dialog() {
+	osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with icon stop" >/dev/null 2>&1 || true
+}
+
+# If server already running, just open the browser
+if lsof -nP -iTCP:"$API_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+	open "$APP_URL"
+	exit 0
+fi
+
+# Preflight: check venv exists
+if [[ ! -x "${REPO}/venv/bin/python" ]] && [[ ! -x "${REPO}/.venv/bin/python" ]]; then
+	err_dialog "找不到 Python 虚拟环境。请在终端执行：\ncd ${REPO}\npython3 -m venv venv\n./venv/bin/pip install -r requirements.txt"
+	exit 1
+fi
+
+VENV_PY="${REPO}/venv/bin/python"
+[[ -x "$VENV_PY" ]] || VENV_PY="${REPO}/.venv/bin/python"
+
+# Launch uvicorn via Terminal.app (which has Files & Folders / Full Disk Access)
+osascript <<EOF
+tell application "Terminal"
+	do script "cd '${REPO}' && '${VENV_PY}' -m uvicorn backend.main:app --host 127.0.0.1 --port ${API_PORT} 2>&1 | head -50"
+	delay 1.5
+	try
+		set miniaturized of front window to true
+	end try
+end tell
+EOF
+
+if ! wait_listen "$API_PORT"; then
+	err_dialog "后端端口 ${API_PORT} 未监听。请查看 Terminal 窗口中的错误信息。"
+	exit 1
+fi
+
+open "$APP_URL"
