@@ -153,6 +153,7 @@ def summarize_transcript_to_markdown(
     *,
     api_key: str | None = None,
     model: str | None = None,
+    system_prompt: str | None = None,
     max_chunk_chars: int = 10_000,
     chunk_overlap: int = 400,
     max_final_input_chars: int = 55_000,
@@ -161,28 +162,20 @@ def summarize_transcript_to_markdown(
     """
     将整段转录稿总结为飞书友好的结构化 Markdown。
 
-    短文本：一次调用完成。长文本：先分段做要点提炼，再合并为终稿，并在中间稿过长时做批处理压缩，
-    降低超出模型上下文的风险。
-
     Args:
-        transcript: Whisper 转录全文。
-        api_key: 可选，默认读取环境变量 ``DEEPSEEK_API_KEY``（会先 ``load_dotenv()``）。
-        model: 可选，默认 ``DEEPSEEK_MODEL`` 环境变量或 ``deepseek-chat``。
-        max_chunk_chars: 每段转录原文最大字符数（约等于控制单次 user 长度）。
-        chunk_overlap: 分段重叠字符数，减轻边界截断。
-        max_final_input_chars: 若「合并要点 + 包装说明」超过此值，先压缩中间稿再终稿。
-        interim_batch_cap: 分批压缩中间稿时，每批最大字符数。
+        system_prompt: Custom system prompt; uses the default FluentFlow prompt if empty.
     """
     load_dotenv()
     client = _get_client(api_key=api_key)
     m = (model or os.environ.get("DEEPSEEK_MODEL") or DEFAULT_MODEL).strip()
+    prompt = (system_prompt or "").strip() or FLUENTFLOW_SYSTEM_PROMPT
 
     chunks = _chunk_text(transcript, max_chunk_chars, chunk_overlap)
     if not chunks:
         return ""
 
     if len(chunks) == 1:
-        return _chat(client, m, FLUENTFLOW_SYSTEM_PROMPT, chunks[0])
+        return _chat(client, m, prompt, chunks[0])
 
     drafts: list[str] = []
     total = len(chunks)
@@ -200,7 +193,7 @@ def summarize_transcript_to_markdown(
         )
         final_user = _FINAL_WRAPPER + merged_body
 
-    return _chat(client, m, FLUENTFLOW_SYSTEM_PROMPT, final_user)
+    return _chat(client, m, prompt, final_user)
 
 
 __all__ = [

@@ -11,14 +11,22 @@
     <script src="https://unpkg.com/react-router@6.3.0/umd/react-router.development.js"></script>
     <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
     <script>
         tailwind.config = {
             darkMode: "class",
             theme: { extend: {
-                colors: {
-                    "secondary":"#495e8a","primary":"#3B82F6","inverse-surface":"#2c3134","on-secondary-container":"#405682","on-secondary-fixed":"#001a42","surface":"#f6fafe","surface-container":"#eaeef2","outline-variant":"#c2c6d6","on-tertiary-container":"#fffbff","on-background":"#171c1f","primary-container":"#2170e4","surface-tint":"#005ac2","inverse-primary":"#adc6ff","surface-dim":"#d6dade","surface-variant":"#dfe3e7","on-primary-fixed-variant":"#004395","surface-container-highest":"#dfe3e7","on-primary-fixed":"#001a42","on-tertiary-fixed-variant":"#5516be","primary-fixed-dim":"#adc6ff","surface-container-lowest":"#ffffff","background":"#f6fafe","inverse-on-surface":"#edf1f5","on-primary":"#ffffff","tertiary-container":"#8455ef","tertiary":"#6b38d4","on-error":"#ffffff","secondary-fixed-dim":"#b1c6f9","secondary-container":"#b6ccff","tertiary-fixed-dim":"#d0bcff","surface-container-high":"#e4e9ed","on-surface":"#171c1f","on-secondary-fixed-variant":"#304671","error-container":"#ffdad6","on-tertiary":"#ffffff","tertiary-fixed":"#e9ddff","on-secondary":"#ffffff","on-surface-variant":"#424754","secondary-fixed":"#d8e2ff","on-primary-container":"#fefcff","primary-fixed":"#d8e2ff","outline":"#727785","on-error-container":"#93000a","surface-bright":"#f6fafe","error":"#ba1a1a","on-tertiary-fixed":"#23005c","surface-container-low":"#f0f4f8"
+                    colors: {
+                    "surface":"var(--c-surface)","surface-dim":"var(--c-surface-dim)","surface-bright":"var(--c-surface-bright)","surface-variant":"var(--c-surface-variant)","surface-container":"var(--c-surface-container)","surface-container-low":"var(--c-surface-container-low)","surface-container-lowest":"var(--c-surface-container-lowest)","surface-container-high":"var(--c-surface-container-high)","surface-container-highest":"var(--c-surface-container-highest)","surface-tint":"var(--c-surface-tint)",
+                    "on-surface":"var(--c-on-surface)","on-surface-variant":"var(--c-on-surface-variant)","on-background":"var(--c-on-background)","background":"var(--c-background)",
+                    "outline":"var(--c-outline)","outline-variant":"var(--c-outline-variant)",
+                    "primary":"#3B82F6","primary-container":"#2170e4","on-primary":"#ffffff","on-primary-container":"#fefcff","primary-fixed":"#d8e2ff","primary-fixed-dim":"#adc6ff","on-primary-fixed":"#001a42","on-primary-fixed-variant":"#004395","inverse-primary":"#adc6ff",
+                    "secondary":"#495e8a","secondary-container":"#b6ccff","on-secondary":"#ffffff","on-secondary-container":"#405682","secondary-fixed":"#d8e2ff","secondary-fixed-dim":"#b1c6f9","on-secondary-fixed":"#001a42","on-secondary-fixed-variant":"#304671",
+                    "tertiary":"#6b38d4","tertiary-container":"#8455ef","on-tertiary":"#ffffff","on-tertiary-container":"var(--c-on-tertiary-container)","tertiary-fixed":"var(--c-tertiary-fixed)","tertiary-fixed-dim":"#d0bcff","on-tertiary-fixed":"#23005c","on-tertiary-fixed-variant":"var(--c-on-tertiary-fixed-variant)",
+                    "error":"#ba1a1a","error-container":"var(--c-error-container)","on-error":"#ffffff","on-error-container":"var(--c-on-error-container)",
+                    "inverse-surface":"var(--c-inverse-surface)","inverse-on-surface":"var(--c-inverse-on-surface)",
                 },
                 fontFamily: { "headline":["Manrope"], "body":["Inter"], "label":["Inter"] },
                 borderRadius: { "DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem" },
@@ -26,20 +34,294 @@
         }
     </script>
     <style>
+        :root {
+            --c-surface:#f6fafe; --c-surface-dim:#d6dade; --c-surface-bright:#f6fafe; --c-surface-variant:#dfe3e7;
+            --c-surface-container:#eaeef2; --c-surface-container-low:#f0f4f8; --c-surface-container-lowest:#ffffff;
+            --c-surface-container-high:#e4e9ed; --c-surface-container-highest:#dfe3e7; --c-surface-tint:#005ac2;
+            --c-on-surface:#171c1f; --c-on-surface-variant:#424754; --c-on-background:#171c1f; --c-background:#f6fafe;
+            --c-outline:#727785; --c-outline-variant:#c2c6d6;
+            --c-tertiary-fixed:#e9ddff; --c-on-tertiary-fixed-variant:#5516be; --c-on-tertiary-container:#fffbff;
+            --c-error-container:#ffdad6; --c-on-error-container:#93000a;
+            --c-inverse-surface:#2c3134; --c-inverse-on-surface:#edf1f5;
+        }
+        .dark {
+            --c-surface:#111318; --c-surface-dim:#111318; --c-surface-bright:#373a3e; --c-surface-variant:#424754;
+            --c-surface-container:#1d2024; --c-surface-container-low:#191c20; --c-surface-container-lowest:#0c0e11;
+            --c-surface-container-high:#272a2e; --c-surface-container-highest:#323538; --c-surface-tint:#adc6ff;
+            --c-on-surface:#e2e2e6; --c-on-surface-variant:#c2c6d6; --c-on-background:#e2e2e6; --c-background:#111318;
+            --c-outline:#8c909f; --c-outline-variant:#424754;
+            --c-tertiary-fixed:#332050; --c-on-tertiary-fixed-variant:#d0bcff; --c-on-tertiary-container:#e9ddff;
+            --c-error-container:#93000a; --c-on-error-container:#ffdad6;
+            --c-inverse-surface:#e2e2e6; --c-inverse-on-surface:#2e3134;
+        }
         .material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; }
         .editorial-shadow { box-shadow:0 24px 48px -12px rgba(23,28,31,.06); }
+        .dark .editorial-shadow { box-shadow:0 24px 48px -12px rgba(0,0,0,.3); }
         .hide-scrollbar::-webkit-scrollbar{display:none}
         .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+        /* ── dark overrides for hardcoded utility classes ── */
+        .dark .bg-white { background-color: #1e2024 !important; }
+        .dark .bg-white\/80 { background-color: rgba(30,32,36,0.8) !important; }
+        .dark .bg-white\/50 { background-color: rgba(30,32,36,0.5) !important; }
+        .dark .bg-slate-50 { background-color: #191c20 !important; }
+        .dark .bg-slate-100 { background-color: #1d2024 !important; }
+        .dark .bg-slate-100\/50 { background-color: rgba(29,32,36,0.5) !important; }
+        .dark .bg-slate-200 { background-color: #272a2e !important; }
+        .dark .bg-slate-200\/50 { background-color: rgba(39,42,46,0.5) !important; }
+        .dark .bg-slate-700 { background-color: #3a3f47 !important; }
+        .dark .bg-slate-900 { background-color: #0c0e11 !important; }
+        .dark .text-slate-900 { color: #e2e2e6 !important; }
+        .dark .text-slate-600 { color: #a0a4b0 !important; }
+        .dark .text-slate-500 { color: #8c909f !important; }
+        .dark .text-slate-400 { color: #727785 !important; }
+        .dark .text-slate-300 { color: #5c616e !important; }
+        .dark .border-slate-200 { border-color: #323538 !important; }
+        .dark .border-slate-200\/50 { border-color: rgba(50,53,56,0.5) !important; }
+        .dark .border-slate-100 { border-color: #272a2e !important; }
+        .dark .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0,0,0,.25) !important; }
+        .dark .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0,0,0,.35) !important; }
+        .dark .shadow-xl { box-shadow: 0 20px 25px -5px rgba(0,0,0,.4) !important; }
+        .dark .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,.5) !important; }
+        .dark .bg-blue-50 { background-color: rgba(59,130,246,0.12) !important; }
+        .dark .bg-purple-50 { background-color: rgba(107,56,212,0.12) !important; }
+        .dark .bg-amber-50 { background-color: rgba(245,158,11,0.12) !important; }
+        .dark .bg-amber-50\/50 { background-color: rgba(245,158,11,0.06) !important; }
+        .dark .bg-red-50 { background-color: rgba(239,68,68,0.12) !important; }
+        .dark .bg-green-50 { background-color: rgba(34,197,94,0.12) !important; }
+        .dark .hover\:bg-slate-200\/50:hover { background-color: rgba(39,42,46,0.5) !important; }
+        .dark .hover\:bg-white\/50:hover { background-color: rgba(30,32,36,0.5) !important; }
+        .dark .hover\:bg-slate-200:hover { background-color: #323538 !important; }
+        .dark .hover\:bg-blue-50:hover { background-color: rgba(59,130,246,0.18) !important; }
+        .dark .hover\:bg-amber-100:hover { background-color: rgba(245,158,11,0.2) !important; }
+        .dark .hover\:bg-slate-50:hover { background-color: #272a2e !important; }
+        .dark .hover\:bg-purple-100:hover { background-color: rgba(107,56,212,0.2) !important; }
+        .dark .ring-white { --tw-ring-color: #1e2024 !important; }
+        .dark .border-green-200 { border-color: #166534 !important; }
+        .dark .border-amber-200\/50 { border-color: rgba(120,80,6,0.5) !important; }
+        .dark .border-amber-200\/60 { border-color: rgba(120,80,6,0.6) !important; }
+        .dark .border-blue-200\/50 { border-color: rgba(30,64,175,0.5) !important; }
+        .dark .border-purple-200\/50 { border-color: rgba(88,28,135,0.5) !important; }
+        .dark .hover\:text-slate-900:hover { color: #e2e2e6 !important; }
+        .dark .hover\:text-slate-600:hover { color: #a0a4b0 !important; }
+        .dark .hover\:bg-slate-100:hover { background-color: #272a2e !important; }
+        .dark .hover\:bg-red-100:hover { background-color: rgba(239,68,68,0.2) !important; }
+        .dark .text-blue-700 { color: #93b4f8 !important; }
+        .dark .text-red-500 { color: #f87171 !important; }
+        .dark .text-red-600 { color: #f87171 !important; }
+        .dark .text-red-300 { color: #fca5a5 !important; }
+        .dark .text-red-400 { color: #f87171 !important; }
+        .dark .text-green-500 { color: #4ade80 !important; }
+        .dark .text-green-600 { color: #4ade80 !important; }
+        .dark .text-amber-600 { color: #fbbf24 !important; }
+        .dark .text-amber-600\/70 { color: rgba(251,191,36,0.7) !important; }
+        .dark .text-amber-700 { color: #fbbf24 !important; }
+        .dark .bg-green-500\/20 { background-color: rgba(34,197,94,0.15) !important; }
+        .dark .bg-red-500\/20 { background-color: rgba(239,68,68,0.15) !important; }
+        .dark .border-green-500\/50 { border-color: rgba(34,197,94,0.3) !important; }
+        .dark .border-red-500\/50 { border-color: rgba(239,68,68,0.3) !important; }
+        .dark .placeholder-slate-400::placeholder { color: #5c616e !important; }
+        .dark input, .dark select, .dark textarea { color: var(--c-on-surface); }
+        .dark .focus\:ring-amber-300\/50:focus { --tw-ring-color: rgba(180,130,20,0.4) !important; }
+        .dark .focus\:border-amber-300:focus { border-color: #92700a !important; }
     </style>
+    <script>
+        /* Apply saved theme before React renders to prevent flash */
+        try{const s=JSON.parse(localStorage.getItem('fluentflow_settings')||'{}');
+        if(s.theme==='dark')document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+        }catch(_){}
+    </script>
 </head>
 <body class="bg-surface text-on-surface font-body overflow-hidden">
-<div id="root"></div>
-<script type="text/babel">
+    <div id="root"></div>
+    <script type="text/babel">
 const {useState,useEffect,useRef,useCallback,createContext,useContext} = React;
 const {createRoot} = ReactDOM;
 const {MemoryRouter,Routes,Route,Link,useNavigate,useLocation} = ReactRouterDOM;
 
 const API_BASE = "http://127.0.0.1:8000";
+
+/* 与 backend/core/ai_summarizer.py 中 FLUENTFLOW_SYSTEM_PROMPT 保持一致，便于本地编辑默认「课程笔记」 */
+const DEFAULT_COURSE_PROMPT = `# Role: FluentFlow 知识架构师
+
+# Task: 你将接收一段由 Whisper 转录的原始课程录音文本。这段文本可能包含口癖、重复和错别字。你的任务是将其转化为一份高质量、结构化、可直接用于复习的飞书云文档笔记。
+
+# Writing Style:
+- 严谨、专业、富有启发性。
+- 使用二级和三级标题建立层级感。
+- 重点术语使用 **加粗**。
+- 核心金句使用 > 引用块。
+
+# Output Structure:
+1. 📌 **一句话概览**：用一句话总结本段视频的核心主题。
+2. 🔑 **核心概念盘点**：列出视频中提到的所有关键词及简要解释（使用无序列表）。
+3. 🚀 **深度逻辑拆解**：
+   - 将内容拆分为 3-5 个逻辑模块。
+   - 采用「背景-原理-结论」或「问题-对策-案例」的逻辑编写。
+   - 如果涉及代码或公式，请用标准 Markdown 格式包裹（如 $$...$$）。
+4. 📝 **老师的「敲黑板」**：提炼老师反复强调的考点或实践建议。
+5. 💡 **延伸思考/Next Step**：基于本课内容，提出一个值得深入研究的问题或后续实践任务。
+
+# Constraints:
+- 保持原意，不要虚构事实。
+- 剔除「呃」、「那个」、「其实」等口头语。
+- 保持内容的高度浓缩，去除冗余解释。
+- 输出为可直接粘贴飞书云文档的 Markdown，不要使用代码围栏包裹整篇文档。`;
+
+/* ═══════════════ Prompt Presets ═══════════════ */
+const PROMPT_PRESETS = {
+    default: {
+        labelEn: 'Course Notes (Default)',
+        labelZh: '课程笔记（默认）',
+        prompt: '', // 实际正文用 getDefaultPromptBody(settings)
+    },
+    meeting: {
+        labelEn: 'Meeting Minutes',
+        labelZh: '会议纪要',
+        prompt: `# Role: FluentFlow 会议纪要助手
+
+# Task: 将 Whisper 转录的原始会议录音文本转化为一份清晰、可执行的会议纪要。
+
+# Writing Style:
+- 简洁、条理清晰、突出行动项。
+- 使用二级和三级标题建立层级感。
+- 人名和关键决策使用 **加粗**。
+- 重要决定使用 > 引用块。
+
+# Output Structure:
+1. 📌 **会议概述**：一句话总结会议主题、时间与参会人。
+2. 📋 **议题与讨论要点**：按议题分组，列出各方发言要点。
+3. ✅ **决议与共识**：列出明确达成的决定。
+4. 🎯 **行动项 (Action Items)**：
+   - 格式：负责人 | 任务 | 截止时间
+   - 使用表格或清晰列表。
+5. 📅 **后续安排**：下次会议时间或待跟进事项。
+
+# Constraints:
+- 保持原意，不要虚构发言。
+- 剔除口头语和无意义填充词。
+- 保持内容高度浓缩。
+- 输出为可直接粘贴飞书云文档的 Markdown。`,
+    },
+    research: {
+        labelEn: 'Research / Paper Summary',
+        labelZh: '研究/论文摘要',
+        prompt: `# Role: FluentFlow 学术摘要助手
+
+# Task: 将 Whisper 转录的学术讲座/论文讨论录音转化为结构化的学术摘要。
+
+# Writing Style:
+- 学术化、精确、逻辑严密。
+- 使用标准学术论文结构。
+- 术语首次出现时加粗并附英文原文。
+- 公式和引用使用标准 Markdown 格式。
+
+# Output Structure:
+1. 📌 **主题与背景**：研究领域、问题背景、研究动机。
+2. 🔬 **核心方法/理论**：研究方法论、关键假设、实验设计。
+3. 📊 **主要发现/结论**：核心结果与数据支撑。
+4. 💡 **创新点与局限**：方法或结论的独到之处，以及已知局限。
+5. 📚 **延伸阅读建议**：基于内容推荐的相关研究方向。
+
+# Constraints:
+- 严格保持学术中立，不添加主观评价。
+- 保留所有关键数据、公式和专业术语。
+- 输出为 Markdown 格式。`,
+    },
+    quickBullets: {
+        labelEn: 'Quick Bullet Points',
+        labelZh: '快速要点提炼',
+        prompt: `# Role: FluentFlow 快速提炼助手
+
+# Task: 将 Whisper 转录文本快速浓缩为核心要点列表，适合快速浏览。
+
+# Writing Style:
+- 极简、精炼、一目了然。
+- 每条要点不超过两句话。
+- 关键词加粗。
+
+# Output Structure:
+1. **一句话总结**
+2. **核心要点**（无序列表，5-15 条）
+3. **关键数据/事实**（如有）
+4. **TODO / 下一步**（如有）
+
+# Constraints:
+- 总输出不超过 500 字。
+- 不要使用大段描述。
+- 输出为 Markdown 格式。`,
+    },
+    custom: {
+        labelEn: 'Custom Prompt',
+        labelZh: '自定义提示词',
+        prompt: '',
+    },
+};
+
+const getDefaultPromptBody = (settings) => {
+    const o = settings && settings.defaultPromptOverride;
+    if (o != null && String(o).trim() !== '') return String(o);
+    return DEFAULT_COURSE_PROMPT;
+};
+
+/** 内置模板 meeting / research / quickBullets：可经 settings.promptOverrides[key] 覆盖 */
+const getBuiltinExtraPromptBody = (key, settings) => {
+    const base = PROMPT_PRESETS[key]?.prompt || '';
+    const o = settings && settings.promptOverrides && settings.promptOverrides[key];
+    if (o != null && String(o).trim() !== '') return String(o);
+    return base;
+};
+
+const normalizeUserPresets = (settings) => (Array.isArray(settings?.userPromptPresets) ? settings.userPromptPresets : []);
+
+const getHiddenBuiltinPromptPresets = (settings) => (Array.isArray(settings?.hiddenPromptPresets) ? settings.hiddenPromptPresets : []);
+
+const isBuiltinPromptPresetHidden = (key, settings) => (
+    (key === 'meeting' || key === 'research' || key === 'quickBullets') &&
+    getHiddenBuiltinPromptPresets(settings).includes(key)
+);
+
+const resolveSystemPromptFromSettings = (settings) => {
+    const key = (settings && settings.promptPreset) || 'default';
+    if (key === 'custom') return (settings.customPromptText || '').trim();
+    if (key === 'default') return getDefaultPromptBody(settings).trim();
+    if (key === 'meeting' || key === 'research' || key === 'quickBullets') {
+        if (isBuiltinPromptPresetHidden(key, settings)) return getDefaultPromptBody(settings).trim();
+        return getBuiltinExtraPromptBody(key, settings).trim();
+    }
+    const ups = normalizeUserPresets(settings);
+    const found = ups.find((p) => p.id === key);
+    if (found) return (found.prompt || '').trim();
+    return (PROMPT_PRESETS[key]?.prompt || '').trim();
+};
+
+const allPresetSelectKeys = (settings) => {
+    const ups = normalizeUserPresets(settings);
+    const hidden = getHiddenBuiltinPromptPresets(settings);
+    return [...Object.keys(PROMPT_PRESETS).filter((k) => !hidden.includes(k)), ...ups.map((p) => p.id)];
+};
+
+const presetDisplayLabel = (key, settings, lang) => {
+    if (key && key.startsWith('user_')) {
+        const p = normalizeUserPresets(settings).find((x) => x.id === key);
+        if (p) return lang === 'zh' ? p.nameZh : p.nameEn;
+    }
+    const p = PROMPT_PRESETS[key];
+    return p ? (lang === 'zh' ? p.labelZh : p.labelEn) : key;
+};
+
+const editorPresetKeyOrder = (settings) => {
+    const ups = normalizeUserPresets(settings).map((p) => p.id);
+    const hidden = getHiddenBuiltinPromptPresets(settings);
+    return [
+        'default',
+        'meeting',
+        'research',
+        'quickBullets',
+        ...ups,
+        'custom',
+    ].filter((k) => !((k === 'meeting' || k === 'research' || k === 'quickBullets') && hidden.includes(k)));
+};
 
 /* ═══════════════ i18n ═══════════════ */
 const msgs = {
@@ -49,8 +331,10 @@ const msgs = {
     'dash.welcome':'Welcome back.','dash.subtitle':'Your AI transcription engine is warmed up and ready.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Pro Workspace','dash.heroTitle':'Drop your file here to start an AI intelligence flow.','dash.heroDesc':'FluentFlow will automatically extract audio, transcribe with high accuracy, and generate a structured summary directly to your Lark workspace. Supports video and audio files.','dash.selectFile':'Select File','dash.processing':'Processing…','dash.dragHint':'Or drag & drop video (MP4, MOV, AVI…) or audio (MP3, WAV, FLAC…)','dash.uploading':'Uploading and processing','dash.done':'Processing complete!','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.noActivity':'No activity yet — upload a file to get started.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
     'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel',
     'proc.title':'Processing Workspace','proc.subtitle':'Real-time pipeline status for the active task.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from the Dashboard to start.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
-    'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.segments':'segments','edit.duration':'Duration','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared',
-    'set.title':'Settings & Export','set.subtitle':'Configure your AI pipeline and external integrations.','set.larkTitle':'Lark / Feishu Integration','set.larkDesc':'Sync your processed notes directly to cloud documents.','set.autoExport':'Auto-export to Lark after processing','set.larkHistory':'Export History','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Optimized)','set.optMedium':'medium','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.provider':'Provider','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes',
+    'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.segments':'segments','edit.duration':'Duration','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm',
+    'prompt.label':'Prompt Template','prompt.select':'Select prompt style','prompt.customPlaceholder':'Enter your custom system prompt here...','prompt.expanded':'Collapse prompt','prompt.collapsed':'Change prompt','prompt.activeHint':'Active: ','prompt.editHint':'Edit prompt before regenerating','prompt.saveAsPreset':'Save custom as preset',
+    'dl.transcript':'Export Transcript','dl.summary':'Download Summary','dl.txt':'Plain Text (.txt)','dl.md':'Markdown (.md)','dl.srt':'Subtitles (.srt)','dl.vtt':'WebVTT (.vtt)','dl.pdf':'PDF Document','dl.word':'Word Document (.docx)','dl.generating':'Generating…','dl.success':'Download started',
+    'set.title':'Settings & Export','set.subtitle':'Configure your AI pipeline and external integrations.','set.larkTitle':'Lark / Feishu Integration','set.larkDesc':'Sync your processed notes directly to cloud documents.','set.autoExport':'Auto-export to Lark after processing','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Optimized)','set.optMedium':'medium','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.provider':'Provider','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Templates','set.promptDesc':'Choose or customize the AI prompt used for generating summaries.','set.defaultPrompt':'Default Prompt','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
   },
   zh:{
     'nav.subtitle':'视频转飞书 AI','nav.dashboard':'仪表盘','nav.processing':'处理中心','nav.editor':'编辑器','nav.settings':'设置','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
@@ -58,8 +342,10 @@ const msgs = {
     'dash.welcome':'欢迎回来','dash.subtitle':'AI 转录引擎已就绪，随时待命。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'专业工作区','dash.heroTitle':'将文件拖放到此处，开启 AI 智能工作流。','dash.heroDesc':'FluentFlow 将自动提取音频、高精度转录，并直接生成结构化摘要到您的飞书工作区。支持视频和音频文件。','dash.selectFile':'选择文件','dash.processing':'处理中…','dash.dragHint':'或拖放视频（MP4、MOV、AVI…）/ 音频（MP3、WAV、FLAC…）','dash.uploading':'正在上传并处理','dash.done':'处理完成！','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.noActivity':'暂无活动记录 — 上传文件开始使用。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
     'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消',
     'proc.title':'处理工作区','proc.subtitle':'当前任务的实时流水线状态。','proc.noJob':'无正在进行的任务','proc.noJobDesc':'从仪表盘上传视频以开始处理。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
-    'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.segments':'段','edit.duration':'时长','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除',
-    'set.title':'设置与导出','set.subtitle':'配置 AI 流水线和外部集成。','set.larkTitle':'飞书集成','set.larkDesc':'将处理后的笔记直接同步到云文档。','set.autoExport':'处理完成后自动导出到飞书','set.larkHistory':'导出记录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（推荐）','set.optMedium':'medium','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.provider':'服务商','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改',
+    'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.segments':'段','edit.duration':'时长','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认',
+    'prompt.label':'提示词模板','prompt.select':'选择提示词风格','prompt.customPlaceholder':'在此输入自定义系统提示词…','prompt.expanded':'收起提示词','prompt.collapsed':'更换提示词','prompt.activeHint':'当前：','prompt.editHint':'重新生成前可编辑提示词','prompt.saveAsPreset':'将自定义保存为预设',
+    'dl.transcript':'导出转录文本','dl.summary':'下载摘要','dl.txt':'纯文本 (.txt)','dl.md':'Markdown (.md)','dl.srt':'字幕文件 (.srt)','dl.vtt':'WebVTT (.vtt)','dl.pdf':'PDF 文档','dl.word':'Word 文档 (.docx)','dl.generating':'生成中…','dl.success':'已开始下载',
+    'set.title':'设置与导出','set.subtitle':'配置 AI 流水线和外部集成。','set.larkTitle':'飞书集成','set.larkDesc':'将处理后的笔记直接同步到云文档。','set.autoExport':'处理完成后自动导出到飞书','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（推荐）','set.optMedium':'medium','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.provider':'服务商','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板','set.promptDesc':'选择或自定义 AI 生成摘要时使用的提示词。','set.defaultPrompt':'默认提示词','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
   },
 };
 const I18nCtx = createContext();
@@ -130,18 +416,191 @@ const simpleMd = (md) => {
     return html;
 };
 
+/* ═══════════════ download utils ═══════════════ */
+const _dl = (blob, name) => { const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); };
+const _baseName = (fn) => (fn||'FluentFlow').replace(/\.[^/.]+$/,'');
+
+const _fmtSrtTime = (sec) => {
+    const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60), ms=Math.round((sec%1)*1000);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+};
+const _fmtVttTime = (sec) => {
+    const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60), ms=Math.round((sec%1)*1000);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+};
+
+const dlTranscriptTxt = (text, filename) => {
+    _dl(new Blob([text],{type:'text/plain;charset=utf-8'}), _baseName(filename)+'.txt');
+};
+const dlTranscriptSrt = (segments, filename) => {
+    const lines = segments.map((s,i) => `${i+1}\n${_fmtSrtTime(s.start)} --> ${_fmtSrtTime(s.end)}\n${s.text.trim()}\n`);
+    _dl(new Blob([lines.join('\n')],{type:'text/plain;charset=utf-8'}), _baseName(filename)+'.srt');
+};
+const dlTranscriptVtt = (segments, filename) => {
+    const lines = ['WEBVTT\n', ...segments.map(s => `${_fmtVttTime(s.start)} --> ${_fmtVttTime(s.end)}\n${s.text.trim()}\n`)];
+    _dl(new Blob([lines.join('\n')],{type:'text/vtt;charset=utf-8'}), _baseName(filename)+'.vtt');
+};
+
+const dlSummaryTxt = (md, filename) => {
+    _dl(new Blob([md],{type:'text/plain;charset=utf-8'}), _baseName(filename)+'_summary.txt');
+};
+
+const dlSummaryMd = (md, filename) => {
+    _dl(new Blob([md],{type:'text/markdown;charset=utf-8'}), _baseName(filename)+'_summary.md');
+};
+
+const dlSummaryWord = (md, filename) => {
+    const rendered = simpleMd(md);
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><style>body{font-family:'Microsoft YaHei','Segoe UI',sans-serif;font-size:12pt;line-height:1.8;color:#1a1a1a;max-width:700px;margin:0 auto;padding:40px}h2{font-size:18pt;margin-top:24pt}h3{font-size:15pt;margin-top:18pt}h4{font-size:13pt;margin-top:14pt}ul{margin-left:20pt}li{margin-bottom:4pt}strong{font-weight:bold}</style></head>
+<body>${rendered}</body></html>`;
+    _dl(new Blob([html],{type:'application/vnd.ms-word;charset=utf-8'}), _baseName(filename)+'_summary.doc');
+};
+
+const dlSummaryPdf = async (summaryElRef, filename) => {
+    if(!window.html2pdf) throw new Error('html2pdf not loaded');
+    const el = summaryElRef.current;
+    if(!el) return;
+    await html2pdf().set({
+        margin: [12,12,12,12],
+        filename: _baseName(filename)+'_summary.pdf',
+        image: {type:'jpeg', quality:0.95},
+        html2canvas: {scale:2, useCORS:true, scrollY:0, windowHeight:el.scrollHeight},
+        jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
+    }).from(el).save();
+};
+
+const dlSummaryImage = async (summaryElRef, filename) => {
+    // Disabled by user request (remove PNG export feature).
+    throw new Error('PNG export disabled');
+    const el = summaryElRef.current;
+    if(!el) return;
+
+    // 稳定导出策略：
+    // 1) 不直接克隆 summary 的外层 flex/scroll 容器（会导致高度计算异常）
+    // 2) 改为用一个“纯 block 容器”渲染 summary 内部内容，再交给 html2canvas 截图
+    const isDark = document.documentElement.classList.contains('dark');
+    const bg = isDark ? '#0c0e11' : '#ffffff';
+    const fg = isDark ? '#e2e2e6' : '#171c1f';
+
+    const temp = document.createElement('div');
+    temp.style.position = 'fixed';
+    temp.style.left = '0';
+    temp.style.top = '0';
+    // 用很高的 zIndex，确保 html2canvas 能“看到”该节点
+    temp.style.zIndex = '9999';
+    // html2canvas 对 visibility:hidden 会直接跳过渲染，导致空 canvas
+    temp.style.visibility = 'visible';
+    temp.style.opacity = '0';
+    temp.style.pointerEvents = 'none';
+    temp.style.background = bg;
+    temp.style.color = fg;
+    temp.style.padding = '32px'; // 对应 p-8
+    temp.style.boxSizing = 'border-box';
+    temp.style.width = (el.getBoundingClientRect().width || 800) + 'px';
+    temp.innerHTML = el.innerHTML;
+
+    document.body.appendChild(temp);
+
+    // 等待两帧，确保样式与布局完成
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    try {
+        if(window.html2canvas){
+            const canvas = await window.html2canvas(temp, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: bg,
+                scrollX: 0,
+                scrollY: 0,
+                windowWidth: temp.scrollWidth,
+                windowHeight: temp.scrollHeight,
+            });
+            const canvasObj = canvas?.canvas || canvas;
+            if(canvasObj){
+                if(typeof canvasObj.toBlob === 'function'){
+                    canvasObj.toBlob(blob => { if(blob) _dl(blob, _baseName(filename)+'_summary.png'); }, 'image/png');
+                    return;
+                }
+                if(typeof canvasObj.toDataURL === 'function'){
+                    const dataUrl = canvasObj.toDataURL('image/png');
+                    const blob = await (await fetch(dataUrl)).blob();
+                    _dl(blob, _baseName(filename)+'_summary.png');
+                    return;
+                }
+            }
+        }
+
+        // Fallback：回退到 html2pdf -> toCanvas（仍使用 temp 容器）
+        const canvasResult = await html2pdf()
+            .set({
+                html2canvas: {scale:2, useCORS:true, scrollY:0, backgroundColor: bg, windowHeight: temp.scrollHeight},
+            })
+            .from(temp)
+            .toCanvas();
+        const canvas = canvasResult?.canvas || canvasResult;
+        if(!canvas) throw new Error('Image export failed: canvas is empty');
+
+        if(typeof canvas.toBlob === 'function'){
+            canvas.toBlob(blob => { if(blob) _dl(blob, _baseName(filename)+'_summary.png'); }, 'image/png');
+            return;
+        }
+        if(typeof canvas.toDataURL === 'function'){
+            const dataUrl = canvas.toDataURL('image/png');
+            const blob = await (await fetch(dataUrl)).blob();
+            _dl(blob, _baseName(filename)+'_summary.png');
+            return;
+        }
+        throw new Error('Image export failed: canvas has no toBlob/toDataURL');
+    } finally {
+        document.body.removeChild(temp);
+    }
+};
+
+const DropdownMenu = ({trigger, items, align='right'}) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+        const handler = (e) => { if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+    return (
+        <div className="relative" ref={ref}>
+            <div onClick={()=>setOpen(!open)}>{trigger}</div>
+            {open && (
+                <div className={`absolute top-full mt-1 ${align==='right'?'right-0':'left-0'} z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[180px] animate-[fadeIn_0.15s_ease-out]`}>
+                    {items.map((it,i) => it.divider ? (
+                        <div key={i} className="border-t border-slate-100 my-1"/>
+                    ) : (
+                        <button key={i} onClick={()=>{setOpen(false); it.onClick?.();}} disabled={it.disabled} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-on-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            {it.icon && <span className="material-symbols-outlined text-base text-slate-400">{it.icon}</span>}
+                            <span className="flex-1">{it.label}</span>
+                            {it.badge && <span className="text-[10px] text-slate-400 font-medium">{it.badge}</span>}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 /* ═══════════════ hooks ═══════════════ */
 const useApi = () => {
     const processVideoSSE = async (file, options={}, onProgress, signal) => {
         const fd = new FormData();
         fd.append("file", file);
-        if(options.exportToLark) fd.append("export_to_lark","true");
+        if(options.exportToLark) {
+            fd.append("export_to_lark","true");
+            fd.append("lark_via_cli", options.larkViaCli ? "true" : "false");
+        }
         if(options.title) fd.append("title", options.title);
         if(options.folderToken) fd.append("folder_token", options.folderToken); // kept for future use
         if(options.deepseekApiKey) fd.append("deepseek_api_key", options.deepseekApiKey);
         if(options.sttModel) fd.append("stt_model", options.sttModel);
         if(options.larkAppId) fd.append("lark_app_id", options.larkAppId);
         if(options.larkAppSecret) fd.append("lark_app_secret", options.larkAppSecret);
+        if(options.systemPrompt) fd.append("system_prompt", options.systemPrompt);
         const r = await fetch(`${API_BASE}/process`,{method:"POST",body:fd,signal});
         if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
         const reader = r.body.getReader();
@@ -187,35 +646,35 @@ const SideNav = () => {
         {path:'/editor',icon:'subject',k:'nav.editor'},
         {path:'/settings',icon:'settings',k:'nav.settings'},
     ];
-    return (
-        <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-50 border-r border-slate-200 z-50">
-            <div className="flex flex-col h-full p-4">
-                <div className="flex items-center gap-3 px-4 py-6 mb-8">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-white shadow-lg">
+            return (
+                <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-50 border-r border-slate-200 z-50">
+                    <div className="flex flex-col h-full p-4">
+                        <div className="flex items-center gap-3 px-4 py-6 mb-8">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-white shadow-lg">
                         <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>auto_videocam</span>
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-900 leading-tight font-headline">FluentFlow</h1>
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-bold text-slate-900 leading-tight font-headline">FluentFlow</h1>
                         <p className="text-[10px] text-slate-500 font-medium tracking-widest uppercase">{t('nav.subtitle')}</p>
-                    </div>
-                </div>
-                <nav className="flex-1 space-y-1">
+                            </div>
+                        </div>
+                        <nav className="flex-1 space-y-1">
                     {items.map(it => {
                         const active = loc.pathname===it.path;
                         return <Link key={it.path} to={it.path} className={`px-4 py-3 rounded-lg flex items-center gap-3 transition-colors text-sm tracking-tight ${active?'bg-blue-50 text-blue-700 font-semibold':'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'}`}>
                             <span className="material-symbols-outlined">{it.icon}</span><span>{t(it.k)}</span>
                         </Link>;
-                    })}
-                </nav>
-                <div className="mt-auto pt-6 border-t border-slate-200/50 px-2 pb-12">
+                            })}
+                        </nav>
+                        <div className="mt-auto pt-6 border-t border-slate-200/50 px-2 pb-12">
                     <Link to="/" className="w-full bg-gradient-to-r from-primary to-primary-container text-white font-bold py-3 px-4 rounded-full flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all">
                         <span className="material-symbols-outlined">add</span><span>{t('nav.newProject')}</span>
                     </Link>
-                </div>
-            </div>
-        </aside>
-    );
-};
+                        </div>
+                    </div>
+                </aside>
+            );
+        };
 
 const TopNav = () => {
     const {t,lang,toggleLang} = useI18n();
@@ -225,15 +684,15 @@ const TopNav = () => {
             <div className="flex items-center gap-6 text-slate-600 font-medium text-sm">
                 <Link to="/" className={`py-1 transition-all ${loc.pathname==='/'?'text-blue-600 font-bold border-b-2 border-blue-600':'hover:text-blue-500'}`}>{t('nav.projects')}</Link>
                 <Link to="/settings" className={`py-1 transition-all ${loc.pathname==='/settings'?'text-blue-600 font-bold border-b-2 border-blue-600':'hover:text-blue-500'}`}>{t('nav.integrations')}</Link>
-            </div>
-            <div className="flex items-center gap-3">
+                    </div>
+                    <div className="flex items-center gap-3">
                 <button onClick={toggleLang} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-600">
                     <span className="material-symbols-outlined text-[16px]">translate</span>
                     <span>{lang==='en'?'中文':'EN'}</span>
-                </button>
-            </div>
-        </header>
-    );
+                        </button>
+                </div>
+            </header>
+        );
 };
 
 const StatusBar = () => {
@@ -243,7 +702,7 @@ const StatusBar = () => {
     const progress = currentJob?.progress || 0;
     return (
         <footer className="fixed bottom-0 right-0 h-8 left-64 bg-slate-100/50 backdrop-blur-md flex items-center justify-between px-6 w-full z-30 font-inter text-xs uppercase tracking-widest border-t border-slate-200/50">
-            <div className="flex items-center gap-6">
+                <div className="flex items-center gap-6">
                 {currentJob ? (
                     <div className="text-purple-600 flex items-center gap-2 animate-pulse">
                         <span className="material-symbols-outlined scale-75">memory</span>
@@ -255,7 +714,7 @@ const StatusBar = () => {
                         <span>{t('status.ready')}</span>
                     </div>
                 )}
-            </div>
+                </div>
             {currentJob && (
                 <div className="text-slate-400 text-[10px] font-medium flex items-center gap-3">
                     <span>{Math.round(progress)}%</span>
@@ -264,20 +723,20 @@ const StatusBar = () => {
                     </div>
                 </div>
             )}
-        </footer>
-    );
+            </footer>
+        );
 };
 
 /* ═══════════════ Dashboard ═══════════════ */
-const Dashboard = () => {
+        const Dashboard = () => {
     const {t} = useI18n();
     const {history, addToHistory, currentJob, setCurrentJob, setLastResult, stats, addLarkExport} = useApp();
-    const [uploadError, setUploadError] = useState(null);
-    const [processingResult, setProcessingResult] = useState(null);
-    const fileInputRef = useRef(null);
+            const [uploadError, setUploadError] = useState(null);
+            const [processingResult, setProcessingResult] = useState(null);
+            const fileInputRef = useRef(null);
     const {processVideoSSE, checkHealth} = useApi();
     const {loadSettings} = useSettings();
-    const navigate = useNavigate();
+            const navigate = useNavigate();
     const abortRef = useRef(null);
 
     useEffect(() => { checkHealth(); }, []);
@@ -287,30 +746,33 @@ const Dashboard = () => {
         setCurrentJob(null);
     };
 
-    const handleFileSelect = async (e) => {
-        const file = e.target.files?.[0];
+            const handleFileSelect = async (e) => {
+                const file = e.target.files?.[0];
         if(!file) return;
         if(fileInputRef.current) fileInputRef.current.value = '';
         const validExts = /\.(mp4|mov|avi|mkv|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
         if(!validExts.test(file.name)){
             setUploadError(t('dash.fileError')); return;
         }
-        setUploadError(null);
-        setProcessingResult(null);
+                setUploadError(null);
+                setProcessingResult(null);
 
         const ac = new AbortController();
         abortRef.current = ac;
         setCurrentJob({fileName:file.name, stage:'upload', progress:2});
 
-        try {
-            const settings = loadSettings();
+                try {
+                    const settings = loadSettings();
+            const promptText = resolveSystemPromptFromSettings(settings);
             const result = await processVideoSSE(file, {
                 exportToLark: settings.exportToLark||false,
+                larkViaCli: !!settings.larkViaCli,
                 title: file.name.replace(/\.[^/.]+$/,""),
                 deepseekApiKey: settings.deepseekApiKey||null,
                 sttModel: settings.sttModel||null,
                 larkAppId: settings.larkAppId||null,
                 larkAppSecret: settings.larkAppSecret||null,
+                systemPrompt: promptText||null,
             }, (ev) => {
                 setCurrentJob(prev => prev ? {...prev, stage:ev.stage, progress:ev.progress} : null);
             }, ac.signal);
@@ -318,7 +780,7 @@ const Dashboard = () => {
             abortRef.current = null;
             setCurrentJob({fileName:file.name, stage:'done', progress:100});
             setLastResult(result);
-            setProcessingResult(result);
+                    setProcessingResult(result);
 
             const durSec = result.audio_duration_seconds || 0;
             const larkUrl = result.lark_response?.url || null;
@@ -342,12 +804,12 @@ const Dashboard = () => {
                 setUploadError(err.message || "Processing failed.");
                 addToHistory({id:Date.now(), name:file.name, timestamp:Date.now(), durationMin:0, status:'failed'});
             }
-        }
-    };
+                }
+            };
 
-    const handleDrop = (e) => {
-        e.preventDefault();
-        const file = e.dataTransfer.files?.[0];
+            const handleDrop = (e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files?.[0];
         if(file && fileInputRef.current){
             const dt = new DataTransfer(); dt.items.add(file);
             fileInputRef.current.files = dt.files;
@@ -357,63 +819,63 @@ const Dashboard = () => {
 
     const uploading = !!currentJob && currentJob.stage !== 'done';
 
-    return (
-    <div className="ml-64 min-h-screen relative pb-8">
+            return (
+            <div className="ml-64 min-h-screen relative pb-8">
         <TopNav/>
-        <section className="p-12 max-w-7xl mx-auto space-y-12 h-[calc(100vh-4rem-2rem)] overflow-y-auto hide-scrollbar">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-                <div>
+                <section className="p-12 max-w-7xl mx-auto space-y-12 h-[calc(100vh-4rem-2rem)] overflow-y-auto hide-scrollbar">
+                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+                        <div>
                     <h2 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-2">{t('dash.welcome')}</h2>
                     <p className="text-on-surface-variant font-body">{t('dash.subtitle')}</p>
-                </div>
-                <div className="flex gap-4">
-                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px]">
-                        <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-primary">
-                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>timer</span>
                         </div>
-                        <div>
+                        <div className="flex gap-4">
+                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px]">
+                                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-primary">
+                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>timer</span>
+                                </div>
+                                <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-outline">{t('dash.totalMin')}</p>
                             <p className="text-2xl font-headline font-bold text-on-surface">{stats.totalMinutes.toLocaleString()} {t('dash.minUnit')}</p>
-                        </div>
-                    </div>
+                                </div>
+                            </div>
                     <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px]">
-                        <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-tertiary">
+                                <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-tertiary">
                             <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>description</span>
-                        </div>
-                        <div>
+                                </div>
+                                <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-outline">{t('dash.noteGen')}</p>
                             <p className="text-2xl font-headline font-bold text-on-surface">{stats.notesGenerated} {t('dash.docUnit')}</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <div className="grid grid-cols-12 gap-8">
-                <div className="col-span-12 lg:col-span-7 group">
+                    <div className="grid grid-cols-12 gap-8">
+                        <div className="col-span-12 lg:col-span-7 group">
                     <div className="relative h-[480px] rounded-sm overflow-hidden bg-slate-900 shadow-2xl transition-transform hover:scale-[1.01] duration-500" onDrop={handleDrop} onDragOver={e=>e.preventDefault()}>
-                        <div className="absolute inset-0 opacity-40">
+                                <div className="absolute inset-0 opacity-40">
                             <img className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAogpynbB7qXytv4TN8SjVBvosJbe71tDK0WCJF9OuzLKFJMNgLZHJr9xSt68zrdHhXuBb_t8Nzq1cG7Nrc9Tfwe9bqWGZ2ugnAM9pJuptsLBOYagZ7BLGphmFzjWWOqnYkXQsIOS8ke7ash7PsgYRMnXqZAX91uAPL17nQxEs4AsMqBtxr9VI0APsUUaIsNmmOVZA4qRoEMajqdN28qbri0rCkWSgZ1MhYzeH95SyTv7wnOT2fPE03G1MNwWVF2HsKHygfJHaZ2EE" alt="Abstract waves"/>
-                        </div>
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-                        <div className="relative h-full flex flex-col justify-end p-10 space-y-6">
-                            <div className="max-w-md">
+                                </div>
+                                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
+                                <div className="relative h-full flex flex-col justify-end p-10 space-y-6">
+                                    <div className="max-w-md">
                                 <span className="bg-primary/20 text-primary-fixed border border-primary/30 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.proTag')}</span>
                                 <h3 className="font-headline text-3xl font-bold text-white leading-tight">{t('dash.heroTitle')}</h3>
                                 <p className="text-slate-300 mt-4 text-sm leading-relaxed">{t('dash.heroDesc')}</p>
-                            </div>
-                            <div className="flex items-center gap-4">
+                                    </div>
+                                    <div className="flex items-center gap-4">
                                 <input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
                                 <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="bg-white text-slate-900 font-bold px-8 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-lg disabled:opacity-50">
-                                    <span className="material-symbols-outlined">upload_file</span>
+                                            <span className="material-symbols-outlined">upload_file</span>
                                     <span>{uploading ? t('dash.processing') : t('dash.selectFile')}</span>
-                                </button>
+                                        </button>
                                 <div className="text-slate-400 text-sm font-medium">{t('dash.dragHint')}</div>
-                            </div>
-                            {uploading && currentJob && (
-                                <div className="w-full max-w-md">
-                                    <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-primary to-primary-container transition-all duration-700" style={{width:`${currentJob.progress}%`}}></div>
                                     </div>
+                            {uploading && currentJob && (
+                                        <div className="w-full max-w-md">
+                                            <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                                        <div className="h-full bg-gradient-to-r from-primary to-primary-container transition-all duration-700" style={{width:`${currentJob.progress}%`}}></div>
+                                            </div>
                                     <div className="flex items-center justify-between mt-2">
                                         <p className="text-slate-400 text-xs">
                                             {t(`status.${currentJob.stage}`)||t('dash.uploading')} {currentJob.fileName} — {Math.round(currentJob.progress)}%
@@ -421,24 +883,24 @@ const Dashboard = () => {
                                         <button onClick={handleCancel} className="text-red-400 hover:text-red-300 text-xs font-medium flex items-center gap-1 ml-4 flex-shrink-0">
                                             <span className="material-symbols-outlined text-sm">cancel</span>{t('dash.cancel')}
                                         </button>
-                                    </div>
-                                </div>
-                            )}
+                                        </div>
+                                        </div>
+                                    )}
                             {uploadError && <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-lg text-sm">{uploadError}</div>}
-                            {processingResult && (
-                                <div className="bg-green-500/20 border border-green-500/50 text-green-300 px-4 py-2 rounded-lg text-sm">
+                                    {processingResult && (
+                                        <div className="bg-green-500/20 border border-green-500/50 text-green-300 px-4 py-2 rounded-lg text-sm">
                                     {t('dash.done')} <button onClick={()=>navigate("/editor")} className="underline hover:no-underline">{t('dash.viewEditor')}</button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            </div>
                         </div>
-                    </div>
-                </div>
 
-                <div className="col-span-12 lg:col-span-5 flex flex-col gap-6">
-                    <div className="flex items-center justify-between px-2">
+                        <div className="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                            <div className="flex items-center justify-between px-2">
                         <h4 className="font-headline text-xl font-bold text-on-surface">{t('dash.recent')}</h4>
-                    </div>
-                    <div className="space-y-4">
+                            </div>
+                            <div className="space-y-4">
                         {history.length === 0 && (
                             <div className="text-center py-12 text-on-surface-variant text-sm">{t('dash.noActivity')}</div>
                         )}
@@ -446,30 +908,30 @@ const Dashboard = () => {
                             <div key={h.id} className="bg-surface-container-low p-5 rounded-sm flex gap-4 items-start hover:bg-surface-container transition-all cursor-pointer" onClick={() => { if(h.status==='completed'){ setLastResult({transcript_text:h.transcriptText,segments:h.segments,summary_markdown:h.summary,filename:h.name,audio_duration_seconds:h.audioDurationSec}); navigate('/editor'); } }}>
                                 <div className={`w-12 h-12 rounded-sm flex items-center justify-center ${h.status==='completed'?'bg-blue-50':'bg-red-50'}`}>
                                     <span className={`material-symbols-outlined ${h.status==='completed'?'text-primary':'text-red-500'}`}>{h.status==='completed'?'check_circle':'error'}</span>
-                                </div>
+                                        </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex justify-between items-start mb-1">
+                                            <div className="flex justify-between items-start mb-1">
                                         <h5 className="font-bold text-on-surface text-sm truncate pr-2">{h.name}</h5>
                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter flex-shrink-0 ${h.status==='completed'?'text-primary bg-primary-fixed':'text-red-600 bg-red-50'}`}>
                                             {t(h.status==='completed'?'dash.statusCompleted':'dash.statusFailed')}
-                                        </span>
-                                    </div>
+                                                </span>
+                                            </div>
                                     <p className="text-xs text-on-surface-variant">
                                         {timeAgo(h.timestamp, t)}
                                         {h.durationMin > 0 && ` • ${h.durationMin} ${t('dash.minUnit')}`}
                                         {h.larkUrl && <> • <a href={h.larkUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" onClick={e=>e.stopPropagation()}>Lark</a></>}
                                     </p>
-                                </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                        </div>
                     </div>
-                </div>
-            </div>
-        </section>
+                </section>
         <StatusBar/>
-    </div>
-    );
-};
+            </div>
+            );
+        };
 
 /* ═══════════════ Processing ═══════════════ */
 const Processing = () => {
@@ -486,14 +948,14 @@ const Processing = () => {
     const ci = currentJob ? stageOrder.indexOf(currentJob.stage) : -1;
 
     return (
-    <div className="ml-64 min-h-screen relative pb-8">
+             <div className="ml-64 min-h-screen relative pb-8">
         <TopNav/>
-        <main className="p-12 h-[calc(100vh-4rem-2rem)] overflow-y-auto hide-scrollbar">
+                <main className="p-12 h-[calc(100vh-4rem-2rem)] overflow-y-auto hide-scrollbar">
             <div className="max-w-4xl mx-auto">
-                <div className="mb-10">
+                        <div className="mb-10">
                     <h1 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-2">{t('proc.title')}</h1>
                     <p className="text-on-surface-variant font-body">{t('proc.subtitle')}</p>
-                </div>
+                        </div>
 
                 {!currentJob ? (
                     <div className="bg-surface-container-lowest rounded-sm p-16 text-center shadow-sm">
@@ -503,22 +965,22 @@ const Processing = () => {
                         <Link to="/" className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white font-bold rounded-sm hover:bg-primary-container transition-colors">
                             <span className="material-symbols-outlined">upload_file</span>{t('dash.selectFile')}
                         </Link>
-                    </div>
+                                            </div>
                 ) : (
                     <div className="space-y-8">
                         <div className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
                             <div className="flex items-center gap-4 mb-8">
                                 <div className="w-14 h-14 rounded-sm bg-primary-fixed flex items-center justify-center text-primary">
                                     <span className="material-symbols-outlined text-2xl">movie</span>
-                                </div>
+                                            </div>
                                 <div className="flex-1">
                                     <h3 className="font-bold text-lg">{currentJob.fileName}</h3>
                                     <div className="mt-2 w-full h-2 bg-surface-container-highest rounded-full overflow-hidden">
                                         <div className="h-full bg-gradient-to-r from-primary to-tertiary transition-all duration-500" style={{width:`${currentJob.progress}%`}}></div>
-                                    </div>
-                                </div>
+                                        </div>
+                                        </div>
                                 <span className="text-2xl font-headline font-bold text-primary">{Math.round(currentJob.progress)}%</span>
-                            </div>
+                                    </div>
 
                             <h4 className="font-headline font-bold text-lg mb-6">{t('proc.pipeline')}</h4>
                             <div className="relative space-y-10">
@@ -538,16 +1000,16 @@ const Processing = () => {
                                                 <h4 className={`font-bold ${isDone?'text-on-surface':isActive?'text-tertiary':'text-on-surface'}`}>{t(ps.label)}</h4>
                                                 <p className="text-xs text-on-surface-variant mt-1">
                                                     {isDone ? t('proc.done') : isActive ? t('proc.running') : t('proc.waiting')}
-                                                </p>
-                                            </div>
+                                        </p>
+                                    </div>
                                         </div>
                                     );
                                 })}
-                            </div>
-                        </div>
-                    </div>
+                                        </div>
+                                    </div>
+                                </div>
                 )}
-            </div>
+                            </div>
         </main>
         <StatusBar/>
     </div>
@@ -556,13 +1018,52 @@ const Processing = () => {
 
 /* ═══════════════ Editor ═══════════════ */
 const Editor = () => {
-    const {t} = useI18n();
+    const {t, lang} = useI18n();
     const {lastResult, setLastResult, history, addLarkExport} = useApp();
-    const {loadSettings} = useSettings();
+    const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
+    const [downloading, setDownloading] = useState(null);
     const [toast, setToast] = useState(null);
     const [larkUrl, setLarkUrl] = useState(null);
+    const summaryRef = useRef(null);
+
+    const initSettings = loadSettings();
+    let initPk = initSettings.promptPreset || 'default';
+    if (isBuiltinPromptPresetHidden(initPk, initSettings)) initPk = 'default';
+    const [promptKey, setPromptKey] = useState(initPk);
+    const [customText, setCustomText] = useState(initSettings.customPromptText || '');
+    const [defaultPromptEdit, setDefaultPromptEdit] = useState(() => getDefaultPromptBody(initSettings));
+    const [meetingEdit, setMeetingEdit] = useState(() => getBuiltinExtraPromptBody('meeting', initSettings));
+    const [researchEdit, setResearchEdit] = useState(() => getBuiltinExtraPromptBody('research', initSettings));
+    const [quickBulletsEdit, setQuickBulletsEdit] = useState(() => getBuiltinExtraPromptBody('quickBullets', initSettings));
+    const [userPresetEdit, setUserPresetEdit] = useState(() => {
+        if (initPk.startsWith('user_')) {
+            const p = (initSettings.userPromptPresets || []).find((x) => x.id === initPk);
+            return p?.prompt || '';
+        }
+        return '';
+    });
+    const [presetNameInput, setPresetNameInput] = useState('');
+    const [presetListTick, setPresetListTick] = useState(0);
+    const [promptOpen, setPromptOpen] = useState(false);
+
+    useEffect(() => {
+        if (!promptOpen) return;
+        const s = loadSettings();
+        const pkRaw = s.promptPreset || 'default';
+        const pk = isBuiltinPromptPresetHidden(pkRaw, s) ? 'default' : pkRaw;
+        setPromptKey(pk);
+        setDefaultPromptEdit(getDefaultPromptBody(s));
+        setMeetingEdit(getBuiltinExtraPromptBody('meeting', s));
+        setResearchEdit(getBuiltinExtraPromptBody('research', s));
+        setQuickBulletsEdit(getBuiltinExtraPromptBody('quickBullets', s));
+        setCustomText(s.customPromptText || '');
+        if (pk.startsWith('user_')) {
+            const p = (s.userPromptPresets || []).find((x) => x.id === pk);
+            setUserPresetEdit(p?.prompt || '');
+        }
+    }, [promptOpen]);
 
     const result = lastResult || (history.length > 0 && history.find(h => h.status==='completed') ? (() => {
         const h = history.find(h=>h.status==='completed');
@@ -570,6 +1071,101 @@ const Editor = () => {
     })() : null);
 
     const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null), 3000); };
+
+    const presetLabel = (key) => presetDisplayLabel(key, loadSettings(), lang);
+
+    const handlePromptKeyChange = (newKey) => {
+        setPromptKey(newKey);
+        const s = loadSettings();
+        saveSettings({ ...s, promptPreset: newKey });
+        if (newKey === 'default') setDefaultPromptEdit(getDefaultPromptBody({ ...s, promptPreset: newKey }));
+        if (newKey === 'meeting') setMeetingEdit(getBuiltinExtraPromptBody('meeting', { ...s, promptPreset: newKey }));
+        if (newKey === 'research') setResearchEdit(getBuiltinExtraPromptBody('research', { ...s, promptPreset: newKey }));
+        if (newKey === 'quickBullets') setQuickBulletsEdit(getBuiltinExtraPromptBody('quickBullets', { ...s, promptPreset: newKey }));
+        if (newKey.startsWith('user_')) {
+            const p = (s.userPromptPresets || []).find((x) => x.id === newKey);
+            setUserPresetEdit(p?.prompt || '');
+        }
+    };
+
+    const handleCustomTextChange = (val) => {
+        setCustomText(val);
+        const s = loadSettings();
+        saveSettings({ ...s, customPromptText: val });
+    };
+
+    const handleDefaultPromptChange = (val) => {
+        setDefaultPromptEdit(val);
+        const s = loadSettings();
+        saveSettings({ ...s, defaultPromptOverride: val });
+    };
+
+    const handleBuiltinExtraChange = (key, val) => {
+        if (key === 'meeting') setMeetingEdit(val);
+        else if (key === 'research') setResearchEdit(val);
+        else if (key === 'quickBullets') setQuickBulletsEdit(val);
+        const s = loadSettings();
+        saveSettings({ ...s, promptOverrides: { ...(s.promptOverrides || {}), [key]: val } });
+    };
+
+    const resetBuiltinExtra = (key) => {
+        if (!window.confirm(t('set.deleteBuiltinPromptConfirm'))) return;
+        const s = loadSettings();
+        const hidden = new Set(Array.isArray(s.hiddenPromptPresets) ? s.hiddenPromptPresets : []);
+        hidden.add(key);
+        const next = { ...s, hiddenPromptPresets: Array.from(hidden) };
+        if (next.promptPreset === key) next.promptPreset = 'default';
+        saveSettings(next);
+        // 如果当前选中该模板，则切回默认，避免面板状态与选中项不一致
+        if (promptKey === key) {
+            setPromptKey('default');
+            setDefaultPromptEdit(getDefaultPromptBody(next));
+        }
+        // 触发面板重新渲染：否则 hiddenPromptPresets 更新了但 UI 不会立刻消失
+        setPresetListTick((x) => x + 1);
+    };
+
+    const handleUserPresetChange = (val) => {
+        setUserPresetEdit(val);
+        const s = loadSettings();
+        const ups = (s.userPromptPresets || []).map((p) => (p.id === promptKey ? { ...p, prompt: val } : p));
+        saveSettings({ ...s, userPromptPresets: ups });
+    };
+
+    const saveCustomAsPresetFromEditor = () => {
+        const name = presetNameInput.trim();
+        if (!name || !customText.trim()) {
+            showToast(lang === 'zh' ? '请填写预设名称和提示词内容' : 'Enter a name and prompt text', false);
+            return;
+        }
+        const s = loadSettings();
+        const id = 'user_' + Date.now();
+        const next = {
+            ...s,
+            userPromptPresets: [{ id, nameZh: name, nameEn: name, prompt: customText }, ...(s.userPromptPresets || [])],
+        };
+        saveSettings(next);
+        setPresetNameInput('');
+        setPresetListTick((x) => x + 1);
+        showToast(t('set.presetSaved'));
+    };
+
+    const handleDeleteUserPreset = (id, e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!window.confirm(t('set.deletePresetConfirm'))) return;
+        const s = loadSettings();
+        const ups = normalizeUserPresets(s).filter((p) => p.id !== id);
+        const next = { ...s, userPromptPresets: ups };
+        if (next.promptPreset === id) next.promptPreset = 'default';
+        saveSettings(next);
+        if (promptKey === id) {
+            setPromptKey('default');
+            setDefaultPromptEdit(getDefaultPromptBody(next));
+        }
+        setPresetListTick((x) => x + 1);
+        showToast(lang === 'zh' ? '已删除预设' : 'Preset deleted', true);
+    };
 
     const handleExportLark = async () => {
         if(!result || exporting) return;
@@ -581,6 +1177,7 @@ const Editor = () => {
             fd.append('title', result.filename || 'FluentFlow Export');
             if(settings.larkAppId) fd.append('lark_app_id', settings.larkAppId);
             if(settings.larkAppSecret) fd.append('lark_app_secret', settings.larkAppSecret);
+            fd.append('lark_via_cli', settings.larkViaCli ? 'true' : 'false');
             const r = await fetch(`${API_BASE}/export-lark`, {method:'POST', body:fd});
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||'Export failed');
             const data = await r.json();
@@ -600,6 +1197,8 @@ const Editor = () => {
             const fd = new FormData();
             fd.append('transcript', result.transcript_text);
             if(settings.deepseekApiKey) fd.append('deepseek_api_key', settings.deepseekApiKey);
+            const activePrompt = resolveSystemPromptFromSettings(settings);
+            if(activePrompt) fd.append('system_prompt', activePrompt);
             const r = await fetch(`${API_BASE}/regenerate-summary`, {method:'POST', body:fd});
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||'Regeneration failed');
             const data = await r.json();
@@ -620,10 +1219,10 @@ const Editor = () => {
                     <Link to="/" className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white font-bold rounded-sm hover:bg-primary-container transition-colors">
                         <span className="material-symbols-outlined">upload_file</span>{t('dash.selectFile')}
                     </Link>
-                </div>
+                                            </div>
             </main>
             <StatusBar/>
-        </div>
+                                                </div>
     );
 
     const segments = result.segments||[];
@@ -637,7 +1236,7 @@ const Editor = () => {
         {toast && (
             <div className={`fixed top-20 right-8 z-50 px-5 py-3 rounded-lg shadow-lg text-sm font-medium animate-pulse ${toast.ok?'bg-green-500 text-white':'bg-red-500 text-white'}`}>
                 {toast.msg}
-            </div>
+                                            </div>
         )}
         {larkUrl && (
             <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-white shadow-xl border border-green-200 rounded-xl px-6 py-4 flex items-center gap-4 max-w-lg">
@@ -645,24 +1244,28 @@ const Editor = () => {
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-on-surface">{t('edit.exportDone')}</p>
                     <a href={larkUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-sm hover:underline truncate block">{larkUrl}</a>
-                </div>
+                                                </div>
                 <button onClick={()=>setLarkUrl(null)} className="text-slate-400 hover:text-slate-600 flex-shrink-0">
                     <span className="material-symbols-outlined text-sm">close</span>
                 </button>
-            </div>
+                                                </div>
         )}
         <main className="pt-6 pb-12 px-8 h-[calc(100vh-4rem-2rem)] overflow-hidden">
-            <div className="max-w-7xl mx-auto h-full flex flex-col gap-6">
+            <div className="max-w-7xl mx-auto h-full flex flex-col gap-4">
                 <div className="flex justify-between items-end">
-                    <div>
+                                            <div>
                         <h1 className="text-3xl font-extrabold font-headline tracking-tight text-on-surface">{result.filename || t('edit.title')}</h1>
                         <p className="text-on-surface-variant mt-1">
                             {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
                             {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
                             <span className="text-tertiary font-semibold uppercase tracking-wider text-[10px]">{t('edit.confidence')}</span>
                         </p>
-                    </div>
-                    <div className="flex gap-3">
+                                            </div>
+                    <div className="flex gap-3 items-center">
+                        <button onClick={()=>setPromptOpen(!promptOpen)} className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-700 font-semibold text-xs rounded-lg hover:bg-amber-100 transition border border-amber-200/50">
+                            <span className="material-symbols-outlined text-sm">tune</span>
+                            {promptOpen ? t('prompt.expanded') : t('prompt.collapsed')}
+                        </button>
                         <button onClick={handleRegenerate} disabled={regenerating||!transcript} className="flex items-center gap-2 px-4 py-2 bg-tertiary/10 text-tertiary font-semibold text-sm rounded-lg hover:bg-tertiary/20 transition disabled:opacity-40">
                             <span className={`material-symbols-outlined text-sm ${regenerating?'animate-spin':''}`}>{regenerating?'sync':'refresh'}</span>
                             {t('edit.regenerate')}
@@ -671,119 +1274,345 @@ const Editor = () => {
                             <span className={`material-symbols-outlined text-sm ${exporting?'animate-spin':''}`}>{exporting?'sync':'cloud_upload'}</span>
                             {t('edit.export')}
                         </button>
-                    </div>
-                </div>
-
-                <div className="flex-grow flex gap-4 overflow-hidden">
-                    <section className="flex-1 bg-surface-container-low rounded-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-surface-container-highest">
-                            <h2 className="font-headline font-bold text-lg flex items-center gap-2">
-                                <span className="material-symbols-outlined text-primary">subject</span>
-                                {t('edit.transcript')}
-                            </h2>
-                            <span className="px-3 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-500">faster-whisper</span>
+                                        </div>
+                                    </div>
+                                    
+                {promptOpen && (
+                    <div className="bg-amber-50/50 border border-amber-200/60 rounded-lg p-5 flex flex-col gap-3 animate-[fadeIn_0.2s_ease-out]">
+                                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-amber-600 text-lg">auto_fix_high</span>
+                                <span className="font-headline font-bold text-sm text-on-surface">{t('prompt.label')}</span>
+                                <span className="text-[10px] text-amber-600/70 font-medium ml-2">{t('prompt.editHint')}</span>
+                                        </div>
+                                    </div>
+                        <div className="flex gap-2 flex-wrap">
+                            {editorPresetKeyOrder(loadSettings()).map((key) => (
+                                key.startsWith('user_') ? (
+                                    <span key={key} className={`inline-flex items-center gap-0.5 rounded-full border text-xs font-semibold transition-all ${
+                                        promptKey===key
+                                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                                    }`}>
+                                        <button type="button" onClick={()=>handlePromptKeyChange(key)}
+                                            className={`px-3 py-1.5 rounded-l-full ${promptKey===key?'':'hover:bg-amber-50/50'}`}>
+                                            {presetLabel(key)}
+                                        </button>
+                                        <button type="button" title={t('set.deletePreset')} onClick={(e)=>handleDeleteUserPreset(key,e)}
+                                            className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-amber-700/30':'hover:bg-red-50 text-red-600'}`}>
+                                            <span className="material-symbols-outlined text-[16px] leading-none">close</span>
+                                        </button>
+                                    </span>
+                                ) : (key === 'meeting' || key === 'research' || key === 'quickBullets') ? (
+                                    <span key={key} className={`inline-flex items-center gap-0.5 rounded-full border text-xs font-semibold transition-all ${
+                                        promptKey===key
+                                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                                    }`}>
+                                        <button type="button" onClick={()=>handlePromptKeyChange(key)}
+                                            className={`px-3 py-1.5 rounded-l-full ${promptKey===key?'':'hover:bg-amber-50/50'}`}>
+                                            {presetLabel(key)}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            title={t('set.deleteBuiltinPrompt')}
+                                            onClick={(e)=>{ e.stopPropagation(); e.preventDefault(); resetBuiltinExtra(key); }}
+                                            className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-amber-700/30':'hover:bg-red-50 text-red-600'}`}
+                                        >
+                                            <span className="material-symbols-outlined text-[16px] leading-none">close</span>
+                                        </button>
+                                    </span>
+                                ) : (
+                                <button key={key} onClick={()=>handlePromptKeyChange(key)}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                                        promptKey===key
+                                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                                    }`}>
+                                    {presetLabel(key)}
+                                </button>
+                                )
+                            ))}
+                                </div>
+                        {promptKey === 'default' ? (
+                            <div className="space-y-2">
+                                <label className="text-xs font-medium text-on-surface-variant">{t('set.editCoursePrompt')}</label>
+                                <textarea
+                                    className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                    value={defaultPromptEdit}
+                                    onChange={(e)=>handleDefaultPromptChange(e.target.value)}
+                                />
+                            </div>
+                        ) : promptKey.startsWith('user_') ? (
+                            <div className="space-y-2">
+                                <label className="text-xs font-medium text-on-surface-variant">{lang==='zh'?'编辑该预设':'Edit this preset'}</label>
+                                <textarea
+                                    className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                    value={userPresetEdit}
+                                    onChange={(e)=>handleUserPresetChange(e.target.value)}
+                                />
                         </div>
+                        ) : promptKey === 'custom' ? (
+                            <div className="space-y-3">
+                                <textarea
+                                    className="w-full h-32 bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface placeholder-slate-400 focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                    placeholder={t('prompt.customPlaceholder')}
+                                    value={customText}
+                                    onChange={e=>handleCustomTextChange(e.target.value)}
+                                />
+                                <div className="flex flex-wrap items-end gap-2">
+                                    <input type="text" className="flex-1 min-w-[160px] bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder={t('set.presetNamePh')} value={presetNameInput} onChange={e=>setPresetNameInput(e.target.value)} />
+                                    <button type="button" onClick={saveCustomAsPresetFromEditor} className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition">
+                                        {t('prompt.saveAsPreset')}
+                                    </button>
+                    </div>
+            </div>
+                        ) : promptKey === 'meeting' || promptKey === 'research' || promptKey === 'quickBullets' ? (
+                            <div className="space-y-2">
+                                <div className="flex flex-wrap justify-between items-center gap-2">
+                                    <label className="text-xs font-medium text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
+                                    <button type="button" onClick={()=>resetBuiltinExtra(promptKey)} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
+                            </div>
+                                <textarea
+                                    className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                    value={promptKey === 'meeting' ? meetingEdit : promptKey === 'research' ? researchEdit : quickBulletsEdit}
+                                    onChange={(e)=>handleBuiltinExtraChange(promptKey, e.target.value)}
+                                />
+                            </div>
+                        ) : null}
+                        </div>
+                )}
+
+                        <div className="flex-grow flex gap-4 overflow-hidden">
+                            <section className="flex-1 bg-surface-container-low rounded-sm flex flex-col overflow-hidden">
+                                <div className="p-5 flex justify-between items-center border-b border-surface-container-highest">
+                                    <h2 className="font-headline font-bold text-lg flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-primary">subject</span>
+                                {t('edit.transcript')}
+                                    </h2>
+                            <div className="flex items-center gap-2">
+                                <span className="px-3 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-500">faster-whisper</span>
+                                <DropdownMenu
+                                    trigger={
+                                        <button className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-primary bg-blue-50 hover:bg-blue-100 rounded-lg transition border border-blue-200/50">
+                                            <span className="material-symbols-outlined text-sm">download</span>
+                                            {t('dl.transcript')}
+                                        </button>
+                                    }
+                                    items={[
+                                        {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,result.filename); showToast(t('dl.success'));}},
+                                        {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,result.filename); showToast(t('dl.success'));}},
+                                        {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,result.filename); showToast(t('dl.success'));}},
+                                    ]}
+                                />
+                                </div>
+                                            </div>
                         <div className="flex-grow overflow-y-auto p-6 space-y-4 hide-scrollbar">
                             {segments.length > 0 ? segments.map((seg,i) => (
                                 <div key={i} className="flex gap-4 group">
                                     <span className="text-xs font-mono text-slate-400 pt-1 w-14 flex-shrink-0">{fmtTime(seg.start)}</span>
                                     <p className="text-on-surface text-sm leading-relaxed">{seg.text}</p>
-                                </div>
+                                        </div>
                             )) : (
                                 <p className="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">{transcript}</p>
                             )}
-                        </div>
-                    </section>
+                                </div>
+                            </section>
 
-                    <section className="flex-1 bg-surface-container-lowest rounded-sm flex flex-col shadow-sm overflow-hidden">
-                        <div className="p-5 flex justify-between items-center bg-tertiary/5 border-b border-surface-container-highest">
-                            <h2 className="font-headline font-bold text-lg flex items-center gap-2">
-                                <span className="material-symbols-outlined text-tertiary">psychology</span>
+                            <section className="flex-1 bg-surface-container-lowest rounded-sm flex flex-col shadow-sm overflow-hidden">
+                                <div className="p-5 flex justify-between items-center bg-tertiary/5 border-b border-surface-container-highest">
+                                    <h2 className="font-headline font-bold text-lg flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-tertiary">psychology</span>
                                 {t('edit.aiSummary')}
-                            </h2>
-                        </div>
-                        <div className="flex-grow overflow-y-auto p-8 hide-scrollbar">
+                                    </h2>
+                            <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/50">
+                                {t('prompt.activeHint')}{presetLabel(promptKey)}
+                            </span>
+                                <DropdownMenu
+                                    trigger={
+                                        <button disabled={!summary || !!downloading} className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-tertiary bg-purple-50 hover:bg-purple-100 rounded-lg transition border border-purple-200/50 disabled:opacity-40">
+                                            <span className={`material-symbols-outlined text-sm ${downloading?'animate-spin':''}`}>{downloading?'sync':'download'}</span>
+                                            {downloading ? t('dl.generating') : t('dl.summary')}
+                                    </button>
+                                    }
+                                    items={[
+                                        {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,result.filename); showToast(t('dl.success'));}},
+                                        {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,result.filename); showToast(t('dl.success'));}},
+                                        {divider:true},
+                                        {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
+                                            setDownloading('pdf');
+                                            try{ await dlSummaryPdf(summaryRef,result.filename); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                            finally{setDownloading(null);}
+                                        }},
+                                        {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,result.filename); showToast(t('dl.success'));}},
+                                    ]}
+                                />
+                            </div>
+                                </div>
+                                <div className="flex-grow overflow-y-auto p-8 hide-scrollbar">
                             {summary ? (
-                                <div dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
+                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
                             ) : (
                                 <p className="text-on-surface-variant text-sm italic">No summary available.</p>
                             )}
-                        </div>
-                        <div className="p-4 bg-tertiary-fixed border-t border-tertiary/20 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                                </div>
+                                <div className="p-4 bg-tertiary-fixed border-t border-tertiary/20 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
                                 <span className="material-symbols-outlined text-tertiary text-sm" style={{fontVariationSettings:"'FILL' 1"}}>verified</span>
                                 <span className="text-[10px] font-bold text-on-tertiary-fixed-variant uppercase tracking-widest">{t('edit.confidence')}</span>
-                            </div>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
-                    </section>
-                </div>
-            </div>
-        </main>
+                    </div>
+                </main>
         <StatusBar/>
-    </div>
-    );
+            </div>
+        );
 };
 
 /* ═══════════════ Settings ═══════════════ */
-const Settings = () => {
-    const {t} = useI18n();
+        const Settings = () => {
+    const {t, lang} = useI18n();
     const {loadSettings,saveSettings} = useSettings();
     const {clearHistory,history,larkExports} = useApp();
     const [settings,setSettings] = useState(() => loadSettings());
     const [saved,setSaved] = useState(false);
     const [cleared,setCleared] = useState(false);
+    const [clearArmed,setClearArmed] = useState(false);
+
+    // 如果当前已被隐藏的内置模板仍被选中，兜底切回 default
+    useEffect(() => {
+        const pk = (settings && settings.promptPreset) || 'default';
+        if (isBuiltinPromptPresetHidden(pk, settings)) {
+            const next = { ...settings, promptPreset: 'default' };
+            setSettings(next);
+            saveSettings(next);
+        }
+    }, []);
 
     const isDark = settings.theme === 'dark';
     const applyTheme = (theme) => {
-        setSettings(s=>({...s, theme}));
+        const next = {...settings, theme};
+        setSettings(next);
+        saveSettings(next);
         document.documentElement.classList.toggle('dark', theme==='dark');
     };
-    useEffect(() => { document.documentElement.classList.toggle('dark', isDark); }, []);
 
     const handleSave = () => { saveSettings(settings); setSaved(true); setTimeout(()=>setSaved(false),2000); };
-    const handleClear = () => { clearHistory(); setCleared(true); setTimeout(()=>setCleared(false),2000); };
 
-    return (
-    <div className="ml-64 min-h-screen relative pb-8">
+    const resetDefaultPromptInSettings = () => {
+        setSettings((s) => {
+            const next = { ...s, defaultPromptOverride: '' };
+            saveSettings(next);
+            return next;
+        });
+    };
+
+    const resetBuiltinOverrideInSettings = (key) => {
+        if (!window.confirm(t('set.deleteBuiltinPromptConfirm'))) return;
+        setSettings((s) => {
+            const hidden = new Set(Array.isArray(s.hiddenPromptPresets) ? s.hiddenPromptPresets : []);
+            hidden.add(key);
+            const next = {
+                ...s,
+                hiddenPromptPresets: Array.from(hidden),
+                promptPreset: s.promptPreset === key ? 'default' : s.promptPreset,
+            };
+            saveSettings(next);
+            return next;
+        });
+    };
+
+    const [newPresetNameSettings, setNewPresetNameSettings] = useState('');
+
+    const saveCustomAsPresetInSettings = () => {
+        const name = newPresetNameSettings.trim();
+        if (!name || !(settings.customPromptText || '').trim()) return;
+        const id = 'user_' + Date.now();
+        setSettings((s) => {
+            const next = {
+                ...s,
+                userPromptPresets: [{ id, nameZh: name, nameEn: name, prompt: s.customPromptText }, ...(s.userPromptPresets || [])],
+            };
+            saveSettings(next);
+            return next;
+        });
+        setNewPresetNameSettings('');
+    };
+
+    const deleteUserPresetInSettings = (id) => {
+        if (!window.confirm(t('set.deletePresetConfirm'))) return;
+        setSettings((s) => {
+            const ups = normalizeUserPresets(s).filter((p) => p.id !== id);
+            const next = { ...s, userPromptPresets: ups };
+            if (next.promptPreset === id) next.promptPreset = 'default';
+            saveSettings(next);
+            return next;
+        });
+    };
+
+    const handleClear = () => {
+        if(history.length === 0) return;
+        if(!clearArmed){
+            setClearArmed(true);
+            setTimeout(()=>setClearArmed(false), 5000); // 5秒内二次确认
+            return;
+        }
+        setClearArmed(false);
+        clearHistory();
+        setCleared(true);
+        setTimeout(()=>setCleared(false),2000);
+            };
+
+            return (
+            <div className="ml-64 min-h-screen relative pb-8">
         <TopNav/>
-        <main className="p-12 max-w-6xl mx-auto h-[calc(100vh-4rem-2rem)] overflow-y-auto hide-scrollbar">
-            <header className="mb-12">
+                <main className="p-12 max-w-6xl mx-auto h-[calc(100vh-4rem-2rem)] overflow-y-auto hide-scrollbar">
+                    <header className="mb-12">
                 <h1 className="text-4xl font-extrabold tracking-tight text-on-surface mb-2 font-headline">{t('set.title')}</h1>
                 <p className="text-on-surface-variant font-medium">{t('set.subtitle')}</p>
-            </header>
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div className="lg:col-span-8 space-y-8">
-                    <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
-                        <div className="flex items-center gap-4 mb-8">
-                            <div className="w-12 h-12 rounded-sm bg-blue-50 flex items-center justify-center text-primary">
-                                <span className="material-symbols-outlined text-3xl">sync_alt</span>
-                            </div>
-                            <div>
+                    </header>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                        <div className="lg:col-span-8 space-y-8">
+                            <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
+                                <div className="flex items-center gap-4 mb-8">
+                                    <div className="w-12 h-12 rounded-sm bg-blue-50 flex items-center justify-center text-primary">
+                                        <span className="material-symbols-outlined text-3xl">sync_alt</span>
+                                    </div>
+                                    <div>
                                 <h2 className="text-xl font-bold tracking-tight font-headline">{t('set.larkTitle')}</h2>
                                 <p className="text-sm text-on-surface-variant">{t('set.larkDesc')}</p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">App ID</label>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">App ID</label>
                                 <input className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 focus:ring-2 focus:ring-primary/20 text-sm" placeholder="cli_a1b2c3d4e5" value={settings.larkAppId||""} onChange={e=>setSettings(s=>({...s,larkAppId:e.target.value}))}/>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">App Secret</label>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">App Secret</label>
                                 <input className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 focus:ring-2 focus:ring-primary/20 text-sm" placeholder="••••••••••••••••" type="password" value={settings.larkAppSecret||""} onChange={e=>setSettings(s=>({...s,larkAppSecret:e.target.value}))}/>
-                            </div>
-                            <div className="md:col-span-2 flex items-center gap-3">
+                                    </div>
+                            <div className="md:col-span-2 flex flex-col gap-2">
+                                <div className="flex items-center gap-3">
                                 <input type="checkbox" id="exportToLark" checked={settings.exportToLark||false} onChange={e=>setSettings(s=>({...s,exportToLark:e.target.checked}))} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary"/>
                                 <label htmlFor="exportToLark" className="text-sm text-on-surface">{t('set.autoExport')}</label>
-                            </div>
-                        </div>
+                                </div>
+                                <div className="flex items-start gap-3 pl-6">
+                                <input type="checkbox" id="larkViaCli" checked={settings.larkViaCli||false} onChange={e=>setSettings(s=>({...s,larkViaCli:e.target.checked}))} className="w-4 h-4 mt-0.5 rounded border-outline-variant text-primary focus:ring-primary"/>
+                                <label htmlFor="larkViaCli" className="text-sm text-on-surface leading-snug">{t('set.larkViaCli')}<span className="block text-[11px] text-slate-400 mt-0.5">{t('set.larkViaCliHint')}</span></label>
+                                </div>
+                                        </div>
+                                    </div>
                     </section>
                     {larkExports.length > 0 && (
                     <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
                         <div className="flex items-center gap-4 mb-6">
                             <div className="w-10 h-10 rounded-sm bg-green-50 flex items-center justify-center text-green-600">
                                 <span className="material-symbols-outlined">history</span>
-                            </div>
+                                    </div>
                             <div>
                                 <h2 className="text-lg font-bold tracking-tight font-headline">{t('set.larkHistory')}</h2>
                                 <p className="text-xs text-on-surface-variant">{larkExports.length} {t('dash.docUnit')}</p>
@@ -800,16 +1629,98 @@ const Settings = () => {
                                     <span className="material-symbols-outlined text-slate-300 group-hover:text-primary text-sm">open_in_new</span>
                                 </a>
                             ))}
+                                </div>
+                            </section>
+                    )}
+                    <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="w-12 h-12 rounded-sm bg-amber-50 flex items-center justify-center text-amber-600">
+                                <span className="material-symbols-outlined text-3xl">auto_fix_high</span>
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold tracking-tight font-headline">{t('set.promptTitle')}</h2>
+                                <p className="text-sm text-on-surface-variant">{t('set.promptDesc')}</p>
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.defaultPrompt')}</label>
+                                <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={settings.promptPreset||'default'} onChange={e=>setSettings(s=>({...s,promptPreset:e.target.value}))}>
+                                    {allPresetSelectKeys(settings).map((key) => (
+                                        <option key={key} value={key}>{presetDisplayLabel(key, settings, lang)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {(settings.promptPreset||'default')==='default' && (
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap justify-between items-center gap-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editCoursePrompt')}</label>
+                                        <button type="button" onClick={resetDefaultPromptInSettings} className="text-xs font-semibold text-primary hover:underline">{t('set.resetBuiltinPrompt')}</button>
+                                    </div>
+                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getDefaultPromptBody(settings)} onChange={e=>setSettings(s=>({...s,defaultPromptOverride:e.target.value}))}/>
+                                </div>
+                            )}
+                            {(settings.promptPreset||'default')==='custom' && (
+                                <div className="space-y-3">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{lang==='zh'?'自定义提示词':'Custom Prompt'}</label>
+                                        <textarea className="w-full h-40 bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" placeholder={t('prompt.customPlaceholder')} value={settings.customPromptText||''} onChange={e=>setSettings(s=>({...s,customPromptText:e.target.value}))}/>
+                                    </div>
+                                    <div className="flex flex-wrap items-end gap-2">
+                                        <input type="text" className="flex-1 min-w-[200px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm" placeholder={t('set.presetNamePh')} value={newPresetNameSettings} onChange={e=>setNewPresetNameSettings(e.target.value)} />
+                                        <button type="button" onClick={saveCustomAsPresetInSettings} className="px-4 py-3 bg-amber-600 text-white text-sm font-semibold rounded-sm hover:bg-amber-700 transition">{t('set.saveAsPreset')}</button>
+                                    </div>
+                                </div>
+                            )}
+                            {(settings.promptPreset||'default')==='meeting' && (
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap justify-between items-center gap-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
+                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings('meeting')} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
+                                    </div>
+                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody('meeting', settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),meeting:e.target.value}}))}/>
+                                </div>
+                            )}
+                            {(settings.promptPreset||'default')==='research' && (
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap justify-between items-center gap-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
+                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings('research')} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
+                                    </div>
+                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody('research', settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),research:e.target.value}}))}/>
+                                </div>
+                            )}
+                            {(settings.promptPreset||'default')==='quickBullets' && (
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap justify-between items-center gap-2">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
+                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings('quickBullets')} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
+                                    </div>
+                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody('quickBullets', settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),quickBullets:e.target.value}}))}/>
+                                </div>
+                            )}
+                            {normalizeUserPresets(settings).length > 0 && (
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.myPresets')}</label>
+                                    <ul className="space-y-2">
+                                        {normalizeUserPresets(settings).map((p) => (
+                                            <li key={p.id} className="flex items-center justify-between gap-3 p-3 rounded-sm bg-surface-container-low">
+                                                <span className="text-sm text-on-surface truncate flex-1" title={lang==='zh'?p.nameZh:p.nameEn}>{lang==='zh'?p.nameZh:p.nameEn}</span>
+                                                <button type="button" onClick={()=>deleteUserPresetInSettings(p.id)} className="text-xs font-semibold text-red-600 hover:underline flex-shrink-0">{t('set.deletePreset')}</button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
                     </section>
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
-                            <div className="flex items-center gap-3 mb-6">
-                                <span className="material-symbols-outlined text-tertiary">mic_external_on</span>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <span className="material-symbols-outlined text-tertiary">mic_external_on</span>
                                 <h2 className="text-lg font-bold font-headline">{t('set.sttModel')}</h2>
-                            </div>
-                            <div className="space-y-2">
+                                    </div>
+                                        <div className="space-y-2">
                                 <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.modelSel')}</label>
                                 <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={settings.sttModel||"small"} onChange={e=>setSettings(s=>({...s,sttModel:e.target.value}))}>
                                     <option value="tiny">{t('set.optTiny')}</option>
@@ -817,86 +1728,86 @@ const Settings = () => {
                                     <option value="small">{t('set.optSmall')}</option>
                                     <option value="medium">{t('set.optMedium')}</option>
                                     <option value="large-v3">{t('set.optLarge')}</option>
-                                </select>
-                            </div>
-                        </section>
-                        <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
-                            <div className="flex items-center gap-3 mb-6">
-                                <span className="material-symbols-outlined text-tertiary">psychology</span>
+                                            </select>
+                                    </div>
+                                </section>
+                                <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <span className="material-symbols-outlined text-tertiary">psychology</span>
                                 <h2 className="text-lg font-bold font-headline">{t('set.intelligence')}</h2>
-                            </div>
-                            <div className="space-y-6">
-                                <div className="space-y-2">
+                                    </div>
+                                    <div className="space-y-6">
+                                        <div className="space-y-2">
                                     <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.provider')}</label>
                                     <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value="deepseek" disabled title="Only DeepSeek is currently supported">
                                         <option value="deepseek">DeepSeek</option>
-                                    </select>
+                                            </select>
                                     <p className="text-[10px] text-slate-400">OpenAI / Claude support coming soon</p>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">API Key</label>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">API Key</label>
                                     <input className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 focus:ring-2 focus:ring-primary/20 text-sm" placeholder="sk-••••••••" type="password" value={settings.deepseekApiKey||""} onChange={e=>setSettings(s=>({...s,deepseekApiKey:e.target.value}))}/>
-                                </div>
+                                        </div>
+                                    </div>
+                                </section>
                             </div>
-                        </section>
-                    </div>
-                </div>
-                <div className="lg:col-span-4 space-y-8">
-                    <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
+                        </div>
+                        <div className="lg:col-span-4 space-y-8">
+                            <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
                         <h2 className="text-lg font-bold mb-6 font-headline">{t('set.prefs')}</h2>
-                        <div className="space-y-8">
-                            <div className="space-y-3">
+                                <div className="space-y-8">
+                                    <div className="space-y-3">
                                 <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.theme')}</label>
-                                <div className="grid grid-cols-2 gap-2 p-1 bg-surface-container-low rounded-sm">
-                                    <button onClick={()=>applyTheme('light')} className={`flex items-center justify-center gap-2 py-2 rounded-sm text-sm font-semibold transition ${!isDark?'bg-white shadow-sm text-primary':'text-slate-500 hover:bg-white/50'}`}>
+                                        <div className="grid grid-cols-2 gap-2 p-1 bg-surface-container-low rounded-sm">
+                                    <button onClick={()=>applyTheme('light')} className={`flex items-center justify-center gap-2 py-2 rounded-sm text-sm font-semibold transition ${!isDark?'bg-primary text-white shadow-sm':'text-on-surface-variant hover:bg-surface-container-high'}`}>
                                         <span className="material-symbols-outlined text-sm">light_mode</span>{t('set.light')}
-                                    </button>
-                                    <button onClick={()=>applyTheme('dark')} className={`flex items-center justify-center gap-2 py-2 rounded-sm text-sm font-semibold transition ${isDark?'bg-white shadow-sm text-primary':'text-slate-500 hover:bg-white/50'}`}>
+                                            </button>
+                                    <button onClick={()=>applyTheme('dark')} className={`flex items-center justify-center gap-2 py-2 rounded-sm text-sm font-semibold transition ${isDark?'bg-primary text-white shadow-sm':'text-on-surface-variant hover:bg-surface-container-high'}`}>
                                         <span className="material-symbols-outlined text-sm">dark_mode</span>{t('set.dark')}
-                                    </button>
-                                </div>
-                            </div>
+                                            </button>
+                                        </div>
+                                    </div>
                             <div className="space-y-3">
                                 <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('edit.clearHistory')}</label>
-                                <button onClick={handleClear} disabled={history.length===0} className="w-full py-3 px-4 bg-red-50 text-red-600 font-semibold text-sm rounded-sm hover:bg-red-100 transition disabled:opacity-30 flex items-center justify-center gap-2">
+                                <button onClick={handleClear} disabled={history.length===0} className={`w-full py-3 px-4 bg-red-50 text-red-600 font-semibold text-sm rounded-sm hover:bg-red-100 transition disabled:opacity-30 flex items-center justify-center gap-2 ${clearArmed?'ring-2 ring-red-300/70':''}`}>
                                     <span className="material-symbols-outlined text-sm">delete_sweep</span>
-                                    {cleared ? t('edit.clearConfirm') : `${t('edit.clearHistory')} (${history.length})`}
+                                    {cleared ? t('edit.clearConfirm') : (clearArmed ? t('edit.clearConfirmAgain') : `${t('edit.clearHistory')} (${history.length})`)}
                                 </button>
                             </div>
-                            <div className="pt-4 border-t border-slate-100">
+                                    <div className="pt-4 border-t border-slate-100">
                                 <button onClick={handleSave} className="w-full py-4 px-6 bg-primary-container text-white rounded-sm font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
                                     <span className="material-symbols-outlined text-sm">{saved?"check":"save"}</span>
                                     {saved ? t('set.saved') : t('set.saveAll')}
-                                </button>
-                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
-                    </section>
-                </div>
-            </div>
-        </main>
+                    </div>
+                </main>
         <StatusBar/>
-    </div>
-    );
-};
+            </div>
+            );
+        };
 
 /* ═══════════════ App root ═══════════════ */
 const App = () => (
-    <div className="flex min-h-screen w-full bg-surface">
+                <div className="flex min-h-screen w-full bg-surface">
         <SideNav/>
-        <div className="flex-1 flex flex-col w-full h-full relative">
-            <Routes>
+                    <div className="flex-1 flex flex-col w-full h-full relative">
+                        <Routes>
                 <Route path="/" element={<Dashboard/>}/>
                 <Route path="/processing" element={<Processing/>}/>
                 <Route path="/editor" element={<Editor/>}/>
                 <Route path="/settings" element={<Settings/>}/>
-            </Routes>
-        </div>
-    </div>
-);
+                        </Routes>
+                    </div>
+                </div>
+            );
 
 createRoot(document.getElementById('root')).render(
     <MemoryRouter><I18nProvider><AppProvider><App/></AppProvider></I18nProvider></MemoryRouter>
-);
-</script>
+        );
+    </script>
 </body>
 </html>
