@@ -11,5 +11,6 @@ moviepy>=1.0.3
 openai>=1.0.0
 lark-oapi>=1.0.0
 fastapi>=0.115.0
+python-multipart>=0.0.9
 uvicorn[standard]>=0.32.0
 python-dotenv>=1.0.0
