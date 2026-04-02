@@ -11,11 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import shutil
 import tempfile
-import threading
-import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
@@ -46,23 +43,11 @@ try:
     from backend.core.local_stt import transcribe_audio, get_or_load_model
     from backend.core.ai_summarizer import summarize_transcript_to_markdown
     from backend.core.lark_exporter import export_markdown_to_lark
-    from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
 except ImportError:
     from core.audio_handler import extract_compressed_mp3
     from core.local_stt import transcribe_audio, get_or_load_model
     from core.ai_summarizer import summarize_transcript_to_markdown
     from core.lark_exporter import export_markdown_to_lark
-    from core.lark_cli_exporter import export_markdown_via_lark_cli
-
-
-def _use_lark_cli_export(form_val: Optional[str]) -> bool:
-    """True = create doc via local ``lark-cli`` (user OAuth). Explicit false overrides env."""
-    v = (form_val or "").strip().lower()
-    if v in ("false", "0", "no"):
-        return False
-    if v in ("true", "1", "yes"):
-        return True
-    return os.environ.get("FLUENTFLOW_LARK_CLI_EXPORT", "").strip().lower() in ("1", "true", "yes")
 
 
 def _sse(data: dict) -> str:
@@ -91,8 +76,6 @@ async def process_video(
     stt_model: Optional[str] = Form(None),
     lark_app_id: Optional[str] = Form(None),
     lark_app_secret: Optional[str] = Form(None),
-    lark_via_cli: Optional[str] = Form(None),
-    system_prompt: Optional[str] = Form(None),
 ) -> StreamingResponse:
     """Upload a file and stream processing progress via SSE."""
 
@@ -125,69 +108,17 @@ async def process_video(
             # ── Stage 2: STT transcription ─────────────────────
             yield _sse({"stage": "stt", "progress": 22})
 
-            progress_queue: asyncio.Queue[dict[str, float]] = asyncio.Queue()
-            progress_state: dict[str, float] = {
-                "last_sent": 22.0,
-                "latest": 22.0,
-                "last_push_ts": 0.0,
-            }
-            progress_lock = threading.Lock()
+            progress_state: dict[str, float] = {"last_sent": 22.0}
 
             def stt_progress_cb(frac: float) -> None:
-                # Callback runs in a worker thread; use loop.call_soon_threadsafe to enqueue SSE updates.
-                prog = 22.0 + float(frac) * 38.0  # 22–60 range
-                if prog < 22.0:
-                    prog = 22.0
-                if prog > 60.0:
-                    prog = 60.0
+                progress_state["latest"] = 22 + frac * 38  # 22–60 range
 
-                now = time.time()
-                with progress_lock:
-                    # Throttle to avoid flooding the SSE stream.
-                    should_send = (
-                        (prog - progress_state["last_sent"]) >= 2.0
-                        or (now - progress_state["last_push_ts"]) >= 0.6
-                        or prog >= 60.0
-                    )
-                    if not should_send:
-                        return
-
-                    progress_state["latest"] = prog
-                    progress_state["last_sent"] = prog
-                    progress_state["last_push_ts"] = now
-
-                loop.call_soon_threadsafe(
-                    progress_queue.put_nowait,
-                    {"stage": "stt", "progress": prog},
-                )
-
-            tr_future = loop.run_in_executor(
+            tr = await loop.run_in_executor(
                 None,
                 lambda: transcribe_audio(
                     out_mp3, model_size=model_size, on_progress=stt_progress_cb
                 ),
             )
-
-            # Stream progress updates while STT is running.
-            while True:
-                if tr_future.done():
-                    break
-                try:
-                    ev = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
-                    yield _sse(ev)
-                except asyncio.TimeoutError:
-                    # No new progress updates in this interval.
-                    continue
-
-            # Ensure we also drain any late progress events.
-            tr = await tr_future
-            while True:
-                try:
-                    ev = progress_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                yield _sse(ev)
-
             yield _sse({"stage": "stt", "progress": 60})
 
             # ── Stage 3: AI summarization ──────────────────────
@@ -199,8 +130,6 @@ async def process_video(
                 api_key = (deepseek_api_key or "").strip()
                 if api_key:
                     kwargs["api_key"] = api_key
-                if (sp := (system_prompt or "").strip()):
-                    kwargs["system_prompt"] = sp
                 summary_md = await loop.run_in_executor(
                     None,
                     lambda: summarize_transcript_to_markdown(tr.text, **kwargs),
@@ -229,24 +158,18 @@ async def process_video(
             if do_lark:
                 yield _sse({"stage": "export", "progress": 90})
                 doc_title = title or f"FluentFlow - {Path(file.filename).stem}"
+                lark_kwargs: dict[str, Any] = {}
+                if (lark_id := (lark_app_id or "").strip()):
+                    lark_kwargs["app_id"] = lark_id
+                if (lark_secret := (lark_app_secret or "").strip()):
+                    lark_kwargs["app_secret"] = lark_secret
+                if folder_token:
+                    lark_kwargs["folder_token"] = folder_token
                 try:
-                    if _use_lark_cli_export(lark_via_cli):
-                        resp = await loop.run_in_executor(
-                            None,
-                            lambda: export_markdown_via_lark_cli(doc_title, summary_md),
-                        )
-                    else:
-                        lark_kwargs: dict[str, Any] = {}
-                        if (lark_id := (lark_app_id or "").strip()):
-                            lark_kwargs["app_id"] = lark_id
-                        if (lark_secret := (lark_app_secret or "").strip()):
-                            lark_kwargs["app_secret"] = lark_secret
-                        if folder_token:
-                            lark_kwargs["folder_token"] = folder_token
-                        resp = await loop.run_in_executor(
-                            None,
-                            lambda: export_markdown_to_lark(doc_title, summary_md, **lark_kwargs),
-                        )
+                    resp = await loop.run_in_executor(
+                        None,
+                        lambda: export_markdown_to_lark(doc_title, summary_md, **lark_kwargs),
+                    )
                     result["lark_response"] = resp
                 except Exception as e:
                     result["lark_error"] = str(e)
@@ -273,21 +196,18 @@ async def export_lark(
     title: str = Form("FluentFlow Export"),
     lark_app_id: Optional[str] = Form(None),
     lark_app_secret: Optional[str] = Form(None),
-    lark_via_cli: Optional[str] = Form(None),
+    folder_token: Optional[str] = Form(None),
 ):
     """Standalone endpoint: export existing markdown to a Lark document."""
     loop = asyncio.get_event_loop()
+    kwargs: dict[str, Any] = {}
+    if (v := (lark_app_id or "").strip()):
+        kwargs["app_id"] = v
+    if (v := (lark_app_secret or "").strip()):
+        kwargs["app_secret"] = v
+    if folder_token:
+        kwargs["folder_token"] = folder_token
     try:
-        if _use_lark_cli_export(lark_via_cli):
-            resp = await loop.run_in_executor(
-                None, lambda: export_markdown_via_lark_cli(title, markdown)
-            )
-            return resp
-        kwargs: dict[str, Any] = {}
-        if (v := (lark_app_id or "").strip()):
-            kwargs["app_id"] = v
-        if (v := (lark_app_secret or "").strip()):
-            kwargs["app_secret"] = v
         resp = await loop.run_in_executor(
             None, lambda: export_markdown_to_lark(title, markdown, **kwargs)
         )
@@ -300,15 +220,12 @@ async def export_lark(
 async def regenerate_summary(
     transcript: str = Form(...),
     deepseek_api_key: Optional[str] = Form(None),
-    system_prompt: Optional[str] = Form(None),
 ):
-    """Re-run AI summarization on an existing transcript with optional custom prompt."""
+    """Re-run AI summarization on an existing transcript."""
     loop = asyncio.get_event_loop()
     kwargs: dict[str, Any] = {}
     if (k := (deepseek_api_key or "").strip()):
         kwargs["api_key"] = k
-    if (p := (system_prompt or "").strip()):
-        kwargs["system_prompt"] = p
     try:
         md = await loop.run_in_executor(
             None, lambda: summarize_transcript_to_markdown(transcript, **kwargs)
