@@ -5,11 +5,12 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>FluentFlow - Video to Lark AI</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/history@5/umd/history.development.js"></script>
-    <script src="https://unpkg.com/react-router@6.3.0/umd/react-router.development.js"></script>
-    <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.development.js"></script>
+    <!-- Production UMD builds: smaller, no "download React DevTools" prompt. JSX still uses Babel in-browser below. -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/history@5/umd/history.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-router@6.3.0/umd/react-router.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -139,7 +140,20 @@ const {useState,useEffect,useRef,useCallback,createContext,useContext} = React;
 const {createRoot} = ReactDOM;
 const {MemoryRouter,Routes,Route,Link,useNavigate,useLocation} = ReactRouterDOM;
 
-const API_BASE = "http://127.0.0.1:8000";
+/** API 根路径：线上与后端同域时用相对路径；本地前端单独跑在其它端口时指向本机 8000。 */
+const API_BASE = (() => {
+    const { hostname, port } = window.location;
+    if (!hostname) return "http://127.0.0.1:8000";
+    const local = hostname === "localhost" || hostname === "127.0.0.1";
+    if (local && port && port !== "8000") return "http://127.0.0.1:8000";
+    return "";
+})();
+
+const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
+const createTaskId = () => (
+    window.crypto?.randomUUID?.() ||
+    `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+);
 
 /* 与 backend/core/ai_summarizer.py 中 FLUENTFLOW_SYSTEM_PROMPT 保持一致，便于本地编辑默认「课程笔记」 */
 const DEFAULT_COURSE_PROMPT = `# Role: FluentFlow 知识架构师
@@ -166,6 +180,7 @@ const DEFAULT_COURSE_PROMPT = `# Role: FluentFlow 知识架构师
 - 保持原意，不要虚构事实。
 - 剔除「呃」、「那个」、「其实」等口头语。
 - 保持内容的高度浓缩，去除冗余解释。
+- 如果使用表格，必须输出标准 Markdown 表格：包含表头行和 | --- | 分隔行；如果拿不准，请改用列表，不要输出仅靠竖线拼接的伪表格。
 - 输出为可直接粘贴飞书云文档的 Markdown，不要使用代码围栏包裹整篇文档。`;
 
 /* ═══════════════ Prompt Presets ═══════════════ */
@@ -194,7 +209,7 @@ const PROMPT_PRESETS = {
 3. ✅ **决议与共识**：列出明确达成的决定。
 4. 🎯 **行动项 (Action Items)**：
    - 格式：负责人 | 任务 | 截止时间
-   - 使用表格或清晰列表。
+   - 如使用表格，必须输出标准 Markdown 表格（含表头行和 | --- | 分隔行）；若拿不准则改用清晰列表。
 5. 📅 **后续安排**：下次会议时间或待跟进事项。
 
 # Constraints:
@@ -327,25 +342,25 @@ const editorPresetKeyOrder = (settings) => {
 const msgs = {
   en:{
     'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Dashboard','nav.processing':'Processing','nav.editor':'Editor','nav.settings':'Settings','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
-    'status.ready':'System ready','status.idle':'Awaiting task','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done',
-    'dash.welcome':'Welcome back.','dash.subtitle':'Your AI transcription engine is warmed up and ready.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Pro Workspace','dash.heroTitle':'Drop your file here to start an AI intelligence flow.','dash.heroDesc':'FluentFlow will automatically extract audio, transcribe with high accuracy, and generate a structured summary directly to your Lark workspace. Supports video and audio files.','dash.selectFile':'Select File','dash.processing':'Processing…','dash.dragHint':'Or drag & drop video (MP4, MOV, AVI…) or audio (MP3, WAV, FLAC…)','dash.uploading':'Uploading and processing','dash.done':'Processing complete!','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.noActivity':'No activity yet — upload a file to get started.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
+    'status.ready':'System ready','status.idle':'Awaiting task','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done',
+    'dash.welcome':'Welcome back.','dash.subtitle':'Your AI transcription engine is warmed up and ready.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Pro Workspace','dash.heroTitle':'Drop files here to start an AI workflow.','dash.heroDesc':'FluentFlow automatically extracts audio, transcribes with high accuracy, and generates structured notes for your Lark workspace. Supports video and audio files.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import Subtitle/Text','dash.subtitleHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.uploading':'Uploading and processing','dash.done':'Processing complete!','dash.subtitleDone':'Summary generated from transcript file!','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet — upload a file to get started.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
     'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel',
     'proc.title':'Processing Workspace','proc.subtitle':'Real-time pipeline status for the active task.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from the Dashboard to start.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
-    'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.segments':'segments','edit.duration':'Duration','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm',
+    'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.summaryPending':'AI summary is still generating.','edit.summarySkipped':'Transcript-only mode is enabled. Click Regenerate when you need an AI summary.','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.segments':'segments','edit.duration':'Duration','edit.sttElapsed':'Transcription time','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm',
     'prompt.label':'Prompt Template','prompt.select':'Select prompt style','prompt.customPlaceholder':'Enter your custom system prompt here...','prompt.expanded':'Collapse prompt','prompt.collapsed':'Change prompt','prompt.activeHint':'Active: ','prompt.editHint':'Edit prompt before regenerating','prompt.saveAsPreset':'Save custom as preset',
     'dl.transcript':'Export Transcript','dl.summary':'Download Summary','dl.txt':'Plain Text (.txt)','dl.md':'Markdown (.md)','dl.srt':'Subtitles (.srt)','dl.vtt':'WebVTT (.vtt)','dl.pdf':'PDF Document','dl.word':'Word Document (.docx)','dl.generating':'Generating…','dl.success':'Download started',
-    'set.title':'Settings & Export','set.subtitle':'Configure your AI pipeline and external integrations.','set.larkTitle':'Lark / Feishu Integration','set.larkDesc':'Sync your processed notes directly to cloud documents.','set.autoExport':'Auto-export to Lark after processing','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Optimized)','set.optMedium':'medium','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.provider':'Provider','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Templates','set.promptDesc':'Choose or customize the AI prompt used for generating summaries.','set.defaultPrompt':'Default Prompt','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
+    'set.title':'Settings & Export','set.subtitle':'Configure your AI pipeline and external integrations.','set.larkTitle':'Lark / Feishu Integration','set.larkDesc':'Sync your processed notes directly to cloud documents.','set.autoExport':'Auto-export to Lark after processing','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.sttLanguage':'Audio Language','set.langAuto':'Auto detect','set.langZh':'Chinese','set.langEn':'English','set.sttSpeed':'Transcription Speed','set.speedFast':'Fast','set.speedBalanced':'Balanced','set.speedAccurate':'Accurate','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Optimized)','set.optMedium':'medium','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.skipSummary':'Transcript-only mode','set.skipSummaryHint':'Skip AI summary after audio transcription or subtitle import. You can regenerate later in the editor.','set.provider':'Provider','set.aiModel':'AI Model','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Templates','set.promptDesc':'Choose or customize the AI prompt used for generating summaries.','set.defaultPrompt':'Default Prompt','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
   },
   zh:{
     'nav.subtitle':'视频转飞书 AI','nav.dashboard':'仪表盘','nav.processing':'处理中心','nav.editor':'编辑器','nav.settings':'设置','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
-    'status.ready':'系统就绪','status.idle':'等待任务','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成',
-    'dash.welcome':'欢迎回来','dash.subtitle':'AI 转录引擎已就绪，随时待命。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'专业工作区','dash.heroTitle':'将文件拖放到此处，开启 AI 智能工作流。','dash.heroDesc':'FluentFlow 将自动提取音频、高精度转录，并直接生成结构化摘要到您的飞书工作区。支持视频和音频文件。','dash.selectFile':'选择文件','dash.processing':'处理中…','dash.dragHint':'或拖放视频（MP4、MOV、AVI…）/ 音频（MP3、WAV、FLAC…）','dash.uploading':'正在上传并处理','dash.done':'处理完成！','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.noActivity':'暂无活动记录 — 上传文件开始使用。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
+    'status.ready':'系统就绪','status.idle':'等待任务','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成',
+    'dash.welcome':'欢迎回来','dash.subtitle':'AI 转录引擎已就绪，随时待命。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'专业工作区','dash.heroTitle':'将文件拖放到此处，开启 AI 智能工作流。','dash.heroDesc':'FluentFlow 将自动提取音频、高精度转录，并直接生成结构化摘要到您的飞书工作区。支持视频和音频文件。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕/文本','dash.subtitleHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.uploading':'正在上传并处理','dash.done':'处理完成！','dash.subtitleDone':'已根据字幕文件生成摘要！','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录 — 上传文件开始使用。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
     'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消',
     'proc.title':'处理工作区','proc.subtitle':'当前任务的实时流水线状态。','proc.noJob':'无正在进行的任务','proc.noJobDesc':'从仪表盘上传视频以开始处理。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
-    'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.segments':'段','edit.duration':'时长','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认',
+    'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.summaryPending':'AI 摘要仍在生成中。','edit.summarySkipped':'当前是仅转录模式，未生成 AI 摘要。需要时可点击重新生成。','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.segments':'段','edit.duration':'时长','edit.sttElapsed':'转录耗时','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认',
     'prompt.label':'提示词模板','prompt.select':'选择提示词风格','prompt.customPlaceholder':'在此输入自定义系统提示词…','prompt.expanded':'收起提示词','prompt.collapsed':'更换提示词','prompt.activeHint':'当前：','prompt.editHint':'重新生成前可编辑提示词','prompt.saveAsPreset':'将自定义保存为预设',
     'dl.transcript':'导出转录文本','dl.summary':'下载摘要','dl.txt':'纯文本 (.txt)','dl.md':'Markdown (.md)','dl.srt':'字幕文件 (.srt)','dl.vtt':'WebVTT (.vtt)','dl.pdf':'PDF 文档','dl.word':'Word 文档 (.docx)','dl.generating':'生成中…','dl.success':'已开始下载',
-    'set.title':'设置与导出','set.subtitle':'配置 AI 流水线和外部集成。','set.larkTitle':'飞书集成','set.larkDesc':'将处理后的笔记直接同步到云文档。','set.autoExport':'处理完成后自动导出到飞书','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（推荐）','set.optMedium':'medium','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.provider':'服务商','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板','set.promptDesc':'选择或自定义 AI 生成摘要时使用的提示词。','set.defaultPrompt':'默认提示词','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
+    'set.title':'设置与导出','set.subtitle':'配置 AI 流水线和外部集成。','set.larkTitle':'飞书集成','set.larkDesc':'将处理后的笔记直接同步到云文档。','set.autoExport':'处理完成后自动导出到飞书','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.sttLanguage':'音频语言','set.langAuto':'自动识别','set.langZh':'中文','set.langEn':'英文','set.sttSpeed':'转录速度','set.speedFast':'快速','set.speedBalanced':'均衡','set.speedAccurate':'高准确率','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（推荐）','set.optMedium':'medium','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.skipSummary':'仅转录模式','set.skipSummaryHint':'音视频转录或字幕导入后跳过 AI 摘要；之后可在编辑器里重新生成。','set.provider':'服务商','set.aiModel':'AI 模型','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板','set.promptDesc':'选择或自定义 AI 生成摘要时使用的提示词。','set.defaultPrompt':'默认提示词','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
   },
 };
 const I18nCtx = createContext();
@@ -388,6 +403,15 @@ const useApp = () => useContext(AppCtx);
 
 /* ═══════════════ helpers ═══════════════ */
 const fmtTime = (sec) => { const m=Math.floor(sec/60); const s=Math.floor(sec%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
+const fmtElapsed = (sec) => {
+    const n = Math.max(0, Number(sec) || 0);
+    const h = Math.floor(n / 3600);
+    const m = Math.floor((n % 3600) / 60);
+    const s = Math.floor(n % 60);
+    return h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+};
 
 const timeAgo = (ts, t) => {
     const d = Date.now()-ts, m=Math.floor(d/60000), h=Math.floor(d/3600000), dy=Math.floor(d/86400000);
@@ -397,22 +421,188 @@ const timeAgo = (ts, t) => {
     return `${dy} ${t('dash.dAgo')}`;
 };
 
+const MD_TABLE_ALIGN_RE = /^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$/;
+
+const splitMdTableRow = (line) => {
+    let text = (line || '').trim();
+    if(text.startsWith('|')) text = text.slice(1);
+    if(text.endsWith('|')) text = text.slice(0, -1);
+    return text.split('|').map(cell => cell.trim());
+};
+
+const isPipeTableRow = (line) => {
+    const text = (line || '').trim();
+    return text.startsWith('|') && text.endsWith('|') && splitMdTableRow(text).length >= 2;
+};
+
+const looksLikeMdTable = (lines, index) => {
+    if(index + 1 >= lines.length) return false;
+    const head = (lines[index] || '').trim();
+    const align = (lines[index + 1] || '').trim();
+    return head.includes('|') && align.includes('|') && MD_TABLE_ALIGN_RE.test(align);
+};
+
+const looksLikeLoosePipeTable = (lines, index) => {
+    let rowCount = 0;
+    let cols = -1;
+    for(let i = index; i < lines.length; i += 1){
+        const text = (lines[i] || '').trim();
+        if(!text) break;
+        if(!isPipeTableRow(text)) break;
+        const cells = splitMdTableRow(text);
+        if(cols === -1) cols = cells.length;
+        if(cells.length !== cols) break;
+        rowCount += 1;
+    }
+    return rowCount >= 2;
+};
+
+const renderTableHtml = (headerCells, bodyRows, renderInline) => {
+    const columnCount = Math.max(
+        headerCells?.length || 0,
+        ...bodyRows.map(row => row.length),
+        0
+    );
+    if(!columnCount) return '';
+    const pad = (cells) => Array.from({length: columnCount}, (_, idx) => cells[idx] || '');
+    const thead = headerCells && headerCells.length ? `<thead class="bg-slate-50">
+        <tr>${pad(headerCells).map(cell => `<th class="px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200">${renderInline(cell)}</th>`).join('')}</tr>
+    </thead>` : '';
+    const tbody = `<tbody>
+        ${bodyRows.map((row, rowIdx) => `<tr class="${rowIdx > 0 ? 'border-t border-slate-200' : ''}">
+            ${pad(row).map((cell, cellIdx) => `<td class="px-3 py-2 align-top text-sm ${!headerCells && cellIdx === 0 ? 'font-semibold text-on-surface' : 'text-on-surface-variant'}">${renderInline(cell)}</td>`).join('')}
+        </tr>`).join('')}
+    </tbody>`;
+    return `<div class="my-4 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <table class="min-w-full border-collapse">${thead}${tbody}</table>
+    </div>`;
+};
+
 const simpleMd = (md) => {
     if(!md) return '';
     const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-    const lines = md.split('\n');
-    let html = '', inList = false;
-    for(const raw of lines){
+    const renderInline = (s) => esc(s)
+        .replace(/`([^`]+)`/g,'<code class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[0.92em]">$1</code>')
+        .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+
+    const lines = md.replace(/\r\n/g, '\n').split('\n');
+    let html = '';
+    let inUl = false;
+    let inOl = false;
+
+    const closeLists = () => {
+        if(inUl){ html += '</ul>'; inUl = false; }
+        if(inOl){ html += '</ol>'; inOl = false; }
+    };
+
+    let i = 0;
+    while(i < lines.length){
+        const raw = lines[i] || '';
         const line = raw.trimEnd();
-        if(!line){ if(inList){ html+='</ul>'; inList=false; } html+='<br/>'; continue; }
-        const bold = (s) => s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
-        if(line.startsWith('### ')){ if(inList){html+='</ul>';inList=false;} html+=`<h4 class="text-base font-headline font-bold mt-4 mb-1">${bold(esc(line.slice(4)))}</h4>`; }
-        else if(line.startsWith('## ')){ if(inList){html+='</ul>';inList=false;} html+=`<h3 class="text-lg font-headline font-bold mt-5 mb-2">${bold(esc(line.slice(3)))}</h3>`; }
-        else if(line.startsWith('# ')){ if(inList){html+='</ul>';inList=false;} html+=`<h2 class="text-xl font-headline font-bold mt-6 mb-2">${bold(esc(line.slice(2)))}</h2>`; }
-        else if(/^[-*] /.test(line)){ if(!inList){html+='<ul class="space-y-1 my-2">'; inList=true;} html+=`<li class="flex gap-2 text-sm text-on-surface"><span class="text-tertiary mt-0.5">•</span><span>${bold(esc(line.slice(2)))}</span></li>`; }
-        else { if(inList){html+='</ul>';inList=false;} html+=`<p class="text-sm text-on-surface-variant leading-relaxed mb-1">${bold(esc(line))}</p>`; }
+        const trimmed = line.trim();
+
+        if(!trimmed){
+            closeLists();
+            html += '<br/>';
+            i += 1;
+            continue;
+        }
+
+        if(trimmed.startsWith('```')){
+            closeLists();
+            const codeLines = [];
+            i += 1;
+            while(i < lines.length && !lines[i].trim().startsWith('```')){
+                codeLines.push(lines[i]);
+                i += 1;
+            }
+            if(i < lines.length) i += 1;
+            html += `<pre class="my-4 overflow-x-auto rounded-lg bg-slate-100 px-4 py-3 text-sm leading-relaxed text-on-surface"><code>${esc(codeLines.join('\n'))}</code></pre>`;
+            continue;
+        }
+
+        if(looksLikeMdTable(lines, i)){
+            closeLists();
+            const headerCells = splitMdTableRow(lines[i]);
+            const bodyRows = [];
+            i += 2;
+            while(i < lines.length){
+                const row = (lines[i] || '').trim();
+                if(!row || !row.includes('|')) break;
+                bodyRows.push(splitMdTableRow(row));
+                i += 1;
+            }
+            html += renderTableHtml(headerCells, bodyRows, renderInline);
+            continue;
+        }
+
+        if(looksLikeLoosePipeTable(lines, i)){
+            closeLists();
+            const bodyRows = [];
+            while(i < lines.length){
+                const row = (lines[i] || '').trim();
+                if(!row || !isPipeTableRow(row)) break;
+                bodyRows.push(splitMdTableRow(row));
+                i += 1;
+            }
+            html += renderTableHtml(null, bodyRows, renderInline);
+            continue;
+        }
+
+        if(/^#{1,6}\s+/.test(trimmed)){
+            closeLists();
+            const level = Math.min((trimmed.match(/^#+/) || ['#'])[0].length, 6);
+            const content = trimmed.slice(level + 1);
+            const tag = level <= 1 ? 'h2' : level === 2 ? 'h3' : level === 3 ? 'h4' : 'h5';
+            const klass = level <= 1
+                ? 'text-xl font-headline font-bold mt-6 mb-2'
+                : level === 2
+                    ? 'text-lg font-headline font-bold mt-5 mb-2'
+                    : level === 3
+                        ? 'text-base font-headline font-bold mt-4 mb-1'
+                        : 'text-sm font-headline font-bold mt-3 mb-1';
+            html += `<${tag} class="${klass}">${renderInline(content)}</${tag}>`;
+            i += 1;
+            continue;
+        }
+
+        if(/^[-*] /.test(trimmed)){
+            if(inOl){ html += '</ol>'; inOl = false; }
+            if(!inUl){ html += '<ul class="space-y-1 my-2">'; inUl = true; }
+            html += `<li class="flex gap-2 text-sm text-on-surface"><span class="text-tertiary mt-0.5">•</span><span>${renderInline(trimmed.slice(2))}</span></li>`;
+            i += 1;
+            continue;
+        }
+
+        const ordered = trimmed.match(/^\d+[.）]\s+(.+)/);
+        if(ordered){
+            if(inUl){ html += '</ul>'; inUl = false; }
+            if(!inOl){ html += '<ol class="list-decimal space-y-1 my-2 pl-5">'; inOl = true; }
+            html += `<li class="text-sm text-on-surface">${renderInline(ordered[1])}</li>`;
+            i += 1;
+            continue;
+        }
+
+        if(trimmed.startsWith('> ')){
+            closeLists();
+            html += `<blockquote class="my-3 border-l-4 border-tertiary/40 bg-purple-50 px-4 py-2 text-sm leading-relaxed text-on-surface-variant">${renderInline(trimmed.slice(2))}</blockquote>`;
+            i += 1;
+            continue;
+        }
+
+        if(trimmed === '---' || trimmed === '***' || trimmed === '___'){
+            closeLists();
+            html += '<hr class="my-4 border-slate-200"/>';
+            i += 1;
+            continue;
+        }
+
+        closeLists();
+        html += `<p class="text-sm text-on-surface-variant leading-relaxed mb-1">${renderInline(trimmed)}</p>`;
+        i += 1;
     }
-    if(inList) html+='</ul>';
+
+    closeLists();
     return html;
 };
 
@@ -587,20 +777,30 @@ const DropdownMenu = ({trigger, items, align='right'}) => {
 
 /* ═══════════════ hooks ═══════════════ */
 const useApi = () => {
+    const appendAiOptions = (fd, options={}) => {
+        if(options.deepseekApiKey) fd.append("deepseek_api_key", options.deepseekApiKey);
+        if(options.openaiApiKey) fd.append("openai_api_key", options.openaiApiKey);
+        if(options.aiProvider) fd.append("ai_provider", options.aiProvider);
+        if(options.aiModel) fd.append("ai_model", options.aiModel);
+        if(options.systemPrompt) fd.append("system_prompt", options.systemPrompt);
+    };
     const processVideoSSE = async (file, options={}, onProgress, signal) => {
         const fd = new FormData();
         fd.append("file", file);
+        if(options.taskId) fd.append("task_id", options.taskId);
         if(options.exportToLark) {
             fd.append("export_to_lark","true");
             fd.append("lark_via_cli", options.larkViaCli ? "true" : "false");
         }
         if(options.title) fd.append("title", options.title);
         if(options.folderToken) fd.append("folder_token", options.folderToken); // kept for future use
-        if(options.deepseekApiKey) fd.append("deepseek_api_key", options.deepseekApiKey);
+        if(options.skipSummary) fd.append("skip_summary", "true");
+        appendAiOptions(fd, options);
         if(options.sttModel) fd.append("stt_model", options.sttModel);
+        if(options.sttSpeed) fd.append("stt_speed", options.sttSpeed);
+        if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
         if(options.larkAppId) fd.append("lark_app_id", options.larkAppId);
         if(options.larkAppSecret) fd.append("lark_app_secret", options.larkAppSecret);
-        if(options.systemPrompt) fd.append("system_prompt", options.systemPrompt);
         const r = await fetch(`${API_BASE}/process`,{method:"POST",body:fd,signal});
         if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
         const reader = r.body.getReader();
@@ -617,7 +817,8 @@ const useApi = () => {
                 if(!dl) continue;
                 try{
                     const data = JSON.parse(dl.slice(6));
-                    if(data.stage==='done'){ result=data.result; onProgress?.({stage:'done',progress:100}); }
+                    if(data.stage==='done'){ result=data.result; onProgress?.({stage:'done',progress:100,result:data.result}); }
+                    else if(data.stage==='transcript_ready'){ onProgress?.({stage:'transcript_ready',progress:data.progress||60,result:data.result}); }
                     else if(data.stage==='error'){ throw new Error(data.error||'Processing failed'); }
                     else { onProgress?.(data); }
                 }catch(pe){ if(pe.message && !pe.message.startsWith('Unexpected')) throw pe; }
@@ -626,8 +827,28 @@ const useApi = () => {
         if(!result) throw new Error('No result received from server');
         return result;
     };
+    const summarizeTranscriptFile = async (file, options={}, signal) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        if(options.taskId) fd.append("task_id", options.taskId);
+        if(options.skipSummary) fd.append("skip_summary", "true");
+        appendAiOptions(fd, options);
+        const r = await fetch(`${API_BASE}/summarize-transcript-file`, {method:"POST", body:fd, signal});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const recordEvent = async (payload) => {
+        try {
+            await fetch(`${API_BASE}/events`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload || {}),
+            });
+        } catch(_) {}
+    };
     const checkHealth = async () => { try{ return (await fetch(`${API_BASE}/health`)).ok; }catch(_){return false;} };
-    return {processVideoSSE, checkHealth};
+    return {processVideoSSE, summarizeTranscriptFile, recordEvent, checkHealth};
 };
 
 const useSettings = () => {
@@ -734,17 +955,41 @@ const StatusBar = () => {
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
-    const {processVideoSSE, checkHealth} = useApi();
+            const subtitleInputRef = useRef(null);
+    const {processVideoSSE, summarizeTranscriptFile, recordEvent, checkHealth} = useApi();
     const {loadSettings} = useSettings();
             const navigate = useNavigate();
     const abortRef = useRef(null);
+    const currentTaskRef = useRef(null);
 
     useEffect(() => { checkHealth(); }, []);
 
     const handleCancel = () => {
+        const task = currentTaskRef.current;
+        if(task){
+            recordEvent({
+                event_name: "task_cancelled",
+                task_id: task.taskId,
+                source_type: task.sourceType,
+                source_filename: task.fileName,
+                source_file_size_mb: task.fileSizeMb,
+                stage: currentJob?.stage || "cancelled",
+                success: false,
+                metadata: {trigger: "user_cancel"},
+            });
+        }
         if(abortRef.current){ abortRef.current.abort(); abortRef.current=null; }
+        currentTaskRef.current = null;
         setCurrentJob(null);
     };
+
+    const buildAiOptions = (settings) => ({
+        deepseekApiKey: settings.deepseekApiKey||null,
+        openaiApiKey: settings.openaiApiKey||null,
+        aiProvider: settings.aiProvider||'deepseek',
+        aiModel: settings.aiModel||null,
+        systemPrompt: resolveSystemPromptFromSettings(settings)||null,
+    });
 
             const handleFileSelect = async (e) => {
                 const file = e.target.files?.[0];
@@ -758,26 +1003,43 @@ const StatusBar = () => {
                 setProcessingResult(null);
 
         const ac = new AbortController();
+        const taskId = createTaskId();
         abortRef.current = ac;
+        currentTaskRef.current = {
+            taskId,
+            fileName: file.name,
+            sourceType: /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i.test(file.name) ? "audio" : "video",
+            fileSizeMb: Math.round(file.size / 1024 / 1024 * 1000) / 1000,
+        };
         setCurrentJob({fileName:file.name, stage:'upload', progress:2});
 
                 try {
-                    const settings = loadSettings();
-            const promptText = resolveSystemPromptFromSettings(settings);
+            const settings = loadSettings();
+            let openedTranscript = false;
             const result = await processVideoSSE(file, {
+                taskId,
                 exportToLark: settings.exportToLark||false,
                 larkViaCli: !!settings.larkViaCli,
                 title: file.name.replace(/\.[^/.]+$/,""),
-                deepseekApiKey: settings.deepseekApiKey||null,
-                sttModel: settings.sttModel||null,
-                larkAppId: settings.larkAppId||null,
+                ...buildAiOptions(settings),
+	                skipSummary: !!settings.skipAiSummary,
+	                sttModel: settings.sttModel||null,
+	                sttSpeed: settings.sttSpeed||'balanced',
+	                sttLanguage: settings.sttLanguage||'auto',
+	                larkAppId: settings.larkAppId||null,
                 larkAppSecret: settings.larkAppSecret||null,
-                systemPrompt: promptText||null,
             }, (ev) => {
                 setCurrentJob(prev => prev ? {...prev, stage:ev.stage, progress:ev.progress} : null);
+                if(ev.stage === 'transcript_ready' && ev.result && !openedTranscript) {
+                    openedTranscript = true;
+                    setLastResult(ev.result);
+                    setProcessingResult(ev.result);
+                    navigate('/editor');
+                }
             }, ac.signal);
 
             abortRef.current = null;
+            currentTaskRef.current = null;
             setCurrentJob({fileName:file.name, stage:'done', progress:100});
             setLastResult(result);
                     setProcessingResult(result);
@@ -785,32 +1047,97 @@ const StatusBar = () => {
             const durSec = result.audio_duration_seconds || 0;
             const larkUrl = result.lark_response?.url || null;
             addToHistory({
-                id: Date.now(), name: file.name, timestamp: Date.now(),
+                id: Date.now(), taskId: result.task_id || taskId, name: file.name, timestamp: Date.now(),
                 durationMin: Math.round(durSec/60*10)/10,
                 status:'completed',
                 transcriptText: result.transcript_text||result.transcript_text_preview||'',
-                segments: result.segments||[],
-                summary: result.summary_markdown||'',
-                larkUrl,
-                larkError: result.lark_error||null,
-                audioDurationSec: durSec,
-            });
-            if(larkUrl) addLarkExport({url:larkUrl, title:file.name, timestamp:Date.now()});
+	                segments: result.segments||[],
+	                summary: result.summary_markdown||'',
+	                summarySkipped: !!result.summary_skipped,
+	                larkUrl,
+	                larkError: result.lark_error||null,
+	                audioDurationSec: durSec,
+	                sttElapsedSec: result.stt_elapsed_seconds||0,
+	                source: result.source||null,
+	            });
+            if(larkUrl) addLarkExport({url:larkUrl, title: result.lark_doc_title || fileNameStem(file.name), timestamp:Date.now()});
             setTimeout(() => setCurrentJob(null), 3000);
         } catch(err) {
             abortRef.current = null;
+            currentTaskRef.current = null;
             setCurrentJob(null);
             if(err.name !== 'AbortError'){
                 setUploadError(err.message || "Processing failed.");
-                addToHistory({id:Date.now(), name:file.name, timestamp:Date.now(), durationMin:0, status:'failed'});
+                addToHistory({id:Date.now(), taskId, name:file.name, timestamp:Date.now(), durationMin:0, status:'failed'});
             }
+                }
+            };
+
+            const handleSubtitleSelect = async (e) => {
+                const file = e.target.files?.[0];
+                if(!file) return;
+                if(subtitleInputRef.current) subtitleInputRef.current.value = '';
+                const validExts = /\.(srt|vtt|txt|md)$/i;
+                if(!validExts.test(file.name)){
+                    setUploadError(t('dash.subtitleFileError')); return;
+                }
+                setUploadError(null);
+                setProcessingResult(null);
+
+                const ac = new AbortController();
+                const taskId = createTaskId();
+                abortRef.current = ac;
+                currentTaskRef.current = {
+                    taskId,
+                    fileName: file.name,
+                    sourceType: "transcript_file",
+                    fileSizeMb: Math.round(file.size / 1024 / 1024 * 1000) / 1000,
+                };
+                setCurrentJob({fileName:file.name, stage:'summary', progress:20});
+                try {
+                    const settings = loadSettings();
+                    const result = await summarizeTranscriptFile(file, {taskId, ...buildAiOptions(settings), skipSummary: !!settings.skipAiSummary}, ac.signal);
+                    abortRef.current = null;
+                    currentTaskRef.current = null;
+                    setCurrentJob({fileName:file.name, stage:'done', progress:100});
+                    setLastResult(result);
+                    setProcessingResult(result);
+                    const durSec = result.audio_duration_seconds || 0;
+                    addToHistory({
+                        id: Date.now(), taskId: result.task_id || taskId, name: file.name, timestamp: Date.now(),
+                        durationMin: Math.round(durSec/60*10)/10,
+                        status:'completed',
+                        transcriptText: result.transcript_text||result.transcript_text_preview||'',
+	                        segments: result.segments||[],
+	                        summary: result.summary_markdown||'',
+	                        summarySkipped: !!result.summary_skipped,
+	                        larkUrl:null,
+	                        larkError:null,
+	                        audioDurationSec: durSec,
+	                        sttElapsedSec: 0,
+	                        source: result.source||'transcript_file',
+	                    });
+                    navigate('/editor');
+                    setTimeout(() => setCurrentJob(null), 3000);
+                } catch(err) {
+                    abortRef.current = null;
+                    currentTaskRef.current = null;
+                    setCurrentJob(null);
+                    if(err.name !== 'AbortError'){
+                        setUploadError(err.message || "Summary generation failed.");
+                        addToHistory({id:Date.now(), taskId, name:file.name, timestamp:Date.now(), durationMin:0, status:'failed'});
+                    }
                 }
             };
 
             const handleDrop = (e) => {
                 e.preventDefault();
                 const file = e.dataTransfer.files?.[0];
-        if(file && fileInputRef.current){
+        if(file && /\.(srt|vtt|txt|md)$/i.test(file.name) && subtitleInputRef.current){
+            const dt = new DataTransfer(); dt.items.add(file);
+            subtitleInputRef.current.files = dt.files;
+            handleSubtitleSelect({target:subtitleInputRef.current});
+        } else if(file && fileInputRef.current){
             const dt = new DataTransfer(); dt.items.add(file);
             fileInputRef.current.files = dt.files;
             handleFileSelect({target:fileInputRef.current});
@@ -853,24 +1180,31 @@ const StatusBar = () => {
                     <div className="grid grid-cols-12 gap-8">
                         <div className="col-span-12 lg:col-span-7 group">
                     <div className="relative h-[480px] rounded-sm overflow-hidden bg-slate-900 shadow-2xl transition-transform hover:scale-[1.01] duration-500" onDrop={handleDrop} onDragOver={e=>e.preventDefault()}>
-                                <div className="absolute inset-0 opacity-40">
-                            <img className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAogpynbB7qXytv4TN8SjVBvosJbe71tDK0WCJF9OuzLKFJMNgLZHJr9xSt68zrdHhXuBb_t8Nzq1cG7Nrc9Tfwe9bqWGZ2ugnAM9pJuptsLBOYagZ7BLGphmFzjWWOqnYkXQsIOS8ke7ash7PsgYRMnXqZAX91uAPL17nQxEs4AsMqBtxr9VI0APsUUaIsNmmOVZA4qRoEMajqdN28qbri0rCkWSgZ1MhYzeH95SyTv7wnOT2fPE03G1MNwWVF2HsKHygfJHaZ2EE" alt="Abstract waves"/>
+                                <div className="absolute inset-0 opacity-40" aria-hidden="true">
+                            <div className="w-full h-full bg-gradient-to-br from-slate-800 via-indigo-950/90 to-blue-900/70" style={{backgroundImage:'linear-gradient(135deg,#1e293b 0%,#312e81 35%,#1e3a5f 70%,#0f172a 100%)'}} />
                                 </div>
                                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-                                <div className="relative h-full flex flex-col justify-end p-10 space-y-6">
-                                    <div className="max-w-md">
+	                                <div className="relative h-full flex flex-col justify-end items-center p-10 space-y-6">
+	                                    <div className="w-full max-w-[720px] mx-auto">
                                 <span className="bg-primary/20 text-primary-fixed border border-primary/30 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.proTag')}</span>
                                 <h3 className="font-headline text-3xl font-bold text-white leading-tight">{t('dash.heroTitle')}</h3>
                                 <p className="text-slate-300 mt-4 text-sm leading-relaxed">{t('dash.heroDesc')}</p>
                                     </div>
-                                    <div className="flex items-center gap-4">
-                                <input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
-                                <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="bg-white text-slate-900 font-bold px-8 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-lg disabled:opacity-50">
-                                            <span className="material-symbols-outlined">upload_file</span>
-                                    <span>{uploading ? t('dash.processing') : t('dash.selectFile')}</span>
-                                        </button>
-                                <div className="text-slate-400 text-sm font-medium">{t('dash.dragHint')}</div>
-                                    </div>
+		                                    <div className="w-full max-w-[720px] mx-auto space-y-5">
+	                                        <div className="flex items-center gap-3" style={{display:'flex', flexDirection:'row', flexWrap:'nowrap', width:'fit-content'}}>
+	                                <input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
+	                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
+	                                <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} style={{width:172, flex:'0 0 172px'}} className="bg-white text-slate-900 font-bold px-4 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-lg disabled:opacity-50 justify-center">
+	                                            <span className="material-symbols-outlined">upload_file</span>
+	                                    <span>{uploading ? t('dash.processing') : t('dash.selectFile')}</span>
+	                                        </button>
+	                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} style={{width:212, flex:'0 0 212px'}} className="bg-white/10 text-white border border-white/25 font-bold px-4 py-4 rounded-sm flex items-center gap-3 hover:bg-white/20 transition-colors disabled:opacity-50 justify-center">
+	                                    <span className="material-symbols-outlined">subtitles</span>
+	                                    <span>{t('dash.selectSubtitle')}</span>
+	                                </button>
+	                                        </div>
+	                                <div className="text-slate-400 text-sm font-bold max-w-xl">{t('dash.dragHint')}</div>
+	                                    </div>
                             {uploading && currentJob && (
                                         <div className="w-full max-w-md">
                                             <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
@@ -889,7 +1223,7 @@ const StatusBar = () => {
                             {uploadError && <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-lg text-sm">{uploadError}</div>}
                                     {processingResult && (
                                         <div className="bg-green-500/20 border border-green-500/50 text-green-300 px-4 py-2 rounded-lg text-sm">
-                                    {t('dash.done')} <button onClick={()=>navigate("/editor")} className="underline hover:no-underline">{t('dash.viewEditor')}</button>
+	                                    {processingResult.source==='transcript_file' ? t('dash.subtitleDone') : t('dash.done')} <button onClick={()=>navigate("/editor")} className="underline hover:no-underline">{t('dash.viewEditor')}</button>
                                         </div>
                                     )}
                                 </div>
@@ -905,7 +1239,7 @@ const StatusBar = () => {
                             <div className="text-center py-12 text-on-surface-variant text-sm">{t('dash.noActivity')}</div>
                         )}
                         {history.slice(0,5).map(h => (
-                            <div key={h.id} className="bg-surface-container-low p-5 rounded-sm flex gap-4 items-start hover:bg-surface-container transition-all cursor-pointer" onClick={() => { if(h.status==='completed'){ setLastResult({transcript_text:h.transcriptText,segments:h.segments,summary_markdown:h.summary,filename:h.name,audio_duration_seconds:h.audioDurationSec}); navigate('/editor'); } }}>
+		                            <div key={h.id} className="bg-surface-container-low p-5 rounded-sm flex gap-4 items-start hover:bg-surface-container transition-all cursor-pointer" onClick={() => { if(h.status==='completed'){ setLastResult({task_id:h.taskId,source:h.source||null,transcript_text:h.transcriptText,segments:h.segments,summary_markdown:h.summary,summary_skipped:!!h.summarySkipped,filename:h.name,audio_duration_seconds:h.audioDurationSec,stt_elapsed_seconds:h.sttElapsedSec||0}); navigate('/editor'); } }}>
                                 <div className={`w-12 h-12 rounded-sm flex items-center justify-center ${h.status==='completed'?'bg-blue-50':'bg-red-50'}`}>
                                     <span className={`material-symbols-outlined ${h.status==='completed'?'text-primary':'text-red-500'}`}>{h.status==='completed'?'check_circle':'error'}</span>
                                         </div>
@@ -917,9 +1251,10 @@ const StatusBar = () => {
                                                 </span>
                                             </div>
                                     <p className="text-xs text-on-surface-variant">
-                                        {timeAgo(h.timestamp, t)}
-                                        {h.durationMin > 0 && ` • ${h.durationMin} ${t('dash.minUnit')}`}
-                                        {h.larkUrl && <> • <a href={h.larkUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" onClick={e=>e.stopPropagation()}>Lark</a></>}
+	                                        {timeAgo(h.timestamp, t)}
+	                                        {h.durationMin > 0 && ` • ${h.durationMin} ${t('dash.minUnit')}`}
+	                                        {h.sttElapsedSec > 0 && ` • ${t('edit.sttElapsed')} ${fmtElapsed(h.sttElapsedSec)}`}
+	                                        {h.larkUrl && <> • <a href={h.larkUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" onClick={e=>e.stopPropagation()}>Lark</a></>}
                                     </p>
                                         </div>
                                     </div>
@@ -1020,6 +1355,7 @@ const Processing = () => {
 const Editor = () => {
     const {t, lang} = useI18n();
     const {lastResult, setLastResult, history, addLarkExport} = useApp();
+    const {recordEvent} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
@@ -1027,6 +1363,7 @@ const Editor = () => {
     const [toast, setToast] = useState(null);
     const [larkUrl, setLarkUrl] = useState(null);
     const summaryRef = useRef(null);
+    const fallbackTaskIdRef = useRef(createTaskId());
 
     const initSettings = loadSettings();
     let initPk = initSettings.promptPreset || 'default';
@@ -1067,7 +1404,7 @@ const Editor = () => {
 
     const result = lastResult || (history.length > 0 && history.find(h => h.status==='completed') ? (() => {
         const h = history.find(h=>h.status==='completed');
-        return {transcript_text:h.transcriptText, segments:h.segments, summary_markdown:h.summary, filename:h.name, audio_duration_seconds:h.audioDurationSec};
+		        return {task_id:h.taskId, source:h.source||null, transcript_text:h.transcriptText, segments:h.segments, summary_markdown:h.summary, summary_skipped:!!h.summarySkipped, filename:h.name, audio_duration_seconds:h.audioDurationSec, stt_elapsed_seconds:h.sttElapsedSec||0};
     })() : null);
 
     const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null), 3000); };
@@ -1174,16 +1511,26 @@ const Editor = () => {
             const settings = loadSettings();
             const fd = new FormData();
             fd.append('markdown', result.summary_markdown||'');
-            fd.append('title', result.filename || 'FluentFlow Export');
+            fd.append('title', fileNameStem(result.filename));
+            fd.append('task_id', activeTaskId);
+            if(result.source) fd.append('source_type', result.source);
+            if(result.filename) fd.append('source_filename', result.filename);
+            if(durSec > 0) fd.append('source_duration_seconds', String(durSec));
             if(settings.larkAppId) fd.append('lark_app_id', settings.larkAppId);
             if(settings.larkAppSecret) fd.append('lark_app_secret', settings.larkAppSecret);
             fd.append('lark_via_cli', settings.larkViaCli ? 'true' : 'false');
             const r = await fetch(`${API_BASE}/export-lark`, {method:'POST', body:fd});
-            if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||'Export failed');
-            const data = await r.json();
+            const data = await r.json().catch(()=>({}));
+            if(!r.ok) {
+                const d = data.detail;
+                const msg = Array.isArray(d) ? d.map(x=>x.msg||x).join('; ') : (d || 'Export failed');
+                throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
             const exportUrl = data.url || null;
+            if(!exportUrl && !data.dry_run) throw new Error(data.msg || 'No document URL returned');
             setLarkUrl(exportUrl);
-            if(exportUrl) addLarkExport({url:exportUrl, title:result.filename||'Export', timestamp:Date.now()});
+            const dispTitle = data.doc_title || fileNameStem(result.filename) || "Export";
+            if(exportUrl) addLarkExport({url:exportUrl, title: dispTitle, timestamp:Date.now()});
             showToast(t('edit.exportDone'));
         } catch(err) { showToast(t('edit.exportFail')+': '+err.message, false); }
         finally { setExporting(false); }
@@ -1196,13 +1543,20 @@ const Editor = () => {
             const settings = loadSettings();
             const fd = new FormData();
             fd.append('transcript', result.transcript_text);
+            fd.append('task_id', activeTaskId);
+            if(result.source) fd.append('source_type', result.source);
+            if(result.filename) fd.append('source_filename', result.filename);
+            if(durSec > 0) fd.append('source_duration_seconds', String(durSec));
             if(settings.deepseekApiKey) fd.append('deepseek_api_key', settings.deepseekApiKey);
+            if(settings.openaiApiKey) fd.append('openai_api_key', settings.openaiApiKey);
+            if(settings.aiProvider) fd.append('ai_provider', settings.aiProvider);
+            if(settings.aiModel) fd.append('ai_model', settings.aiModel);
             const activePrompt = resolveSystemPromptFromSettings(settings);
             if(activePrompt) fd.append('system_prompt', activePrompt);
             const r = await fetch(`${API_BASE}/regenerate-summary`, {method:'POST', body:fd});
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||'Regeneration failed');
             const data = await r.json();
-            setLastResult({...result, summary_markdown: data.summary_markdown});
+	            setLastResult({...result, task_id: data.task_id || activeTaskId, summary_markdown: data.summary_markdown, summary_skipped: false});
             showToast(t('edit.regenDone'));
         } catch(err) { showToast(err.message, false); }
         finally { setRegenerating(false); }
@@ -1229,6 +1583,23 @@ const Editor = () => {
     const transcript = result.transcript_text || '';
     const summary = result.summary_markdown || '';
     const durSec = result.audio_duration_seconds || 0;
+    const sttElapsedSec = result.stt_elapsed_seconds || 0;
+    const activeTaskId = result.task_id || fallbackTaskIdRef.current;
+
+    const recordDownload = (eventName, format) => {
+        recordEvent({
+            event_name: eventName,
+            task_id: activeTaskId,
+            source_type: result.source || null,
+            source_filename: result.filename,
+            source_duration_seconds: durSec,
+            transcript_length: transcript.length,
+            summary_length: summary.length,
+            stage: "download",
+            success: true,
+            metadata: {format},
+        });
+    };
 
     return (
     <div className="ml-64 min-h-screen relative pb-8">
@@ -1255,9 +1626,10 @@ const Editor = () => {
                 <div className="flex justify-between items-end">
                                             <div>
                         <h1 className="text-3xl font-extrabold font-headline tracking-tight text-on-surface">{result.filename || t('edit.title')}</h1>
-                        <p className="text-on-surface-variant mt-1">
-                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
-                            {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
+	                        <p className="text-on-surface-variant mt-1">
+	                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
+	                            {sttElapsedSec > 0 && <>{t('edit.sttElapsed')}: {fmtElapsed(sttElapsedSec)} &bull; </>}
+	                            {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
                             <span className="text-tertiary font-semibold uppercase tracking-wider text-[10px]">{t('edit.confidence')}</span>
                         </p>
                                             </div>
@@ -1400,9 +1772,9 @@ const Editor = () => {
                                         </button>
                                     }
                                     items={[
-                                        {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,result.filename); showToast(t('dl.success'));}},
-                                        {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,result.filename); showToast(t('dl.success'));}},
-                                        {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,result.filename); showToast(t('dl.success'));}},
+                                        {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,result.filename); recordDownload('transcript_downloaded','txt'); showToast(t('dl.success'));}},
+                                        {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,result.filename); recordDownload('transcript_downloaded','srt'); showToast(t('dl.success'));}},
+                                        {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,result.filename); recordDownload('transcript_downloaded','vtt'); showToast(t('dl.success'));}},
                                     ]}
                                 />
                                 </div>
@@ -1437,24 +1809,26 @@ const Editor = () => {
                                     </button>
                                     }
                                     items={[
-                                        {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,result.filename); showToast(t('dl.success'));}},
-                                        {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,result.filename); showToast(t('dl.success'));}},
+                                        {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,result.filename); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
+                                        {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,result.filename); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
                                         {divider:true},
                                         {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
                                             setDownloading('pdf');
-                                            try{ await dlSummaryPdf(summaryRef,result.filename); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                            try{ await dlSummaryPdf(summaryRef,result.filename); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
                                             finally{setDownloading(null);}
                                         }},
-                                        {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,result.filename); showToast(t('dl.success'));}},
+                                        {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,result.filename); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
                                     ]}
                                 />
                             </div>
                                 </div>
                                 <div className="flex-grow overflow-y-auto p-8 hide-scrollbar">
-                            {summary ? (
-                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
-                            ) : (
-                                <p className="text-on-surface-variant text-sm italic">No summary available.</p>
+	                            {summary ? (
+	                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
+	                            ) : result.summary_skipped ? (
+	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summarySkipped')}</p>
+	                            ) : (
+	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summaryPending')}</p>
                             )}
                                 </div>
                                 <div className="p-4 bg-tertiary-fixed border-t border-tertiary/20 flex items-center justify-between">
@@ -1552,6 +1926,8 @@ const Editor = () => {
             return next;
         });
     };
+    const aiProvider = settings.aiProvider || 'deepseek';
+    const aiModel = settings.aiModel || (aiProvider === 'openai' ? 'gpt-5.4-mini' : 'deepseek-chat');
 
     const handleClear = () => {
         if(history.length === 0) return;
@@ -1722,65 +2098,97 @@ const Editor = () => {
                                     </div>
                                         <div className="space-y-2">
                                 <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.modelSel')}</label>
-                                <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={settings.sttModel||"small"} onChange={e=>setSettings(s=>({...s,sttModel:e.target.value}))}>
-                                    <option value="tiny">{t('set.optTiny')}</option>
-                                    <option value="base">{t('set.optBase')}</option>
-                                    <option value="small">{t('set.optSmall')}</option>
-                                    <option value="medium">{t('set.optMedium')}</option>
-                                    <option value="large-v3">{t('set.optLarge')}</option>
-                                            </select>
+	                                <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={settings.sttModel||"small"} onChange={e=>setSettings(s=>({...s,sttModel:e.target.value}))}>
+	                                    <option value="tiny">{t('set.optTiny')}</option>
+	                                    <option value="base">{t('set.optBase')}</option>
+	                                    <option value="small">{t('set.optSmall')}</option>
+	                                    <option value="medium">{t('set.optMedium')}</option>
+	                                    <option value="large-v3">{t('set.optLarge')}</option>
+	                                            </select>
+	                                    </div>
+	                                    <div className="space-y-2 mt-4">
+	                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.sttLanguage')}</label>
+	                                <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={settings.sttLanguage||"auto"} onChange={e=>setSettings(s=>({...s,sttLanguage:e.target.value}))}>
+	                                    <option value="auto">{t('set.langAuto')}</option>
+	                                    <option value="zh">{t('set.langZh')}</option>
+	                                    <option value="en">{t('set.langEn')}</option>
+	                                </select>
+	                                    </div>
+	                                    <div className="space-y-2 mt-4">
+	                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.sttSpeed')}</label>
+                                <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={settings.sttSpeed||"balanced"} onChange={e=>setSettings(s=>({...s,sttSpeed:e.target.value}))}>
+                                    <option value="fast">{t('set.speedFast')}</option>
+                                    <option value="balanced">{t('set.speedBalanced')}</option>
+                                    <option value="accurate">{t('set.speedAccurate')}</option>
+                                </select>
                                     </div>
                                 </section>
                                 <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
                                     <div className="flex items-center gap-3 mb-6">
                                         <span className="material-symbols-outlined text-tertiary">psychology</span>
                                 <h2 className="text-lg font-bold font-headline">{t('set.intelligence')}</h2>
-                                    </div>
-                                    <div className="space-y-6">
-                                        <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.provider')}</label>
-                                    <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value="deepseek" disabled title="Only DeepSeek is currently supported">
+	                                    </div>
+	                                    <div className="space-y-6">
+                                        <div className="flex items-start gap-3 p-4 rounded-sm bg-surface-container-low">
+                                            <input type="checkbox" id="skipAiSummary" checked={settings.skipAiSummary||false} onChange={e=>setSettings(s=>({...s,skipAiSummary:e.target.checked}))} className="w-4 h-4 mt-0.5 rounded border-outline-variant text-primary focus:ring-primary"/>
+                                            <label htmlFor="skipAiSummary" className="text-sm text-on-surface leading-snug">{t('set.skipSummary')}<span className="block text-[11px] text-slate-400 mt-0.5">{t('set.skipSummaryHint')}</span></label>
+                                        </div>
+	                                        <div className="space-y-2">
+	                                    <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.provider')}</label>
+                                    <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={aiProvider} onChange={e=>setSettings(s=>({...s,aiProvider:e.target.value,aiModel:e.target.value==='openai'?'gpt-5.4-mini':'deepseek-chat'}))}>
                                         <option value="deepseek">DeepSeek</option>
+                                        <option value="openai">OpenAI</option>
                                             </select>
-                                    <p className="text-[10px] text-slate-400">OpenAI / Claude support coming soon</p>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">API Key</label>
-                                    <input className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 focus:ring-2 focus:ring-primary/20 text-sm" placeholder="sk-••••••••" type="password" value={settings.deepseekApiKey||""} onChange={e=>setSettings(s=>({...s,deepseekApiKey:e.target.value}))}/>
+                                            <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{aiProvider==='openai'?t('set.openaiKey'):t('set.deepseekKey')}</label>
+                                    <input className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 focus:ring-2 focus:ring-primary/20 text-sm" placeholder="sk-••••••••" type="password" value={aiProvider==='openai'?(settings.openaiApiKey||""):(settings.deepseekApiKey||"")} onChange={e=>setSettings(s=>aiProvider==='openai'?({...s,openaiApiKey:e.target.value}):({...s,deepseekApiKey:e.target.value}))}/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.aiModel')}</label>
+                                    {aiProvider === 'openai' ? (
+                                        <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={aiModel} onChange={e=>setSettings(s=>({...s,aiModel:e.target.value}))}>
+                                            <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                                            <option value="gpt-5.4">gpt-5.4</option>
+                                            <option value="gpt-5.5">gpt-5.5</option>
+                                        </select>
+                                    ) : (
+                                        <select className="w-full bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20" value={aiModel} onChange={e=>setSettings(s=>({...s,aiModel:e.target.value}))}>
+                                            <option value="deepseek-chat">deepseek-chat</option>
+                                            <option value="deepseek-reasoner">deepseek-reasoner</option>
+                                        </select>
+                                    )}
                                         </div>
                                     </div>
                                 </section>
                             </div>
                         </div>
-                        <div className="lg:col-span-4 space-y-8">
-                            <section className="bg-surface-container-lowest rounded-sm p-8 shadow-sm">
-                        <h2 className="text-lg font-bold mb-6 font-headline">{t('set.prefs')}</h2>
-                                <div className="space-y-8">
-                                    <div className="space-y-3">
-                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.theme')}</label>
-                                        <div className="grid grid-cols-2 gap-2 p-1 bg-surface-container-low rounded-sm">
-                                    <button onClick={()=>applyTheme('light')} className={`flex items-center justify-center gap-2 py-2 rounded-sm text-sm font-semibold transition ${!isDark?'bg-primary text-white shadow-sm':'text-on-surface-variant hover:bg-surface-container-high'}`}>
-                                        <span className="material-symbols-outlined text-sm">light_mode</span>{t('set.light')}
-                                            </button>
-                                    <button onClick={()=>applyTheme('dark')} className={`flex items-center justify-center gap-2 py-2 rounded-sm text-sm font-semibold transition ${isDark?'bg-primary text-white shadow-sm':'text-on-surface-variant hover:bg-surface-container-high'}`}>
-                                        <span className="material-symbols-outlined text-sm">dark_mode</span>{t('set.dark')}
-                                            </button>
-                                        </div>
-                                    </div>
-                            <div className="space-y-3">
-                                <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('edit.clearHistory')}</label>
-                                <button onClick={handleClear} disabled={history.length===0} className={`w-full py-3 px-4 bg-red-50 text-red-600 font-semibold text-sm rounded-sm hover:bg-red-100 transition disabled:opacity-30 flex items-center justify-center gap-2 ${clearArmed?'ring-2 ring-red-300/70':''}`}>
-                                    <span className="material-symbols-outlined text-sm">delete_sweep</span>
-                                    {cleared ? t('edit.clearConfirm') : (clearArmed ? t('edit.clearConfirmAgain') : `${t('edit.clearHistory')} (${history.length})`)}
-                                </button>
-                            </div>
-                                    <div className="pt-4 border-t border-slate-100">
-                                <button onClick={handleSave} className="w-full py-4 px-6 bg-primary-container text-white rounded-sm font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
-                                    <span className="material-symbols-outlined text-sm">{saved?"check":"save"}</span>
-                                    {saved ? t('set.saved') : t('set.saveAll')}
+                        <div className="lg:col-span-4 lg:sticky lg:bottom-8 self-end">
+                            <section className="bg-surface-container-lowest/95 backdrop-blur-xl rounded-xl p-4 shadow-2xl border border-slate-200/70">
+                                <div className="flex items-center justify-between gap-3 mb-3">
+                                    <h2 className="text-sm font-bold font-headline text-on-surface">{t('set.prefs')}</h2>
+                                    <div className="grid grid-cols-2 gap-1 p-1 bg-surface-container-low rounded-lg">
+                                        <button onClick={()=>applyTheme('light')} className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition ${!isDark?'bg-primary text-white shadow-sm':'text-on-surface-variant hover:bg-surface-container-high'}`}>
+                                            <span className="material-symbols-outlined text-sm">light_mode</span>{t('set.light')}
+                                        </button>
+                                        <button onClick={()=>applyTheme('dark')} className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition ${isDark?'bg-primary text-white shadow-sm':'text-on-surface-variant hover:bg-surface-container-high'}`}>
+                                            <span className="material-symbols-outlined text-sm">dark_mode</span>{t('set.dark')}
                                         </button>
                                     </div>
                                 </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button onClick={handleClear} disabled={history.length===0} className={`py-3 px-3 rounded-lg font-semibold text-xs transition disabled:opacity-30 flex items-center justify-center gap-2 ${clearArmed?'bg-red-600 text-white ring-2 ring-red-300/70':'bg-red-50 text-red-600 hover:bg-red-100'}`}>
+                                        <span className="material-symbols-outlined text-sm">delete_sweep</span>
+                                        {cleared ? t('edit.clearConfirm') : (clearArmed ? t('edit.clearConfirmAgain') : `${t('edit.clearHistory')} (${history.length})`)}
+                                    </button>
+                                    <button onClick={handleSave} className="py-3 px-3 bg-primary-container text-white rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
+                                        <span className="material-symbols-outlined text-sm">{saved?"check":"save"}</span>
+                                        {saved ? t('set.saved') : t('set.saveAll')}
+                                    </button>
+                                </div>
+                                {clearArmed && (
+                                    <p className="mt-2 text-[11px] font-medium text-red-600 text-center">{t('edit.clearConfirmAgain')}</p>
+                                )}
                             </section>
                         </div>
                     </div>

@@ -1,0 +1,75 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO="/Users/yuchao/Documents/GitHub/fluentflow"
+API_PORT=8000
+APP_URL="http://127.0.0.1:${API_PORT}/"
+LOG_DIR="${REPO}/logs"
+LOG_FILE="${LOG_DIR}/uvicorn.log"
+
+wait_listen() {
+	local port="$1" tries="${2:-80}" i=0
+	while [[ "$i" -lt "$tries" ]]; do
+		if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 0.25
+		i=$((i + 1))
+	done
+	return 1
+}
+
+err_dialog() {
+	osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with icon stop" >/dev/null 2>&1 || true
+}
+
+# Stop anything already listening on this port (restart on each launch)
+kill_port_listeners() {
+	local port="$1"
+	local pids
+	pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+	if [[ -z "$pids" ]]; then
+		return 0
+	fi
+	echo "$pids" | xargs kill 2>/dev/null || true
+	sleep 1
+	pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+	if [[ -n "$pids" ]]; then
+		echo "$pids" | xargs kill -9 2>/dev/null || true
+		sleep 0.5
+	fi
+}
+
+kill_port_listeners "$API_PORT"
+
+if [[ ! -x "${REPO}/venv/bin/python" ]] && [[ ! -x "${REPO}/.venv/bin/python" ]]; then
+	err_dialog "找不到 Python 虚拟环境。请在终端执行：\ncd ${REPO}\npython3 -m venv venv\n./venv/bin/pip install -r requirements.txt"
+	exit 1
+fi
+
+VENV_PY="${REPO}/venv/bin/python"
+[[ -x "$VENV_PY" ]] || VENV_PY="${REPO}/.venv/bin/python"
+
+mkdir -p "$LOG_DIR"
+{
+	echo "---- $(date '+%Y-%m-%d %H:%M:%S') starting uvicorn (via Terminal) ----"
+} >>"$LOG_FILE"
+
+# GUI 进程直接 nohup 读 venv 会触发 TCC，无法读 Documents 下的 pyvenv.cfg；交给 Terminal 执行即可。
+# tee 同时写日志与终端，避免旧版 | head 导致管道关闭拖死 uvicorn。
+osascript <<EOF
+tell application "Terminal"
+	do script "cd '${REPO}' && '${VENV_PY}' -m uvicorn backend.main:app --host 127.0.0.1 --port ${API_PORT} 2>&1 | tee -a '${LOG_FILE}'"
+	delay 1.5
+	try
+		set miniaturized of front window to true
+	end try
+end tell
+EOF
+
+if ! wait_listen "$API_PORT"; then
+	err_dialog "后端端口 ${API_PORT} 未监听。请查看日志：\n${LOG_FILE}"
+	exit 1
+fi
+
+open "$APP_URL"

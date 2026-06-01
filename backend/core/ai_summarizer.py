@@ -1,4 +1,4 @@
-"""Summarize Whisper transcripts with DeepSeek (OpenAI-compatible API)."""
+"""Summarize Whisper transcripts with OpenAI-compatible chat providers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,11 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 DEEPSEEK_BASE_URL: Final[str] = "https://api.deepseek.com"
-DEFAULT_MODEL: Final[str] = "deepseek-chat"
+OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
+DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-chat"
+DEFAULT_OPENAI_MODEL: Final[str] = "gpt-5.4-mini"
+DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
+SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai"}
 
 # Full system prompt: FluentFlow 知识架构师（飞书云文档 Markdown）
 FLUENTFLOW_SYSTEM_PROMPT: Final[str] = """# Role: FluentFlow 知识架构师
@@ -36,6 +40,7 @@ FLUENTFLOW_SYSTEM_PROMPT: Final[str] = """# Role: FluentFlow 知识架构师
 - 保持原意，不要虚构事实。
 - 剔除「呃」、「那个」、「其实」等口头语。
 - 保持内容的高度浓缩，去除冗余解释。
+- 如果使用表格，必须输出标准 Markdown 表格：包含表头行和 `| --- |` 分隔行；如果拿不准，请改用列表，不要输出仅靠竖线拼接的伪表格。
 - 输出为可直接粘贴飞书云文档的 Markdown，不要使用代码围栏包裹整篇文档。"""
 
 # 分段提炼时使用（减轻最终合并输入长度）
@@ -55,12 +60,37 @@ _FINAL_WRAPPER: Final[str] = (
 )
 
 
-def _get_client(*, api_key: str | None = None) -> OpenAI:
+def _normalize_provider(provider: str | None) -> str:
+    p = (provider or os.environ.get("AI_PROVIDER") or "deepseek").strip().lower()
+    if p not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"Unsupported AI provider: {provider}")
+    return p
+
+
+def _provider_base_url(provider: str) -> str:
+    if provider == "openai":
+        return (os.environ.get("OPENAI_BASE_URL") or OPENAI_BASE_URL).rstrip("/")
+    return (os.environ.get("DEEPSEEK_BASE_URL") or DEEPSEEK_BASE_URL).rstrip("/")
+
+
+def _provider_default_model(provider: str) -> str:
+    if provider == "openai":
+        return (os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL).strip()
+    return (os.environ.get("DEEPSEEK_MODEL") or DEFAULT_DEEPSEEK_MODEL).strip()
+
+
+def _provider_api_key(provider: str, api_key: str | None = None) -> str:
     load_dotenv()
-    key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    env_name = "OPENAI_API_KEY" if provider == "openai" else "DEEPSEEK_API_KEY"
+    key = (api_key or os.environ.get(env_name, "")).strip()
     if not key:
-        raise ValueError("DEEPSEEK_API_KEY 未设置：请在 .env 中配置或传入 api_key。")
-    return OpenAI(api_key=key, base_url=DEEPSEEK_BASE_URL)
+        raise ValueError(f"{env_name} 未设置：请在 .env 中配置或在设置页填写 API Key。")
+    return key
+
+
+def _get_client(*, provider: str, api_key: str | None = None) -> OpenAI:
+    key = _provider_api_key(provider, api_key)
+    return OpenAI(api_key=key, base_url=_provider_base_url(provider))
 
 
 def _chat(
@@ -153,6 +183,7 @@ def summarize_transcript_to_markdown(
     *,
     api_key: str | None = None,
     model: str | None = None,
+    provider: str | None = None,
     system_prompt: str | None = None,
     max_chunk_chars: int = 10_000,
     chunk_overlap: int = 400,
@@ -166,8 +197,9 @@ def summarize_transcript_to_markdown(
         system_prompt: Custom system prompt; uses the default FluentFlow prompt if empty.
     """
     load_dotenv()
-    client = _get_client(api_key=api_key)
-    m = (model or os.environ.get("DEEPSEEK_MODEL") or DEFAULT_MODEL).strip()
+    provider_name = _normalize_provider(provider)
+    client = _get_client(provider=provider_name, api_key=api_key)
+    m = (model or _provider_default_model(provider_name)).strip()
     prompt = (system_prompt or "").strip() or FLUENTFLOW_SYSTEM_PROMPT
 
     chunks = _chunk_text(transcript, max_chunk_chars, chunk_overlap)
@@ -198,7 +230,10 @@ def summarize_transcript_to_markdown(
 
 __all__ = [
     "DEEPSEEK_BASE_URL",
+    "OPENAI_BASE_URL",
     "DEFAULT_MODEL",
+    "DEFAULT_DEEPSEEK_MODEL",
+    "DEFAULT_OPENAI_MODEL",
     "FLUENTFLOW_SYSTEM_PROMPT",
     "summarize_transcript_to_markdown",
 ]

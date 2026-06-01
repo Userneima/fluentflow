@@ -11,6 +11,9 @@ __pycache__/
 .eggs/
 dist/
 build/
+logs/
+exports/
+reports/
 
 # Local media / large assets (videos, extracted audio, etc.)
 data/*

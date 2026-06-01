@@ -13,15 +13,17 @@ import argparse
 from pathlib import Path
 
 try:
-    from backend.core.audio_handler import extract_compressed_mp3
+    from backend.core.audio_handler import extract_stt_wav
     from backend.core.local_stt import transcribe_audio
     from backend.core.ai_summarizer import summarize_transcript_to_markdown
     from backend.core.lark_exporter import export_markdown_to_lark
+    from backend.core.note_title import resolve_lark_doc_title
 except ImportError:
-    from core.audio_handler import extract_compressed_mp3
+    from core.audio_handler import extract_stt_wav
     from core.local_stt import transcribe_audio
     from core.ai_summarizer import summarize_transcript_to_markdown
     from core.lark_exporter import export_markdown_to_lark
+    from core.note_title import resolve_lark_doc_title
 
 
 def main() -> None:
@@ -37,9 +39,9 @@ def main() -> None:
         raise SystemExit(f"video not found: {vp}")
 
     print("Extracting audio...")
-    mp3 = extract_compressed_mp3(vp)
+    wav = extract_stt_wav(vp)
     print("Running STT...")
-    tr = transcribe_audio(mp3)
+    tr = transcribe_audio(wav)
     print("Summarizing...")
     try:
         md = summarize_transcript_to_markdown(tr.text)
@@ -51,7 +53,12 @@ def main() -> None:
 
     if args.export_to_lark:
         print("Exporting to Lark...")
-        out = export_markdown_to_lark(args.title or vp.stem, md, folder_token=args.folder_token)
+        export_title = resolve_lark_doc_title(
+            md,
+            filename_stem=vp.stem,
+            form_title=args.title,
+        )
+        out = export_markdown_to_lark(export_title, md, folder_token=args.folder_token)
         print("Lark response:", out)
 
 

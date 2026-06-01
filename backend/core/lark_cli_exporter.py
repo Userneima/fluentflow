@@ -19,6 +19,26 @@ logger = logging.getLogger(__name__)
 DEFAULT_WIKI_SPACE = "my_library"
 
 
+def _normalize_lark_cli_error(message: str) -> str:
+    raw = (message or "").strip()
+    lower = raw.lower()
+
+    if (
+        "createwikinodeinspace" in lower
+        or "wiki:wiki" in lower
+        or "wiki:node:create" in lower
+        or "unauthorized" in lower
+    ):
+        return (
+            "飞书导出失败：当前 lark-cli 登录身份缺少知识库创建权限 "
+            "（需要 `wiki:wiki`、`wiki:node:create`）。"
+            "请重新授权 lark-cli，或在设置里关闭“用本机 lark-cli 导出到「我的文档库」”，"
+            "改用 App ID / App Secret 导出。"
+        )
+
+    return raw or "lark-cli export failed"
+
+
 def _resolve_lark_cli_bin(explicit: Optional[str] = None) -> Optional[str]:
     if explicit and explicit.strip():
         p = explicit.strip()
@@ -83,7 +103,7 @@ def export_markdown_via_lark_cli(
 
     if proc.returncode != 0:
         msg = err or out or f"exit code {proc.returncode}"
-        raise RuntimeError(f"lark-cli failed: {msg}")
+        raise RuntimeError(_normalize_lark_cli_error(f"lark-cli failed: {msg}"))
 
     try:
         payload = json.loads(out)
@@ -93,7 +113,9 @@ def export_markdown_via_lark_cli(
 
     if not payload.get("ok"):
         err_obj = payload.get("error") or {}
-        raise RuntimeError(err_obj.get("message") or str(payload))
+        raise RuntimeError(
+            _normalize_lark_cli_error(err_obj.get("message") or str(payload))
+        )
 
     data = payload.get("data") or {}
     doc_url = data.get("doc_url") or data.get("url")

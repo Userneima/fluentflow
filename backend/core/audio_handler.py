@@ -52,3 +52,47 @@ def extract_compressed_mp3(
         check=True, capture_output=True,
     )
     return out
+
+
+def extract_stt_wav(
+    input_path: str | Path,
+    *,
+    output_path: str | Path | None = None,
+    sample_rate: int = 16_000,
+) -> Path:
+    """
+    Prepare a mono PCM WAV optimized for Whisper-style STT.
+
+    Avoiding lossy MP3 compression preserves speech detail, while 16 kHz mono
+    keeps files small and matches Whisper's expected audio representation.
+    """
+    src = Path(input_path).expanduser().resolve()
+    if not src.is_file():
+        raise FileNotFoundError(f"File not found: {src}")
+
+    if output_path is None:
+        out = src.with_name(f"{src.stem}_fluentflow_stt.wav")
+    else:
+        out = Path(output_path).expanduser().resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    ffmpeg = _require_ffmpeg()
+    subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(src),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            str(sample_rate),
+            "-codec:a",
+            "pcm_s16le",
+            str(out),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return out
