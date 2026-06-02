@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build:frontend && node scripts/build_vercel_static.js",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {"source": "/processing", "destination": "/index.html"},
+    {"source": "/editor", "destination": "/index.html"},
+    {"source": "/settings", "destination": "/index.html"}
+  ]
+}

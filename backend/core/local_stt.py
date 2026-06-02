@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 import re
+import tempfile
 import threading
+import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -18,6 +21,8 @@ _ZH_INITIAL_PROMPT = (
     "以下是普通话中文语音转录。请使用简体中文输出，保留必要的英文术语、数字和专有名词。"
 )
 _ZH_HOTWORDS = "简体中文 普通话 线下 创造营 产品经理 作业 同学 老师 课题"
+_MAX_INITIAL_PROMPT_CHARS = 300
+_MAX_HOTWORDS_CHARS = 240
 _SEGMENT_NORM_RE = re.compile(r"[\s，。！？、,.!?;；:：'\"“”‘’（）()【】\[\]《》<>-]+")
 _STT_SPEED_PROFILES: dict[str, dict[str, Any]] = {
     "fast": {
@@ -43,10 +48,12 @@ _STT_SPEED_PROFILES: dict[str, dict[str, Any]] = {
     },
 }
 
+DEFAULT_MODEL_SIZE = "medium"
+
 _SIZE_ALIASES: dict[str, str] = {
-    "tiny": "tiny",
-    "base": "base",
-    "small": "small",
+    "tiny": DEFAULT_MODEL_SIZE,
+    "base": DEFAULT_MODEL_SIZE,
+    "small": DEFAULT_MODEL_SIZE,
     "medium": "medium",
     "large-v2": "large-v2",
     "large-v3": "large-v3",
@@ -55,11 +62,11 @@ _SIZE_ALIASES: dict[str, str] = {
 
 def _resolve_model(model_size: str) -> str:
     """Return a local path if a pre-downloaded model exists, else the name for HF."""
-    alias = _SIZE_ALIASES.get(model_size, model_size)
+    alias = _SIZE_ALIASES.get((model_size or DEFAULT_MODEL_SIZE).strip(), DEFAULT_MODEL_SIZE)
     local = _LOCAL_MODEL_DIR / alias
     if local.is_dir() and (local / "model.bin").is_file():
         return str(local)
-    return model_size
+    return alias
 
 
 # ── Singleton model cache ────────────────────────────────────────────
@@ -88,16 +95,47 @@ def _to_simplified_chinese(text: str) -> str:
     return _opencc_converter.convert(text)
 
 
-def get_or_load_model(model_size: str = "small", compute_type: str = "int8") -> WhisperModel:
-    """Return a cached WhisperModel, loading it once on first call."""
+def get_or_load_model_with_stats(
+    model_size: str = DEFAULT_MODEL_SIZE,
+    compute_type: str = "int8",
+    device: str = "auto",
+    cpu_threads: int = 0,
+    num_workers: int = 1,
+) -> tuple[WhisperModel, dict[str, Any]]:
+    """Return a cached WhisperModel plus coarse cache/load metadata."""
     resolved = _resolve_model(model_size)
-    key = f"{resolved}|{compute_type}"
+    key = f"{resolved}|{compute_type}|{device}|{cpu_threads}|{num_workers}"
     with _model_lock:
-        if key not in _model_cache:
-            logger.info("Loading Whisper model: %s (compute=%s)…", resolved, compute_type)
-            _model_cache[key] = WhisperModel(resolved, compute_type=compute_type)
+        cache_hit = key in _model_cache
+        load_seconds = 0.0
+        if not cache_hit:
+            logger.info("Loading Whisper model: %s (device=%s, compute=%s)…", resolved, device, compute_type)
+            started_at = time.perf_counter()
+            _model_cache[key] = WhisperModel(
+                resolved,
+                device=device,
+                compute_type=compute_type,
+                cpu_threads=cpu_threads,
+                num_workers=num_workers,
+            )
+            load_seconds = time.perf_counter() - started_at
             logger.info("Whisper model loaded.")
-        return _model_cache[key]
+        return _model_cache[key], {
+            "model_cache_hit": cache_hit,
+            "model_load_seconds": round(load_seconds, 3),
+            "model_source": "local_cache" if Path(resolved).is_absolute() else "model_name",
+            "compute_type": compute_type,
+            "device_requested": device,
+            "device_resolved": getattr(_model_cache[key], "device", None),
+            "cpu_threads": cpu_threads,
+            "num_workers": num_workers,
+        }
+
+
+def get_or_load_model(model_size: str = DEFAULT_MODEL_SIZE, compute_type: str = "int8") -> WhisperModel:
+    """Return a cached WhisperModel, loading it once on first call."""
+    model, _ = get_or_load_model_with_stats(model_size, compute_type)
+    return model
 
 
 @dataclass(frozen=True)
@@ -114,6 +152,22 @@ class TranscriptionResult:
     language: str | None
     language_probability: float | None
     duration: float | None
+    model_cache_hit: bool | None = None
+    model_load_seconds: float | None = None
+    model_source: str | None = None
+    compute_type: str | None = None
+    device_requested: str | None = None
+    device_resolved: str | None = None
+    cpu_threads: int | None = None
+    num_workers: int | None = None
+    vad_filter: bool | None = None
+
+
+@dataclass(frozen=True)
+class AudioChunk:
+    path: Path
+    start: float
+    duration: float
 
 
 def _collect_segments(
@@ -121,16 +175,22 @@ def _collect_segments(
     *,
     total_duration: float | None = None,
     on_progress: Callable[[float], None] | None = None,
+    on_status: Callable[[str], None] | None = None,
 ) -> tuple[tuple[TranscriptSegment, ...], str]:
     """Iterate the lazy segment generator, optionally reporting progress."""
     normalized: list[TranscriptSegment] = []
     parts: list[str] = []
+    first_segment_seen = False
     for seg in segments:
         if _looks_like_low_confidence_hallucination(seg):
             continue
         t = (seg.text or "").strip()
         if not t:
             continue
+        if not first_segment_seen:
+            first_segment_seen = True
+            if on_status:
+                on_status("transcribing_segments")
         normalized.append(
             TranscriptSegment(start=float(seg.start), end=float(seg.end), text=t)
         )
@@ -210,6 +270,49 @@ def _filter_repeated_hallucination_segments(
     return tuple(kept)
 
 
+def _write_wav_chunks(
+    audio_path: str | Path,
+    output_dir: str | Path,
+    *,
+    chunk_seconds: float,
+) -> tuple[AudioChunk, ...]:
+    """Split a PCM WAV into fixed-duration chunks and return their offsets."""
+    if chunk_seconds <= 0:
+        raise ValueError("chunk_seconds must be greater than 0")
+
+    src = Path(audio_path).expanduser().resolve()
+    out_dir = Path(output_dir).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    chunks: list[AudioChunk] = []
+
+    with wave.open(str(src), "rb") as reader:
+        params = reader.getparams()
+        frame_rate = reader.getframerate()
+        total_frames = reader.getnframes()
+        frames_per_chunk = max(1, int(frame_rate * chunk_seconds))
+
+        start_frame = 0
+        index = 0
+        while start_frame < total_frames:
+            frame_count = min(frames_per_chunk, total_frames - start_frame)
+            frames = reader.readframes(frame_count)
+            chunk_path = out_dir / f"chunk_{index:04d}.wav"
+            with wave.open(str(chunk_path), "wb") as writer:
+                writer.setparams(params)
+                writer.writeframes(frames)
+            chunks.append(
+                AudioChunk(
+                    path=chunk_path,
+                    start=start_frame / frame_rate,
+                    duration=frame_count / frame_rate,
+                )
+            )
+            start_frame += frame_count
+            index += 1
+
+    return tuple(chunks)
+
+
 def _transcribe_profile_defaults(speed_profile: str | None) -> dict[str, Any]:
     profile = (speed_profile or "balanced").strip().lower()
     if profile not in _STT_SPEED_PROFILES:
@@ -218,6 +321,44 @@ def _transcribe_profile_defaults(speed_profile: str | None) -> dict[str, Any]:
         key: (value.copy() if isinstance(value, dict) else value)
         for key, value in _STT_SPEED_PROFILES[profile].items()
     }
+
+
+def _limit_text(value: str | None, max_chars: int) -> str:
+    text = re.sub(r"\s+", " ", (value or "").strip())
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip(" 、,，;；:")
+
+
+def _build_transcribe_defaults(
+    *,
+    language: str | None,
+    speed_profile: str | None,
+    hotwords: str | None,
+    initial_prompt: str | None,
+    extra_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    transcribe_defaults = _transcribe_profile_defaults(speed_profile)
+    prompt_parts: list[str] = []
+    if language == "zh":
+        prompt_parts.append(_ZH_INITIAL_PROMPT)
+        transcribe_defaults["hotwords"] = _ZH_HOTWORDS
+    if initial_prompt:
+        prompt_parts.append(initial_prompt.strip())
+    if hotwords:
+        transcribe_defaults["hotwords"] = _limit_text(
+            " ".join(
+                part for part in (str(transcribe_defaults.get("hotwords") or ""), hotwords.strip()) if part
+            ),
+            _MAX_HOTWORDS_CHARS,
+        )
+    if prompt_parts:
+        transcribe_defaults["initial_prompt"] = _limit_text(
+            "\n".join(prompt_parts),
+            _MAX_INITIAL_PROMPT_CHARS,
+        )
+    transcribe_defaults.update(extra_kwargs or {})
+    return transcribe_defaults
 
 
 def _normalize_language(language: str | None) -> str | None:
@@ -239,12 +380,18 @@ def transcribe_audio(
     audio_path: str | Path,
     *,
     model: WhisperModel | None = None,
-    model_size: str = "small",
+    model_size: str = DEFAULT_MODEL_SIZE,
     compute_type: str = "int8",
+    device: str = "auto",
+    cpu_threads: int = 0,
+    num_workers: int = 1,
     vad_filter: bool = True,
     language: str | None = None,
     speed_profile: str | None = None,
+    hotwords: str | None = None,
+    initial_prompt: str | None = None,
     on_progress: Callable[[float], None] | None = None,
+    on_status: Callable[[str], None] | None = None,
     **transcribe_kwargs: Any,
 ) -> TranscriptionResult:
     """
@@ -257,17 +404,37 @@ def transcribe_audio(
     if not path.is_file():
         raise FileNotFoundError(f"Audio not found: {path}")
 
+    model_stats: dict[str, Any] = {
+        "model_cache_hit": None,
+        "model_load_seconds": None,
+        "model_source": None,
+        "compute_type": compute_type,
+        "device_requested": device,
+        "device_resolved": None,
+        "cpu_threads": cpu_threads,
+        "num_workers": num_workers,
+    }
     if model is None:
-        model = get_or_load_model(model_size, compute_type)
+        if on_status:
+            on_status("loading_model")
+        model, model_stats = get_or_load_model_with_stats(
+            model_size,
+            compute_type,
+            device=device,
+            cpu_threads=cpu_threads,
+            num_workers=num_workers,
+        )
+    if on_status:
+        on_status("preparing_audio")
 
     language = _normalize_language(language)
-    transcribe_defaults = _transcribe_profile_defaults(speed_profile)
-    if language == "zh":
-        transcribe_defaults.update({
-            "initial_prompt": _ZH_INITIAL_PROMPT,
-            "hotwords": _ZH_HOTWORDS,
-        })
-    transcribe_defaults.update(transcribe_kwargs)
+    transcribe_defaults = _build_transcribe_defaults(
+        language=language,
+        speed_profile=speed_profile,
+        hotwords=hotwords,
+        initial_prompt=initial_prompt,
+        extra_kwargs=transcribe_kwargs,
+    )
 
     segments_iter, info = model.transcribe(
         str(path),
@@ -275,11 +442,14 @@ def transcribe_audio(
         language=language,
         **transcribe_defaults,
     )
+    if on_status:
+        on_status("waiting_first_segment")
     duration = getattr(info, "duration", None)
     segments, text = _collect_segments(
         segments_iter,
         total_duration=duration,
         on_progress=on_progress,
+        on_status=on_status,
     )
     segments = _simplify_segments(segments)
     segments = _filter_repeated_hallucination_segments(segments)
@@ -290,4 +460,138 @@ def transcribe_audio(
         language=getattr(info, "language", None),
         language_probability=getattr(info, "language_probability", None),
         duration=duration,
+        model_cache_hit=model_stats.get("model_cache_hit"),
+        model_load_seconds=model_stats.get("model_load_seconds"),
+        model_source=model_stats.get("model_source"),
+        compute_type=model_stats.get("compute_type"),
+        device_requested=model_stats.get("device_requested"),
+        device_resolved=model_stats.get("device_resolved"),
+        cpu_threads=model_stats.get("cpu_threads"),
+        num_workers=model_stats.get("num_workers"),
+        vad_filter=vad_filter,
+    )
+
+
+def transcribe_audio_chunked(
+    audio_path: str | Path,
+    *,
+    model_size: str = DEFAULT_MODEL_SIZE,
+    compute_type: str = "int8",
+    device: str = "auto",
+    cpu_threads: int = 0,
+    num_workers: int = 1,
+    vad_filter: bool = True,
+    language: str | None = None,
+    speed_profile: str | None = None,
+    hotwords: str | None = None,
+    initial_prompt: str | None = None,
+    chunk_seconds: float = 60.0,
+    on_progress: Callable[[float], None] | None = None,
+    on_status: Callable[[str], None] | None = None,
+) -> TranscriptionResult:
+    """
+    Transcribe long WAV files chunk by chunk so progress reflects real completed audio.
+
+    faster-whisper only reports segment progress after its lazy generator starts yielding.
+    For long recordings that can mean minutes of no visible movement. Chunking creates
+    smaller real completion boundaries without inventing synthetic progress.
+    """
+    path = Path(audio_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio not found: {path}")
+
+    if on_status:
+        on_status("loading_model")
+    model, model_stats = get_or_load_model_with_stats(
+        model_size,
+        compute_type,
+        device=device,
+        cpu_threads=cpu_threads,
+        num_workers=num_workers,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="fluentflow_stt_chunks_") as tmp:
+        if on_status:
+            on_status("chunking_audio")
+        chunks = _write_wav_chunks(path, tmp, chunk_seconds=chunk_seconds)
+        if not chunks:
+            return TranscriptionResult(
+                text="",
+                segments=(),
+                language=None,
+                language_probability=None,
+                duration=0,
+                model_cache_hit=model_stats.get("model_cache_hit"),
+                model_load_seconds=model_stats.get("model_load_seconds"),
+                model_source=model_stats.get("model_source"),
+                compute_type=model_stats.get("compute_type"),
+                device_requested=model_stats.get("device_requested"),
+                device_resolved=model_stats.get("device_resolved"),
+                cpu_threads=model_stats.get("cpu_threads"),
+                num_workers=model_stats.get("num_workers"),
+                vad_filter=vad_filter,
+            )
+
+        total_duration = sum(chunk.duration for chunk in chunks)
+        all_segments: list[TranscriptSegment] = []
+        language_seen: str | None = None
+        language_probability: float | None = None
+
+        for chunk in chunks:
+            if on_status:
+                on_status("transcribing_chunks" if len(chunks) > 1 else "waiting_first_segment")
+
+            def chunk_progress(frac: float, *, current_chunk: AudioChunk = chunk) -> None:
+                if on_progress and total_duration > 0:
+                    safe_frac = max(0.0, min(float(frac or 0), 1.0))
+                    completed = current_chunk.start + safe_frac * current_chunk.duration
+                    on_progress(min(completed / total_duration, 1.0))
+
+            result = transcribe_audio(
+                chunk.path,
+                model=model,
+                model_size=model_size,
+                compute_type=compute_type,
+                device=device,
+                cpu_threads=cpu_threads,
+                num_workers=num_workers,
+                vad_filter=vad_filter,
+                language=language,
+                speed_profile=speed_profile,
+                hotwords=hotwords,
+                initial_prompt=initial_prompt,
+                on_progress=chunk_progress,
+                on_status=on_status,
+            )
+            if language_seen is None:
+                language_seen = result.language
+                language_probability = result.language_probability
+
+            all_segments.extend(
+                TranscriptSegment(
+                    start=segment.start + chunk.start,
+                    end=segment.end + chunk.start,
+                    text=segment.text,
+                )
+                for segment in result.segments
+            )
+            if on_progress and total_duration > 0:
+                on_progress(min((chunk.start + chunk.duration) / total_duration, 1.0))
+
+    segments = _filter_repeated_hallucination_segments(tuple(all_segments))
+    return TranscriptionResult(
+        text=" ".join(segment.text for segment in segments),
+        segments=segments,
+        language=language_seen,
+        language_probability=language_probability,
+        duration=total_duration,
+        model_cache_hit=model_stats.get("model_cache_hit"),
+        model_load_seconds=model_stats.get("model_load_seconds"),
+        model_source=model_stats.get("model_source"),
+        compute_type=model_stats.get("compute_type"),
+        device_requested=model_stats.get("device_requested"),
+        device_resolved=model_stats.get("device_resolved"),
+        cpu_threads=model_stats.get("cpu_threads"),
+        num_workers=model_stats.get("num_workers"),
+        vad_filter=vad_filter,
     )

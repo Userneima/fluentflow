@@ -1,0 +1,15 @@
+.env
+.DS_Store
+.pytest_cache/
+venv/
+.venv/
+node_modules/
+data/
+logs/
+reports/
+exports/
+launchers/
+backend/
+tests/
+requirements*.txt
+railpack.json

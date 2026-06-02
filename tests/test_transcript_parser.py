@@ -15,7 +15,7 @@ class TranscriptParserTest(unittest.TestCase):
         ).encode("utf-8")
         parsed = parse_transcript_file(raw, "demo.srt")
 
-        self.assertEqual(parsed.text, "大家好\n今天讲产品分析")
+        self.assertEqual(parsed.text, "大家好今天讲产品分析")
         self.assertEqual(len(parsed.segments), 2)
         self.assertEqual(parsed.segments[0]["start"], 1.0)
         self.assertEqual(parsed.segments[1]["end"], 5.25)
@@ -31,6 +31,36 @@ class TranscriptParserTest(unittest.TestCase):
 
         self.assertEqual(parsed.text, "hello world")
         self.assertEqual(parsed.segments[0]["end"], 2.0)
+
+    def test_srt_uses_long_pause_as_paragraph_break(self) -> None:
+        raw = (
+            "1\n"
+            "00:00:01,000 --> 00:00:03,000\n"
+            "第一部分先讲背景。\n\n"
+            "2\n"
+            "00:00:04,000 --> 00:00:06,000\n"
+            "然后进入案例。\n\n"
+            "3\n"
+            "00:00:18,000 --> 00:00:20,000\n"
+            "第二部分讲方法。\n"
+        ).encode("utf-8")
+        parsed = parse_transcript_file(raw, "demo.srt")
+
+        self.assertEqual(parsed.text, "第一部分先讲背景。然后进入案例。\n\n第二部分讲方法。")
+        self.assertEqual(len(parsed.segments), 3)
+
+    def test_srt_keeps_spaces_for_english_caption_fragments(self) -> None:
+        raw = (
+            "1\n"
+            "00:00:01,000 --> 00:00:02,000\n"
+            "hello\n\n"
+            "2\n"
+            "00:00:02,200 --> 00:00:03,000\n"
+            "world\n"
+        ).encode("utf-8")
+        parsed = parse_transcript_file(raw, "demo.srt")
+
+        self.assertEqual(parsed.text, "hello world")
 
     def test_parse_plain_text(self) -> None:
         parsed = parse_transcript_file("第一段\n\n第二段".encode("utf-8"), "demo.txt")
