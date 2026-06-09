@@ -1,0 +1,21 @@
+[Unit]
+Description=FluentFlow FastAPI service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fluentflow
+Group=fluentflow
+WorkingDirectory=/opt/fluentflow
+EnvironmentFile=/etc/fluentflow/fluentflow.env
+ExecStart=/opt/fluentflow/venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port ${PORT}
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Keep generated files inside predictable writable paths.
+ReadWritePaths=/opt/fluentflow /var/lib/fluentflow /etc/fluentflow
+
+[Install]
+WantedBy=multi-user.target

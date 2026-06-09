@@ -123,6 +123,28 @@ python3 scripts/cleanup_storage.py --apply
 
 如果 ECS 在中国大陆并绑定域名，需要先完成 ICP 备案。未备案前可以先用服务器 IP 或临时测试域名做内部验证。
 
+项目内已经提供可复制的部署模板：
+
+- `deploy/fluentflow.env.example`：公共模式环境变量模板，不包含真实密钥。
+- `deploy/fluentflow.service.example`：systemd 服务模板。
+- `deploy/nginx.fluentflow.conf.example`：Nginx 反向代理模板，包含大文件上传和 SSE 所需配置。
+- `deploy/README.md`：从服务器依赖、环境变量、自检到 smoke test 的操作顺序。
+
+上线前先运行：
+
+```bash
+set -a
+. /etc/fluentflow/fluentflow.env
+set +a
+./venv/bin/python scripts/check_deployment_readiness.py
+```
+
+所有 `FAIL` 都要先处理。`lark_export` 如果暂时不开放自动导出，可以接受 `WARN`；如果上线承诺飞书导出，则使用：
+
+```bash
+./venv/bin/python scripts/check_deployment_readiness.py --require-lark
+```
+
 ## Nginx 需要额外配置
 
 后端限制不能替代 Nginx 限制。Nginx 仍应配置：
@@ -131,9 +153,11 @@ python3 scripts/cleanup_storage.py --apply
 client_max_body_size 2048m;
 proxy_read_timeout 86400s;
 proxy_send_timeout 86400s;
+proxy_request_buffering off;
+proxy_buffering off;
 ```
 
-如果启用 HTTPS，建议强制 HTTP 跳转 HTTPS。
+`proxy_buffering off` 对 SSE 进度流很关键；删掉后，前端可能长时间看不到阶段更新。如果启用 HTTPS，建议强制 HTTP 跳转 HTTPS。
 
 ## 当前仍未完成的多人能力
 
