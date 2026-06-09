@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
-from backend.core.job_store import get_job, list_jobs, update_job_result, upsert_job
+from backend.core.job_store import ensure_job_db, get_job, list_jobs, update_job_result, upsert_job
 
 
 def test_job_store_persists_status_and_result(tmp_path: Path) -> None:
@@ -60,3 +61,63 @@ def test_update_job_result_preserves_job_metadata(tmp_path: Path) -> None:
     assert updated["source_filename"] == "demo.m4a"
     assert updated["result"]["transcript_text"] == "new"
     assert updated["result"]["transcript_edited"] is True
+
+
+def test_job_store_filters_by_client_id(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="client-a-task",
+        status="completed",
+        client_id="client-a",
+        result={"task_id": "client-a-task"},
+        db_path=db,
+    )
+    upsert_job(
+        task_id="client-b-task",
+        status="completed",
+        client_id="client-b",
+        result={"task_id": "client-b-task"},
+        db_path=db,
+    )
+
+    assert [job["task_id"] for job in list_jobs(db_path=db, client_id="client-a")] == ["client-a-task"]
+    assert get_job("client-b-task", db_path=db, client_id="client-a") is None
+
+    updated = update_job_result(
+        "client-b-task",
+        {"task_id": "client-b-task", "transcript_text": "blocked"},
+        db_path=db,
+        client_id="client-a",
+    )
+    assert updated is None
+
+
+def test_job_store_migrates_legacy_db_without_client_id(tmp_path: Path) -> None:
+    db = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE jobs (
+                task_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                stage TEXT,
+                progress REAL,
+                source_type TEXT,
+                source_filename TEXT,
+                source_file_size_mb REAL,
+                summary_status TEXT,
+                error_reason TEXT,
+                result_json TEXT,
+                metadata_json TEXT
+            )
+            """
+        )
+
+    ensure_job_db(db)
+
+    with sqlite3.connect(db) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    assert "client_id" in columns

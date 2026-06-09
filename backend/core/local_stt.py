@@ -143,6 +143,7 @@ class TranscriptSegment:
     start: float
     end: float
     text: str
+    speaker: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +162,7 @@ class TranscriptionResult:
     cpu_threads: int | None = None
     num_workers: int | None = None
     vad_filter: bool | None = None
+    diarization_error: str | None = None
 
 
 @dataclass(frozen=True)

@@ -47,3 +47,11 @@ def test_short_natural_repetition_is_preserved():
 
     assert result.cleaned_text == "用户体验 用户体验 这个词今天会反复出现"
     assert result.applied_count == 0
+
+
+def test_preserves_real_speaker_labels():
+    result = clean_repeated_transcript([
+        {"start": 0.0, "end": 1.0, "text": "你好", "speaker": "SPEAKER_1"},
+    ])
+
+    assert result.cleaned_segments[0]["speaker"] == "SPEAKER_1"

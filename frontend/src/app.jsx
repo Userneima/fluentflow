@@ -14,8 +14,39 @@ const API_BASE = (() => {
     return "";
 })();
 
+const ACCESS_TOKEN_KEY = 'fluentflow_access_token';
+const CLIENT_ID_KEY = 'fluentflow_client_id';
+const getAccessToken = () => (localStorage.getItem(ACCESS_TOKEN_KEY) || '').trim();
+const setAccessToken = (token) => {
+    const value = String(token || '').trim();
+    if (value) localStorage.setItem(ACCESS_TOKEN_KEY, value);
+    else localStorage.removeItem(ACCESS_TOKEN_KEY);
+};
+const createClientId = () => (
+    window.crypto?.randomUUID?.()
+    || `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+);
+const getClientId = () => {
+    const existing = (localStorage.getItem(CLIENT_ID_KEY) || '').trim();
+    if (existing) return existing;
+    const next = createClientId();
+    localStorage.setItem(CLIENT_ID_KEY, next);
+    return next;
+};
+const apiFetch = (input, init={}) => {
+    const token = getAccessToken();
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('X-FluentFlow-Client-Id')) {
+        headers.set('X-FluentFlow-Client-Id', getClientId());
+    }
+    if (token && !headers.has('X-FluentFlow-Access-Token')) {
+        headers.set('X-FluentFlow-Access-Token', token);
+    }
+    return fetch(input, {...init, headers});
+};
+
 const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
-const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret'];
+const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
 const sanitizeSettings = (settings={}) => {
     const next = {...settings};
     SENSITIVE_SETTING_KEYS.forEach((key) => delete next[key]);
@@ -26,6 +57,9 @@ const sensitivePatchFromSettings = (settings={}) => ({
     openai_api_key: settings.openaiApiKey || '',
     lark_app_id: settings.larkAppId || '',
     lark_app_secret: settings.larkAppSecret || '',
+    azure_speech_key: settings.azureSpeechKey || '',
+    azure_speech_endpoint: settings.azureSpeechEndpoint || '',
+    azure_blob_container_sas_url: settings.azureBlobContainerSasUrl || '',
 });
 const minimizeHistoryEntry = (entry) => ({
     ...entry,
@@ -57,6 +91,8 @@ const resultToHistoryEntry = (result, fallback={}) => {
         audioDurationSec: durSec,
         sttElapsedSec: result.stt_elapsed_seconds||0,
         sttRealtimeFactor: result.stt_realtime_factor||null,
+        sttProvider: result.stt_provider||null,
+        sttProviderLabel: result.stt_provider_label||null,
         sttModel: result.stt_model||null,
         sttSpeed: result.stt_speed||null,
         sttLanguage: result.stt_language||null,
@@ -73,6 +109,7 @@ const resultToHistoryEntry = (result, fallback={}) => {
         editedTranscriptSavedAt: result.edited_transcript_saved_at||null,
         transcriptEditRecords: result.transcript_edit_records||[],
         transcriptEditRecordsPath: result.transcript_edit_records_path||null,
+        artifacts: result.artifacts||null,
         requestedNoteMode: result.requested_note_mode||fallback.requestedNoteMode||null,
         resolvedNoteMode: result.resolved_note_mode||null,
         noteModeChunkCount: result.note_mode_chunk_count||null,
@@ -98,11 +135,13 @@ const jobToCurrentJob = (job) => ({
     sourceType: job.source_type || null,
     fileSizeMb: job.source_file_size_mb || null,
     resume: true,
+    sttProvider: job.metadata?.stt_provider || job.result?.stt_provider || null,
     sttProgress: job.metadata?.stt_progress,
     transcribedSeconds: job.metadata?.transcribed_seconds,
     durationSeconds: job.metadata?.duration_seconds,
     sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
     sttStatus: job.metadata?.stt_status,
+    azureBatchAudioSizeMb: job.metadata?.azure_batch_audio_size_mb,
 });
 const historyEntryToResult = (h) => h ? ({
     task_id: h.taskId,
@@ -115,6 +154,8 @@ const historyEntryToResult = (h) => h ? ({
     audio_duration_seconds: h.audioDurationSec,
     stt_elapsed_seconds: h.sttElapsedSec||0,
     stt_realtime_factor: h.sttRealtimeFactor||null,
+    stt_provider: h.sttProvider||null,
+    stt_provider_label: h.sttProviderLabel||null,
     stt_model: h.sttModel||null,
     stt_speed: h.sttSpeed||null,
     stt_language: h.sttLanguage||null,
@@ -131,6 +172,7 @@ const historyEntryToResult = (h) => h ? ({
     edited_transcript_saved_at: h.editedTranscriptSavedAt||null,
     transcript_edit_records: h.transcriptEditRecords||[],
     transcript_edit_records_path: h.transcriptEditRecordsPath||null,
+    artifacts: h.artifacts||null,
     requested_note_mode: h.requestedNoteMode||null,
     resolved_note_mode: h.resolvedNoteMode||null,
     note_mode_chunk_count: h.noteModeChunkCount||null,
@@ -334,34 +376,56 @@ const editorPresetKeyOrder = (settings) => {
 };
 
 const DEFAULT_STT_MODEL = 'medium';
+const DEFAULT_STT_PROVIDER = 'azure_batch';
+const normalizeSttProvider = (provider) => (
+    provider === 'local' || provider === 'azure_batch' || provider === 'azure_fast'
+        ? (provider === 'azure_fast' ? 'azure_batch' : provider)
+        : DEFAULT_STT_PROVIDER
+);
+const isAzureCloudProvider = (provider) => (
+    normalizeSttProvider(provider) === 'azure_batch'
+);
+const isAzureSpeechConfigured = (status) => (
+    !!status?.azure_speech_endpoint_configured && !!status?.azure_speech_key_configured
+);
+const isAzureBatchConfigured = (status) => (
+    isAzureSpeechConfigured(status) && !!status?.azure_blob_container_sas_url_configured
+);
+const azureSpeechMissingMessage = (lang) => (
+    lang === 'zh'
+        ? '云端转录暂不可用，请联系产品维护者检查后台配置。'
+        : 'Cloud transcription is unavailable. Ask the product maintainer to check backend configuration.'
+);
 const normalizeSttModel = (model) => (
     model === 'large-v3' || model === 'medium' ? model : DEFAULT_STT_MODEL
 );
 /* ═══════════════ i18n ═══════════════ */
 const msgs = {
   en:{
-    'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Dashboard','nav.processing':'Workbench','nav.editor':'Editor','nav.settings':'Settings','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
-    'status.ready':'System ready','status.idle':'Awaiting task','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done',
-    'dash.welcome':'Welcome back.','dash.subtitle':'Your AI transcription engine is warmed up and ready.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Pro Workspace','dash.heroTitle':'Drop files here to start an AI workflow.','dash.heroDesc':'FluentFlow automatically extracts audio, transcribes with high accuracy, and generates structured notes for your Lark workspace. Supports video and audio files.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import Subtitle/Text','dash.subtitleHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.uploading':'Uploading and processing','dash.done':'Processing complete!','dash.subtitleDone':'Summary generated from transcript file!','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet — upload a file to get started.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
-    'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.pipeline':'Pipeline','dash.modelProfile':'Model Profile','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'Transcript preview will open as soon as STT finishes.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading Whisper model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once faster-whisper emits real segments.',
-    'proc.title':'Workbench','proc.subtitle':'Set the defaults you change often before starting a run.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from the Dashboard when you are ready.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
+    'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Start','nav.tasks':'Tasks','nav.processing':'Run Settings','nav.editor':'Editor','nav.settings':'Settings','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
+    'status.ready':'System ready','status.idle':'Awaiting task','status.queued':'Queued','status.resolving':'Resolving link…','status.downloading':'Downloading video…','status.saving':'Saving video…','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done','status.failed':'Failed',
+    'dash.welcome':'Start a transcription.','dash.subtitle':'Upload a video or audio file. FluentFlow handles the transcription route in the background.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Ready','dash.heroTitle':'Drop a video here to transcribe it.','dash.heroDesc':'FluentFlow extracts audio, transcribes it in the background, and prepares transcript, subtitles, and notes.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import Subtitle/Text','dash.subtitleHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.linkPlaceholder':'Paste Douyin share text or a video link','dash.linkSubmit':'Fetch by link','dash.linkSubmitting':'Fetching…','dash.linkEmpty':'Paste a share text or video link first.','dash.linkQueued':'Video link is being fetched in Background tasks.','dash.azureUploadHint':'Cloud transcription runs in the background. You can leave this page and watch it from Tasks.','dash.uploading':'Uploading and processing','dash.done':'Processing complete','dash.subtitleDone':'Summary generated from transcript file','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet. Completed jobs will appear here.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
+    'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.azureUploadAudio':'Cloud Audio','dash.pipeline':'Pipeline','dash.modelProfile':'Route','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'You can leave this page; progress continues under Tasks.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading local model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttAzure':'Cloud transcription in progress','dash.sttAzureUpload':'Uploading audio','dash.sttAzureSubmit':'Submitting cloud job','dash.sttAzureWait':'Waiting for cloud transcription','dash.sttAzureDownload':'Downloading cloud result','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once local transcription emits real segments.',
+    'tasks.title':'Background tasks','tasks.subtitle':'Track long-running transcription jobs without keeping the Start page open.','tasks.refresh':'Refresh','tasks.open':'Open result','tasks.download':'Download','tasks.progress':'Progress','tasks.route':'Route','tasks.updated':'Updated','tasks.empty':'No background tasks yet. Start with an upload from Start.','tasks.queued':'Queued','tasks.running':'Running','tasks.completed':'Completed','tasks.failed':'Failed','tasks.error':'Failure reason','tasks.source':'Source','tasks.summary':'Summary','tasks.detail':'Stage detail','tasks.artifacts':'Outputs','tasks.outputsReady':'Ready outputs','tasks.noOutputs':'Outputs appear here after completion.','tasks.larkDoc':'Lark doc','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.md':'Summary',
+    'proc.title':'Run settings','proc.subtitle':'Set the few choices that affect every upload. Cloud infrastructure is managed by the product owner.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from Start when you are ready.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
     'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.summaryPending':'AI summary is still generating.','edit.summarySkipped':'Transcript-only mode is enabled. Click Regenerate when you need an AI summary.','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.retranscribe':'Retranscribe','edit.retranscribing':'Retranscribing…','edit.pickSourceAgain':'Choose source file','edit.retranscribeDone':'Retranscription complete','edit.retranscribeConfirmTitle':'Retranscribe this audio?','edit.retranscribeConfirmDesc':'FluentFlow will run STT again with the current Workbench settings and replace the transcript and summary for this result.','edit.retranscribeUnavailableTitle':'Source file is not available','edit.retranscribeUnavailableDesc':'Browsers cannot reopen a local file from history without your permission. Choose the original audio/video file to retranscribe it with current settings.','edit.retranscribeConfirmAction':'Start retranscription','edit.retranscribeChooseAction':'Choose original file','edit.cancel':'Cancel','edit.segments':'segments','edit.duration':'Duration','edit.sttElapsed':'Transcription time','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm','edit.reviewButton':'Review changes','edit.reviewTitle':'Transcript review changes','edit.reviewDesc':'Check the AI-confirmed term corrections with nearby context.','edit.reviewEmpty':'No obvious term issues were found.','edit.reviewApplied':'Applied','edit.reviewPending':'Suggested only','edit.reviewOriginal':'Original','edit.reviewSuggested':'Suggested','edit.reviewContext':'Context','edit.reviewReason':'Reason','edit.copySuggestion':'Copy suggested sentence','edit.copied':'Copied','edit.editedTranscript':'Edited transcript','edit.transcriptSaving':'Saving…','edit.transcriptSaved':'Saved','edit.transcriptSaveFailed':'Save failed','edit.editRecords':'Edit records','edit.editRecordsTitle':'Transcript edit records','edit.editRecordsDesc':'Each record keeps the changed sentence and nearby context. These records are saved locally with the edited transcript.','edit.editRecordsEmpty':'No changed segment has been recorded yet.','edit.before':'Before','edit.after':'After','edit.previousSentence':'Previous sentence','edit.nextSentence':'Next sentence','edit.followPlayback':'Follow playback','edit.audioUnavailable':'Choose the original audio/video to listen while editing.','edit.chooseAudio':'Choose source audio','edit.sourceLoading':'Loading source audio…',
     'prompt.label':'Prompt Template','prompt.select':'Select prompt style','prompt.customPlaceholder':'Enter your custom system prompt here...','prompt.expanded':'Collapse prompt','prompt.collapsed':'Change prompt','prompt.activeHint':'Active: ','prompt.editHint':'Edit prompt before regenerating','prompt.saveAsPreset':'Save custom as preset',
     'dl.transcript':'Export Transcript','dl.summary':'Download Summary','dl.txt':'Plain Text (.txt)','dl.md':'Markdown (.md)','dl.srt':'Subtitles (.srt)','dl.vtt':'WebVTT (.vtt)','dl.pdf':'PDF Document','dl.word':'Word Document (.docx)','dl.generating':'Generating…','dl.success':'Download started',
-    'set.title':'Settings','set.subtitle':'Keep low-frequency credentials, template maintenance, and app preferences here.','set.larkTitle':'Lark / Feishu Credentials','set.larkDesc':'Store credentials only. Export behavior now lives in Workbench.','set.autoExport':'Auto-export to Lark after processing','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.sttLanguage':'Audio Language','set.langAuto':'Auto detect','set.langZh':'Chinese','set.langEn':'English','set.sttSpeed':'Transcription Speed','set.speedFast':'Fast','set.speedBalanced':'Balanced','set.speedAccurate':'Accurate','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Not recommended)','set.optMedium':'medium (Minimum usable)','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.skipSummary':'Transcript-only mode','set.skipSummaryHint':'Skip AI summary after audio transcription or subtitle import. You can regenerate later in the editor.','set.provider':'Provider','set.aiModel':'AI Model','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Template Library','set.promptDesc':'Edit reusable prompt templates here. Choose the active default in Workbench.','set.defaultPrompt':'Default Prompt','set.templateToEdit':'Template to edit','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
-    'work.defaults':'Run defaults','work.defaultsDesc':'These values are used by Dashboard uploads, subtitle imports, and editor reruns.','work.activePrompt':'Default prompt template','work.transcription':'Transcription','work.hotwordLibrary':'Hotword library','work.integratedHotwordLibrary':'Integrated hotword library','work.hotwordHint':'All domain terms and conservative correction candidates are used together for STT prompts and transcript review.','work.viewHotwords':'View contents','work.hotwordDialogTitle':'Hotword library contents','work.hotwordDialogDesc':'Review the terms and conservative correction candidates currently used by FluentFlow.','work.effectiveLibraries':'Included sources','work.hotwordTerms':'Terms','work.confusionPairs':'Confusion candidates','work.autoApply':'auto apply','work.suggestOnly':'suggest only','work.noTerms':'No terms in this preset.','work.noConfusions':'No confusion candidates.','work.hotwordsUnavailable':'Hotword details are unavailable. Restart the backend if this keeps showing.','work.close':'Close','work.reviewMode':'Subtitle review','work.reviewModeHint':'Optional. Raw transcript is always preserved.','work.reviewUseAi':'Use AI to verify suggestions','work.reviewUseAiHint':'AI can only confirm minimal obvious corrections, never rewrite freely.','work.reviewSuggestions':'Review suggestions','work.reviewApplied':'Applied corrections','work.cleanupTitle':'Repetition cleanup','work.cleanupApplied':'Folded repeated loops','work.cleanupSegments':'removed repeated segments','work.summary':'Summary AI','work.summaryMode':'Note generation mode','work.noteModeAuto':'Auto switches by transcript length: direct under about 20k chars, high-fidelity above it.','work.noteModeDirect':'Sends the transcript in one pass. Faster, best for shorter materials.','work.noteModeHighFidelity':'Extracts evidence in chunks, then writes and checks coverage. Slower, better for long courses.','work.export':'Feishu export','work.currentRun':'Current run','work.activeRunHint':'Dashboard now shows the detailed live progress. Workbench stays focused on run defaults.','work.viewProgress':'View progress','work.saved':'Saved automatically','work.credentialsLink':'Credentials stay in Settings',
+    'set.title':'Settings','set.subtitle':'Keep template maintenance, export history, and app preferences here.','set.larkTitle':'Lark / Feishu Credentials','set.larkDesc':'Store credentials only. Export behavior now lives in Run Settings.','set.autoExport':'Auto-export to Lark after processing','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttProvider':'Transcription Route','set.providerLocal':'Local transcription','set.providerAzureBatch':'Cloud transcription','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.sttLanguage':'Audio Language','set.langAuto':'Auto detect','set.langZh':'Chinese','set.langEn':'English','set.sttSpeed':'Transcription Speed','set.speedFast':'Fast','set.speedBalanced':'Balanced','set.speedAccurate':'Accurate','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Not recommended)','set.optMedium':'medium (Minimum usable)','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.skipSummary':'Transcript-only mode','set.skipSummaryHint':'Skip AI summary after audio transcription or subtitle import. You can regenerate later in the editor.','set.provider':'Provider','set.aiModel':'AI Model','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Template Library','set.promptDesc':'Edit reusable prompt templates here. Choose the active default in Run Settings.','set.defaultPrompt':'Default Prompt','set.templateToEdit':'Template to edit','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
+    'work.defaults':'Run defaults','work.defaultsDesc':'These values are used by Dashboard uploads, subtitle imports, and editor reruns.','work.activePrompt':'Default prompt template','work.transcription':'Transcription','work.hotwordLibrary':'Hotword library','work.integratedHotwordLibrary':'Integrated hotword library','work.hotwordHint':'All domain terms and conservative correction candidates are used together for STT prompts and transcript review.','work.viewHotwords':'View contents','work.hotwordDialogTitle':'Hotword library contents','work.hotwordDialogDesc':'Review the terms and conservative correction candidates currently used by FluentFlow.','work.effectiveLibraries':'Included sources','work.hotwordTerms':'Terms','work.confusionPairs':'Confusion candidates','work.autoApply':'auto apply','work.suggestOnly':'suggest only','work.noTerms':'No terms in this preset.','work.noConfusions':'No confusion candidates.','work.hotwordsUnavailable':'Hotword details are unavailable. Restart the backend if this keeps showing.','work.close':'Close','work.reviewMode':'Subtitle review','work.reviewModeHint':'Optional. Raw transcript is always preserved.','work.reviewUseAi':'Use AI to verify suggestions','work.reviewUseAiHint':'AI can only confirm minimal obvious corrections, never rewrite freely.','work.reviewSuggestions':'Review suggestions','work.reviewApplied':'Applied corrections','work.summary':'Summary AI','work.summaryMode':'Note generation mode','work.noteModeAuto':'Auto switches by transcript length: direct under about 20k chars, high-fidelity above it.','work.noteModeDirect':'Sends the transcript in one pass. Faster, best for shorter materials.','work.noteModeHighFidelity':'Extracts evidence in chunks, then writes and checks coverage. Slower, better for long courses.','work.export':'Feishu export','work.currentRun':'Current run','work.activeRunHint':'Dashboard now shows the detailed live progress. Workbench stays focused on run defaults.','work.viewProgress':'View progress','work.saved':'Saved automatically','work.credentialsLink':'Credentials stay in Settings',
   },
   zh:{
-    'nav.subtitle':'视频转飞书 AI','nav.dashboard':'仪表盘','nav.processing':'工作台','nav.editor':'编辑器','nav.settings':'设置','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
-    'status.ready':'系统就绪','status.idle':'等待任务','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成',
-    'dash.welcome':'欢迎回来','dash.subtitle':'AI 转录引擎已就绪，随时待命。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'专业工作区','dash.heroTitle':'将文件拖放到此处，开启 AI 智能工作流。','dash.heroDesc':'FluentFlow 将自动提取音频、高精度转录，并直接生成结构化摘要到您的飞书工作区。支持视频和音频文件。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕/文本','dash.subtitleHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.uploading':'正在上传并处理','dash.done':'处理完成！','dash.subtitleDone':'已根据字幕文件生成摘要！','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录 — 上传文件开始使用。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
-    'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.pipeline':'处理流水线','dash.modelProfile':'模型配置','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'转录完成后会自动打开预览。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载 Whisper 模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按 faster-whisper 真实返回的片段推进进度。',
-    'proc.title':'工作台','proc.subtitle':'把每次开始前最常改的参数放在这里。','proc.noJob':'当前没有任务','proc.noJobDesc':'参数确认后，从仪表盘上传文件开始处理。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
+    'nav.subtitle':'视频转飞书 AI','nav.dashboard':'开始处理','nav.tasks':'后台任务','nav.processing':'处理设置','nav.editor':'编辑器','nav.settings':'设置','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
+    'status.ready':'系统就绪','status.idle':'等待任务','status.queued':'排队中','status.resolving':'解析链接中…','status.downloading':'下载视频中…','status.saving':'保存视频中…','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成','status.failed':'失败',
+    'dash.welcome':'开始一次转录','dash.subtitle':'上传视频或音频，FluentFlow 会在后台完成转录、字幕和笔记。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'就绪','dash.heroTitle':'把视频拖到这里开始转录。','dash.heroDesc':'FluentFlow 会自动提取音频，在后台转录，并生成转录文本、字幕和结构化笔记。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕/文本','dash.subtitleHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.linkPlaceholder':'粘贴抖音分享文本或视频链接','dash.linkSubmit':'通过链接获取','dash.linkSubmitting':'获取中…','dash.linkEmpty':'请先粘贴分享文本或视频链接。','dash.linkQueued':'视频链接已进入后台任务获取。','dash.azureUploadHint':'云端转录会在后台继续运行，你可以离开本页并在后台任务里查看进度。','dash.uploading':'正在上传并处理','dash.done':'处理完成','dash.subtitleDone':'已根据字幕文件生成摘要','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录，完成的任务会显示在这里。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
+    'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.azureUploadAudio':'云端音频','dash.pipeline':'处理流水线','dash.modelProfile':'转录路线','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'你可以离开本页，进度会在后台任务中继续更新。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载本地模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttAzure':'云端转录中','dash.sttAzureUpload':'正在上传音频','dash.sttAzureSubmit':'正在提交云端任务','dash.sttAzureWait':'等待云端转录','dash.sttAzureDownload':'正在下载云端结果','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按本地转录真实返回的片段推进进度。',
+    'tasks.title':'后台任务','tasks.subtitle':'长时间转录不需要停留在开始页，这里统一查看进度、失败原因和产物。','tasks.refresh':'刷新','tasks.open':'打开结果','tasks.download':'下载','tasks.progress':'进度','tasks.route':'路线','tasks.updated':'更新于','tasks.empty':'暂无后台任务。从开始处理页上传文件后会出现在这里。','tasks.queued':'排队中','tasks.running':'运行中','tasks.completed':'已完成','tasks.failed':'失败','tasks.error':'失败原因','tasks.source':'来源','tasks.summary':'摘要','tasks.detail':'阶段详情','tasks.artifacts':'结果产物','tasks.outputsReady':'可下载产物','tasks.noOutputs':'完成后会在这里显示下载入口。','tasks.larkDoc':'飞书文档','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.md':'摘要',
+    'proc.title':'处理设置','proc.subtitle':'这里只保留每次上传前会影响结果的少量选择；云端基础设施由产品维护者管理。','proc.noJob':'当前没有任务','proc.noJobDesc':'参数确认后，从开始处理页上传文件。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
     'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.summaryPending':'AI 摘要仍在生成中。','edit.summarySkipped':'当前是仅转录模式，未生成 AI 摘要。需要时可点击重新生成。','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.retranscribe':'重新转录','edit.retranscribing':'重新转录中…','edit.pickSourceAgain':'选择原文件','edit.retranscribeDone':'重新转录完成','edit.retranscribeConfirmTitle':'重新转录当前音频？','edit.retranscribeConfirmDesc':'FluentFlow 会使用当前工作台设置重新执行 STT，并替换当前结果里的转录文本和摘要。','edit.retranscribeUnavailableTitle':'当前没有可直接重转的原文件','edit.retranscribeUnavailableDesc':'浏览器不会在历史记录里长期保留本地音视频文件权限。请选择原始音视频文件，再用当前设置重新转录。','edit.retranscribeConfirmAction':'确认重新转录','edit.retranscribeChooseAction':'选择原始文件','edit.cancel':'取消','edit.segments':'段','edit.duration':'时长','edit.sttElapsed':'转录耗时','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认','edit.reviewButton':'查看审阅','edit.reviewTitle':'字幕审阅修改点','edit.reviewDesc':'查看 AI 确认过的术语修正，并对照前后文判断是否合理。','edit.reviewEmpty':'没有发现明显术语错误。','edit.reviewApplied':'已应用','edit.reviewPending':'仅建议','edit.reviewOriginal':'原句','edit.reviewSuggested':'建议句','edit.reviewContext':'上下文','edit.reviewReason':'原因','edit.copySuggestion':'复制建议句','edit.copied':'已复制','edit.editedTranscript':'已修改转录','edit.transcriptSaving':'保存中…','edit.transcriptSaved':'已保存','edit.transcriptSaveFailed':'保存失败','edit.editRecords':'修改记录','edit.editRecordsTitle':'转录稿修改记录','edit.editRecordsDesc':'每条记录会保留修改句子和相邻上下文，并随编辑稿一起保存到本地。','edit.editRecordsEmpty':'还没有记录到分段修改。','edit.before':'修改前','edit.after':'修改后','edit.previousSentence':'上一句','edit.nextSentence':'下一句','edit.followPlayback':'跟随播放','edit.audioUnavailable':'选择原始音视频后，可边听边校对。','edit.chooseAudio':'选择原音频','edit.sourceLoading':'正在读取原音频…',
     'prompt.label':'提示词模板','prompt.select':'选择提示词风格','prompt.customPlaceholder':'在此输入自定义系统提示词…','prompt.expanded':'收起提示词','prompt.collapsed':'更换提示词','prompt.activeHint':'当前：','prompt.editHint':'重新生成前可编辑提示词','prompt.saveAsPreset':'将自定义保存为预设',
     'dl.transcript':'导出转录文本','dl.summary':'下载摘要','dl.txt':'纯文本 (.txt)','dl.md':'Markdown (.md)','dl.srt':'字幕文件 (.srt)','dl.vtt':'WebVTT (.vtt)','dl.pdf':'PDF 文档','dl.word':'Word 文档 (.docx)','dl.generating':'生成中…','dl.success':'已开始下载',
-    'set.title':'设置','set.subtitle':'这里只保留低频凭证、模板维护和应用偏好。','set.larkTitle':'飞书凭证','set.larkDesc':'这里只保存连接凭证；是否自动导出等处理选项已移到工作台。','set.autoExport':'处理完成后自动导出到飞书','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.sttLanguage':'音频语言','set.langAuto':'自动识别','set.langZh':'中文','set.langEn':'英文','set.sttSpeed':'转录速度','set.speedFast':'快速','set.speedBalanced':'均衡','set.speedAccurate':'高准确率','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（不推荐）','set.optMedium':'medium（最低可用）','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.skipSummary':'仅转录模式','set.skipSummaryHint':'音视频转录或字幕导入后跳过 AI 摘要；之后可在编辑器里重新生成。','set.provider':'服务商','set.aiModel':'AI 模型','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板库','set.promptDesc':'在这里维护可复用提示词；当前默认使用哪个在工作台选择。','set.defaultPrompt':'默认提示词','set.templateToEdit':'要编辑的模板','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
-    'work.defaults':'处理默认值','work.defaultsDesc':'仪表盘上传、字幕导入、编辑器重新生成都会使用这些设置。','work.activePrompt':'默认提示词模板','work.transcription':'转录','work.hotwordLibrary':'热词库','work.integratedHotwordLibrary':'综合热词库','work.hotwordHint':'所有领域词和保守错词候选会一起用于 STT 提示词和字幕审阅。','work.viewHotwords':'查看内容','work.hotwordDialogTitle':'热词库内容','work.hotwordDialogDesc':'查看 FluentFlow 当前用于转录提示和保守审阅的领域词、错词候选。','work.effectiveLibraries':'包含来源','work.hotwordTerms':'领域词','work.confusionPairs':'错词候选','work.autoApply':'自动应用','work.suggestOnly':'仅建议','work.noTerms':'当前没有领域词。','work.noConfusions':'没有错词候选。','work.hotwordsUnavailable':'暂时无法读取热词详情。如果一直如此，请重启后端。','work.close':'关闭','work.reviewMode':'字幕审阅','work.reviewModeHint':'可选。原始转录会始终保留。','work.reviewUseAi':'使用 AI 复核建议','work.reviewUseAiHint':'AI 只能确认明显的最小修正，不能自由改写。','work.reviewSuggestions':'审阅建议','work.reviewApplied':'已应用修正','work.cleanupTitle':'重复清洗','work.cleanupApplied':'已折叠重复片段','work.cleanupSegments':'移除重复字幕段','work.summary':'摘要 AI','work.summaryMode':'笔记生成模式','work.noteModeAuto':'按转录长度自动切换：约 2 万字以内直接生成，超过后用高保真模式。','work.noteModeDirect':'整段一次发送给模型，速度更快，适合较短材料。','work.noteModeHighFidelity':'先分段提取证据，再成文并检查覆盖率，耗时更久，适合长课程。','work.export':'飞书导出','work.currentRun':'当前任务','work.activeRunHint':'主页已经展示更完整的实时进度，工作台只保留本次运行参数。','work.viewProgress':'查看进度','work.saved':'自动保存','work.credentialsLink':'凭证仍在设置页',
+    'set.title':'设置','set.subtitle':'这里只保留模板维护、导出历史和应用偏好。','set.larkTitle':'飞书凭证','set.larkDesc':'这里只保存连接凭证；是否自动导出等处理选项已移到处理设置。','set.autoExport':'处理完成后自动导出到飞书','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttProvider':'转录路线','set.providerLocal':'本地转录','set.providerAzureBatch':'云端转录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.sttLanguage':'音频语言','set.langAuto':'自动识别','set.langZh':'中文','set.langEn':'英文','set.sttSpeed':'转录速度','set.speedFast':'快速','set.speedBalanced':'均衡','set.speedAccurate':'高准确率','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（不推荐）','set.optMedium':'medium（最低可用）','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.skipSummary':'仅转录模式','set.skipSummaryHint':'音视频转录或字幕导入后跳过 AI 摘要；之后可在编辑器里重新生成。','set.provider':'服务商','set.aiModel':'AI 模型','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板库','set.promptDesc':'在这里维护可复用提示词；当前默认使用哪个在处理设置中选择。','set.defaultPrompt':'默认提示词','set.templateToEdit':'要编辑的模板','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
+    'work.defaults':'处理默认值','work.defaultsDesc':'仪表盘上传、字幕导入、编辑器重新生成都会使用这些设置。','work.activePrompt':'默认提示词模板','work.transcription':'转录','work.hotwordLibrary':'热词库','work.integratedHotwordLibrary':'综合热词库','work.hotwordHint':'所有领域词和保守错词候选会一起用于 STT 提示词和字幕审阅。','work.viewHotwords':'查看内容','work.hotwordDialogTitle':'热词库内容','work.hotwordDialogDesc':'查看 FluentFlow 当前用于转录提示和保守审阅的领域词、错词候选。','work.effectiveLibraries':'包含来源','work.hotwordTerms':'领域词','work.confusionPairs':'错词候选','work.autoApply':'自动应用','work.suggestOnly':'仅建议','work.noTerms':'当前没有领域词。','work.noConfusions':'没有错词候选。','work.hotwordsUnavailable':'暂时无法读取热词详情。如果一直如此，请重启后端。','work.close':'关闭','work.reviewMode':'字幕审阅','work.reviewModeHint':'可选。原始转录会始终保留。','work.reviewUseAi':'使用 AI 复核建议','work.reviewUseAiHint':'AI 只能确认明显的最小修正，不能自由改写。','work.reviewSuggestions':'审阅建议','work.reviewApplied':'已应用修正','work.summary':'摘要 AI','work.summaryMode':'笔记生成模式','work.noteModeAuto':'按转录长度自动切换：约 2 万字以内直接生成，超过后用高保真模式。','work.noteModeDirect':'整段一次发送给模型，速度更快，适合较短材料。','work.noteModeHighFidelity':'先分段提取证据，再成文并检查覆盖率，耗时更久，适合长课程。','work.export':'飞书导出','work.currentRun':'当前任务','work.activeRunHint':'主页已经展示更完整的实时进度，工作台只保留本次运行参数。','work.viewProgress':'查看进度','work.saved':'自动保存','work.credentialsLink':'凭证仍在设置页',
   },
 };
 const I18nCtx = createContext();
@@ -392,7 +456,7 @@ const AppProvider = ({children}) => {
             const rawSettings = JSON.parse(localStorage.getItem("fluentflow_settings")||"{}");
             const hasLegacySecrets = SENSITIVE_SETTING_KEYS.some((key) => rawSettings[key]);
             if (hasLegacySecrets) {
-                fetch(`${API_BASE}/credentials`, {
+                apiFetch(`${API_BASE}/credentials`, {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify(sensitivePatchFromSettings(rawSettings)),
@@ -401,7 +465,7 @@ const AppProvider = ({children}) => {
                 });
             }
         } catch(_) {}
-        fetch(`${API_BASE}/jobs?limit=100`)
+        apiFetch(`${API_BASE}/jobs?limit=100`)
             .then((r) => r.ok ? r.json() : null)
             .then((data) => {
                 if (!Array.isArray(data?.jobs)) return;
@@ -416,7 +480,10 @@ const AppProvider = ({children}) => {
     }, []);
 
     const persistHistory = (h) => { setHistory(h); localStorage.setItem('fluentflow_history', JSON.stringify(h.map(minimizeHistoryEntry))); };
-    const addToHistory = (entry) => persistHistory([entry, ...history].slice(0, 100));
+    const addToHistory = (entry) => persistHistory([
+        entry,
+        ...history.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
+    ].slice(0, 100));
     const clearHistory = () => { persistHistory([]); persistLarkExports([]); };
 
     const persistLarkExports = (e) => { setLarkExports(e); localStorage.setItem('fluentflow_lark_exports', JSON.stringify(e)); };
@@ -433,6 +500,11 @@ const useApp = () => useContext(AppCtx);
 
 /* ═══════════════ helpers ═══════════════ */
 const fmtTime = (sec) => { const m=Math.floor(sec/60); const s=Math.floor(sec%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
+const autoSizeTextarea = (node) => {
+    if (!node) return;
+    node.style.height = 'auto';
+    node.style.height = `${node.scrollHeight}px`;
+};
 const composeTranscriptText = (segments, fallback='') => (
     Array.isArray(segments) && segments.length > 0
         ? segments.map((seg) => (seg?.text || '').trim()).filter(Boolean).join('\n')
@@ -501,6 +573,25 @@ const fmtFileSize = (mb) => {
     if(n >= 1024) return `${(n/1024).toFixed(n >= 10240 ? 0 : 1)} GB`;
     return `${n.toFixed(n >= 10 ? 1 : 2)} MB`;
 };
+const fmtBytes = (bytes) => {
+    const n = Number(bytes);
+    if(!Number.isFinite(n) || n <= 0) return '';
+    return fmtFileSize(n / 1024 / 1024);
+};
+const friendlyTaskError = (message, lang='zh') => {
+    const raw = String(message || '').trim();
+    if(!raw) return lang === 'zh' ? '处理失败，但没有返回具体原因。请重试一次。' : 'The task failed without a specific reason. Try again.';
+    const lower = raw.toLowerCase();
+    if(lower.includes('only "standard" subscriptions') || lower.includes('only \\"standard\\" subscriptions') || lower.includes('invalidsubscription')) return lang === 'zh' ? '云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。' : 'Cloud transcription failed: the Speech resource is not a Standard subscription supported for Batch in this region.';
+    if(lower.includes('invalidlocale') || lower.includes('specified locale is not supported')) return lang === 'zh' ? '云端转录提交失败：当前音频语言不被 Azure 支持。请切换为中文/英文，或改用本地转录。' : 'Cloud transcription failed: this locale is not supported by Azure.';
+    if(lower.includes('invalidmodel') || lower.includes('specified model is not supported')) return lang === 'zh' ? '云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端默认模型或改用本地转录。' : 'Cloud transcription failed: the selected model is not supported by this Azure resource.';
+    if(lower.includes('diarization is currently not supported')) return lang === 'zh' ? '云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。' : 'Cloud transcription failed: diarization is not supported by this route.';
+    if(lower.includes('eof occurred in violation of protocol') || lower.includes('broken pipe')) return lang === 'zh' ? '云端上传中断：通常是网络或 Azure 边缘服务断开连接。请重试；如果文件很大，优先使用 Azure Batch 或减小音频体积。' : 'Cloud upload was interrupted. Retry, or reduce the audio size for very large files.';
+    if(lower.includes('queued processing request failed')) return lang === 'zh' ? '后台任务调用转录接口失败。请重试；如果连续出现，请重启后端服务。' : 'The background task could not call the transcription endpoint. Retry or restart the backend.';
+    if(lower.includes('no position encodings are defined')) return lang === 'zh' ? '本地说话人区分模型无法处理当前音频长度。请关闭说话人区分，或切换云端转录。' : 'Local diarization cannot handle this audio length. Disable diarization or use cloud transcription.';
+    if(lower.includes('downloaded video is too large') || lower.includes('file is too large')) return lang === 'zh' ? '文件超过当前上传限制。请压缩视频、拆分文件，或调高后端上传大小限制。' : 'The file exceeds the current upload limit.';
+    return raw;
+};
 	const fmtSttRelative = (factor, lang) => {
 	    const n = Number(factor);
 	    if(!Number.isFinite(n) || n <= 0) return '';
@@ -517,6 +608,11 @@ const sttStatusLabel = (status, t) => {
         waiting_first_segment: 'dash.sttWaitingFirst',
         transcribing_chunks: 'dash.sttChunks',
         transcribing_segments: 'dash.sttSegments',
+        azure_transcribing: 'dash.sttAzure',
+        azure_batch_uploading: 'dash.sttAzureUpload',
+        azure_batch_submitting: 'dash.sttAzureSubmit',
+        azure_batch_waiting: 'dash.sttAzureWait',
+        azure_batch_downloading: 'dash.sttAzureDownload',
     }[status || ''];
     return key ? t(key) : t('dash.waitingSegment');
 };
@@ -900,6 +996,21 @@ const useApi = () => {
         if(options.systemPrompt) fd.append("system_prompt", options.systemPrompt);
         if(options.noteMode) fd.append("note_mode", options.noteMode);
     };
+    const appendProcessOptions = (fd, options={}) => {
+        if(options.exportToLark) {
+            fd.append("export_to_lark","true");
+            fd.append("lark_via_cli", options.larkViaCli ? "true" : "false");
+        }
+        if(options.title) fd.append("title", options.title);
+        if(options.folderToken) fd.append("folder_token", options.folderToken); // kept for future use
+        if(options.skipSummary) fd.append("skip_summary", "true");
+        appendAiOptions(fd, options);
+        if(options.sttProvider) fd.append("stt_provider", options.sttProvider);
+        if(options.sttModel) fd.append("stt_model", options.sttModel);
+        if(options.sttSpeed) fd.append("stt_speed", options.sttSpeed);
+        if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
+        if(options.speakerDiarization) fd.append("speaker_diarization", "true");
+    };
     const readSseResult = async (r, onProgress) => {
         const reader = r.body.getReader();
         const decoder = new TextDecoder();
@@ -930,24 +1041,49 @@ const useApi = () => {
         fd.append("file", file);
         if(options.taskId) fd.append("task_id", options.taskId);
         if(options.sourceLastModifiedMs) fd.append("source_last_modified_ms", String(options.sourceLastModifiedMs));
-        if(options.exportToLark) {
-            fd.append("export_to_lark","true");
-            fd.append("lark_via_cli", options.larkViaCli ? "true" : "false");
-        }
-        if(options.title) fd.append("title", options.title);
-        if(options.folderToken) fd.append("folder_token", options.folderToken); // kept for future use
-        if(options.skipSummary) fd.append("skip_summary", "true");
-        appendAiOptions(fd, options);
-        if(options.sttModel) fd.append("stt_model", options.sttModel);
-        if(options.sttSpeed) fd.append("stt_speed", options.sttSpeed);
-        if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
-        if(options.speakerDiarization) fd.append("speaker_diarization", "true");
-        const r = await fetch(`${API_BASE}/process`,{method:"POST",body:fd,signal});
+        appendProcessOptions(fd, options);
+        const r = await apiFetch(`${API_BASE}/process`,{method:"POST",body:fd,signal});
         if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
         return await readSseResult(r, onProgress);
     };
+    const enqueueProcessFiles = async (files, options={}, signal) => {
+        const fd = new FormData();
+        Array.from(files || []).forEach((file) => fd.append("files", file));
+        appendProcessOptions(fd, options);
+        const r = await apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, signal});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const createVideoSourceJob = async (input, options={}, signal) => {
+        const payloadOptions = {};
+        if(options.exportToLark) {
+            payloadOptions.export_to_lark = "true";
+            payloadOptions.lark_via_cli = options.larkViaCli ? "true" : "false";
+        }
+        if(options.title) payloadOptions.title = options.title;
+        if(options.skipSummary) payloadOptions.skip_summary = "true";
+        if(options.aiProvider) payloadOptions.ai_provider = options.aiProvider;
+        if(options.aiModel) payloadOptions.ai_model = options.aiModel;
+        if(options.systemPrompt) payloadOptions.system_prompt = options.systemPrompt;
+        if(options.noteMode) payloadOptions.note_mode = options.noteMode;
+        if(options.sttProvider) payloadOptions.stt_provider = options.sttProvider;
+        if(options.sttModel) payloadOptions.stt_model = options.sttModel;
+        if(options.sttSpeed) payloadOptions.stt_speed = options.sttSpeed;
+        if(options.sttLanguage) payloadOptions.stt_language = options.sttLanguage;
+        if(options.speakerDiarization) payloadOptions.speaker_diarization = "true";
+        const r = await apiFetch(`${API_BASE}/video-sources/jobs`, {
+            method:"POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({input, options: payloadOptions}),
+            signal,
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
     const subscribeJobEvents = async (taskId, onProgress, signal) => {
-        const r = await fetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/events`, {signal});
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/events`, {signal});
         if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
         return await readSseResult(r, onProgress);
     };
@@ -957,14 +1093,14 @@ const useApi = () => {
         if(options.taskId) fd.append("task_id", options.taskId);
         if(options.skipSummary) fd.append("skip_summary", "true");
         appendAiOptions(fd, options);
-        const r = await fetch(`${API_BASE}/summarize-transcript-file`, {method:"POST", body:fd, signal});
+        const r = await apiFetch(`${API_BASE}/summarize-transcript-file`, {method:"POST", body:fd, signal});
         const data = await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
         return data;
     };
     const recordEvent = async (payload) => {
         try {
-            await fetch(`${API_BASE}/events`, {
+            await apiFetch(`${API_BASE}/events`, {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify(payload || {}),
@@ -972,18 +1108,30 @@ const useApi = () => {
         } catch(_) {}
     };
     const getJob = async (taskId) => {
-        const r = await fetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`);
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`);
         if(!r.ok) throw new Error('Job not found');
         return await r.json();
     };
     const fetchJobSourceFile = async (taskId, filename='source') => {
-        const r = await fetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/source`);
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/source`);
         if(!r.ok) throw new Error('Source file not found');
         const blob = await r.blob();
         return new File([blob], filename || 'source', {type: blob.type || 'application/octet-stream'});
     };
+    const getJobs = async (limit=100) => {
+        const r = await apiFetch(`${API_BASE}/jobs?limit=${encodeURIComponent(limit)}`);
+        if(!r.ok) throw new Error('Jobs unavailable');
+        const data = await r.json();
+        return Array.isArray(data?.jobs) ? data.jobs : [];
+    };
+    const downloadJobArtifact = async (taskId, kind, filename) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`);
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        _dl(blob, filename || `${kind}.txt`);
+    };
     const saveTranscriptEdit = async (taskId, payload={}) => {
-        const r = await fetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/transcript`, {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/transcript`, {
             method: "PATCH",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify(payload),
@@ -993,17 +1141,17 @@ const useApi = () => {
         return data;
     };
     const getCredentialsStatus = async () => {
-        const r = await fetch(`${API_BASE}/credentials/status`);
+        const r = await apiFetch(`${API_BASE}/credentials/status`);
         if(!r.ok) throw new Error('Credential status unavailable');
         return await r.json();
     };
     const getSpeakerDiarizationStatus = async () => {
-        const r = await fetch(`${API_BASE}/speaker-diarization/status`);
+        const r = await apiFetch(`${API_BASE}/speaker-diarization/status`);
         if(!r.ok) throw new Error('Speaker diarization status unavailable');
         return await r.json();
     };
     const saveCredentials = async (payload) => {
-        const r = await fetch(`${API_BASE}/credentials`, {
+        const r = await apiFetch(`${API_BASE}/credentials`, {
             method: "POST",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify(payload || {}),
@@ -1011,8 +1159,8 @@ const useApi = () => {
         if(!r.ok) throw new Error('Credential save failed');
         return await r.json();
     };
-    const checkHealth = async () => { try{ const r = await fetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, fetchJobSourceFile, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
+    const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
+    return {processVideoSSE, enqueueProcessFiles, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, getJobs, fetchJobSourceFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
 };
 
 const useSettings = () => {
@@ -1036,7 +1184,8 @@ const SideNav = () => {
     const loc = useLocation();
     const items = [
         {path:'/',icon:'dashboard',k:'nav.dashboard'},
-        {path:'/processing',icon:'folder_open',k:'nav.processing'},
+        {path:'/tasks',icon:'monitoring',k:'nav.tasks'},
+        {path:'/processing',icon:'tune',k:'nav.processing'},
         {path:'/editor',icon:'subject',k:'nav.editor'},
         {path:'/settings',icon:'settings',k:'nav.settings'},
     ];
@@ -1086,12 +1235,15 @@ const Dashboard = () => {
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
             const subtitleInputRef = useRef(null);
-    const {processVideoSSE, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob} = useApi();
+    const {processVideoSSE, enqueueProcessFiles, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, getCredentialsStatus} = useApi();
     const {loadSettings} = useSettings();
             const navigate = useNavigate();
     const abortRef = useRef(null);
     const currentTaskRef = useRef(null);
+    const settledJobRef = useRef(new Set());
     const [now, setNow] = useState(Date.now());
+    const [videoLinkInput, setVideoLinkInput] = useState('');
+    const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -1125,6 +1277,7 @@ const Dashboard = () => {
         systemPrompt: resolveSystemPromptFromSettings(settings)||null,
         noteMode: settings.noteMode||'auto',
         speakerDiarization: !!settings.speakerDiarization,
+        sttProvider: normalizeSttProvider(settings.sttProvider),
     });
 
     const openHistoryEntry = async (h) => {
@@ -1143,6 +1296,30 @@ const Dashboard = () => {
         if(h.status==='completed'){ setLastResult(historyEntryToResult(h)); navigate('/editor'); }
     };
 
+    const settleCompletedJob = (job, fallbackJob = currentJob) => {
+        const result = job?.result;
+        const taskId = job?.task_id || result?.task_id || fallbackJob?.taskId;
+        if(!result || !taskId) return false;
+        if(settledJobRef.current.has(taskId)) return true;
+        settledJobRef.current.add(taskId);
+        if(abortRef.current){
+            abortRef.current.abort();
+            abortRef.current = null;
+        }
+        currentTaskRef.current = null;
+        const fileName = result.filename || job?.source_filename || fallbackJob?.fileName;
+        setCurrentJob({taskId, fileName, stage:'done', progress:100});
+        setLastResult(result);
+        setProcessingResult(result);
+        const larkUrl = result.lark_response?.url || null;
+        addToHistory(resultToHistoryEntry(result, {taskId, name:fileName}));
+        if(larkUrl) addLarkExport({url:larkUrl, title: result.lark_doc_title || fileNameStem(fileName), timestamp:Date.now()});
+        setTimeout(() => {
+            setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
+        }, 3000);
+        return true;
+    };
+
     const applyProgressEvent = (ev) => {
         setCurrentJob(prev => prev ? {
             ...prev,
@@ -1153,12 +1330,52 @@ const Dashboard = () => {
             durationSeconds: ev.duration_seconds ?? prev.durationSeconds,
             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
             sttStatus: ev.stt_status ?? prev.sttStatus,
+            sttProvider: ev.stt_provider ?? prev.sttProvider,
+            azureBatchAudioSizeMb: ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
         } : null);
         if(ev.stage === 'transcript_ready' && ev.result) {
             setLastResult(ev.result);
             setProcessingResult(ev.result);
         }
     };
+
+    useEffect(() => {
+        if(!currentJob?.taskId || currentJob.stage === 'done') return;
+        let stale = false;
+        const syncCurrentJob = async () => {
+            try {
+                const job = await getJob(currentJob.taskId);
+                if(stale) return;
+                if(job?.status === 'completed' && job.result) {
+                    settleCompletedJob(job, currentJob);
+                    return;
+                }
+                if(job?.status === 'failed') {
+                    if(abortRef.current){
+                        abortRef.current.abort();
+                        abortRef.current = null;
+                    }
+                    currentTaskRef.current = null;
+                    setUploadError(job.error_reason || 'Task failed.');
+                    addToHistory({
+                        id: Date.now(),
+                        taskId: job.task_id || currentJob.taskId,
+                        name: job.source_filename || currentJob.fileName,
+                        timestamp: Date.now(),
+                        durationMin: 0,
+                        status: 'failed',
+                    });
+                    setCurrentJob(null);
+                }
+            } catch(_) {}
+        };
+        syncCurrentJob();
+        const timer = setInterval(syncCurrentJob, 5000);
+        return () => {
+            stale = true;
+            clearInterval(timer);
+        };
+    }, [currentJob?.taskId, currentJob?.stage]);
 
     useEffect(() => {
         if(!currentJob?.resume || !currentJob.taskId || currentJob.stage === 'done' || abortRef.current) return;
@@ -1173,15 +1390,7 @@ const Dashboard = () => {
         let stale = false;
         subscribeJobEvents(currentJob.taskId, applyProgressEvent, ac.signal).then((result) => {
             if(stale) return;
-            abortRef.current = null;
-            currentTaskRef.current = null;
-            setCurrentJob({fileName:result.filename||currentJob.fileName, stage:'done', progress:100});
-            setLastResult(result);
-            setProcessingResult(result);
-            const larkUrl = result.lark_response?.url || null;
-            addToHistory(resultToHistoryEntry(result, {taskId: currentJob.taskId, name: currentJob.fileName}));
-            if(larkUrl) addLarkExport({url:larkUrl, title: result.lark_doc_title || fileNameStem(result.filename||currentJob.fileName), timestamp:Date.now()});
-            setTimeout(() => setCurrentJob(null), 3000);
+            settleCompletedJob({task_id: currentJob.taskId, source_filename: currentJob.fileName, result}, currentJob);
         }).catch((err) => {
             if(!stale && err.name !== 'AbortError') setUploadError(err.message || 'Failed to resume task.');
         }).finally(() => {
@@ -1194,24 +1403,65 @@ const Dashboard = () => {
         };
     }, [currentJob?.taskId, currentJob?.resume]);
 
-            const handleFileSelect = async (e) => {
-                const file = e.target.files?.[0];
-        if(!file) return;
-        if(fileInputRef.current) fileInputRef.current.value = '';
-        const validExts = /\.(mp4|mov|avi|mkv|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
-        if(!validExts.test(file.name)){
+    const mediaExts = /\.(mp4|mov|avi|mkv|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
+    const transcriptExts = /\.(srt|vtt|txt|md)$/i;
+    const audioExts = /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
+
+    const ensureCloudReady = async (sttProvider) => {
+        if (!isAzureCloudProvider(sttProvider)) return true;
+        try {
+            const status = await getCredentialsStatus();
+            const configured = sttProvider === 'azure_batch'
+                ? isAzureBatchConfigured(status)
+                : isAzureSpeechConfigured(status);
+            if (configured) return true;
+        } catch (_) {}
+        setUploadError(azureSpeechMissingMessage(lang));
+        return false;
+    };
+
+    const startMediaFiles = async (files) => {
+        const selectedFiles = Array.from(files || []);
+        if(selectedFiles.length === 0) return;
+        if(!selectedFiles.every((file) => mediaExts.test(file.name))){
             setUploadError(t('dash.fileError')); return;
         }
                 setUploadError(null);
                 setProcessingResult(null);
                 setLastResult(null);
+
+        const settings = loadSettings();
+        const sttModel = normalizeSttModel(settings.sttModel);
+        const sttProvider = normalizeSttProvider(settings.sttProvider);
+        if (!(await ensureCloudReady(sttProvider))) return;
+
+        if(selectedFiles.length > 1) {
+            setLastSourceFile(null);
+            try {
+                await enqueueProcessFiles(selectedFiles, {
+                    exportToLark: settings.exportToLark||false,
+                    larkViaCli: !!settings.larkViaCli,
+                    ...buildAiOptions(settings),
+                    skipSummary: !!settings.skipAiSummary,
+                    sttProvider,
+                    sttModel,
+                    sttSpeed: settings.sttSpeed||'balanced',
+                    sttLanguage: settings.sttLanguage||'auto',
+                });
+                setCurrentJob(null);
+                navigate('/tasks');
+            } catch(err) {
+                setUploadError(err.message || "Queue failed.");
+            }
+            return;
+        }
+
+        const file = selectedFiles[0];
                 setLastSourceFile(file);
 
         const ac = new AbortController();
         const taskId = createTaskId();
-        const settings = loadSettings();
-        const sttModel = normalizeSttModel(settings.sttModel);
-        const sourceType = /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i.test(file.name) ? "audio" : "video";
+        const sourceType = audioExts.test(file.name) ? "audio" : "video";
         const fileSizeMb = Math.round(file.size / 1024 / 1024 * 1000) / 1000;
         abortRef.current = ac;
         currentTaskRef.current = {
@@ -1228,6 +1478,7 @@ const Dashboard = () => {
             startedAt: Date.now(),
             sourceType,
             fileSizeMb,
+            sttProvider,
             sttModel,
             sttSpeed: settings.sttSpeed||'balanced',
             sttLanguage: settings.sttLanguage||'auto',
@@ -1246,6 +1497,7 @@ const Dashboard = () => {
                 title: file.name.replace(/\.[^/.]+$/,""),
                 ...buildAiOptions(settings),
 	                skipSummary: !!settings.skipAiSummary,
+	                sttProvider,
 	                sttModel,
 	                sttSpeed: settings.sttSpeed||'balanced',
 	                sttLanguage: settings.sttLanguage||'auto',
@@ -1280,12 +1532,53 @@ const Dashboard = () => {
                 }
             };
 
+            const handleVideoLinkSubmit = async () => {
+                const input = videoLinkInput.trim();
+                if(!input){
+                    setUploadError(t('dash.linkEmpty'));
+                    return;
+                }
+                setUploadError(null);
+                setProcessingResult(null);
+                setLastResult(null);
+                setLastSourceFile(null);
+                const settings = loadSettings();
+                const sttModel = normalizeSttModel(settings.sttModel);
+                const sttProvider = normalizeSttProvider(settings.sttProvider);
+                if (!(await ensureCloudReady(sttProvider))) return;
+                setVideoLinkSubmitting(true);
+                try {
+                    await createVideoSourceJob(input, {
+                        exportToLark: settings.exportToLark||false,
+                        larkViaCli: !!settings.larkViaCli,
+                        ...buildAiOptions(settings),
+                        skipSummary: !!settings.skipAiSummary,
+                        sttProvider,
+                        sttModel,
+                        sttSpeed: settings.sttSpeed||'balanced',
+                        sttLanguage: settings.sttLanguage||'auto',
+                    });
+                    setVideoLinkInput('');
+                    setCurrentJob(null);
+                    navigate('/tasks');
+                } catch(err) {
+                    setUploadError(err.message || "Video link fetch failed.");
+                } finally {
+                    setVideoLinkSubmitting(false);
+                }
+            };
+
+            const handleFileSelect = async (e) => {
+                const files = Array.from(e.target.files || []);
+                if(fileInputRef.current) fileInputRef.current.value = '';
+                await startMediaFiles(files);
+            };
+
             const handleSubtitleSelect = async (e) => {
                 const file = e.target.files?.[0];
                 if(!file) return;
                 if(subtitleInputRef.current) subtitleInputRef.current.value = '';
-                const validExts = /\.(srt|vtt|txt|md)$/i;
-                if(!validExts.test(file.name)){
+                if(!transcriptExts.test(file.name)){
                     setUploadError(t('dash.subtitleFileError')); return;
                 }
                 setUploadError(null);
@@ -1339,15 +1632,15 @@ const Dashboard = () => {
 
             const handleDrop = (e) => {
                 e.preventDefault();
-                const file = e.dataTransfer.files?.[0];
-        if(file && /\.(srt|vtt|txt|md)$/i.test(file.name) && subtitleInputRef.current){
+                const files = Array.from(e.dataTransfer.files || []);
+                if(files.length === 0) return;
+                const file = files[0];
+        if(files.length === 1 && file && transcriptExts.test(file.name) && subtitleInputRef.current){
             const dt = new DataTransfer(); dt.items.add(file);
             subtitleInputRef.current.files = dt.files;
             handleSubtitleSelect({target:subtitleInputRef.current});
-        } else if(file && fileInputRef.current){
-            const dt = new DataTransfer(); dt.items.add(file);
-            fileInputRef.current.files = dt.files;
-            handleFileSelect({target:fileInputRef.current});
+        } else {
+            startMediaFiles(files);
         }
     };
 
@@ -1362,12 +1655,27 @@ const Dashboard = () => {
     const currentRank = stageRank[currentJob?.stage] ?? 0;
     const sttProfile = currentJob?.sourceType === 'transcript_file'
         ? '-'
-        : [currentJob?.sttModel||DEFAULT_STT_MODEL, currentJob?.sttSpeed||'balanced', currentJob?.sttLanguage||'auto'].join(' / ');
+        : [
+            isAzureCloudProvider(currentJob?.sttProvider) ? 'Azure' : 'local',
+            currentJob?.sttModel||DEFAULT_STT_MODEL,
+            currentJob?.sttSpeed||'balanced',
+            currentJob?.sttLanguage||'auto',
+        ].join(' / ');
     const sttProgressPct = Math.round(sttProgressFraction(currentJob) * 100);
     const sttProgressUnknown = isSttProgressUnmeasured(currentJob);
     const hasSttTiming = currentJob?.stage === 'stt' && currentJob?.durationSeconds > 0 && !sttProgressUnknown;
     const sttElapsedForHint = Math.max(elapsedSec, Number(currentJob?.sttElapsedSeconds) || 0);
-    const sttWaitedLong = sttProgressUnknown && sttElapsedForHint >= 60;
+    const sttWaitedLong = sttProgressUnknown && !isAzureCloudProvider(currentJob?.sttProvider) && sttElapsedForHint >= 60;
+    const selectedSttProvider = currentJob?.sttProvider || normalizeSttProvider(loadSettings().sttProvider);
+    const taskInfoCards = [
+        {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
+        {label:t('dash.fileSize'), value:fmtFileSize(currentJob?.fileSizeMb)},
+        ...(isAzureCloudProvider(currentJob?.sttProvider) && currentJob?.azureBatchAudioSizeMb != null
+            ? [{label:t('dash.azureUploadAudio'), value:fmtFileSize(currentJob.azureBatchAudioSizeMb)}]
+            : []),
+        {label:t('dash.modelProfile'), value:sttProfile},
+        {label:t('dash.summaryMode'), value:currentJob?.skipSummary?t('dash.summaryOff'):`${t('dash.summaryOn')} / ${noteModeLabel(currentJob?.noteMode, lang)}`},
+    ];
 
             return (
             <div className="ml-64 min-h-screen relative pb-8">
@@ -1378,19 +1686,19 @@ const Dashboard = () => {
                     <p className="text-on-surface-variant font-body">{t('dash.subtitle')}</p>
                         </div>
                         <div className="flex gap-4">
-                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px]">
-                                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-primary">
-                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>timer</span>
-                                </div>
+	                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px] border border-outline-variant/20 dark:border-white/5">
+	                                <div className="w-12 h-12 rounded-sm bg-primary/10 flex items-center justify-center text-primary dark:bg-blue-400/10 dark:text-blue-300">
+	                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>timer</span>
+	                                </div>
                                 <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-outline">{t('dash.totalMin')}</p>
                             <p className="text-2xl font-headline font-bold text-on-surface">{stats.totalMinutes.toLocaleString()} {t('dash.minUnit')}</p>
                                 </div>
                             </div>
-                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px]">
-                                <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-tertiary">
-                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>description</span>
-                                </div>
+	                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px] border border-outline-variant/20 dark:border-white/5">
+	                                <div className="w-12 h-12 rounded-sm bg-tertiary/10 flex items-center justify-center text-tertiary dark:bg-blue-400/10 dark:text-blue-300">
+	                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>description</span>
+	                                </div>
                                 <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-outline">{t('dash.noteGen')}</p>
                             <p className="text-2xl font-headline font-bold text-on-surface">{stats.notesGenerated} {t('dash.docUnit')}</p>
@@ -1399,8 +1707,32 @@ const Dashboard = () => {
                         </div>
                     </div>
 
+                    <div className="space-y-6">
+                        <form
+                            onSubmit={(e)=>{e.preventDefault(); handleVideoLinkSubmit();}}
+                            className="flex items-stretch gap-2"
+                        >
+                            <input
+                                type="text"
+                                value={videoLinkInput}
+                                onChange={(e)=>setVideoLinkInput(e.target.value)}
+                                disabled={videoLinkSubmitting}
+                                className="h-12 min-w-0 flex-1 appearance-none rounded-sm border border-outline-variant/35 bg-surface-container-lowest/70 px-4 text-sm font-semibold text-on-surface shadow-none outline-none ring-0 placeholder:text-on-surface-variant/60 transition-colors focus:border-primary/45 focus:bg-surface-container-lowest focus:outline-none focus:ring-0 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:placeholder:text-slate-500 dark:focus:border-blue-300/40"
+                                placeholder={t('dash.linkPlaceholder')}
+                                aria-label={t('dash.linkPlaceholder')}
+                            />
+                            <button
+                                type="submit"
+                                disabled={videoLinkSubmitting}
+                                className="flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-sm border border-primary/20 bg-primary/10 px-5 text-sm font-extrabold text-primary transition-colors duration-200 hover:bg-primary/15 active:translate-y-px disabled:opacity-50 dark:border-blue-300/20 dark:bg-blue-400/10 dark:text-blue-200 dark:hover:bg-blue-400/15"
+                            >
+                                <span className={`material-symbols-outlined text-[18px] ${videoLinkSubmitting ? 'animate-spin' : ''}`}>{videoLinkSubmitting ? 'sync' : 'arrow_forward'}</span>
+                                {videoLinkSubmitting ? t('dash.linkSubmitting') : t('dash.linkSubmit')}
+                            </button>
+                        </form>
+
                     <div className="grid grid-cols-12 gap-8">
-                        <div className="col-span-12 lg:col-span-7 group">
+                        <div className="col-span-12 lg:col-span-9 group">
                     <div className={`relative h-[480px] rounded-sm overflow-hidden bg-slate-900 shadow-2xl transition-transform duration-500 ${uploading?'':'hover:scale-[1.01]'}`} onDrop={handleDrop} onDragOver={e=>e.preventDefault()}>
                                 <div className="absolute inset-0 opacity-40" aria-hidden="true">
                             <div className="w-full h-full bg-gradient-to-br from-slate-800 via-indigo-950/90 to-blue-900/70" style={{backgroundImage:'linear-gradient(135deg,#1e293b 0%,#312e81 35%,#1e3a5f 70%,#0f172a 100%)'}} />
@@ -1409,7 +1741,7 @@ const Dashboard = () => {
 	                                <div className="relative h-full flex flex-col justify-end items-center p-10 space-y-6">
 	                                    {!uploading && (
 	                                    <div className="w-full max-w-[720px] mx-auto">
-                                <span className="bg-primary/20 text-primary-fixed border border-primary/30 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.proTag')}</span>
+                                <span className="bg-white/[0.08] text-blue-100 border border-white/[0.12] px-3 py-1 rounded-sm text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.proTag')}</span>
                                 <h3 className="font-headline text-3xl font-bold text-white leading-tight">{t('dash.heroTitle')}</h3>
                                 <p className="text-slate-300 mt-4 text-sm leading-relaxed">{t('dash.heroDesc')}</p>
                                     </div>
@@ -1418,7 +1750,7 @@ const Dashboard = () => {
                                     <div className="w-full max-w-[760px] mx-auto space-y-6">
                                         <div className="flex items-start justify-between gap-6">
                                             <div className="min-w-0">
-                                                <span className="bg-blue-400/15 text-blue-100 border border-blue-300/30 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.activeTask')}</span>
+                                                <span className="bg-blue-400/15 text-blue-100 border border-blue-300/30 px-3 py-1 rounded-sm text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.activeTask')}</span>
                                                 <h3 className="font-headline text-3xl font-bold text-white leading-tight truncate">{currentJob.fileName}</h3>
                                                 <p className="text-slate-300 mt-3 text-sm">{t('dash.waitingForTranscript')}</p>
                                             </div>
@@ -1452,19 +1784,14 @@ const Dashboard = () => {
 	                                            )}
                                         </div>
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                            {[
-                                                {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
-                                                {label:t('dash.fileSize'), value:fmtFileSize(currentJob.fileSizeMb)},
-                                                {label:t('dash.modelProfile'), value:sttProfile},
-                                                {label:t('dash.summaryMode'), value:currentJob.skipSummary?t('dash.summaryOff'):`${t('dash.summaryOn')} / ${noteModeLabel(currentJob.noteMode, lang)}`},
-                                            ].map((item) => (
-                                                <div key={item.label} className="bg-white/8 border border-white/10 rounded-sm p-3 min-w-0">
+                                            {taskInfoCards.map((item) => (
+	                                                <div key={item.label} className="bg-white/[0.08] border border-white/10 rounded-sm p-3 min-w-0">
                                                     <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">{item.label}</p>
                                                     <p className="text-sm font-bold text-white truncate">{item.value}</p>
                                                 </div>
                                             ))}
                                         </div>
-                                        <div className="bg-white/7 border border-white/10 rounded-sm p-4">
+                                        <div className="bg-white/[0.07] border border-white/10 rounded-sm p-4">
                                             <div className="flex items-center justify-between mb-4">
                                                 <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">{t('dash.pipeline')}</p>
                                                 <p className="text-xs text-slate-300">{currentJob.exportToLark?t('dash.exportOn'):t('dash.exportOff')}</p>
@@ -1487,24 +1814,29 @@ const Dashboard = () => {
                                     )}
                                     {!uploading && (
 		                                    <div className="w-full max-w-[720px] mx-auto space-y-5">
-	                                        <div className="flex items-center gap-3" style={{display:'flex', flexDirection:'row', flexWrap:'nowrap', width:'fit-content'}}>
-	                                <input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
-	                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
-	                                <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} style={{width:172, flex:'0 0 172px'}} className="bg-white text-slate-900 font-bold px-4 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-lg disabled:opacity-50 justify-center">
-	                                            <span className="material-symbols-outlined">upload_file</span>
-	                                    <span>{uploading ? t('dash.processing') : t('dash.selectFile')}</span>
-	                                        </button>
-	                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} style={{width:212, flex:'0 0 212px'}} className="bg-white/10 text-white border border-white/25 font-bold px-4 py-4 rounded-sm flex items-center gap-3 hover:bg-white/20 transition-colors disabled:opacity-50 justify-center">
-	                                    <span className="material-symbols-outlined">subtitles</span>
-	                                    <span>{t('dash.selectSubtitle')}</span>
-	                                </button>
-	                                        </div>
-	                                <div className="text-slate-400 text-sm font-bold max-w-xl">{t('dash.dragHint')}</div>
+		                                        <div className="grid grid-cols-1 sm:grid-cols-[auto_auto] gap-3 w-full max-w-[560px]">
+		                                <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
+		                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
+		                                <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.92] text-slate-950 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-[0_16px_46px_-30px_rgba(255,255,255,0.8)] active:translate-y-px disabled:opacity-50 justify-center dark:bg-white/90 dark:hover:bg-white">
+		                                            <span className="material-symbols-outlined">upload_file</span>
+		                                    <span>{uploading ? t('dash.processing') : t('dash.selectFile')}</span>
+		                                        </button>
+		                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.07] text-white border border-white/15 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-white/[0.12] transition-colors active:translate-y-px disabled:opacity-50 justify-center">
+		                                    <span className="material-symbols-outlined">subtitles</span>
+		                                    <span>{t('dash.selectSubtitle')}</span>
+		                                </button>
+		                                        </div>
+		                                <div className="text-slate-400 text-sm font-bold max-w-xl">{t('dash.dragHint')}</div>
+	                                {isAzureCloudProvider(selectedSttProvider) && (
+		                                    <div className="text-cyan-100/85 text-xs leading-relaxed max-w-xl bg-white/[0.08] border border-white/10 rounded-sm px-3 py-2">
+	                                        {t('dash.azureUploadHint')}
+	                                    </div>
+	                                )}
 	                                    </div>
                                     )}
-                            {uploadError && <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-lg text-sm">{uploadError}</div>}
-                                    {processingResult && (
-                                        <div className="bg-green-500/20 border border-green-500/50 text-green-300 px-4 py-2 rounded-lg text-sm">
+                            {uploadError && <div className="bg-red-500/15 border border-red-400/30 text-red-200 px-4 py-2 rounded-sm text-sm">{uploadError}</div>}
+	                                    {processingResult && (
+	                                        <div className="bg-green-500/15 border border-green-400/30 text-green-200 px-4 py-2 rounded-sm text-sm">
 	                                    {processingResult.source==='transcript_file' ? t('dash.subtitleDone') : t('dash.done')} <button onClick={()=>navigate("/editor")} className="underline hover:no-underline">{t('dash.viewEditor')}</button>
                                         </div>
                                     )}
@@ -1512,23 +1844,24 @@ const Dashboard = () => {
                             </div>
                         </div>
 
-                        <div className="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                        <div className="col-span-12 lg:col-span-3 flex flex-col gap-5">
                             <div className="flex items-center justify-between px-2">
                         <h4 className="font-headline text-xl font-bold text-on-surface">{t('dash.recent')}</h4>
+                        <Link to="/tasks" className="text-xs font-bold text-primary hover:underline">{t('dash.viewAll')}</Link>
                             </div>
-                            <div className="space-y-4">
+                            <div className="space-y-3">
                         {history.length === 0 && (
                             <div className="text-center py-12 text-on-surface-variant text-sm">{t('dash.noActivity')}</div>
                         )}
-                        {history.slice(0,5).map(h => (
-		                            <div key={h.id} className="bg-surface-container-low p-5 rounded-sm flex gap-4 items-start hover:bg-surface-container transition-all cursor-pointer" onClick={() => openHistoryEntry(h)}>
-                                <div className={`w-12 h-12 rounded-sm flex items-center justify-center ${h.status==='completed'?'bg-blue-50':'bg-red-50'}`}>
+                        {history.slice(0,3).map(h => (
+		                            <div key={h.id} className="bg-surface-container-low p-4 rounded-sm flex gap-3 items-start hover:bg-surface-container transition-all cursor-pointer" onClick={() => openHistoryEntry(h)}>
+                                <div className={`w-10 h-10 rounded-sm flex items-center justify-center flex-shrink-0 ${h.status==='completed'?'bg-blue-50':'bg-red-50'}`}>
                                     <span className={`material-symbols-outlined ${h.status==='completed'?'text-primary':'text-red-500'}`}>{h.status==='completed'?'check_circle':'error'}</span>
                                         </div>
                                 <div className="flex-1 min-w-0">
                                             <div className="flex justify-between items-start mb-1">
                                         <h5 className="font-bold text-on-surface text-sm truncate pr-2">{h.name}</h5>
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter flex-shrink-0 ${h.status==='completed'?'text-primary bg-primary-fixed':'text-red-600 bg-red-50'}`}>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-tighter flex-shrink-0 ${h.status==='completed'?'text-primary bg-primary-fixed':'text-red-600 bg-red-50'}`}>
                                             {t(h.status==='completed'?'dash.statusCompleted':'dash.statusFailed')}
                                                 </span>
                                             </div>
@@ -1546,10 +1879,241 @@ const Dashboard = () => {
                             </div>
                         </div>
                     </div>
+                    </div>
                 </section>
             </div>
             );
         };
+
+/* ═══════════════ Background Tasks ═══════════════ */
+const Tasks = () => {
+    const {t, lang} = useI18n();
+    const {setLastResult, setCurrentJob, addToHistory} = useApp();
+    const {getJobs, getJob, downloadJobArtifact} = useApi();
+    const navigate = useNavigate();
+    const [jobs, setJobs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const loadJobs = useCallback(async () => {
+        try {
+            const next = await getJobs(100);
+            setJobs(next);
+            setError(null);
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setLoading(false);
+        }
+    }, [lang]);
+
+    useEffect(() => {
+        let stale = false;
+        const run = async () => { if (!stale) await loadJobs(); };
+        run();
+        const timer = setInterval(run, 5000);
+        return () => {
+            stale = true;
+            clearInterval(timer);
+        };
+    }, [loadJobs]);
+
+    const openJob = async (job) => {
+        if (job.status === 'running') {
+            setCurrentJob(jobToCurrentJob(job));
+            return;
+        }
+        try {
+            const fresh = await getJob(job.task_id);
+            const result = fresh?.result || job.result;
+            if (result) {
+                setLastResult(result);
+                addToHistory(jobToHistoryEntry({...job, result}));
+                navigate('/editor');
+            }
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        }
+    };
+
+    const downloadArtifact = async (job, kind) => {
+        const artifact = job.result?.artifacts?.[kind];
+        await downloadJobArtifact(job.task_id, kind, artifact?.filename);
+    };
+
+    const statusLabel = (job) => {
+        if (job.status === 'queued') return t('tasks.queued');
+        if (job.status === 'completed') return t('tasks.completed');
+        if (job.status === 'failed') return t('tasks.failed');
+        return t('tasks.running');
+    };
+    const statusClass = (job) => (
+        job.status === 'completed'
+            ? 'bg-blue-50 text-primary border-blue-100'
+            : job.status === 'failed'
+                ? 'bg-red-50 text-red-600 border-red-100'
+                : job.status === 'queued'
+                    ? 'bg-slate-50 text-slate-600 border-slate-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-100'
+    );
+    const formatUpdated = (job) => {
+        const ts = Date.parse(job.updated_at || job.created_at || '');
+        if (!ts) return '-';
+        return timeAgo(ts, t);
+    };
+    const providerLabel = (job) => (
+        job.source_type === 'video_link'
+            ? (lang === 'zh' ? '视频链接获取' : 'Video link fetch')
+            :
+        job.metadata?.stt_provider_label ||
+        job.result?.stt_provider_label ||
+        (job.metadata?.stt_provider === 'azure_batch' || job.result?.stt_provider === 'azure_batch'
+            ? (lang === 'zh' ? '云端转录' : 'Cloud transcription')
+            : 'faster-whisper')
+    );
+    const stageLabel = (job) => t(`status.${job.stage || (job.status === 'failed' ? 'failed' : 'idle')}`);
+    const stageDetail = (job) => {
+        const progressMeta = job.metadata?.video_source_progress || {};
+        const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
+        const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
+        const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
+        if (progressMeta.message) return `${progressMeta.message}${byteText}`;
+        if (job.status === 'queued') return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
+        if (job.status === 'running') return job.summary_status || stageLabel(job);
+        if (job.status === 'completed') return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
+        if (job.status === 'failed') return friendlyTaskError(job.error_reason, lang);
+        return '-';
+    };
+    const artifactButtons = [
+        ['transcript_srt', t('tasks.srt')],
+        ['transcript_txt', t('tasks.txt')],
+        ['transcript_vtt', t('tasks.vtt')],
+        ['summary_md', t('tasks.md')],
+    ];
+
+    return (
+        <div className="ml-64 min-h-screen relative pb-8">
+            <main className="p-12 max-w-7xl mx-auto h-[calc(100vh-2rem)] overflow-y-auto hide-scrollbar">
+                <div className="space-y-8">
+                    <header className="flex flex-col md:flex-row md:items-end justify-between gap-5">
+                        <div className="max-w-3xl">
+                            <h1 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-2">{t('tasks.title')}</h1>
+                            <p className="text-on-surface-variant font-body max-w-2xl">{t('tasks.subtitle')}</p>
+                        </div>
+                        <button type="button" onClick={loadJobs} className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-sm bg-surface-container-lowest text-on-surface font-bold text-sm border ff-border-muted hover:bg-surface-container-low transition-colors">
+                            <span className={`material-symbols-outlined text-base ${loading ? 'animate-spin' : ''}`}>refresh</span>
+                            {t('tasks.refresh')}
+                        </button>
+                    </header>
+
+                    {error && (
+                        <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>
+                    )}
+
+                    <section className="space-y-3">
+                        {jobs.length === 0 && !loading && (
+                            <div className="rounded-sm bg-surface-container-lowest border ff-border-muted p-10 text-center">
+                                <span className="material-symbols-outlined text-4xl text-outline mb-3">pending_actions</span>
+                                <p className="text-sm text-on-surface-variant">{t('tasks.empty')}</p>
+                            </div>
+                        )}
+                        {jobs.map((job) => {
+                            const progress = Math.max(0, Math.min(100, Number(job.progress) || (job.status === 'completed' ? 100 : 0)));
+                            const result = job.result || {};
+                            const artifacts = result.artifacts || {};
+                            const availableArtifacts = artifactButtons.filter(([kind]) => artifacts[kind]);
+                            const larkUrl = result.lark_response?.url || result.feishu_doc_url || null;
+                            const canOpen = !!result && job.status === 'completed';
+                            return (
+                                <article key={job.task_id} className="rounded-sm bg-surface-container-lowest border ff-border-muted shadow-sm p-5">
+                                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+                                        <div className="min-w-0 flex-1 space-y-4">
+                                            <div className="flex flex-wrap items-start gap-3">
+                                                <div className="w-10 h-10 rounded-sm bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                                                    <span className="material-symbols-outlined text-lg">{job.source_type === 'transcript_file' ? 'subtitles' : 'movie'}</span>
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <h2 className="text-base font-headline font-bold text-on-surface truncate">{job.source_filename || job.task_id}</h2>
+                                                    <p className="text-xs text-on-surface-variant mt-1">
+                                                        {t('tasks.updated')} {formatUpdated(job)}
+                                                        {job.source_file_size_mb ? ` • ${fmtFileSize(job.source_file_size_mb)}` : ''}
+                                                        {result.audio_duration_seconds ? ` • ${fmtElapsed(result.audio_duration_seconds)}` : ''}
+                                                    </p>
+                                                </div>
+                                                <span className={`px-2.5 py-1 rounded-sm border text-[11px] font-bold ${statusClass(job)}`}>{statusLabel(job)}</span>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                <div className="rounded-sm bg-surface-container-low px-3 py-2">
+                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.progress')}</p>
+                                                    <p className="text-sm font-semibold text-on-surface mt-1">{stageLabel(job)} · {Math.round(progress)}%</p>
+                                                </div>
+                                                <div className="rounded-sm bg-surface-container-low px-3 py-2">
+                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.route')}</p>
+                                                    <p className="text-sm font-semibold text-on-surface mt-1 truncate">{providerLabel(job)}</p>
+                                                </div>
+                                                <div className="rounded-sm bg-surface-container-low px-3 py-2">
+                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.summary')}</p>
+                                                    <p className="text-sm font-semibold text-on-surface mt-1 truncate">{result.summary_skipped ? t('dash.summaryOff') : (job.summary_status || result.summary_status || '-')}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="rounded-sm bg-surface-container-low px-3 py-2">
+                                                <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.detail')}</p>
+                                                <p className="text-sm font-semibold text-on-surface mt-1 leading-relaxed">{stageDetail(job)}</p>
+                                            </div>
+
+                                            {job.status === 'running' && (
+                                                <div className={`h-2 rounded-full overflow-hidden bg-surface-container-highest ${isSttProgressUnmeasured(jobToCurrentJob(job)) ? 'progress-indeterminate' : ''}`}>
+                                                    {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-primary transition-all duration-500" style={{width:`${progress}%`}}></div>}
+                                                </div>
+                                            )}
+                                            {job.status === 'failed' && job.error_reason && (
+                                                <p className="text-xs leading-relaxed text-red-600 bg-red-50 border border-red-100 rounded-sm px-3 py-2">
+                                                    <span className="font-bold">{t('tasks.error')}：</span>{friendlyTaskError(job.error_reason, lang)}
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div className="lg:w-[320px] flex-shrink-0 space-y-3">
+                                            <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-sm bg-primary text-white font-bold text-sm hover:bg-primary-container transition-colors disabled:opacity-40">
+                                                <span className="material-symbols-outlined text-base">open_in_new</span>
+                                                {t('tasks.open')}
+                                            </button>
+                                            <div className="rounded-sm border ff-border-muted p-3">
+                                                <div className="flex items-center justify-between gap-3 mb-2">
+                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.artifacts')}</p>
+                                                    <span className="text-[11px] font-bold text-on-surface-variant">
+                                                        {availableArtifacts.length ? `${availableArtifacts.length} ${t('tasks.outputsReady')}` : t('tasks.noOutputs')}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {artifactButtons.map(([kind, label]) => {
+                                                        const artifact = artifacts[kind];
+                                                        return (
+                                                        <button key={kind} type="button" disabled={!artifact} title={artifact?.filename || label} onClick={() => downloadArtifact(job, kind)} className={`px-3 py-2 rounded-sm text-xs font-bold transition-colors ${artifact ? 'bg-surface-container-low text-on-surface hover:bg-surface-container border ff-border-muted' : 'bg-surface-container-low text-outline opacity-45'}`}>
+                                                            <span className="block truncate">{label}</span>
+                                                        </button>
+                                                    );})}
+                                                </div>
+                                                {larkUrl && (
+                                                    <a href={larkUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex w-full items-center justify-center gap-2 px-3 py-2 rounded-sm border border-primary/30 text-xs font-bold text-primary hover:bg-primary/10 transition-colors">
+                                                        <span className="material-symbols-outlined text-sm">open_in_new</span>
+                                                        {t('tasks.larkDoc')}
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </article>
+                            );
+                        })}
+                    </section>
+                </div>
+            </main>
+        </div>
+    );
+};
 
 /* ═══════════════ Processing ═══════════════ */
 const Processing = () => {
@@ -1562,6 +2126,7 @@ const Processing = () => {
     const [diarizationStatus, setDiarizationStatus] = useState(null);
     const [secretDraft, setSecretDraft] = useState({});
     const [secretSaving, setSecretSaving] = useState(false);
+    const [secretFeedback, setSecretFeedback] = useState(null);
 
     const updateSettingNow = (patch) => {
         setSettings((s) => {
@@ -1579,7 +2144,9 @@ const Processing = () => {
         getCredentialsStatus().then(setCredentialStatus).catch(() => {});
         getSpeakerDiarizationStatus().then((status) => {
             setDiarizationStatus(status);
-            if (!status?.available && settings.speakerDiarization) updateSettingNow({speakerDiarization:false});
+            if (!status?.available && normalizeSttProvider(settings.sttProvider) === 'local' && settings.speakerDiarization) {
+                updateSettingNow({speakerDiarization:false});
+            }
         }).catch(() => {});
     }, []);
 
@@ -1587,14 +2154,19 @@ const Processing = () => {
         const value = secretDraft[key];
         if (value === undefined) return;
         setSecretSaving(true);
+        setSecretFeedback(null);
         try {
             const next = await saveCredentials({[key]: value});
-            setCredentialStatus(next);
+            const fresh = await getCredentialsStatus().catch(() => next);
+            setCredentialStatus(fresh);
             if (key === 'pyannote_auth_token') {
                 const status = await getSpeakerDiarizationStatus();
                 setDiarizationStatus(status);
             }
             setSecretDraft((draft) => ({...draft, [key]: ''}));
+            setSecretFeedback({key, ok: true});
+        } catch (err) {
+            setSecretFeedback({key, ok: false, message: err.message || String(err)});
         } finally {
             setSecretSaving(false);
         }
@@ -1604,13 +2176,27 @@ const Processing = () => {
         ? (lang === 'zh' ? '已配置' : 'Configured')
         : (lang === 'zh' ? '未配置' : 'Not configured');
 
+    const SecretFeedback = ({keyName}) => (
+        secretFeedback?.key === keyName ? (
+            <p className={`text-[11px] font-semibold ${secretFeedback.ok ? 'text-green-600' : 'text-red-600'}`}>
+                {secretFeedback.ok
+                    ? (lang === 'zh' ? '已保存' : 'Saved')
+                    : `${lang === 'zh' ? '保存失败' : 'Save failed'}：${secretFeedback.message || ''}`}
+            </p>
+        ) : null
+    );
+
     const aiProvider = settings.aiProvider || 'deepseek';
     const aiModel = settings.aiModel || (aiProvider === 'openai' ? 'gpt-5.4-mini' : 'deepseek-chat');
     const activeAiSecretKey = aiProvider === 'openai' ? 'openai_api_key' : 'deepseek_api_key';
     const activeAiConfigured = aiProvider === 'openai'
         ? credentialStatus?.openai_api_key_configured
         : credentialStatus?.deepseek_api_key_configured;
-    const speakerDiarizationHint = diarizationStatus?.available
+    const sttProvider = normalizeSttProvider(settings.sttProvider);
+    const speakerDiarizationAvailable = sttProvider === 'azure_batch' || (sttProvider === 'local' && !!diarizationStatus?.available);
+    const speakerDiarizationHint = sttProvider === 'azure_batch'
+        ? (lang==='zh'?'云端转录支持可选说话人区分，效果取决于音频质量。':'Cloud transcription can optionally label speakers. Results depend on audio quality.')
+        : diarizationStatus?.available
         ? (lang==='zh'?'使用 pyannote 为字幕段标记 SPEAKER。':'Use pyannote to label transcript segments.')
         : !diarizationStatus
             ? (lang==='zh'?'正在检测本机说话人区分依赖。':'Checking local speaker diarization dependency.')
@@ -1674,8 +2260,16 @@ const Processing = () => {
 
                     <section className="space-y-5">
                         <div className={sectionClass}>
-                            <SectionTitle icon="mic_external_on" title={t('work.transcription')} desc={lang==='zh'?'控制转录模型、语言和速度。':'Control the STT model, language, and speed.'}/>
+                            <SectionTitle icon="mic_external_on" title={t('work.transcription')} desc={lang==='zh'?'选择转录路线和音频语言；云端基础设施由后台统一管理。':'Choose the transcription route and audio language. Cloud infrastructure is managed in the backend.'}/>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
+                                    <select className={inputClass} value={sttProvider} onChange={e=>updateSettingNow({sttProvider:e.target.value})}>
+                                        <option value="azure_batch">{t('set.providerAzureBatch')}</option>
+                                        <option value="local">{t('set.providerLocal')}</option>
+                                    </select>
+                                </div>
+                                {sttProvider === 'local' && (
                                 <div className="space-y-2">
                                     <label className={fieldLabelClass}>{t('set.modelSel')}</label>
                                     <select className={inputClass} value={normalizeSttModel(settings.sttModel)} onChange={e=>updateSettingNow({sttModel:e.target.value})}>
@@ -1683,6 +2277,7 @@ const Processing = () => {
                                         <option value="large-v3">{t('set.optLarge')}</option>
                                     </select>
                                 </div>
+                                )}
                                 <div className="space-y-2">
                                     <label className={fieldLabelClass}>{t('set.sttLanguage')}</label>
                                     <select className={inputClass} value={settings.sttLanguage||"auto"} onChange={e=>updateSettingNow({sttLanguage:e.target.value})}>
@@ -1691,6 +2286,7 @@ const Processing = () => {
                                         <option value="en">{t('set.langEn')}</option>
                                     </select>
                                 </div>
+                                {sttProvider === 'local' && (
                                 <div className="space-y-2">
                                     <label className={fieldLabelClass}>{t('set.sttSpeed')}</label>
                                     <select className={inputClass} value={settings.sttSpeed||"balanced"} onChange={e=>updateSettingNow({sttSpeed:e.target.value})}>
@@ -1699,16 +2295,28 @@ const Processing = () => {
                                         <option value="accurate">{t('set.speedAccurate')}</option>
                                     </select>
                                 </div>
+                                )}
                             </div>
+                            {isAzureCloudProvider(sttProvider) && (
+                                <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
+                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">cloud_done</span>
+                                    <p className="text-xs text-on-surface-variant leading-relaxed">
+                                        {lang==='zh'
+                                            ? '云端转录由后台统一配置。你只需要上传文件，长任务会继续在后台运行。'
+                                            : 'Cloud transcription is configured by the product owner. Upload a file and the long-running job will continue in the background.'}
+                                    </p>
+                                </div>
+                            )}
                             <ToggleRow
                                 id="workSpeakerDiarization"
-                                checked={!!settings.speakerDiarization && !!diarizationStatus?.available}
+                                checked={!!settings.speakerDiarization && speakerDiarizationAvailable}
                                 onChange={e=>updateSettingNow({speakerDiarization:e.target.checked})}
                                 label={lang==='zh'?'区分不同讲话人':'Speaker diarization'}
                                 hint={speakerDiarizationHint}
                                 icon="record_voice_over"
-                                disabled={!diarizationStatus?.available}
+                                disabled={!speakerDiarizationAvailable}
                             />
+                            {sttProvider === 'local' && (
                             <div className="space-y-2 rounded-sm border ff-border-muted bg-surface-container-low p-3">
                                 <label className={fieldLabelClass}>PYANNOTE AUTH TOKEN</label>
                                 <div className="flex gap-2">
@@ -1721,6 +2329,7 @@ const Processing = () => {
                                         : (lang==='zh'?'粘贴 Hugging Face 的 hf_... token；只写入本机后端配置，不写入浏览器。':'Paste the Hugging Face hf_... token. It is stored only in the local backend config.')}
                                 </p>
                             </div>
+                            )}
                         </div>
 
                         <div className={sectionClass}>
@@ -1842,7 +2451,7 @@ const Editor = () => {
         setCurrentJob,
         addLarkExport,
     } = useApp();
-    const {processVideoSSE, fetchJobSourceFile, recordEvent, getJob, saveTranscriptEdit} = useApi();
+    const {processVideoSSE, fetchJobSourceFile, recordEvent, getJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
@@ -2057,12 +2666,11 @@ const Editor = () => {
         [baselineSegments, segments, result?.transcript_edit_records]
     );
     const summary = result?.summary_markdown || '';
-    const transcriptCleanup = result?.transcript_cleanup || null;
     const canUseStoredSource = !!result?.source_file_available && !!result?.task_id;
     const durSec = result?.audio_duration_seconds || 0;
     const sttElapsedSec = result?.stt_elapsed_seconds || 0;
     const sttRealtimeFactor = result?.stt_realtime_factor || (durSec > 0 && sttElapsedSec > 0 ? sttElapsedSec / durSec : null);
-    const sttProfile = result?.stt_model ? [result.stt_model, result.stt_speed, result.stt_language].filter(Boolean).join(' / ') : '';
+    const sttProfile = result?.stt_model ? [isAzureCloudProvider(result.stt_provider) ? 'Azure' : 'local', result.stt_model, result.stt_speed, result.stt_language].filter(Boolean).join(' / ') : '';
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
     const resolvedNoteMode = result?.resolved_note_mode || result?.requested_note_mode || null;
     const noteModeText = resolvedNoteMode ? noteModeLabel(resolvedNoteMode, lang) : null;
@@ -2084,6 +2692,12 @@ const Editor = () => {
         const node = segmentRefs.current[activeSegmentIndex];
         if (node) node.scrollIntoView({block:'center', behavior:'smooth'});
     }, [activeSegmentIndex, followPlayback, mediaPlaying]);
+
+    useEffect(() => {
+        const root = transcriptScrollRef.current;
+        if (!root) return;
+        root.querySelectorAll('textarea[data-transcript-segment="true"]').forEach(autoSizeTextarea);
+    }, [segments]);
 
     useEffect(() => () => {
         if (mediaUrl) URL.revokeObjectURL(mediaUrl);
@@ -2142,6 +2756,7 @@ const Editor = () => {
         systemPrompt: resolveSystemPromptFromSettings(settings)||null,
         noteMode: settings.noteMode||'auto',
         speakerDiarization: !!settings.speakerDiarization,
+        sttProvider: normalizeSttProvider(settings.sttProvider),
     });
 
     const presetLabel = (key) => presetDisplayLabel(key, loadSettings(), lang);
@@ -2252,7 +2867,7 @@ const Editor = () => {
             if(result.filename) fd.append('source_filename', result.filename);
             if(durSec > 0) fd.append('source_duration_seconds', String(durSec));
             fd.append('lark_via_cli', settings.larkViaCli ? 'true' : 'false');
-            const r = await fetch(`${API_BASE}/export-lark`, {method:'POST', body:fd});
+            const r = await apiFetch(`${API_BASE}/export-lark`, {method:'POST', body:fd});
             const data = await r.json().catch(()=>({}));
             if(!r.ok) {
                 const d = data.detail;
@@ -2285,7 +2900,7 @@ const Editor = () => {
             if(settings.noteMode) fd.append('note_mode', settings.noteMode);
             const activePrompt = resolveSystemPromptFromSettings(settings);
             if(activePrompt) fd.append('system_prompt', activePrompt);
-            const r = await fetch(`${API_BASE}/regenerate-summary`, {method:'POST', body:fd});
+            const r = await apiFetch(`${API_BASE}/regenerate-summary`, {method:'POST', body:fd});
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||'Regeneration failed');
             const data = await r.json();
 		            setLastResult({
@@ -2314,6 +2929,22 @@ const Editor = () => {
         }
         const settings = loadSettings();
         const sttModel = normalizeSttModel(settings.sttModel);
+        const sttProvider = normalizeSttProvider(settings.sttProvider);
+        if (isAzureCloudProvider(sttProvider)) {
+            try {
+                const status = await getCredentialsStatus();
+                const configured = sttProvider === 'azure_batch'
+                    ? isAzureBatchConfigured(status)
+                    : isAzureSpeechConfigured(status);
+                if (!configured) {
+                    showToast(azureSpeechMissingMessage(lang), false);
+                    return;
+                }
+            } catch (_) {
+                showToast(azureSpeechMissingMessage(lang), false);
+                return;
+            }
+        }
         const taskId = createTaskId();
         const sourceType = /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i.test(file.name) ? "audio" : "video";
         const fileSizeMb = Math.round(file.size / 1024 / 1024 * 1000) / 1000;
@@ -2327,6 +2958,7 @@ const Editor = () => {
             startedAt: Date.now(),
             sourceType,
             fileSizeMb,
+            sttProvider,
             sttModel,
             sttSpeed: settings.sttSpeed||'balanced',
             sttLanguage: settings.sttLanguage||'auto',
@@ -2343,6 +2975,7 @@ const Editor = () => {
                 title: file.name.replace(/\.[^/.]+$/,""),
                 ...buildAiOptions(settings),
                 skipSummary: !!settings.skipAiSummary,
+                sttProvider,
                 sttModel,
                 sttSpeed: settings.sttSpeed||'balanced',
                 sttLanguage: settings.sttLanguage||'auto',
@@ -2353,10 +2986,12 @@ const Editor = () => {
 	                    progress:ev.progress,
 	                    sttProgress: ev.stt_progress ?? prev.sttProgress,
 	                    transcribedSeconds: ev.transcribed_seconds ?? prev.transcribedSeconds,
-	                    durationSeconds: ev.duration_seconds ?? prev.durationSeconds,
-	                    sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
-	                    sttStatus: ev.stt_status ?? prev.sttStatus,
-	                } : null);
+		                    durationSeconds: ev.duration_seconds ?? prev.durationSeconds,
+		                    sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
+		                    sttStatus: ev.stt_status ?? prev.sttStatus,
+		                    sttProvider: ev.stt_provider ?? prev.sttProvider,
+		                    azureBatchAudioSizeMb: ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+		                } : null);
                 if(ev.stage === 'transcript_ready' && ev.result) setLastResult(ev.result);
             });
 
@@ -2713,31 +3348,6 @@ const Editor = () => {
                         </div>
                 )}
 
-                {transcriptCleanup && transcriptCleanup.applied_count > 0 && (
-                    <div className="bg-cyan-50/80 border border-cyan-200/70 rounded-lg px-4 py-3 flex items-start gap-3">
-                        <span className="material-symbols-outlined text-cyan-700 text-lg mt-0.5">content_cut</span>
-                        <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-headline font-bold text-sm text-on-surface">{t('work.cleanupTitle')}</span>
-                                <span className="text-xs font-semibold text-cyan-700">{t('work.cleanupApplied')}: {transcriptCleanup.applied_count}</span>
-                                {transcriptCleanup.removed_segment_count > 0 && (
-                                    <span className="text-xs font-semibold text-slate-600">{transcriptCleanup.removed_segment_count} {t('work.cleanupSegments')}</span>
-                                )}
-                            </div>
-                            {transcriptCleanup.issues?.length > 0 && (
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                    {transcriptCleanup.issues.slice(0, 8).map((item, idx) => (
-                                        <span key={`${item.kind}-${item.segment_index}-${idx}`} className="text-[11px] bg-white border border-cyan-100 rounded-full px-2.5 py-1 text-slate-700">
-                                            {item.repeat_unit} × {item.repeat_count}
-                                        </span>
-                                    ))}
-                                    {transcriptCleanup.issue_count > 8 && <span className="text-[11px] text-slate-500 px-2 py-1">+{transcriptCleanup.issue_count - 8}</span>}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
                         <div className="flex-1 min-h-0 flex gap-4 overflow-hidden">
                             <section className="flex-1 min-h-0 bg-surface-container-low rounded-sm flex flex-col overflow-hidden">
                                 <div className="p-5 flex justify-between items-center border-b border-surface-container-highest">
@@ -2801,11 +3411,13 @@ const Editor = () => {
                                         {fmtTime(seg.start)}
                                     </button>
                                     <textarea
+                                        data-transcript-segment="true"
                                         value={seg.text || ''}
-                                        onChange={(e)=>handleSegmentTextChange(i, e.target.value)}
+                                        ref={autoSizeTextarea}
+                                        onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
                                         onFocus={()=>setFollowPlayback(false)}
-                                        rows={Math.max(1, Math.min(8, Math.ceil((seg.text || '').length / 42)))}
-                                        className="flex-1 resize-y min-h-[2rem] bg-transparent border-none p-0 text-on-surface text-sm leading-relaxed focus:ring-0"
+                                        rows={1}
+                                        className="flex-1 resize-none overflow-hidden min-h-[2rem] bg-transparent border-none p-0 text-on-surface text-sm leading-relaxed focus:ring-0"
                                     />
                                         </div>
 	                            )) : (
@@ -3204,12 +3816,101 @@ const Editor = () => {
         };
 
 /* ═══════════════ App root ═══════════════ */
+const AccessGate = ({children}) => {
+    const {lang} = useI18n();
+    const [checking, setChecking] = useState(true);
+    const [required, setRequired] = useState(false);
+    const [authenticated, setAuthenticated] = useState(false);
+    const [token, setToken] = useState(getAccessToken());
+    const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const refreshStatus = useCallback(async () => {
+        setChecking(true);
+        try {
+            const r = await apiFetch(`${API_BASE}/auth/status`);
+            const data = await r.json().catch(()=>({}));
+            setRequired(!!data.access_required);
+            setAuthenticated(!data.access_required || !!data.authenticated);
+        } catch(_) {
+            setRequired(false);
+            setAuthenticated(true);
+        } finally {
+            setChecking(false);
+        }
+    }, []);
+
+    useEffect(() => { refreshStatus(); }, [refreshStatus]);
+
+    const submit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setSubmitting(true);
+        try {
+            const nextToken = token.trim();
+            const r = await apiFetch(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({access_token: nextToken}),
+            });
+            const data = await r.json().catch(()=>({}));
+            if(!r.ok) throw new Error(data.detail || (lang === 'zh' ? '访问码不正确' : 'Invalid access code'));
+            setAccessToken(nextToken);
+            setAuthenticated(true);
+        } catch(err) {
+            setError(err.message || (lang === 'zh' ? '无法进入' : 'Access failed'));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (checking) {
+        return <div className="min-h-screen bg-surface flex items-center justify-center text-sm font-semibold text-on-surface-variant">{lang === 'zh' ? '正在检查访问权限…' : 'Checking access…'}</div>;
+    }
+    if (!required || authenticated) return children;
+
+    return (
+        <main className="min-h-screen bg-surface flex items-center justify-center px-6">
+            <form onSubmit={submit} className="w-full max-w-md rounded-sm bg-surface-container-lowest p-8 shadow-xl border border-outline-variant/30 dark:border-white/10">
+                <div className="space-y-2 mb-6">
+                    <p className="text-xs font-bold uppercase tracking-widest text-primary">FluentFlow Beta</p>
+                    <h1 className="text-3xl font-headline font-bold text-on-surface">{lang === 'zh' ? '输入访问码' : 'Enter access code'}</h1>
+                    <p className="text-sm leading-relaxed text-on-surface-variant">
+                        {lang === 'zh'
+                            ? '当前版本用于小范围试用。访问码由产品维护者提供。'
+                            : 'This beta is invite-only. Ask the product maintainer for an access code.'}
+                    </p>
+                </div>
+                <div className="flex items-stretch gap-2">
+                    <input
+                        type="password"
+                        value={token}
+                        onChange={(e)=>setToken(e.target.value)}
+                        className="h-12 min-w-0 flex-1 rounded-sm border border-outline-variant/40 bg-surface-container-low px-4 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
+                        placeholder={lang === 'zh' ? '访问码' : 'Access code'}
+                        autoFocus
+                    />
+                    <button
+                        type="submit"
+                        disabled={submitting || !token.trim()}
+                        className="h-12 rounded-sm bg-primary px-5 text-sm font-extrabold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                    >
+                        {submitting ? (lang === 'zh' ? '验证中' : 'Checking') : (lang === 'zh' ? '进入' : 'Enter')}
+                    </button>
+                </div>
+                {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
+            </form>
+        </main>
+    );
+};
+
 const App = () => (
                 <div className="flex min-h-screen w-full bg-surface">
         <SideNav/>
                     <div className="flex-1 flex flex-col w-full h-full relative">
                         <Routes>
                 <Route path="/" element={<Dashboard/>}/>
+                <Route path="/tasks" element={<Tasks/>}/>
                 <Route path="/processing" element={<Processing/>}/>
                 <Route path="/editor" element={<Editor/>}/>
                 <Route path="/settings" element={<Settings/>}/>
@@ -3219,5 +3920,5 @@ const App = () => (
             );
 
 createRoot(document.getElementById('root')).render(
-    <BrowserRouter><I18nProvider><AppProvider><App/></AppProvider></I18nProvider></BrowserRouter>
+    <BrowserRouter><I18nProvider><AccessGate><AppProvider><App/></AppProvider></AccessGate></I18nProvider></BrowserRouter>
         );

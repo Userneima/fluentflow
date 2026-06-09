@@ -12,12 +12,21 @@ def test_sensitive_settings_are_saved_server_side(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
 
     status = save_sensitive_settings(
-        {"deepseek_api_key": "ds-key", "lark_app_secret": "lark-secret"},
+        {
+            "deepseek_api_key": "ds-key",
+            "lark_app_secret": "lark-secret",
+            "azure_speech_key": "azure-key",
+            "azure_speech_endpoint": "https://eastasia.api.cognitive.microsoft.com",
+            "azure_blob_container_sas_url": "https://example.blob.core.windows.net/fluentflow?sp=rcw",
+        },
         path=path,
     )
 
     assert status["deepseek_api_key_configured"] is True
     assert status["lark_app_secret_configured"] is True
+    assert status["azure_speech_key_configured"] is True
+    assert status["azure_speech_endpoint_configured"] is True
+    assert status["azure_blob_container_sas_url_configured"] is True
     with patch.dict(os.environ, {}, clear=True):
         assert resolve_secret(None, "unknown") is None
 

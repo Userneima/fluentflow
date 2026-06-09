@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     status TEXT NOT NULL,
+    client_id TEXT,
     stage TEXT,
     progress REAL,
     source_type TEXT,
@@ -60,12 +61,17 @@ def ensure_job_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA_SQL)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        if "client_id" not in columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN client_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_client_updated_at ON jobs(client_id, updated_at)")
 
 
 def upsert_job(
     *,
     task_id: str,
     status: str,
+    client_id: str | None = None,
     stage: str | None = None,
     progress: float | None = None,
     source_type: str | None = None,
@@ -86,13 +92,14 @@ def upsert_job(
             conn.execute(
                 """
                 INSERT INTO jobs (
-                    task_id, created_at, updated_at, status, stage, progress,
+                    task_id, created_at, updated_at, status, client_id, stage, progress,
                     source_type, source_filename, source_file_size_mb, summary_status,
                     error_reason, result_json, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     updated_at=excluded.updated_at,
                     status=excluded.status,
+                    client_id=COALESCE(excluded.client_id, jobs.client_id),
                     stage=COALESCE(excluded.stage, jobs.stage),
                     progress=COALESCE(excluded.progress, jobs.progress),
                     source_type=COALESCE(excluded.source_type, jobs.source_type),
@@ -108,6 +115,7 @@ def upsert_job(
                     now,
                     now,
                     status,
+                    client_id,
                     stage,
                     progress,
                     source_type,
@@ -123,23 +131,43 @@ def upsert_job(
         logger.warning("Job store update failed for %s: %s", task_id, exc)
 
 
-def get_job(task_id: str, db_path: Path | str = DEFAULT_DB_PATH) -> dict[str, Any] | None:
+def get_job(
+    task_id: str,
+    db_path: Path | str = DEFAULT_DB_PATH,
+    client_id: str | None = None,
+) -> dict[str, Any] | None:
     ensure_job_db(db_path)
     with sqlite3.connect(Path(db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
+        if client_id is not None:
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE task_id = ? AND client_id = ?",
+                (task_id, client_id),
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
-def list_jobs(limit: int = 50, db_path: Path | str = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+def list_jobs(
+    limit: int = 50,
+    db_path: Path | str = DEFAULT_DB_PATH,
+    client_id: str | None = None,
+) -> list[dict[str, Any]]:
     ensure_job_db(db_path)
     safe_limit = max(1, min(int(limit or 50), 200))
     with sqlite3.connect(Path(db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?",
-            (safe_limit,),
-        ).fetchall()
+        if client_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE client_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (client_id, safe_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
     return [_row_to_dict(row) for row in rows]
 
 
@@ -147,6 +175,7 @@ def update_job_result(
     task_id: str,
     result: dict[str, Any],
     db_path: Path | str = DEFAULT_DB_PATH,
+    client_id: str | None = None,
 ) -> dict[str, Any] | None:
     if not task_id:
         return None
@@ -154,7 +183,13 @@ def update_job_result(
     now = _now_iso()
     with sqlite3.connect(Path(db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
+        if client_id is not None:
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE task_id = ? AND client_id = ?",
+                (task_id, client_id),
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
         if row is None:
             return None
         conn.execute(
@@ -171,6 +206,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "status": row["status"],
+        "client_id": row["client_id"],
         "stage": row["stage"],
         "progress": row["progress"],
         "source_type": row["source_type"],

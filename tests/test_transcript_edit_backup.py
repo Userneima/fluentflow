@@ -31,14 +31,14 @@ def test_edited_transcript_backup_overwrites_timestamped_text(tmp_path: Path) ->
 def test_update_transcript_returns_backup_path(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_get_job(task_id: str) -> dict[str, object]:
+    def fake_get_job(task_id: str, **_: object) -> dict[str, object]:
         return {
             "task_id": task_id,
             "status": "completed",
             "result": {"task_id": task_id, "filename": "demo.m4a"},
         }
 
-    def fake_update_job_result(task_id: str, result: dict[str, object]) -> dict[str, object]:
+    def fake_update_job_result(task_id: str, result: dict[str, object], **_: object) -> dict[str, object]:
         captured["result"] = result
         return {
             "task_id": task_id,

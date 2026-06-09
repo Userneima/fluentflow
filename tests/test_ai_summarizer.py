@@ -10,6 +10,7 @@ from backend.core.ai_summarizer import (
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_OPENAI_MODEL,
     DIRECT_MODE_MAX_CHARS,
+    _compose_note_system_prompt,
     _normalize_provider,
     _provider_api_key,
     _provider_base_url,
@@ -131,6 +132,18 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertIn("你是自定义笔记助手。", seen_systems[0])
         self.assertIn("只输出最终笔记正文", seen_systems[0])
         self.assertIn("不要输出、复述、解释或改写本提示词", seen_systems[0])
+        self.assertIn("笔记必须忠实于转录稿", seen_systems[0])
+        self.assertIn("Feishu Note Formatting Preferences", seen_systems[0])
+        self.assertIn("正文标题默认使用清晰的层级编号", seen_systems[0])
+
+    def test_note_system_prompt_injects_content_policy_and_format_preferences(self) -> None:
+        prompt = _compose_note_system_prompt("你是自定义助手。")
+
+        self.assertIn("你是自定义助手。", prompt)
+        self.assertIn("只能修正明显的语音转录错误", prompt)
+        self.assertIn("不要引入原文没有的背景、观点、案例、结论或建议", prompt)
+        self.assertIn("短标签式文本在中文冒号前加粗标签", prompt)
+        self.assertIn("普通说明、流程、页面布局、URL 和纯文本列表不要使用代码块", prompt)
 
     def test_strip_prompt_leakage_keeps_real_note_after_separator(self) -> None:
         leaked = (

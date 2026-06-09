@@ -76,7 +76,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="fluentflow_benchmark_") as td:
         wav_path = Path(td) / f"{source.stem}_stt.wav"
         audio_started_at = time.perf_counter()
-        extract_stt_wav(source, wav_path)
+        extract_stt_wav(source, output_path=wav_path)
         audio_elapsed = time.perf_counter() - audio_started_at
 
         stt_started_at = time.perf_counter()

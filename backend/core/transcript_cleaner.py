@@ -59,10 +59,13 @@ def _segment_to_dict(segment: Any, text: str) -> dict[str, float | str]:
     payload: dict[str, float | str] = {"text": text}
     start = _segment_start(segment)
     end = _segment_end(segment)
+    speaker = segment.get("speaker") if isinstance(segment, dict) else getattr(segment, "speaker", None)
     if start is not None:
         payload["start"] = start
     if end is not None:
         payload["end"] = end
+    if speaker:
+        payload["speaker"] = str(speaker)
     return payload
 
 

@@ -163,12 +163,36 @@ class TestLarkExporter(unittest.TestCase):
             "类型",
         )
 
+    def test_create_doc_markdown_writes_tables_with_flat_parser_by_default(
+        self,
+    ) -> None:
+        with patch.object(LarkExporter, "_create_empty_doc", return_value="doc_123") as mock_create_doc, \
+             patch("backend.core.lark_exporter._get_tenant_token", return_value="tenant_token") as mock_get_token, \
+             patch.object(LarkExporter, "_write_flat_blocks_batched") as mock_write_flat, \
+             patch.object(LarkExporter, "_write_root_blocks_batched") as mock_write_root, \
+             patch("backend.core.lark_exporter._convert_markdown_via_openapi") as mock_convert:
+            exporter = LarkExporter(app_id=self.app_id, app_secret=self.app_secret)
+
+            result = exporter.create_doc_markdown(
+                "表格摘要",
+                "| A |\n| --- |\n| B |",
+            )
+
+        mock_create_doc.assert_called_once_with("表格摘要", None)
+        mock_get_token.assert_called_once()
+        mock_convert.assert_not_called()
+        mock_write_root.assert_not_called()
+        mock_write_flat.assert_called_once()
+        self.assertEqual(result["via"], "legacy_markdown")
+        self.assertEqual(result["doc_token"], "doc_123")
+
+    @patch.dict(os.environ, {"FLUENTFLOW_LARK_USE_OPENAPI_CONVERT": "1"})
     @patch("backend.core.lark_exporter._convert_markdown_via_openapi")
     @patch("backend.core.lark_exporter._get_tenant_token", return_value="tenant_token")
     @patch.object(LarkExporter, "_write_flat_blocks_batched")
     @patch.object(LarkExporter, "_write_root_blocks_batched")
     @patch.object(LarkExporter, "_create_empty_doc", return_value="doc_123")
-    def test_create_doc_markdown_uses_openapi_convert_for_tables(
+    def test_create_doc_markdown_uses_openapi_convert_when_explicitly_enabled(
         self,
         mock_create_doc: MagicMock,
         mock_write_root: MagicMock,

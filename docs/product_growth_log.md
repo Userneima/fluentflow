@@ -2,6 +2,66 @@
 
 本文档记录 FluentFlow 从“可用工具”走向“可验证产品”的关键迭代。它不是功能清单，而是记录每次改动背后的问题判断、取舍和可沉淀的产品能力。
 
+## 2026-06-02｜Azure 云转录接入
+
+### 问题
+
+本地 STT 速度强依赖设备性能。对长音频来说，同一条产品链路在不同电脑上的等待体验差异很大，简历或报告中的 STT 速度数据也必须说明环境口径。
+
+### 判断
+
+云转录不应该替代本地默认链路，而应该作为可切换的 STT Provider。这样用户可以在“本地隐私/无需云服务”和“云端速度/跨设备稳定性”之间选择，也能让事件日志按 provider 分组比较。
+
+### 方案
+
+- 新增 Azure Speech Fast Transcription 适配层。
+- 工作台增加转录服务选择：本地 faster-whisper / Azure 云转录。
+- Azure 地址和 Key 只保存到本机后端配置，不写入浏览器 localStorage；用户可填地区名或完整地址，后端统一补全为调用链接。
+- Azure 返回结果转换成现有转录结构，继续复用转录清洗、编辑器、摘要和飞书导出。
+- Azure 路径开启说话人区分时，使用 Azure Fast Transcription 的 diarization 返回 speaker 标签；本地路径继续使用 pyannote。
+- Azure 路径下的“自动识别”不再硬传候选 locale，而是省略 `locales` 交给 Fast Transcription 自动识别主语言；显式 locale 被 Azure 拒绝时，后端会降级为不指定 locale 重试。
+- Azure Fast 默认使用 REST API `2025-10-15`；如果当前版本触发 `InvalidModel`，后端会尝试兼容版本 `2024-11-15`。若仍失败，应切回本地 STT 或更换 Azure Speech 资源/区域。
+- Azure Fast 路径改用压缩 MP3 inline 上传，并在上传前记录预处理后大小/时长，避免本地 Whisper 专用 WAV 膨胀导致云端上传不稳定。
+- 增加 `scripts/check_azure_fast_transcription.py`，用于真实凭证下单文件 smoke test；验证结果不写入事件表，避免把调试样本混入产品使用数据。
+- `stt_completed` 增加 `stt_provider` 口径，后续报告必须按本地和 Azure 分组。
+
+### 取舍
+
+Azure Fast Transcription 不提供与 faster-whisper segment 生成同等粒度的真实进度，因此前端只展示云端转录状态和等待时间，不伪造百分比。外部 HTTP 请求也无法像本地 STT 子进程一样被强制杀掉。当前阶段只做 inline 上传，不提前引入 Azure Blob/SAS 配置；超长音频需要未来单独做 Batch 流程。
+
+### 可沉淀表达
+
+为 FluentFlow 增加可切换 STT Provider，将本地 faster-whisper 与 Azure 云转录纳入同一处理链路和数据口径，支持按设备/云端服务对比转录耗时与稳定性。
+
+## 2026-06-03｜Azure 云转录从 Fast inline 转向 Batch + Blob/SAS
+
+### 问题
+
+Azure Fast inline 链路在真实文件体量下暴露出多类不稳定问题：HTTPS 上传可能 EOF/Broken pipe，部分请求返回 `InvalidModel`，并且 Fast 不支持当前产品需要的说话人区分能力。继续在 Fast 上叠加重试和兜底，只会让用户看到“云转录可用但经常失败”的假象。
+
+### 判断
+
+云端长音频转录应该走异步 Batch，而不是同步 inline。Batch + Blob/SAS 的配置成本更高，但它更符合产品真实场景：长录音、大文件、可等待、可轮询、可保留云端任务状态，并且官方 API 支持 diarization 配置。
+
+### 方案
+
+- 新增 Azure Batch + Blob/SAS 转录路径，作为工作台里的正式 Azure 云转录选项。
+- 新增 Azure Speech 基础自检入口，先用短音频 REST 识别验证 Speech 资源、区域和 Key，不依赖 Blob/SAS。
+- 音视频先压缩成 MP3，再通过 Blob container SAS 上传，随后调用 Speech Batch `transcriptions:submit`。
+- 工作台新增 Blob 容器 SAS URL 保存入口；Speech 地址、Key、Blob SAS 都只写入本机后端配置，不写入浏览器 localStorage。
+- Dashboard 与编辑器重新转录会在上传前检查 Batch 必需配置，缺失时直接提示，不再让用户等到后端报错。
+- Batch 转录阶段拆分为上传 Blob、提交任务、等待 Azure、下载结果；不伪造云端 STT 百分比。
+- Azure Batch 可选请求说话人区分；本地路径仍使用 pyannote，Azure Fast 旧链路禁用说话人区分。
+- 新增 `scripts/check_azure_batch_transcription.py`，支持 dry-run 检查配置和音频预处理，也支持真实 Batch smoke test。
+
+### 取舍
+
+Batch 真实测试需要 Blob SAS，且会产生 Azure Storage 与 Speech 调用痕迹；因此自动化测试先锁住请求形状和结果解析，真实 smoke test 作为配置齐全后的手动验证步骤。当前本地配置已具备 Speech 地址和 Key，并且基础短音频自检已在 eastasia 资源上通过；但尚未配置 Blob container SAS，无法完成真实 Batch 文件转录提交。
+
+### 可沉淀表达
+
+将 FluentFlow 的云端 STT 从 Fast inline 试验路径迁移为 Azure Batch + Blob/SAS 异步路径，补齐长音频、云端轮询、SAS 配置、说话人区分和真实 smoke test 能力。
+
 ## 2026-06-01｜历史快照与数据口径
 
 ### 问题
@@ -446,3 +506,30 @@ SRT/VTT 是面向播放器的字幕格式，包含时间码、序号和短字幕
 ### 可沉淀表达
 
 将长任务从浏览器连接中解耦：断线可恢复，取消才终止，降低本地长转录任务的时间损失和资源失控风险。
+
+## 2026-06-10｜演示级稳定性收口
+
+### 问题
+
+产品已经能完成上传、链接获取、转录、字幕和笔记生成，但演示或封闭 Beta 时最容易暴露的不是“缺少新功能”，而是失败信息不可读、产物入口不清晰、本地文件长期堆积，以及云端基础设施概念过早暴露给普通用户。
+
+### 判断
+
+当前阶段的优先级应该从继续扩展能力转向“让第一次完整流程更稳”。普通用户不需要理解 Azure、Blob、SAS、模型错误码；产品应该把这些复杂度吸收到后台，只在任务页告诉用户当前阶段、失败原因和下一步动作。
+
+### 方案
+
+- 后端新增统一错误翻译层，将常见 Azure、队列、文件过大、链接解析和本地模型错误转换为用户可理解的中文提示。
+- 原始错误保留在任务 metadata 中，方便维护者排障，但不直接展示给用户。
+- 后台任务页补充阶段详情，展示链接解析、视频下载大小、排队、完成和失败时的可行动信息。
+- 结果产物区从灰色按钮升级为明确的下载入口，完成后显示 SRT、TXT、VTT、Markdown 和飞书文档链接。
+- 本地产品介绍文档同步为“云端基础设施由产品维护者管理”，普通用户只看到上传/链接输入和本地/云端路线。
+- Beta 清单保留本地清理脚本，明确默认 dry-run 和保留策略。
+
+### 取舍
+
+没有引入正式账号系统、云对象存储迁移或持久化队列。当前仍是适合封闭 Beta 和作品集演示的单机产品形态；如果进入公开多人使用，再补用户体系、任务隔离、额度、对象存储和队列服务。
+
+### 可沉淀表达
+
+把演示风险从“出现错误码就中断理解”降到“任务失败也能知道发生了什么”，让产品从功能可用推进到流程可展示、可排障、可验证。

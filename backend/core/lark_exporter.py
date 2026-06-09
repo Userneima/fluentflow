@@ -441,14 +441,13 @@ class LarkExporter:
             self.app_id, self.app_secret, self.base_url, self.timeout
         )
         conv_timeout = max(self.timeout, 90)
-        # 默认走内置扁平块写入；官方 convert 的嵌套块在单次 create-children 中易被忽略导致「空文档」。
-        # 若需实验 OpenAPI 转换，可设置 FLUENTFLOW_LARK_USE_OPENAPI_CONVERT=1
+        # 默认走内置扁平块写入。官方 convert 会把 Markdown 表格转成嵌套 table/table_cell
+        # 块，但 create-children 接口当前会拒绝这类嵌套结构，导致整次导出失败。
+        # 若需实验 OpenAPI 转换，可设置 FLUENTFLOW_LARK_USE_OPENAPI_CONVERT=1。
         wants_convert = (
             os.environ.get("FLUENTFLOW_LARK_USE_OPENAPI_CONVERT", "").strip().lower()
             in ("1", "true", "yes", "on")
         )
-        if markdown_contains_table(markdown):
-            wants_convert = True
         used_convert = False
         root_children: List[dict] = []
         if wants_convert:

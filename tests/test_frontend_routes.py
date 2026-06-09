@@ -12,7 +12,7 @@ def test_client_routes_fall_back_to_frontend_index() -> None:
 
     assert response.status_code == 200
     assert "FluentFlow" in response.text
-    assert 'src="/assets/app.js"' in response.text
+    assert 'src="/assets/app.js' in response.text
 
 
 def test_api_like_unknown_routes_still_return_404() -> None:

@@ -19,3 +19,4 @@ reports/
 # Local media / large assets (videos, extracted audio, etc.)
 data/*
 !data/.gitkeep
+视频文件/
