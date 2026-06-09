@@ -35,6 +35,7 @@ export FLUENTFLOW_ACCESS_TOKENS="code-a,code-b,code-c"
 ```bash
 export FLUENTFLOW_MAX_UPLOAD_MB=2048
 export FLUENTFLOW_MAX_QUEUE_FILES=5
+export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
 export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 ```
 
@@ -42,9 +43,37 @@ export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 
 - 单文件最大 2048 MB
 - 单次批量最多 5 个文件
+- 每个设备最多 2 个排队/运行中的任务
 - 单个媒体最长 4 小时
 
 `FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=0` 可关闭时长限制。
+
+### 云服务器用户模式
+
+上线给外部试用者使用时，普通用户不应该看到本地 faster-whisper、Azure Key、Blob/SAS、pyannote token、DeepSeek/OpenAI Key、飞书 App Secret 等维护者配置。
+
+推荐云服务器最小配置：
+
+```bash
+export FLUENTFLOW_PUBLIC_MODE=1
+export FLUENTFLOW_ALLOWED_STT_PROVIDERS=azure_batch
+export FLUENTFLOW_DEFAULT_STT_PROVIDER=azure_batch
+export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
+export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
+```
+
+效果：
+
+- 后端会把客户端传来的 `local` 转录路线强制改为 `azure_batch`。
+- 前端处理设置页只显示云端转录，不再让普通用户选择本地转录。
+- API Key、飞书 App 凭证、pyannote token 等维护者字段会隐藏为“后台统一配置”。
+- `/runtime-config` 只暴露运行模式、允许的转录路线和限制，不暴露任何密钥。
+
+本地开发时不要开启 `FLUENTFLOW_PUBLIC_MODE`，仍可显式设置：
+
+```bash
+export FLUENTFLOW_ALLOWED_STT_PROVIDERS=local,azure_batch
+```
 
 ### 本地文件清理
 

@@ -391,6 +391,31 @@ const isAzureSpeechConfigured = (status) => (
 const isAzureBatchConfigured = (status) => (
     isAzureSpeechConfigured(status) && !!status?.azure_blob_container_sas_url_configured
 );
+const DEFAULT_RUNTIME_CONFIG = {
+    publicMode: false,
+    allowedSttProviders: ['azure_batch', 'local'],
+    defaultSttProvider: DEFAULT_STT_PROVIDER,
+    showMaintainerSettings: true,
+};
+const normalizeRuntimeConfig = (config={}) => {
+    const allowed = Array.isArray(config.allowed_stt_providers)
+        ? config.allowed_stt_providers.map(normalizeSttProvider)
+        : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
+    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'azure_batch' || item === 'local'))];
+    const fallbackAllowed = uniqueAllowed.length ? uniqueAllowed : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
+    const defaultProvider = normalizeSttProvider(config.default_stt_provider || DEFAULT_STT_PROVIDER);
+    return {
+        publicMode: !!config.public_mode,
+        allowedSttProviders: fallbackAllowed,
+        defaultSttProvider: fallbackAllowed.includes(defaultProvider) ? defaultProvider : fallbackAllowed[0],
+        showMaintainerSettings: config.show_maintainer_settings !== false,
+        limits: config.limits || {},
+    };
+};
+const effectiveSttProvider = (settings={}, runtimeConfig=DEFAULT_RUNTIME_CONFIG) => {
+    const wanted = normalizeSttProvider(settings.sttProvider);
+    return runtimeConfig.allowedSttProviders.includes(wanted) ? wanted : runtimeConfig.defaultSttProvider;
+};
 const azureSpeechMissingMessage = (lang) => (
     lang === 'zh'
         ? '云端转录暂不可用，请联系产品维护者检查后台配置。'
@@ -450,8 +475,15 @@ const AppProvider = ({children}) => {
     const [currentJob, setCurrentJob] = useState(null);
     const [lastResult, setLastResult] = useState(null);
     const [lastSourceFile, setLastSourceFile] = useState(null);
+    const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
 
     useEffect(() => {
+        apiFetch(`${API_BASE}/runtime-config`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((data) => {
+                if (data) setRuntimeConfig(normalizeRuntimeConfig(data));
+            })
+            .catch(() => {});
         try {
             const rawSettings = JSON.parse(localStorage.getItem("fluentflow_settings")||"{}");
             const hasLegacySecrets = SENSITIVE_SETTING_KEYS.some((key) => rawSettings[key]);
@@ -494,7 +526,7 @@ const AppProvider = ({children}) => {
         notesGenerated: history.filter(h => h.status==='completed').length,
     };
 
-    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport}}>{children}</AppCtx.Provider>;
+    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
 };
 const useApp = () => useContext(AppCtx);
 
@@ -1230,7 +1262,7 @@ const SideNav = () => {
 /* ═══════════════ Dashboard ═══════════════ */
 const Dashboard = () => {
     const {t, lang} = useI18n();
-    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport} = useApp();
+    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
@@ -1277,7 +1309,7 @@ const Dashboard = () => {
         systemPrompt: resolveSystemPromptFromSettings(settings)||null,
         noteMode: settings.noteMode||'auto',
         speakerDiarization: !!settings.speakerDiarization,
-        sttProvider: normalizeSttProvider(settings.sttProvider),
+        sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 
     const openHistoryEntry = async (h) => {
@@ -1432,7 +1464,7 @@ const Dashboard = () => {
 
         const settings = loadSettings();
         const sttModel = normalizeSttModel(settings.sttModel);
-        const sttProvider = normalizeSttProvider(settings.sttProvider);
+        const sttProvider = effectiveSttProvider(settings, runtimeConfig);
         if (!(await ensureCloudReady(sttProvider))) return;
 
         if(selectedFiles.length > 1) {
@@ -1544,7 +1576,7 @@ const Dashboard = () => {
                 setLastSourceFile(null);
                 const settings = loadSettings();
                 const sttModel = normalizeSttModel(settings.sttModel);
-                const sttProvider = normalizeSttProvider(settings.sttProvider);
+                const sttProvider = effectiveSttProvider(settings, runtimeConfig);
                 if (!(await ensureCloudReady(sttProvider))) return;
                 setVideoLinkSubmitting(true);
                 try {
@@ -1666,7 +1698,7 @@ const Dashboard = () => {
     const hasSttTiming = currentJob?.stage === 'stt' && currentJob?.durationSeconds > 0 && !sttProgressUnknown;
     const sttElapsedForHint = Math.max(elapsedSec, Number(currentJob?.sttElapsedSeconds) || 0);
     const sttWaitedLong = sttProgressUnknown && !isAzureCloudProvider(currentJob?.sttProvider) && sttElapsedForHint >= 60;
-    const selectedSttProvider = currentJob?.sttProvider || normalizeSttProvider(loadSettings().sttProvider);
+    const selectedSttProvider = currentJob?.sttProvider || effectiveSttProvider(loadSettings(), runtimeConfig);
     const taskInfoCards = [
         {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
         {label:t('dash.fileSize'), value:fmtFileSize(currentJob?.fileSizeMb)},
@@ -2118,7 +2150,7 @@ const Tasks = () => {
 /* ═══════════════ Processing ═══════════════ */
 const Processing = () => {
     const {t, lang} = useI18n();
-    const {currentJob} = useApp();
+    const {currentJob, runtimeConfig} = useApp();
     const {loadSettings, saveSettings} = useSettings();
     const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus} = useApi();
     const [settings, setSettings] = useState(() => loadSettings());
@@ -2144,7 +2176,7 @@ const Processing = () => {
         getCredentialsStatus().then(setCredentialStatus).catch(() => {});
         getSpeakerDiarizationStatus().then((status) => {
             setDiarizationStatus(status);
-            if (!status?.available && normalizeSttProvider(settings.sttProvider) === 'local' && settings.speakerDiarization) {
+            if (!status?.available && effectiveSttProvider(settings, runtimeConfig) === 'local' && settings.speakerDiarization) {
                 updateSettingNow({speakerDiarization:false});
             }
         }).catch(() => {});
@@ -2192,7 +2224,9 @@ const Processing = () => {
     const activeAiConfigured = aiProvider === 'openai'
         ? credentialStatus?.openai_api_key_configured
         : credentialStatus?.deepseek_api_key_configured;
-    const sttProvider = normalizeSttProvider(settings.sttProvider);
+    const sttProvider = effectiveSttProvider(settings, runtimeConfig);
+    const canChooseSttProvider = runtimeConfig.allowedSttProviders.length > 1;
+    const showMaintainerSettings = runtimeConfig.showMaintainerSettings;
     const speakerDiarizationAvailable = sttProvider === 'azure_batch' || (sttProvider === 'local' && !!diarizationStatus?.available);
     const speakerDiarizationHint = sttProvider === 'azure_batch'
         ? (lang==='zh'?'云端转录支持可选说话人区分，效果取决于音频质量。':'Cloud transcription can optionally label speakers. Results depend on audio quality.')
@@ -2262,13 +2296,23 @@ const Processing = () => {
                         <div className={sectionClass}>
                             <SectionTitle icon="mic_external_on" title={t('work.transcription')} desc={lang==='zh'?'选择转录路线和音频语言；云端基础设施由后台统一管理。':'Choose the transcription route and audio language. Cloud infrastructure is managed in the backend.'}/>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="space-y-2">
-                                    <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
-                                    <select className={inputClass} value={sttProvider} onChange={e=>updateSettingNow({sttProvider:e.target.value})}>
-                                        <option value="azure_batch">{t('set.providerAzureBatch')}</option>
-                                        <option value="local">{t('set.providerLocal')}</option>
-                                    </select>
-                                </div>
+                                {canChooseSttProvider ? (
+                                    <div className="space-y-2">
+                                        <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
+                                        <select className={inputClass} value={sttProvider} onChange={e=>updateSettingNow({sttProvider:e.target.value})}>
+                                            {runtimeConfig.allowedSttProviders.includes('azure_batch') && <option value="azure_batch">{t('set.providerAzureBatch')}</option>}
+                                            {runtimeConfig.allowedSttProviders.includes('local') && <option value="local">{t('set.providerLocal')}</option>}
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
+                                        <div className={`${inputClass} flex items-center justify-between bg-surface-container-low`}>
+                                            <span>{sttProvider === 'azure_batch' ? t('set.providerAzureBatch') : t('set.providerLocal')}</span>
+                                            <span className="material-symbols-outlined text-base text-primary">lock</span>
+                                        </div>
+                                    </div>
+                                )}
                                 {sttProvider === 'local' && (
                                 <div className="space-y-2">
                                     <label className={fieldLabelClass}>{t('set.modelSel')}</label>
@@ -2316,7 +2360,7 @@ const Processing = () => {
                                 icon="record_voice_over"
                                 disabled={!speakerDiarizationAvailable}
                             />
-                            {sttProvider === 'local' && (
+                            {showMaintainerSettings && sttProvider === 'local' && (
                             <div className="space-y-2 rounded-sm border ff-border-muted bg-surface-container-low p-3">
                                 <label className={fieldLabelClass}>PYANNOTE AUTH TOKEN</label>
                                 <div className="flex gap-2">
@@ -2382,6 +2426,7 @@ const Processing = () => {
                                     )}
                                 </div>
                             </div>
+                            {showMaintainerSettings ? (
                             <div className="space-y-2">
                                 <label className={fieldLabelClass}>{aiProvider==='openai'?t('set.openaiKey'):t('set.deepseekKey')}</label>
                                 <div className="flex gap-2">
@@ -2390,6 +2435,14 @@ const Processing = () => {
                                 </div>
                                 <p className="text-[11px] text-on-surface-variant">{secretStatusText(activeAiConfigured)}。{lang==='zh'?'不会写入浏览器 localStorage。':'Not stored in browser localStorage.'}</p>
                             </div>
+                            ) : (
+                            <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
+                                <span className="material-symbols-outlined text-primary text-lg mt-0.5">admin_panel_settings</span>
+                                <p className="text-xs text-on-surface-variant leading-relaxed">
+                                    {lang==='zh'?'摘要模型由后台统一配置，普通用户不需要填写 API Key。':'The summary model is configured in the backend. Users do not need to enter API keys.'}
+                                </p>
+                            </div>
+                            )}
                         </div>
 
                         <div className={sectionClass}>
@@ -2402,16 +2455,16 @@ const Processing = () => {
                                     label={t('set.autoExport')}
                                     icon="ios_share"
                                 />
-                                <ToggleRow
+                                {showMaintainerSettings && <ToggleRow
                                     id="workLarkViaCli"
                                     checked={settings.larkViaCli||false}
                                     onChange={e=>updateSettingNow({larkViaCli:e.target.checked})}
                                     label={t('set.larkViaCli')}
                                     hint={t('set.larkViaCliHint')}
                                     icon="terminal"
-                                />
+                                />}
                             </div>
-                            {!settings.larkViaCli && (
+                            {showMaintainerSettings && !settings.larkViaCli && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                                     <div className="space-y-2">
                                         <label className={fieldLabelClass}>App ID</label>
@@ -2427,6 +2480,14 @@ const Processing = () => {
                                             <button type="button" disabled={secretSaving || !secretDraft.lark_app_secret} onClick={()=>saveSecret('lark_app_secret')} className="px-4 py-2.5 rounded-sm bg-primary text-white text-sm font-bold disabled:opacity-40">{lang==='zh'?'保存':'Save'}</button>
                                         </div>
                                     </div>
+                                </div>
+                            )}
+                            {!showMaintainerSettings && (
+                                <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
+                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">cloud_done</span>
+                                    <p className="text-xs text-on-surface-variant leading-relaxed">
+                                        {lang==='zh'?'飞书导出连接由后台统一配置；用户只需要选择是否自动导出。':'Lark export credentials are configured in the backend. Users only choose whether to export automatically.'}
+                                    </p>
                                 </div>
                             )}
                         </div>
@@ -2450,6 +2511,7 @@ const Editor = () => {
         currentJob,
         setCurrentJob,
         addLarkExport,
+        runtimeConfig,
     } = useApp();
     const {processVideoSSE, fetchJobSourceFile, recordEvent, getJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
     const {loadSettings, saveSettings} = useSettings();
@@ -2756,7 +2818,7 @@ const Editor = () => {
         systemPrompt: resolveSystemPromptFromSettings(settings)||null,
         noteMode: settings.noteMode||'auto',
         speakerDiarization: !!settings.speakerDiarization,
-        sttProvider: normalizeSttProvider(settings.sttProvider),
+        sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 
     const presetLabel = (key) => presetDisplayLabel(key, loadSettings(), lang);
@@ -2929,7 +2991,7 @@ const Editor = () => {
         }
         const settings = loadSettings();
         const sttModel = normalizeSttModel(settings.sttModel);
-        const sttProvider = normalizeSttProvider(settings.sttProvider);
+        const sttProvider = effectiveSttProvider(settings, runtimeConfig);
         if (isAzureCloudProvider(sttProvider)) {
             try {
                 const status = await getCredentialsStatus();

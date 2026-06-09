@@ -208,6 +208,14 @@ def _access_control_enabled() -> bool:
     return bool(_configured_access_tokens())
 
 
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _public_mode_enabled() -> bool:
+    return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
+
+
 def _request_access_token(request: Request) -> str:
     auth = request.headers.get("authorization") or ""
     if auth.lower().startswith("bearer "):
@@ -251,7 +259,7 @@ def _is_public_request(request: Request) -> bool:
     if request.method.upper() == "OPTIONS":
         return True
     path = request.url.path
-    if path in {"/", "/health", "/auth/status", "/auth/login"}:
+    if path in {"/", "/health", "/auth/status", "/auth/login", "/runtime-config"}:
         return True
     if path.startswith("/assets/"):
         return True
@@ -349,6 +357,16 @@ def _max_queue_files() -> int:
         return 5
 
 
+def _max_active_jobs_per_client() -> int:
+    raw = os.environ.get("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT")
+    if raw is None:
+        return 2 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 2 if _public_mode_enabled() else 0
+
+
 def _max_media_duration_seconds() -> float:
     try:
         return max(float(os.environ.get("FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS", "14400")), 0.0)
@@ -361,8 +379,12 @@ def _runtime_limits() -> dict[str, Any]:
     return {
         "max_upload_mb": _max_upload_mb(),
         "max_queue_files": _max_queue_files(),
+        "max_active_jobs_per_client": _max_active_jobs_per_client() or None,
         "max_media_duration_seconds": duration_limit if duration_limit > 0 else None,
         "access_control_enabled": _access_control_enabled(),
+        "public_mode": _public_mode_enabled(),
+        "allowed_stt_providers": list(_allowed_stt_providers()),
+        "default_stt_provider": _default_stt_provider(),
     }
 
 
@@ -442,6 +464,33 @@ def _friendly_error_message(error: Any) -> str:
     if "视频下载失败" in raw or "视频文件过大" in raw:
         return raw
     return raw
+
+
+def _active_job_count(client_id: str | None, exclude_task_id: str | None = None) -> int:
+    return sum(
+        1
+        for job in list_jobs(limit=200, client_id=client_id)
+        if job.get("status") in {"queued", "running"} and job.get("task_id") != exclude_task_id
+    )
+
+
+def _enforce_active_job_limit(
+    client_id: str | None,
+    incoming: int = 1,
+    exclude_task_id: str | None = None,
+) -> None:
+    limit = _max_active_jobs_per_client()
+    if limit <= 0:
+        return
+    active = _active_job_count(client_id, exclude_task_id=exclude_task_id)
+    if active + max(incoming, 1) > limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"当前仍有 {active} 个后台任务未完成。"
+                f"封闭测试阶段每个设备最多同时运行 {limit} 个任务，请稍后再提交。"
+            ),
+        )
 
 
 def _path_size_mb(path: Path | str) -> float | None:
@@ -860,11 +909,37 @@ def _stt_realtime_factor(stt_elapsed_seconds: float | None, duration_seconds: fl
     return max(round(stt_elapsed_seconds / duration_seconds, 4), 0.0001)
 
 
-def _normalize_stt_provider(value: str | None) -> str:
+def _canonical_stt_provider(value: str | None) -> str:
     provider = (value or "").strip().lower().replace("-", "_")
     if provider in {"azure", "azure_batch", "azure_blob", "azure_speech_batch", "azure_fast", "azure_speech"}:
         return "azure_batch"
+    if provider in {"local", "faster_whisper", "faster-whisper", "whisper"}:
+        return "local"
     return "local"
+
+
+def _allowed_stt_providers() -> tuple[str, ...]:
+    raw = os.environ.get("FLUENTFLOW_ALLOWED_STT_PROVIDERS")
+    if raw is None or not raw.strip():
+        return ("azure_batch",) if _public_mode_enabled() else ("azure_batch", "local")
+    providers: list[str] = []
+    for item in raw.split(","):
+        provider = _canonical_stt_provider(item)
+        if provider in {"azure_batch", "local"} and provider not in providers:
+            providers.append(provider)
+    return tuple(providers) or (("azure_batch",) if _public_mode_enabled() else ("azure_batch", "local"))
+
+
+def _default_stt_provider() -> str:
+    requested = _canonical_stt_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "azure_batch")
+    allowed = _allowed_stt_providers()
+    return requested if requested in allowed else allowed[0]
+
+
+def _normalize_stt_provider(value: str | None) -> str:
+    provider = _canonical_stt_provider(value) if value else _default_stt_provider()
+    allowed = _allowed_stt_providers()
+    return provider if provider in allowed else _default_stt_provider()
 
 
 def _stt_provider_label(provider: str) -> str:
@@ -1444,6 +1519,18 @@ def get_credentials_status() -> dict[str, Any]:
     return credential_status()
 
 
+@app.get("/runtime-config")
+def runtime_config() -> dict[str, Any]:
+    allowed = list(_allowed_stt_providers())
+    return {
+        "public_mode": _public_mode_enabled(),
+        "allowed_stt_providers": allowed,
+        "default_stt_provider": _default_stt_provider(),
+        "show_maintainer_settings": not _public_mode_enabled(),
+        "limits": _runtime_limits(),
+    }
+
+
 @app.get("/speaker-diarization/status")
 def get_speaker_diarization_status() -> dict[str, Any]:
     return diarization_status()
@@ -1610,6 +1697,7 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
         raise HTTPException(status_code=400, detail="缺少视频分享文本或视频链接")
     if len(input_text) > 4000:
         raise HTTPException(status_code=400, detail="分享文本过长")
+    _enforce_active_job_limit(client_id, incoming=1)
 
     options = _queue_options_from_mapping(payload.get("options") if isinstance(payload.get("options"), dict) else {})
     task_id_value = _new_task_id()
@@ -1704,6 +1792,7 @@ async def queue_process(
             status_code=413,
             detail=f"Too many files uploaded: {len(files)}. Limit is {max_queue_files}.",
         )
+    _enforce_active_job_limit(client_id, incoming=len(files))
     for upload in files:
         suffix = Path(upload.filename or "").suffix.lower() or ".mp4"
         if not upload.filename:
@@ -1843,6 +1932,7 @@ async def process_video(
     task_started_at = time.perf_counter()
     task_id_value = (task_id or "").strip() or _new_task_id()
     client_id = _request_client_scope(request)
+    _enforce_active_job_limit(client_id, incoming=1, exclude_task_id=task_id_value)
     source_filename = file.filename
     source_type = _source_type_for_suffix(suffix)
     td = tempfile.mkdtemp()
@@ -3486,6 +3576,7 @@ API_ROUTE_PREFIXES = {
     "process",
     "queue",
     "regenerate-summary",
+    "runtime-config",
     "speaker-diarization",
     "summarize-transcript-file",
     "video-sources",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 import backend.main as main
 
@@ -83,3 +84,54 @@ def test_friendly_error_message_translates_common_azure_errors() -> None:
 
 def test_friendly_error_message_keeps_video_link_failures_actionable() -> None:
     assert "直接上传视频文件" in main._friendly_error_message("暂时无法自动解析这个视频链接，请上传视频文件")
+
+
+def test_public_mode_defaults_to_cloud_transcription(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
+
+    assert main._allowed_stt_providers() == ("azure_batch",)
+    assert main._normalize_stt_provider("local") == "azure_batch"
+
+
+def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_PUBLIC_MODE", raising=False)
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,azure_batch")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "local")
+
+    assert main._allowed_stt_providers() == ("local", "azure_batch")
+    assert main._normalize_stt_provider(None) == "local"
+
+
+def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", "1")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "existing", "status": "running"},
+            {"task_id": "done", "status": "completed"},
+        ],
+    )
+
+    with pytest.raises(main.HTTPException):
+        main._enforce_active_job_limit("client-a", incoming=1)
+
+    main._enforce_active_job_limit("client-a", incoming=1, exclude_task_id="existing")
+
+
+def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
+    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+
+    with TestClient(main.app) as client:
+        response = client.get("/runtime-config")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["public_mode"] is True
+    assert payload["allowed_stt_providers"] == ["azure_batch"]
+    assert payload["show_maintainer_settings"] is False
+    assert "key" not in str(payload).lower()
