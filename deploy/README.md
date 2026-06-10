@@ -53,12 +53,21 @@ sudo nano /etc/fluentflow/fluentflow.env
 
 必须替换：
 
-- `FLUENTFLOW_ACCESS_TOKEN`
 - `AZURE_SPEECH_ENDPOINT`
 - `AZURE_SPEECH_KEY`
 - `AZURE_BLOB_CONTAINER_SAS_URL`
 - `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`
 - 如果需要飞书导出，再配置 `LARK_APP_ID` / `LARK_APP_SECRET`
+
+`FLUENTFLOW_ACCESS_TOKEN` 是封闭 Beta 访问码。若不想设置访问码，可以注释这一行，但必须保留这些异常额度控制：
+
+```bash
+FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
+FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT=10
+FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
+```
+
+这种方式能限制单设备误用成本，但不能替代正式账号系统。用户清浏览器数据或换设备后会变成新的设备身份。
 
 ## 4. 部署前自检
 

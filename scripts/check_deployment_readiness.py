@@ -57,6 +57,20 @@ def _allowed_stt_providers(public_mode: bool) -> list[str]:
     return providers or (["azure_batch"] if public_mode else ["azure_batch", "local"])
 
 
+def _int_from_env(name: str, default: int) -> int:
+    try:
+        return max(int(os.environ.get(name, str(default))), 0)
+    except ValueError:
+        return default
+
+
+def _float_from_env(name: str, default: float) -> float:
+    try:
+        return max(float(os.environ.get(name, str(default))), 0.0)
+    except ValueError:
+        return default
+
+
 def _path_from_env(name: str, default: Path) -> Path:
     override = (os.environ.get(name) or "").strip()
     return Path(override).expanduser() if override else default
@@ -92,10 +106,34 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         (os.environ.get("FLUENTFLOW_ACCESS_TOKEN") or "").strip()
         or (os.environ.get("FLUENTFLOW_ACCESS_TOKENS") or "").strip()
     )
+    active_job_limit = _int_from_env("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", 2 if public_mode else 0)
+    daily_job_limit = _int_from_env("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", 10 if public_mode else 0)
+    daily_upload_limit = _float_from_env("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", 4096.0 if public_mode else 0.0)
+    quota_guard_configured = bool(active_job_limit > 0 and daily_job_limit > 0 and daily_upload_limit > 0)
+    access_status = "pass" if access_token_configured else ("warn" if quota_guard_configured else "fail")
+    access_detail = (
+        "访问口令已配置。"
+        if access_token_configured
+        else (
+            "未设置访问口令；已启用异常额度控制。它能降低误用成本，但不能替代账号系统。"
+            if quota_guard_configured
+            else "缺少 FLUENTFLOW_ACCESS_TOKEN；若不使用访问码，必须启用同时任务数、每日任务数和每日上传额度。"
+        )
+    )
     checks.append(CheckResult(
         "access_control",
-        "pass" if access_token_configured else "fail",
-        "访问口令已配置。" if access_token_configured else "缺少 FLUENTFLOW_ACCESS_TOKEN 或 FLUENTFLOW_ACCESS_TOKENS。",
+        access_status,
+        access_detail,
+    ))
+
+    checks.append(CheckResult(
+        "quota_guard",
+        "pass" if quota_guard_configured else ("warn" if access_token_configured else "fail"),
+        (
+            f"active={active_job_limit}, daily_jobs={daily_job_limit}, daily_upload_mb={daily_upload_limit:g}"
+            if quota_guard_configured
+            else "未完整配置异常额度控制。建议设置 FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT、FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT、FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT。"
+        ),
     ))
 
     provider_status = "pass"

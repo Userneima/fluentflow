@@ -112,3 +112,25 @@ def test_deployment_readiness_blocks_local_provider_in_public_mode(monkeypatch, 
 
     assert payload["status"] == "fail"
     assert _status_by_name(payload, "stt_provider_policy") == "fail"
+
+
+def test_deployment_readiness_allows_quota_guard_without_access_code(monkeypatch, tmp_path: Path) -> None:
+    _clear_env(monkeypatch)
+    _isolate_machine_state(monkeypatch, tmp_path)
+    _set_storage_dirs(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "azure_batch")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "azure_batch")
+    monkeypatch.setenv("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", "2")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "10")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "4096")
+    monkeypatch.setenv("AZURE_SPEECH_ENDPOINT", "https://eastasia.api.cognitive.microsoft.com")
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "azure-key")
+    monkeypatch.setenv("AZURE_BLOB_CONTAINER_SAS_URL", "https://example.blob.core.windows.net/audio?sig=token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+
+    payload = run_checks()
+
+    assert payload["status"] == "warn"
+    assert _status_by_name(payload, "access_control") == "warn"
+    assert _status_by_name(payload, "quota_guard") == "pass"

@@ -36,6 +36,8 @@ export FLUENTFLOW_ACCESS_TOKENS="code-a,code-b,code-c"
 export FLUENTFLOW_MAX_UPLOAD_MB=2048
 export FLUENTFLOW_MAX_QUEUE_FILES=5
 export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
+export FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT=10
+export FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
 export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 ```
 
@@ -44,6 +46,8 @@ export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 - 单文件最大 2048 MB
 - 单次批量最多 5 个文件
 - 每个设备最多 2 个排队/运行中的任务
+- 每个设备每天最多 10 个任务
+- 每个设备每天最多 4096 MB 上传/链接下载额度
 - 单个媒体最长 4 小时
 
 `FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=0` 可关闭时长限制。
@@ -60,6 +64,8 @@ export FLUENTFLOW_ALLOWED_STT_PROVIDERS=azure_batch
 export FLUENTFLOW_DEFAULT_STT_PROVIDER=azure_batch
 export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
 export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
+export FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT=10
+export FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
 ```
 
 效果：
@@ -67,6 +73,7 @@ export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
 - 后端会把客户端传来的 `local` 转录路线强制改为 `azure_batch`。
 - 前端处理设置页只显示云端转录，不再让普通用户选择本地转录。
 - API Key、飞书 App 凭证、pyannote token 等维护者字段会隐藏为“后台统一配置”。
+- 如果不想设置访问码，可以不配置 `FLUENTFLOW_ACCESS_TOKEN`，但必须保留同时任务数、每日任务数和每日上传额度。这样能控制误用成本，但不能替代账号系统。
 - `/runtime-config` 只暴露运行模式、允许的转录路线和限制，不暴露任何密钥。
 
 本地开发时不要开启 `FLUENTFLOW_PUBLIC_MODE`，仍可显式设置：

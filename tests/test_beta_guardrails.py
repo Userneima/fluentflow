@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -119,6 +121,47 @@ def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> N
         main._enforce_active_job_limit("client-a", incoming=1)
 
     main._enforce_active_job_limit("client-a", incoming=1, exclude_task_id="existing")
+
+
+def test_daily_job_quota_blocks_excess_submissions(monkeypatch) -> None:
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    yesterday = (datetime.now(timezone.utc).astimezone() - timedelta(days=1)).isoformat(timespec="seconds")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "2")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "0")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "today-a", "created_at": now, "source_file_size_mb": 10},
+            {"task_id": "today-b", "created_at": now, "source_file_size_mb": 10},
+            {"task_id": "old", "created_at": yesterday, "source_file_size_mb": 10},
+        ],
+    )
+
+    with pytest.raises(main.HTTPException) as exc:
+        main._enforce_daily_quota("client-a", incoming_jobs=1)
+
+    assert exc.value.status_code == 429
+    assert "每日上限" in exc.value.detail
+
+
+def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "0")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "100")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "today-a", "created_at": now, "source_file_size_mb": 80},
+        ],
+    )
+
+    with pytest.raises(main.HTTPException) as exc:
+        main._enforce_daily_quota("client-a", incoming_upload_mb=30)
+
+    assert exc.value.status_code == 429
+    assert "上传额度" in exc.value.detail
 
 
 def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None:
