@@ -6,8 +6,22 @@
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pip ffmpeg nginx git
+sudo apt install -y python3-venv python3-pip ffmpeg nginx git curl ca-certificates
 ```
+
+Ubuntu 22.04 默认源里的 Node.js 版本偏旧，可能导致前端构建时报 `Cannot find module 'node:path'`。先清理旧包，再安装 NodeSource 20：
+
+```bash
+sudo apt remove -y nodejs npm libnode-dev nodejs-doc || true
+sudo apt autoremove -y
+sudo apt clean
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+`node -v` 应显示 `v20.x.x`。
 
 ## 2. 部署目录
 
@@ -17,9 +31,10 @@ sudo mkdir -p /opt/fluentflow /etc/fluentflow /var/lib/fluentflow
 sudo chown -R fluentflow:fluentflow /opt/fluentflow /var/lib/fluentflow
 ```
 
-把项目放到 `/opt/fluentflow` 后：
+把项目放到 `/opt/fluentflow` 后。如果后续用 `root` 维护这个目录，需要先把它加入 Git 安全目录；否则会出现 `detected dubious ownership`：
 
 ```bash
+git config --global --add safe.directory /opt/fluentflow
 cd /opt/fluentflow
 python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
