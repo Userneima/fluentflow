@@ -42,7 +42,7 @@ const apiFetch = (input, init={}) => {
     if (token && !headers.has('X-FluentFlow-Access-Token')) {
         headers.set('X-FluentFlow-Access-Token', token);
     }
-    return fetch(input, {...init, headers});
+    return fetch(input, {...init, credentials: init.credentials || 'include', headers});
 };
 
 const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
@@ -461,6 +461,9 @@ const I18nProvider = ({children}) => {
     return <I18nCtx.Provider value={{t,lang,toggleLang}}>{children}</I18nCtx.Provider>;
 };
 const useI18n = () => useContext(I18nCtx);
+
+const AuthCtx = createContext({authMode:'open', user:null, logout:async()=>{}});
+const useAuth = () => useContext(AuthCtx);
 
 /* ═══════════════ App-level state ═══════════════ */
 const AppCtx = createContext();
@@ -1213,6 +1216,7 @@ const useSettings = () => {
 /* ═══════════════ shared components ═══════════════ */
 const SideNav = () => {
     const {t, lang, toggleLang} = useI18n();
+    const {authMode, user, logout} = useAuth();
     const loc = useLocation();
     const items = [
         {path:'/',icon:'dashboard',k:'nav.dashboard'},
@@ -1242,6 +1246,24 @@ const SideNav = () => {
                             })}
                         </nav>
                         <div className="mt-auto border-t border-slate-200/60 px-2 pt-3">
+                    {authMode === 'accounts' && user && (
+                        <div className="mb-3 rounded-lg bg-white/70 px-3 py-3 shadow-sm ring-1 ring-slate-200/70">
+                            <p className="truncate text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                {lang==='zh'?'当前账号':'Account'}
+                            </p>
+                            <p className="mt-1 truncate text-sm font-semibold text-slate-800" title={user.email || ''}>
+                                {user.email}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={logout}
+                                className="mt-2 inline-flex items-center gap-1.5 rounded-md px-0 text-xs font-semibold text-slate-500 transition hover:text-red-600"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">logout</span>
+                                {lang==='zh'?'退出登录':'Sign out'}
+                            </button>
+                        </div>
+                    )}
                     <button
                         onClick={toggleLang}
                         className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -3883,6 +3905,13 @@ const AccessGate = ({children}) => {
     const [checking, setChecking] = useState(true);
     const [required, setRequired] = useState(false);
     const [authenticated, setAuthenticated] = useState(false);
+    const [authMode, setAuthMode] = useState('open');
+    const [allowSignups, setAllowSignups] = useState(false);
+    const [bootstrapRequired, setBootstrapRequired] = useState(false);
+    const [user, setUser] = useState(null);
+    const [formMode, setFormMode] = useState('login');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [token, setToken] = useState(getAccessToken());
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -3892,11 +3921,20 @@ const AccessGate = ({children}) => {
         try {
             const r = await apiFetch(`${API_BASE}/auth/status`);
             const data = await r.json().catch(()=>({}));
-            setRequired(!!data.access_required);
-            setAuthenticated(!data.access_required || !!data.authenticated);
+            const nextMode = data.auth_mode || (data.access_required ? 'access_code' : 'open');
+            const nextRequired = !!(data.account_required || data.access_required);
+            setAuthMode(nextMode);
+            setRequired(nextRequired);
+            setAuthenticated(!nextRequired || !!data.authenticated);
+            setAllowSignups(!!data.allow_signups);
+            setBootstrapRequired(!!data.bootstrap_required);
+            setUser(data.user || null);
+            if (data.bootstrap_required) setFormMode('register');
         } catch(_) {
+            setAuthMode('open');
             setRequired(false);
             setAuthenticated(true);
+            setUser(null);
         } finally {
             setChecking(false);
         }
@@ -3904,20 +3942,45 @@ const AccessGate = ({children}) => {
 
     useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
+    const logout = useCallback(async () => {
+        try {
+            await apiFetch(`${API_BASE}/auth/logout`, {method:'POST'});
+        } catch(_) {}
+        setAccessToken('');
+        setToken('');
+        setUser(null);
+        setAuthenticated(false);
+        await refreshStatus();
+    }, [refreshStatus]);
+
     const submit = async (e) => {
         e.preventDefault();
         setError('');
         setSubmitting(true);
         try {
-            const nextToken = token.trim();
-            const r = await apiFetch(`${API_BASE}/auth/login`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({access_token: nextToken}),
+            const accountFlow = authMode === 'accounts';
+            const endpoint = accountFlow && formMode === 'register' ? '/auth/register' : '/auth/login';
+            const body = accountFlow
+                ? {email: email.trim(), password}
+                : {access_token: token.trim()};
+            const r = await apiFetch(`${API_BASE}${endpoint}`, {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify(body),
             });
             const data = await r.json().catch(()=>({}));
-            if(!r.ok) throw new Error(data.detail || (lang === 'zh' ? '访问码不正确' : 'Invalid access code'));
-            setAccessToken(nextToken);
+            if(!r.ok) {
+                const fallback = accountFlow
+                    ? (lang === 'zh' ? '账号验证失败' : 'Account authentication failed')
+                    : (lang === 'zh' ? '访问码不正确' : 'Invalid access code');
+                throw new Error(data.detail || fallback);
+            }
+            if (accountFlow) {
+                setUser(data.user || null);
+                setPassword('');
+            } else {
+                setAccessToken(token.trim());
+            }
             setAuthenticated(true);
         } catch(err) {
             setError(err.message || (lang === 'zh' ? '无法进入' : 'Access failed'));
@@ -3929,38 +3992,102 @@ const AccessGate = ({children}) => {
     if (checking) {
         return <div className="min-h-screen bg-surface flex items-center justify-center text-sm font-semibold text-on-surface-variant">{lang === 'zh' ? '正在检查访问权限…' : 'Checking access…'}</div>;
     }
-    if (!required || authenticated) return children;
+    if (!required || authenticated) {
+        return <AuthCtx.Provider value={{authMode, user, logout}}>{children}</AuthCtx.Provider>;
+    }
+
+    const accountFlow = authMode === 'accounts';
+    const canRegister = allowSignups || bootstrapRequired;
+    const registerMode = accountFlow && formMode === 'register';
+    const title = accountFlow
+        ? (registerMode
+            ? (bootstrapRequired ? (lang === 'zh' ? '创建管理员账号' : 'Create admin account') : (lang === 'zh' ? '创建账号' : 'Create account'))
+            : (lang === 'zh' ? '登录 FluentFlow' : 'Sign in to FluentFlow'))
+        : (lang === 'zh' ? '输入访问码' : 'Enter access code');
+    const description = accountFlow
+        ? (registerMode
+            ? (lang === 'zh' ? '首次部署需要创建一个管理员账号。之后任务历史和额度会跟随账号。' : 'Create the first admin account. Jobs and quota will follow this account.')
+            : (lang === 'zh' ? '登录后继续查看你的转录任务、字幕和笔记。' : 'Sign in to continue with your transcription jobs, subtitles, and notes.'))
+        : (lang === 'zh' ? '当前版本用于小范围试用。访问码由产品维护者提供。' : 'This beta is invite-only. Ask the product maintainer for an access code.');
 
     return (
         <main className="min-h-screen bg-surface flex items-center justify-center px-6">
-            <form onSubmit={submit} className="w-full max-w-md rounded-sm bg-surface-container-lowest p-8 shadow-xl border border-outline-variant/30 dark:border-white/10">
+            <form onSubmit={submit} className="w-full max-w-[460px] rounded-sm bg-surface-container-lowest p-8 shadow-xl border border-outline-variant/30 dark:border-white/10">
                 <div className="space-y-2 mb-6">
-                    <p className="text-xs font-bold uppercase tracking-widest text-primary">FluentFlow Beta</p>
-                    <h1 className="text-3xl font-headline font-bold text-on-surface">{lang === 'zh' ? '输入访问码' : 'Enter access code'}</h1>
+                    <p className="text-xs font-bold uppercase tracking-widest text-primary">FluentFlow</p>
+                    <h1 className="text-3xl font-headline font-bold text-on-surface">{title}</h1>
                     <p className="text-sm leading-relaxed text-on-surface-variant">
-                        {lang === 'zh'
-                            ? '当前版本用于小范围试用。访问码由产品维护者提供。'
-                            : 'This beta is invite-only. Ask the product maintainer for an access code.'}
+                        {description}
                     </p>
                 </div>
-                <div className="flex items-stretch gap-2">
-                    <input
-                        type="password"
-                        value={token}
-                        onChange={(e)=>setToken(e.target.value)}
-                        className="h-12 min-w-0 flex-1 rounded-sm border border-outline-variant/40 bg-surface-container-low px-4 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
-                        placeholder={lang === 'zh' ? '访问码' : 'Access code'}
-                        autoFocus
-                    />
+                {accountFlow ? (
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                                {lang === 'zh' ? '邮箱' : 'Email'}
+                            </label>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e)=>setEmail(e.target.value)}
+                                className="h-12 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-4 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
+                                placeholder="you@example.com"
+                                autoFocus
+                                autoComplete="email"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                                {lang === 'zh' ? '密码' : 'Password'}
+                            </label>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e)=>setPassword(e.target.value)}
+                                className="h-12 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-4 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
+                                placeholder={lang === 'zh' ? '至少 8 位' : 'At least 8 characters'}
+                                autoComplete={registerMode ? 'new-password' : 'current-password'}
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                            {lang === 'zh' ? '访问码' : 'Access code'}
+                        </label>
+                        <input
+                            type="password"
+                            value={token}
+                            onChange={(e)=>setToken(e.target.value)}
+                            className="h-12 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-4 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
+                            placeholder={lang === 'zh' ? '访问码' : 'Access code'}
+                            autoFocus
+                        />
+                    </div>
+                )}
+                {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
+                <div className="mt-6 flex flex-col gap-3">
                     <button
                         type="submit"
-                        disabled={submitting || !token.trim()}
+                        disabled={submitting || (accountFlow ? (!email.trim() || !password) : !token.trim())}
                         className="h-12 rounded-sm bg-primary px-5 text-sm font-extrabold text-white transition hover:bg-primary/90 disabled:opacity-50"
                     >
-                        {submitting ? (lang === 'zh' ? '验证中' : 'Checking') : (lang === 'zh' ? '进入' : 'Enter')}
+                        {submitting
+                            ? (lang === 'zh' ? '处理中' : 'Working')
+                            : (registerMode ? (lang === 'zh' ? '创建并进入' : 'Create and enter') : (lang === 'zh' ? '进入' : 'Enter'))}
                     </button>
+                    {accountFlow && canRegister && !bootstrapRequired && (
+                        <button
+                            type="button"
+                            onClick={()=>{setError(''); setFormMode(registerMode ? 'login' : 'register');}}
+                            className="h-11 rounded-sm bg-surface-container-low px-4 text-sm font-bold text-on-surface-variant transition hover:bg-surface-container-high hover:text-on-surface"
+                        >
+                            {registerMode
+                                ? (lang === 'zh' ? '已有账号，去登录' : 'Already have an account')
+                                : (lang === 'zh' ? '没有账号，创建一个' : 'Create an account')}
+                        </button>
+                    )}
                 </div>
-                {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
             </form>
         </main>
     );

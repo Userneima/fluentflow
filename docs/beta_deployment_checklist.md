@@ -4,9 +4,27 @@ FluentFlow 当前适合先做作品集演示和小范围公开试用。上线目
 
 ## 已落地的 P0 边界
 
+### 账号系统
+
+云服务器正式上线建议启用账号系统：
+
+```bash
+export FLUENTFLOW_AUTH_MODE=accounts
+export FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
+export FLUENTFLOW_SESSION_DAYS=30
+```
+
+首次注册会创建管理员账号。默认不开放后续自助注册；如果要让更多用户自己注册，再设置：
+
+```bash
+export FLUENTFLOW_ALLOW_SIGNUPS=1
+```
+
+账号系统启用后，任务历史、下载、字幕编辑和取消任务都会按账号隔离；额度统计也会跟随账号作用域。
+
 ### 可选访问口令
 
-默认不需要访问码。若要改成封闭 Beta，再设置：
+访问码只保留为封闭 Beta 的低成本门禁。若要启用访问码，再设置：
 
 ```bash
 export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
@@ -18,9 +36,9 @@ export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
 export FLUENTFLOW_ACCESS_TOKENS="code-a,code-b,code-c"
 ```
 
-未设置时不要求访问码；公开云服务器仍应开启 `FLUENTFLOW_PUBLIC_MODE=1` 和异常额度控制。
+启用账号系统时不需要访问码。公开云服务器仍应开启 `FLUENTFLOW_PUBLIC_MODE=1` 和异常额度控制。
 
-访问码只是低成本门禁，不等同于完整账号系统。当前真正控制误用成本的是设备/IP/全站额度。
+访问码不等同于完整账号系统。当前推荐主路径是账号系统 + 异常额度控制。
 
 ### 设备级历史隔离
 
@@ -71,6 +89,8 @@ export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 export FLUENTFLOW_PUBLIC_MODE=1
 export FLUENTFLOW_ALLOWED_STT_PROVIDERS=azure_batch
 export FLUENTFLOW_DEFAULT_STT_PROVIDER=azure_batch
+export FLUENTFLOW_AUTH_MODE=accounts
+export FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
 export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
 export FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL=6
 export FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT=10
@@ -85,7 +105,7 @@ export FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
 - 后端会把客户端传来的 `local` 转录路线强制改为 `azure_batch`。
 - 前端处理设置页只显示云端转录，不再让普通用户选择本地转录。
 - API Key、飞书 App 凭证、pyannote token 等维护者字段会隐藏为“后台统一配置”。
-- 默认可以不配置 `FLUENTFLOW_ACCESS_TOKEN`，用户直接打开即可使用；后端通过设备、IP 和全站额度控制异常提交。如果要封闭 Beta，再额外设置访问码。
+- 默认不配置 `FLUENTFLOW_ACCESS_TOKEN`；用户通过账号登录。后端通过账号、IP 和全站额度控制异常提交。如果要封闭 Beta，再额外设置访问码。
 - `/runtime-config` 只暴露运行模式、允许的转录路线和限制，不暴露任何密钥。
 
 本地开发时不要开启 `FLUENTFLOW_PUBLIC_MODE`，仍可显式设置：

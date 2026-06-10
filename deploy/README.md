@@ -59,7 +59,17 @@ sudo nano /etc/fluentflow/fluentflow.env
 - `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`
 - 如果需要飞书导出，再配置 `LARK_APP_ID` / `LARK_APP_SECRET`
 
-默认不需要配置访问码。公开演示模式依靠异常额度控制限制误用成本：
+正式上线建议启用账号系统，而不是访问码：
+
+```bash
+FLUENTFLOW_AUTH_MODE=accounts
+FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
+FLUENTFLOW_SESSION_DAYS=30
+```
+
+首次访问网页时注册的第一个账号会成为管理员。默认不开放后续自助注册；如果要让更多用户自己创建账号，再设置 `FLUENTFLOW_ALLOW_SIGNUPS=1`。
+
+账号系统之外仍然要保留异常额度控制，用来限制云端成本：
 
 ```bash
 FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
@@ -72,7 +82,7 @@ FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
 FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=60
 ```
 
-如果要做封闭 Beta，再额外设置 `FLUENTFLOW_ACCESS_TOKEN`。不设置访问码时，用户可以直接打开产品；后端仍会按设备、IP 和全站总量拦截异常提交。它适合演示和小范围公开试用，但不能替代正式账号系统。
+如果暂时不想启用账号系统，也可以不配置 `FLUENTFLOW_AUTH_MODE`，让用户直接打开产品；此时后端仍会按设备、IP 和全站总量拦截异常提交，但任务历史无法跨设备找回。封闭 Beta 才需要额外设置 `FLUENTFLOW_ACCESS_TOKEN`。
 
 ## 4. 部署前自检
 

@@ -106,6 +106,8 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         (os.environ.get("FLUENTFLOW_ACCESS_TOKEN") or "").strip()
         or (os.environ.get("FLUENTFLOW_ACCESS_TOKENS") or "").strip()
     )
+    auth_mode = (os.environ.get("FLUENTFLOW_AUTH_MODE") or "").strip().lower()
+    account_auth_configured = auth_mode in {"account", "accounts"} or _truthy(os.environ.get("FLUENTFLOW_ACCOUNT_AUTH"))
     active_job_limit = _int_from_env("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", 2 if public_mode else 0)
     global_active_job_limit = _int_from_env("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL", 6 if public_mode else 0)
     daily_job_limit = _int_from_env("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", 10 if public_mode else 0)
@@ -122,9 +124,11 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         and global_daily_upload_limit > 0
         and rate_limit > 0
     )
-    access_status = "pass" if access_token_configured else ("warn" if quota_guard_configured else "fail")
+    access_status = "pass" if (account_auth_configured or access_token_configured) else ("warn" if quota_guard_configured else "fail")
     access_detail = (
-        "访问口令已配置。"
+        "账号系统已启用。"
+        if account_auth_configured
+        else "访问口令已配置。"
         if access_token_configured
         else (
             "未设置访问口令；已启用异常额度控制。它能降低误用成本，但不能替代账号系统。"
@@ -136,6 +140,22 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         "access_control",
         access_status,
         access_detail,
+    ))
+
+    account_db_path = _path_from_env("FLUENTFLOW_ACCOUNT_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_accounts.sqlite")
+    account_db_parent_ok, account_db_parent_detail = _check_writable_dir(account_db_path.parent)
+    checks.append(CheckResult(
+        "account_auth",
+        "pass" if account_auth_configured and account_db_parent_ok else ("warn" if not account_auth_configured else "fail"),
+        (
+            f"账号系统已启用，账号数据库目录可写：{account_db_path.parent}"
+            if account_auth_configured and account_db_parent_ok
+            else (
+                f"账号系统已启用，但账号数据库目录不可写：{account_db_parent_detail}"
+                if account_auth_configured
+                else "账号系统未启用；当前依赖设备/IP/全站额度控制。"
+            )
+        ),
     ))
 
     checks.append(CheckResult(

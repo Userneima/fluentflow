@@ -212,6 +212,19 @@ def _env_truthy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _account_auth_enabled() -> bool:
+    mode = (os.environ.get("FLUENTFLOW_AUTH_MODE") or "").strip().lower()
+    return mode in {"account", "accounts"} or _env_truthy("FLUENTFLOW_ACCOUNT_AUTH")
+
+
+def _account_signups_enabled() -> bool:
+    return _env_truthy("FLUENTFLOW_ALLOW_SIGNUPS")
+
+
+def _cookie_secure_enabled() -> bool:
+    return _env_truthy("FLUENTFLOW_COOKIE_SECURE")
+
+
 def _public_mode_enabled() -> bool:
     return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
 
@@ -252,6 +265,10 @@ def _request_client_id(request: Request | None) -> str | None:
 
 
 def _request_client_scope(request: Request | None) -> str:
+    if request is not None and _account_auth_enabled():
+        user = _request_account_user(request)
+        if user and user.get("id"):
+            return f"user:{user['id']}"
     return _request_client_id(request) or "anonymous"
 
 
@@ -259,7 +276,7 @@ def _is_public_request(request: Request) -> bool:
     if request.method.upper() == "OPTIONS":
         return True
     path = request.url.path
-    if path in {"/", "/health", "/auth/status", "/auth/login", "/runtime-config"}:
+    if path in {"/", "/health", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"}:
         return True
     if path.startswith("/assets/"):
         return True
@@ -269,6 +286,21 @@ def _is_public_request(request: Request) -> bool:
 
 @app.middleware("http")
 async def beta_access_middleware(request: Request, call_next):
+    if _account_auth_enabled():
+        if _is_public_request(request):
+            return await call_next(request)
+        user = _request_account_user(request)
+        if user:
+            request.state.account_user = user
+            return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": "FluentFlow account login is required.",
+                "auth_mode": "accounts",
+                "account_required": True,
+            },
+        )
     if not _access_control_enabled() or _is_public_request(request) or _request_has_access(request):
         return await call_next(request)
     return JSONResponse(
@@ -293,6 +325,14 @@ try:
     from backend.core.event_logger import log_event
     from backend.core.job_store import get_job, list_jobs, update_job_result, upsert_job
     from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
+    from backend.core.account_store import (
+        authenticate_user,
+        count_users,
+        create_session,
+        create_user,
+        get_user_by_session_token,
+        revoke_session,
+    )
     from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
     from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
 except ImportError:
@@ -309,8 +349,91 @@ except ImportError:
     from core.event_logger import log_event
     from core.job_store import get_job, list_jobs, update_job_result, upsert_job
     from core.local_config import credential_status, resolve_secret, save_sensitive_settings
+    from core.account_store import (
+        authenticate_user,
+        count_users,
+        create_session,
+        create_user,
+        get_user_by_session_token,
+        revoke_session,
+    )
     from core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
     from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
+
+
+SESSION_COOKIE_NAME = "fluentflow_session"
+
+
+def _session_days() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_SESSION_DAYS", "30")), 1)
+    except ValueError:
+        return 30
+
+
+def _request_account_session_token(request: Request) -> str:
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    header_token = (request.headers.get("x-fluentflow-session") or "").strip()
+    if header_token:
+        return header_token
+    return (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+
+
+def _public_account_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not user:
+        return None
+    return {
+        "id": user.get("id"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "created_at": user.get("created_at"),
+        "last_login_at": user.get("last_login_at"),
+    }
+
+
+def _request_account_user(request: Request) -> dict[str, Any] | None:
+    cached = getattr(request.state, "account_user", None)
+    if cached:
+        return cached
+    token = _request_account_session_token(request)
+    user = get_user_by_session_token(token)
+    if user:
+        request.state.account_user = user
+    return user
+
+
+def _account_registration_allowed() -> bool:
+    return _account_signups_enabled() or count_users() == 0
+
+
+def _validate_account_email(email: str) -> str:
+    normalized = (email or "").strip().lower()
+    if len(normalized) > 254 or "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+        raise HTTPException(status_code=400, detail="请输入有效邮箱")
+    return normalized
+
+
+def _validate_account_password(password: str) -> str:
+    text = password or ""
+    if len(text) < 8:
+        raise HTTPException(status_code=400, detail="密码至少需要 8 位")
+    if len(text) > 256:
+        raise HTTPException(status_code=400, detail="密码过长")
+    return text
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    max_age = _session_days() * 24 * 60 * 60
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=_cookie_secure_enabled(),
+        samesite="lax",
+    )
 
 
 def _truthy_form(val: Optional[str]) -> bool:
@@ -459,6 +582,7 @@ def _runtime_limits() -> dict[str, Any]:
         "submission_rate_limit_window_seconds": _submission_rate_limit_window_seconds(),
         "max_media_duration_seconds": duration_limit if duration_limit > 0 else None,
         "access_control_enabled": _access_control_enabled(),
+        "account_auth_enabled": _account_auth_enabled(),
         "public_mode": _public_mode_enabled(),
         "allowed_stt_providers": list(_allowed_stt_providers()),
         "default_stt_provider": _default_stt_provider(),
@@ -1760,6 +1884,16 @@ def health() -> dict[str, Any]:
 
 @app.get("/auth/status")
 def auth_status(request: Request) -> dict[str, Any]:
+    if _account_auth_enabled():
+        user = _request_account_user(request)
+        return {
+            "auth_mode": "accounts",
+            "account_required": True,
+            "authenticated": bool(user),
+            "allow_signups": _account_registration_allowed(),
+            "bootstrap_required": count_users() == 0,
+            "user": _public_account_user(user),
+        }
     return {
         "access_required": _access_control_enabled(),
         "authenticated": (not _access_control_enabled()) or _request_has_access(request),
@@ -1768,9 +1902,30 @@ def auth_status(request: Request) -> dict[str, Any]:
 
 @app.post("/auth/login")
 def auth_login(
+    request: Request,
     response: Response,
     payload: dict[str, Any] = Body(default={}),
 ) -> dict[str, Any]:
+    if _account_auth_enabled():
+        email = _validate_account_email(str(payload.get("email") or ""))
+        password = str(payload.get("password") or "")
+        user = authenticate_user(email, password)
+        if not user:
+            raise HTTPException(status_code=401, detail="邮箱或密码不正确")
+        token = create_session(
+            str(user["id"]),
+            days=_session_days(),
+            user_agent=request.headers.get("user-agent"),
+            ip_address=_request_ip_key(request),
+        )
+        _set_session_cookie(response, token)
+        return {
+            "ok": True,
+            "auth_mode": "accounts",
+            "account_required": True,
+            "user": _public_account_user(user),
+        }
+
     token = str(payload.get("access_token") or payload.get("token") or "").strip()
     if not _access_control_enabled():
         return {"ok": True, "access_required": False}
@@ -1781,10 +1936,54 @@ def auth_login(
         value=token,
         max_age=60 * 60 * 24 * 30,
         httponly=True,
-        secure=(os.environ.get("FLUENTFLOW_COOKIE_SECURE") or "").lower() in {"1", "true", "yes", "on"},
+        secure=_cookie_secure_enabled(),
         samesite="lax",
     )
     return {"ok": True, "access_required": True}
+
+
+@app.post("/auth/register")
+def auth_register(
+    request: Request,
+    response: Response,
+    payload: dict[str, Any] = Body(default={}),
+) -> dict[str, Any]:
+    if not _account_auth_enabled():
+        raise HTTPException(status_code=404, detail="Account auth is not enabled")
+    if not _account_registration_allowed():
+        raise HTTPException(status_code=403, detail="当前未开放注册，请联系产品维护者创建账号")
+    email = _validate_account_email(str(payload.get("email") or ""))
+    password = _validate_account_password(str(payload.get("password") or ""))
+    first_user = count_users() == 0
+    try:
+        user = create_user(email, password, role="admin" if first_user else "user")
+    except Exception as exc:
+        if "unique" in str(exc).lower():
+            raise HTTPException(status_code=409, detail="这个邮箱已经注册") from exc
+        raise
+    token = create_session(
+        str(user["id"]),
+        days=_session_days(),
+        user_agent=request.headers.get("user-agent"),
+        ip_address=_request_ip_key(request),
+    )
+    _set_session_cookie(response, token)
+    return {
+        "ok": True,
+        "auth_mode": "accounts",
+        "account_required": True,
+        "user": _public_account_user(user),
+        "bootstrap_admin": first_user,
+    }
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request, response: Response) -> dict[str, Any]:
+    if _account_auth_enabled():
+        revoke_session(_request_account_session_token(request))
+        response.delete_cookie(SESSION_COOKIE_NAME, samesite="lax")
+    response.delete_cookie("fluentflow_access_token", samesite="lax")
+    return {"ok": True}
 
 
 @app.get("/credentials/status")
@@ -1797,6 +1996,7 @@ def runtime_config() -> dict[str, Any]:
     allowed = list(_allowed_stt_providers())
     return {
         "public_mode": _public_mode_enabled(),
+        "auth_mode": "accounts" if _account_auth_enabled() else ("access_code" if _access_control_enabled() else "open"),
         "allowed_stt_providers": allowed,
         "default_stt_provider": _default_stt_provider(),
         "show_maintainer_settings": not _public_mode_enabled(),
