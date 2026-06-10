@@ -86,3 +86,19 @@ def test_account_scope_replaces_device_scope(monkeypatch, tmp_path) -> None:
     assert register.status_code == 200
     assert response.status_code == 200
     assert captured["client_id"] == f"user:{register.json()['user']['id']}"
+
+
+def test_cloud_workspace_proxy_bypasses_local_account_gate(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "http://cloud.example")
+
+    async def fake_proxy(request):
+        return main.JSONResponse({"proxied": request.url.path})
+
+    monkeypatch.setattr(main, "_proxy_cloud_workspace_request", fake_proxy)
+
+    with TestClient(main.app) as client:
+        response = client.get("/jobs")
+
+    assert response.status_code == 200
+    assert response.json() == {"proxied": "/jobs"}

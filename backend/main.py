@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+from http.cookies import SimpleCookie
 import importlib.metadata
 import json
 import logging
@@ -34,6 +35,7 @@ from typing import Any, AsyncGenerator, Optional
 import urllib.error
 import urllib.request
 
+import httpx
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -229,6 +231,124 @@ def _public_mode_enabled() -> bool:
     return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
 
 
+def _cloud_workspace_url() -> str:
+    return (os.environ.get("FLUENTFLOW_CLOUD_WORKSPACE_URL") or "").strip().rstrip("/")
+
+
+def _cloud_workspace_enabled() -> bool:
+    return bool(_cloud_workspace_url())
+
+
+def _should_proxy_cloud_workspace(request: Request) -> bool:
+    if not _cloud_workspace_enabled():
+        return False
+    path = request.url.path
+    if path == "/" or path.startswith("/assets/"):
+        return False
+    first_segment = (path.lstrip("/").split("/", 1)[0] or "")
+    return path in {"/health", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"} or first_segment in API_ROUTE_PREFIXES
+
+
+def _proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
+    blocked = {
+        "connection",
+        "content-encoding",
+        "content-length",
+        "set-cookie",
+        "transfer-encoding",
+        "www-authenticate",
+    }
+    return {key: value for key, value in headers.items() if key.lower() not in blocked}
+
+
+def _apply_remote_session_cookie(response: Response, request: Request, remote_headers: httpx.Headers) -> None:
+    path = request.url.path
+    if path == "/auth/logout":
+        response.delete_cookie(SESSION_COOKIE_NAME, samesite="lax")
+        response.delete_cookie("fluentflow_access_token", samesite="lax")
+        return
+    if path not in {"/auth/login", "/auth/register"}:
+        return
+    for header in remote_headers.get_list("set-cookie"):
+        cookie = SimpleCookie()
+        try:
+            cookie.load(header)
+        except Exception:
+            continue
+        morsel = cookie.get(SESSION_COOKIE_NAME)
+        if not morsel:
+            continue
+        max_age_text = morsel.get("max-age")
+        try:
+            max_age = int(max_age_text) if max_age_text else _session_days() * 24 * 60 * 60
+        except ValueError:
+            max_age = _session_days() * 24 * 60 * 60
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=morsel.value,
+            max_age=max_age,
+            httponly=True,
+            secure=_cookie_secure_enabled(),
+            samesite="lax",
+        )
+        break
+
+
+async def _proxy_cloud_workspace_request(request: Request) -> StreamingResponse:
+    base_url = _cloud_workspace_url()
+    target = f"{base_url}{request.url.path}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+
+    blocked_headers = {
+        "connection",
+        "content-length",
+        "cookie",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in blocked_headers}
+    session_token = _request_account_session_token(request)
+    if session_token:
+        headers["X-FluentFlow-Session"] = session_token
+
+    async def body_iter() -> AsyncGenerator[bytes, None]:
+        async for chunk in request.stream():
+            if chunk:
+                yield chunk
+
+    client = httpx.AsyncClient(timeout=None, follow_redirects=False)
+    stream = client.stream(request.method, target, headers=headers, content=body_iter())
+    try:
+        remote = await stream.__aenter__()
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
+
+    async def response_iter() -> AsyncGenerator[bytes, None]:
+        try:
+            async for chunk in remote.aiter_raw():
+                if chunk:
+                    yield chunk
+        finally:
+            await stream.__aexit__(None, None, None)
+            await client.aclose()
+
+    response = StreamingResponse(
+        response_iter(),
+        status_code=remote.status_code,
+        headers=_proxy_response_headers(remote.headers),
+    )
+    _apply_remote_session_cookie(response, request, remote.headers)
+    return response
+
+
 def _request_access_token(request: Request) -> str:
     auth = request.headers.get("authorization") or ""
     if auth.lower().startswith("bearer "):
@@ -286,6 +406,8 @@ def _is_public_request(request: Request) -> bool:
 
 @app.middleware("http")
 async def beta_access_middleware(request: Request, call_next):
+    if _should_proxy_cloud_workspace(request):
+        return await _proxy_cloud_workspace_request(request)
     if _account_auth_enabled():
         if _is_public_request(request):
             return await call_next(request)

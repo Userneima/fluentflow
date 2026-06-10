@@ -507,7 +507,7 @@ const AppProvider = ({children}) => {
                 const entries = data.jobs
                     .filter((job) => job.result)
                     .map(jobToHistoryEntry);
-                if (entries.length) setHistory(entries);
+                setHistory(entries);
                 const running = data.jobs.find((job) => job.status === 'running');
                 if (running) setCurrentJob(jobToCurrentJob(running));
             })
