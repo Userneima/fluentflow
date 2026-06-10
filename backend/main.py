@@ -367,6 +367,16 @@ def _max_active_jobs_per_client() -> int:
         return 2 if _public_mode_enabled() else 0
 
 
+def _max_active_jobs_global() -> int:
+    raw = os.environ.get("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL")
+    if raw is None:
+        return 6 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 6 if _public_mode_enabled() else 0
+
+
 def _daily_job_limit_per_client() -> int:
     raw = os.environ.get("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT")
     if raw is None:
@@ -377,6 +387,16 @@ def _daily_job_limit_per_client() -> int:
         return 10 if _public_mode_enabled() else 0
 
 
+def _daily_job_limit_global() -> int:
+    raw = os.environ.get("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL")
+    if raw is None:
+        return 80 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 80 if _public_mode_enabled() else 0
+
+
 def _daily_upload_mb_per_client() -> float:
     raw = os.environ.get("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT")
     if raw is None:
@@ -385,6 +405,36 @@ def _daily_upload_mb_per_client() -> float:
         return max(float(raw), 0.0)
     except ValueError:
         return 4096.0 if _public_mode_enabled() else 0.0
+
+
+def _daily_upload_mb_global() -> float:
+    raw = os.environ.get("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL")
+    if raw is None:
+        return 32768.0 if _public_mode_enabled() else 0.0
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return 32768.0 if _public_mode_enabled() else 0.0
+
+
+def _submission_rate_limit_per_ip() -> int:
+    raw = os.environ.get("FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP")
+    if raw is None:
+        return 12 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 12 if _public_mode_enabled() else 0
+
+
+def _submission_rate_limit_window_seconds() -> float:
+    raw = os.environ.get("FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS")
+    if raw is None:
+        return 60.0
+    try:
+        return max(float(raw), 1.0)
+    except ValueError:
+        return 60.0
 
 
 def _max_media_duration_seconds() -> float:
@@ -400,8 +450,13 @@ def _runtime_limits() -> dict[str, Any]:
         "max_upload_mb": _max_upload_mb(),
         "max_queue_files": _max_queue_files(),
         "max_active_jobs_per_client": _max_active_jobs_per_client() or None,
+        "max_active_jobs_global": _max_active_jobs_global() or None,
         "daily_job_limit_per_client": _daily_job_limit_per_client() or None,
+        "daily_job_limit_global": _daily_job_limit_global() or None,
         "daily_upload_mb_per_client": _daily_upload_mb_per_client() or None,
+        "daily_upload_mb_global": _daily_upload_mb_global() or None,
+        "submission_rate_limit_per_ip": _submission_rate_limit_per_ip() or None,
+        "submission_rate_limit_window_seconds": _submission_rate_limit_window_seconds(),
         "max_media_duration_seconds": duration_limit if duration_limit > 0 else None,
         "access_control_enabled": _access_control_enabled(),
         "public_mode": _public_mode_enabled(),
@@ -510,6 +565,14 @@ def _active_job_count(client_id: str | None, exclude_task_id: str | None = None)
     )
 
 
+def _global_active_job_count(exclude_task_id: str | None = None) -> int:
+    return sum(
+        1
+        for job in list_jobs(limit=200)
+        if job.get("status") in {"queued", "running"} and job.get("task_id") != exclude_task_id
+    )
+
+
 def _enforce_active_job_limit(
     client_id: str | None,
     incoming: int = 1,
@@ -525,6 +588,24 @@ def _enforce_active_job_limit(
             detail=(
                 f"当前仍有 {active} 个后台任务未完成。"
                 f"封闭测试阶段每个设备最多同时运行 {limit} 个任务，请稍后再提交。"
+            ),
+        )
+
+
+def _enforce_global_active_job_limit(
+    incoming: int = 1,
+    exclude_task_id: str | None = None,
+) -> None:
+    limit = _max_active_jobs_global()
+    if limit <= 0:
+        return
+    active = _global_active_job_count(exclude_task_id=exclude_task_id)
+    if active + max(incoming, 1) > limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"当前服务器已有 {active} 个后台任务未完成。"
+                f"公开试用阶段全站最多同时运行 {limit} 个任务，请稍后再提交。"
             ),
         )
 
@@ -548,6 +629,20 @@ def _daily_usage_for_client(
 ) -> dict[str, float]:
     jobs = [
         job for job in list_jobs(limit=200, client_id=client_id)
+        if job.get("task_id") != exclude_task_id and _job_created_today(job)
+    ]
+    upload_mb = 0.0
+    for job in jobs:
+        try:
+            upload_mb += float(job.get("source_file_size_mb") or 0)
+        except (TypeError, ValueError):
+            continue
+    return {"jobs": float(len(jobs)), "upload_mb": round(upload_mb, 3)}
+
+
+def _daily_usage_global(exclude_task_id: str | None = None) -> dict[str, float]:
+    jobs = [
+        job for job in list_jobs(limit=200)
         if job.get("task_id") != exclude_task_id and _job_created_today(job)
     ]
     upload_mb = 0.0
@@ -590,6 +685,74 @@ def _enforce_daily_quota(
                 f"当前每日上限为 {upload_limit:g} MB，剩余额度约 {remaining:.1f} MB。"
             ),
         )
+
+
+def _enforce_global_daily_quota(
+    *,
+    incoming_jobs: int = 1,
+    incoming_upload_mb: float | None = None,
+    exclude_task_id: str | None = None,
+) -> None:
+    job_limit = _daily_job_limit_global()
+    upload_limit = _daily_upload_mb_global()
+    if job_limit <= 0 and upload_limit <= 0:
+        return
+    usage = _daily_usage_global(exclude_task_id=exclude_task_id)
+    next_jobs = int(usage["jobs"]) + max(int(incoming_jobs or 0), 0)
+    next_upload_mb = usage["upload_mb"] + max(float(incoming_upload_mb or 0), 0.0)
+    if job_limit > 0 and next_jobs > job_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天全站已经提交 {int(usage['jobs'])} 个任务。"
+                f"公开试用阶段每日全站上限为 {job_limit} 个任务，请明天再试。"
+            ),
+        )
+    if upload_limit > 0 and next_upload_mb > upload_limit:
+        remaining = max(upload_limit - usage["upload_mb"], 0.0)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天全站已使用约 {usage['upload_mb']:.1f} MB 上传额度。"
+                f"当前每日全站上限为 {upload_limit:g} MB，剩余额度约 {remaining:.1f} MB。"
+            ),
+        )
+
+
+_SUBMISSION_RATE_EVENTS: dict[str, list[float]] = {}
+_SUBMISSION_RATE_LOCK = threading.Lock()
+
+
+def _request_ip_key(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+    if forwarded:
+        return forwarded[:128]
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None)
+    return str(host or "unknown")[:128]
+
+
+def _enforce_submission_rate_limit(request: Request, incoming: int = 1) -> None:
+    limit = _submission_rate_limit_per_ip()
+    if limit <= 0:
+        return
+    window_seconds = _submission_rate_limit_window_seconds()
+    now = time.time()
+    cutoff = now - window_seconds
+    ip_key = _request_ip_key(request)
+    with _SUBMISSION_RATE_LOCK:
+        events = [stamp for stamp in _SUBMISSION_RATE_EVENTS.get(ip_key, []) if stamp >= cutoff]
+        if len(events) + max(int(incoming or 1), 1) > limit:
+            _SUBMISSION_RATE_EVENTS[ip_key] = events
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"提交过于频繁。公开试用阶段同一网络在 {int(window_seconds)} 秒内"
+                    f"最多提交 {limit} 个任务，请稍后再试。"
+                ),
+            )
+        events.extend([now] * max(int(incoming or 1), 1))
+        _SUBMISSION_RATE_EVENTS[ip_key] = events
 
 
 def _path_size_mb(path: Path | str) -> float | None:
@@ -1472,6 +1635,11 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             incoming_upload_mb=saved_size_mb,
             exclude_task_id=task_id,
         )
+        _enforce_global_daily_quota(
+            incoming_jobs=1,
+            incoming_upload_mb=saved_size_mb,
+            exclude_task_id=task_id,
+        )
         source_path = Path(saved.file_path)
         target_path = _copy_source_file(task_id, ".mp4", source_path)
         source_fingerprint = _source_fingerprint_for_path(target_path, saved.filename)
@@ -1802,8 +1970,11 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
         raise HTTPException(status_code=400, detail="缺少视频分享文本或视频链接")
     if len(input_text) > 4000:
         raise HTTPException(status_code=400, detail="分享文本过长")
+    _enforce_submission_rate_limit(request, incoming=1)
     _enforce_active_job_limit(client_id, incoming=1)
+    _enforce_global_active_job_limit(incoming=1)
     _enforce_daily_quota(client_id, incoming_jobs=1)
+    _enforce_global_daily_quota(incoming_jobs=1)
 
     options = _queue_options_from_mapping(payload.get("options") if isinstance(payload.get("options"), dict) else {})
     task_id_value = _new_task_id()
@@ -1898,13 +2069,15 @@ async def queue_process(
             status_code=413,
             detail=f"Too many files uploaded: {len(files)}. Limit is {max_queue_files}.",
         )
-    _enforce_active_job_limit(client_id, incoming=len(files))
     for upload in files:
         suffix = Path(upload.filename or "").suffix.lower() or ".mp4"
         if not upload.filename:
             raise HTTPException(status_code=400, detail="Uploaded file is missing a filename")
         if suffix not in ALLOWED_SUFFIXES or suffix in TRANSCRIPT_SUFFIXES:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
+    _enforce_submission_rate_limit(request, incoming=len(files))
+    _enforce_active_job_limit(client_id, incoming=len(files))
+    _enforce_global_active_job_limit(incoming=len(files))
     max_upload_mb = _max_upload_mb()
     total_upload_mb = 0.0
     for upload in files:
@@ -1918,6 +2091,7 @@ async def queue_process(
                 detail=f"File is too large: {source_file_size_mb} MB. Limit is {max_upload_mb:g} MB.",
             )
     _enforce_daily_quota(client_id, incoming_jobs=len(files), incoming_upload_mb=total_upload_mb)
+    _enforce_global_daily_quota(incoming_jobs=len(files), incoming_upload_mb=total_upload_mb)
 
     base_options = _queue_options_from_form(
         export_to_lark=export_to_lark,
@@ -2050,7 +2224,9 @@ async def process_video(
     task_started_at = time.perf_counter()
     task_id_value = (task_id or "").strip() or _new_task_id()
     client_id = _request_client_scope(request)
+    _enforce_submission_rate_limit(request, incoming=1)
     _enforce_active_job_limit(client_id, incoming=1, exclude_task_id=task_id_value)
+    _enforce_global_active_job_limit(incoming=1, exclude_task_id=task_id_value)
     source_filename = file.filename
     source_type = _source_type_for_suffix(suffix)
     td = tempfile.mkdtemp()
@@ -2064,6 +2240,11 @@ async def process_video(
         )
     _enforce_daily_quota(
         client_id,
+        incoming_jobs=1,
+        incoming_upload_mb=source_file_size_mb,
+        exclude_task_id=task_id_value,
+    )
+    _enforce_global_daily_quota(
         incoming_jobs=1,
         incoming_upload_mb=source_file_size_mb,
         exclude_task_id=task_id_value,

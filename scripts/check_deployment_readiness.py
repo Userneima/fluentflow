@@ -107,9 +107,21 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         or (os.environ.get("FLUENTFLOW_ACCESS_TOKENS") or "").strip()
     )
     active_job_limit = _int_from_env("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", 2 if public_mode else 0)
+    global_active_job_limit = _int_from_env("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL", 6 if public_mode else 0)
     daily_job_limit = _int_from_env("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", 10 if public_mode else 0)
+    global_daily_job_limit = _int_from_env("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL", 80 if public_mode else 0)
     daily_upload_limit = _float_from_env("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", 4096.0 if public_mode else 0.0)
-    quota_guard_configured = bool(active_job_limit > 0 and daily_job_limit > 0 and daily_upload_limit > 0)
+    global_daily_upload_limit = _float_from_env("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL", 32768.0 if public_mode else 0.0)
+    rate_limit = _int_from_env("FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP", 12 if public_mode else 0)
+    quota_guard_configured = bool(
+        active_job_limit > 0
+        and global_active_job_limit > 0
+        and daily_job_limit > 0
+        and global_daily_job_limit > 0
+        and daily_upload_limit > 0
+        and global_daily_upload_limit > 0
+        and rate_limit > 0
+    )
     access_status = "pass" if access_token_configured else ("warn" if quota_guard_configured else "fail")
     access_detail = (
         "访问口令已配置。"
@@ -117,7 +129,7 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         else (
             "未设置访问口令；已启用异常额度控制。它能降低误用成本，但不能替代账号系统。"
             if quota_guard_configured
-            else "缺少 FLUENTFLOW_ACCESS_TOKEN；若不使用访问码，必须启用同时任务数、每日任务数和每日上传额度。"
+            else "缺少 FLUENTFLOW_ACCESS_TOKEN；若不使用访问码，必须启用个人/全站并发、每日额度和提交频率限制。"
         )
     )
     checks.append(CheckResult(
@@ -130,9 +142,14 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         "quota_guard",
         "pass" if quota_guard_configured else ("warn" if access_token_configured else "fail"),
         (
-            f"active={active_job_limit}, daily_jobs={daily_job_limit}, daily_upload_mb={daily_upload_limit:g}"
+            (
+                f"client_active={active_job_limit}, global_active={global_active_job_limit}, "
+                f"client_daily_jobs={daily_job_limit}, global_daily_jobs={global_daily_job_limit}, "
+                f"client_daily_upload_mb={daily_upload_limit:g}, global_daily_upload_mb={global_daily_upload_limit:g}, "
+                f"ip_rate_limit={rate_limit}"
+            )
             if quota_guard_configured
-            else "未完整配置异常额度控制。建议设置 FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT、FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT、FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT。"
+            else "未完整配置异常额度控制。建议设置个人/全站并发、个人/全站每日额度和 IP 提交频率限制。"
         ),
     ))
 

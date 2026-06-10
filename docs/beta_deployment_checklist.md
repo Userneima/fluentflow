@@ -1,12 +1,12 @@
-# FluentFlow 封闭 Beta 上线检查清单
+# FluentFlow 云服务器上线检查清单
 
-FluentFlow 当前适合先做小范围封闭 Beta，不适合直接开放匿名公网上传。上线目标是验证真实用户是否愿意用它处理长音视频笔记，而不是先做完整 SaaS。
+FluentFlow 当前适合先做作品集演示和小范围公开试用。上线目标是让访问者能直接体验“上传/粘贴链接 -> 后台转录 -> 字幕和笔记产物”，同时通过异常额度控制限制云端成本。
 
 ## 已落地的 P0 边界
 
-### 访问口令
+### 可选访问口令
 
-设置环境变量后启用：
+默认不需要访问码。若要改成封闭 Beta，再设置：
 
 ```bash
 export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
@@ -18,9 +18,9 @@ export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
 export FLUENTFLOW_ACCESS_TOKENS="code-a,code-b,code-c"
 ```
 
-未设置时保持本地开发模式，不要求访问码。
+未设置时不要求访问码；公开云服务器仍应开启 `FLUENTFLOW_PUBLIC_MODE=1` 和异常额度控制。
 
-访问码只是封闭 Beta 的低成本门禁，不等同于完整账号系统。它不能区分每个用户的任务、额度和历史记录。
+访问码只是低成本门禁，不等同于完整账号系统。当前真正控制误用成本的是设备/IP/全站额度。
 
 ### 设备级历史隔离
 
@@ -36,8 +36,13 @@ export FLUENTFLOW_ACCESS_TOKENS="code-a,code-b,code-c"
 export FLUENTFLOW_MAX_UPLOAD_MB=2048
 export FLUENTFLOW_MAX_QUEUE_FILES=5
 export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
+export FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL=6
 export FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT=10
+export FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL=80
 export FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
+export FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL=32768
+export FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
+export FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=60
 export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 ```
 
@@ -46,8 +51,12 @@ export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 - 单文件最大 2048 MB
 - 单次批量最多 5 个文件
 - 每个设备最多 2 个排队/运行中的任务
+- 全站最多 6 个排队/运行中的任务
 - 每个设备每天最多 10 个任务
+- 全站每天最多 80 个任务
 - 每个设备每天最多 4096 MB 上传/链接下载额度
+- 全站每天最多 32768 MB 上传/链接下载额度
+- 同一 IP 60 秒内最多提交 12 个任务
 - 单个媒体最长 4 小时
 
 `FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=0` 可关闭时长限制。
@@ -62,10 +71,13 @@ export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 export FLUENTFLOW_PUBLIC_MODE=1
 export FLUENTFLOW_ALLOWED_STT_PROVIDERS=azure_batch
 export FLUENTFLOW_DEFAULT_STT_PROVIDER=azure_batch
-export FLUENTFLOW_ACCESS_TOKEN="your-beta-code"
 export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
+export FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL=6
 export FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT=10
+export FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL=80
 export FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
+export FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL=32768
+export FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
 ```
 
 效果：
@@ -73,7 +85,7 @@ export FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
 - 后端会把客户端传来的 `local` 转录路线强制改为 `azure_batch`。
 - 前端处理设置页只显示云端转录，不再让普通用户选择本地转录。
 - API Key、飞书 App 凭证、pyannote token 等维护者字段会隐藏为“后台统一配置”。
-- 如果不想设置访问码，可以不配置 `FLUENTFLOW_ACCESS_TOKEN`，但必须保留同时任务数、每日任务数和每日上传额度。这样能控制误用成本，但不能替代账号系统。
+- 默认可以不配置 `FLUENTFLOW_ACCESS_TOKEN`，用户直接打开即可使用；后端通过设备、IP 和全站额度控制异常提交。如果要封闭 Beta，再额外设置访问码。
 - `/runtime-config` 只暴露运行模式、允许的转录路线和限制，不暴露任何密钥。
 
 本地开发时不要开启 `FLUENTFLOW_PUBLIC_MODE`，仍可显式设置：

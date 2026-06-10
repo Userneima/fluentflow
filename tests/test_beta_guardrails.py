@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
@@ -162,6 +163,64 @@ def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
 
     assert exc.value.status_code == 429
     assert "上传额度" in exc.value.detail
+
+
+def test_global_active_job_limit_blocks_server_overload(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL", "2")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "running-a", "status": "running"},
+            {"task_id": "queued-b", "status": "queued"},
+            {"task_id": "done", "status": "completed"},
+        ],
+    )
+
+    with pytest.raises(main.HTTPException) as exc:
+        main._enforce_global_active_job_limit(incoming=1)
+
+    assert exc.value.status_code == 429
+    assert "全站最多同时运行" in exc.value.detail
+
+
+def test_global_daily_upload_quota_blocks_excess_usage(monkeypatch) -> None:
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL", "0")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL", "100")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "today-a", "created_at": now, "source_file_size_mb": 90},
+        ],
+    )
+
+    with pytest.raises(main.HTTPException) as exc:
+        main._enforce_global_daily_quota(incoming_upload_mb=20)
+
+    assert exc.value.status_code == 429
+    assert "全站已使用" in exc.value.detail
+
+
+def test_submission_rate_limit_blocks_repeated_requests(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP", "2")
+    monkeypatch.setenv("FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS", "60")
+    main._SUBMISSION_RATE_EVENTS.clear()
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    main._enforce_submission_rate_limit(request, incoming=1)
+    main._enforce_submission_rate_limit(request, incoming=1)
+
+    with pytest.raises(main.HTTPException) as exc:
+        main._enforce_submission_rate_limit(request, incoming=1)
+
+    assert exc.value.status_code == 429
+    assert "提交过于频繁" in exc.value.detail
+    main._SUBMISSION_RATE_EVENTS.clear()
 
 
 def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None:
