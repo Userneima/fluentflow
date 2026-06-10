@@ -117,6 +117,15 @@ Always judge the product type before applying visual taste rules:
 
 # Execution Standards
 
+## Agent Autonomy
+- Do not hand off work to the user when it can be done directly by Codex in the shared local workspace.
+- Prefer creating files, editing local documents, running commands, checking outputs, and preparing copy-ready artifacts yourself.
+- Minimize user operations; ask the user to act only for credentials, secrets, account authorization, payment confirmation, CAPTCHA, or actions that cannot be performed safely from the local environment.
+- When user action is unavoidable, reduce it to the smallest concrete step and provide the exact next command or field to fill.
+- Do not ask the user to edit files with `nano`; use local file creation, heredocs, `sed`, scripts, or other lower-friction alternatives instead.
+
+---
+
 ## Understand Before Acting
 - Read existing structure before modifying
 - Reuse before rewriting
