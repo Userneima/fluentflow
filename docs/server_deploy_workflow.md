@@ -102,7 +102,7 @@ After deployment, verify:
 ```bash
 systemctl status fluentflow --no-pager
 systemctl status nginx --no-pager
-curl -fsS http://127.0.0.1/health
+curl -fsS http://127.0.0.1:8000/health
 ```
 
 For UI changes, ask the user to hard refresh only if browser cache may still show old assets.

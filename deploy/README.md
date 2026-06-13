@@ -180,13 +180,13 @@ FLUENTFLOW_PROJECT_DIR=/path/to/fluentflow bash deploy/deploy_server.sh
 基础存活检查：
 
 ```bash
-curl -fsS http://127.0.0.1/health
+curl -fsS http://127.0.0.1:8000/health
 ```
 
 运维状态接口 `/ops/status` 会返回队列、任务、磁盘、配置状态。它受账号/访问控制保护，外部监控如果没有 session token，可以先只检查 `/health`：
 
 ```bash
-./venv/bin/python scripts/monitor_health.py --base-url http://127.0.0.1 --skip-ops
+./venv/bin/python scripts/monitor_health.py --base-url http://127.0.0.1:8000 --skip-ops
 ```
 
 在服务器本机排查时可以直接看日志：

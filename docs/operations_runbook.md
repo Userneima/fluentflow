@@ -18,14 +18,14 @@
 ```bash
 systemctl status fluentflow --no-pager
 systemctl status nginx --no-pager
-curl -fsS http://127.0.0.1/health
+curl -fsS http://127.0.0.1:8000/health
 ```
 
 更完整的状态：
 
 ```bash
 cd /opt/fluentflow
-./venv/bin/python scripts/monitor_health.py --base-url http://127.0.0.1 --skip-ops
+./venv/bin/python scripts/monitor_health.py --base-url http://127.0.0.1:8000 --skip-ops
 ```
 
 如果要看受保护的 `/ops/status`，需要账号 session token；没有 token 时先用 `/health` 判断服务是否活着。
@@ -80,7 +80,7 @@ systemctl start fluentflow
 如果任务持续不更新：
 
 ```bash
-curl -fsS http://127.0.0.1/health
+curl -fsS http://127.0.0.1:8000/health
 journalctl -u fluentflow -n 200 --no-pager
 systemctl restart fluentflow
 ```
