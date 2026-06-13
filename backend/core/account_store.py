@@ -152,6 +152,36 @@ def get_user_by_email(email: str, db_path: Path | str | None = None) -> dict[str
     return _row_to_auth_user(row)
 
 
+def get_user_by_id(user_id: str, db_path: Path | str | None = None) -> dict[str, Any] | None:
+    if not user_id:
+        return None
+    ensure_account_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = _row_to_auth_user(row)
+    if user:
+        user.pop("password_hash", None)
+    return user
+
+
+def list_users(limit: int = 100, db_path: Path | str | None = None) -> list[dict[str, Any]]:
+    ensure_account_db(db_path)
+    safe_limit = max(1, min(int(limit or 100), 500))
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY created_at DESC LIMIT ?",
+            (safe_limit,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        user = _row_to_user(row)
+        if user:
+            result.append(user)
+    return result
+
+
 def create_user(
     email: str,
     password: str,

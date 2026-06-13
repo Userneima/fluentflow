@@ -1613,6 +1613,60 @@ When logged in:
 
 ## Suggested Phased Implementation
 
+The first implementation should not start with payment provider integration, public registration, or complex pricing.
+
+The first implementation should build the paid-account foundation:
+
+```text
+account identity
++ starter balance
++ balance ledger
++ task admission by balance
++ reservation/final charge/refund
++ user-facing quota state
++ admin manual adjustment
++ shadow billing
+```
+
+This is the minimum useful base before real recharge. It lets the product test whether the account/quota model works while keeping payment collection manual or disabled.
+
+### First Landing Scope
+
+Build this first:
+
+1. Balance and ledger model.
+2. Free starter balance for new registered users.
+3. Upload-time quota estimate and admission check.
+4. Task reservation before queue entry.
+5. Final charge, reservation release, and refund behavior after task completion/failure.
+6. User-facing remaining balance, estimated consumption, and insufficient-balance state.
+7. Admin manual balance adjustment for beta/manual recharge and support.
+8. Shadow billing records for real cost, simulated revenue, and margin.
+
+Do not include in the first landing scope:
+
+- Automated WeChat/Alipay/Stripe payment.
+- Public open registration at scale.
+- Password reset.
+- Email verification.
+- Complex paid packages.
+- Free-form recharge amount.
+- Guest result claiming.
+- Queue priority tiers.
+- Team or organization accounts.
+
+The first version should answer:
+
+```text
+Can users understand balance?
+Can tasks be safely admitted or blocked by balance?
+Can the system reserve and settle usage without losing track?
+Can the maintainer manually compensate or top up users?
+Can real usage data support a future price?
+```
+
+If these answers are not reliable, automated payment will only create support and accounting problems.
+
 ### Phase 0: Cost Observation And Shadow Billing
 
 Goal: learn real cost before charging users.
@@ -1628,9 +1682,11 @@ Work:
 
 This phase should start before recharge work. It makes later pricing less speculative.
 
+This phase can run alongside the first balance implementation. It does not need to be visible to normal users at first.
+
 ### Phase 1: Account UX Clarification
 
-Goal: make existing account system understandable.
+Goal: make existing account system understandable and prepare the user for quota-based usage.
 
 Work:
 
@@ -1640,26 +1696,64 @@ Work:
 - If open free registration is enabled, show limits before signup.
 - Show logged-in state clearly.
 - Explain account benefits after guest completion.
+- Explain that registered accounts receive a starter balance.
+- Explain that more usage will later require recharge.
 
 This phase mostly affects frontend wording and routing.
 
-### Phase 2: Logged-In Limits And History UX
+### Phase 2: Balance Ledger And Starter Balance
+
+Goal: add the foundation for quota-based account usage without payment.
+
+Work:
+
+- Add balance transaction ledger.
+- Add cached account balance if useful, but keep ledger as source of truth.
+- Grant one-time starter balance to new registered users.
+- Record starter grant as a `starter_grant` ledger transaction.
+- Add rate-card version field to usage-related transactions.
+- Add admin-safe helpers to recompute balance from ledger.
+- Add tests for grant idempotency and ledger balance correctness.
+
+This phase should happen before any task-level quota enforcement. Otherwise "balance" becomes a display number instead of a reliable control surface.
+
+### Phase 3: Task Admission, Reservation, And Settlement
+
+Goal: make processing consume account balance in a controlled way.
+
+Work:
+
+- Estimate processing units before accepting a task.
+- Block new task submission when balance is insufficient.
+- Reserve estimated balance before the task enters queue.
+- Finalize charge after successful processing.
+- Release unused reserved balance.
+- Refund or release reservation on validation failure, queue cancellation, and system failure.
+- Record transcript/AI usage metrics needed for final charge and shadow billing.
+- Keep global/server safety limits above account balance.
+- Add tests for insufficient balance, reservation, final charge, failed task refund, and duplicate-submit safety.
+
+This phase is the real "pay-as-you-go" behavior, even before real money exists.
+
+### Phase 4: Logged-In Limits And History UX
 
 Goal: make account value and boundaries clear.
 
 Work:
 
 - Display account quota summary.
+- Display estimated consumption before upload when possible.
 - Improve errors for per-user active job and insufficient balance.
 - Make task history feel account-based.
 - Ensure downloads and transcript edits are account-scoped.
+- Show clear post-task final charged amount and remaining balance.
 - Add tests for account-scoped artifacts and transcript edits.
 
 This phase improves trust and reduces confusion.
 
-### Phase 3: Admin User Management
+### Phase 5: Admin User Management And Manual Recharge
 
-Goal: let maintainer operate early user accounts without touching SQLite manually.
+Goal: let maintainer operate early user accounts and manually add balance without touching SQLite.
 
 Work:
 
@@ -1669,10 +1763,95 @@ Work:
 - Suspend user.
 - Manual password reset.
 - Basic usage view.
+- View user balance and recent ledger transactions.
+- Add manual balance adjustment.
+- Require an adjustment reason.
+- Optionally record external payment note/reference for manual beta recharge.
 
-This phase enables controlled beta access.
+This phase enables controlled beta access and manual paid testing. It is the correct first recharge path.
 
-### Phase 4: Open Free Registration Hardening
+#### Thin Admin Balance UI
+
+The first admin UI should be deliberately thin.
+
+Goal:
+
+```text
+Let the maintainer find a user, inspect their current balance and recent balance ledger, then manually add or deduct processing units with a recorded reason.
+```
+
+Entry:
+
+- Only visible to `admin` users.
+- Add a sidebar item named `管理` / `Admin`.
+- If a non-admin reaches the route directly, show a permission error or rely on backend `403`.
+
+Layout:
+
+- One admin page is enough.
+- Left or top area: user list.
+- Right or lower area: selected user detail.
+- Avoid analytics dashboards, charts, and large operations panels.
+
+User list fields:
+
+- Email.
+- Role.
+- Status if available.
+- Current balance.
+- Created time.
+- Last login time.
+
+Selected user detail:
+
+- Current balance.
+- Recent balance transactions, latest 20 is enough.
+- Transaction columns:
+  - created time
+  - transaction type
+  - unit delta
+  - balance after
+  - reason
+  - task id if any
+  - provider/reference if any
+
+Manual adjustment form:
+
+- `units`: required integer. Positive means add quota; negative means deduct quota.
+- `reason`: required.
+- `provider_reference`: optional, for manual payment note or external reference.
+
+Required states:
+
+- Loading users.
+- Empty user list.
+- Selected user loading/refreshing after adjustment.
+- Adjustment success.
+- Adjustment failure.
+- Permission denied.
+
+First version should not include:
+
+- Create user.
+- Change role.
+- Suspend user.
+- Password reset.
+- Payment order creation.
+- WeChat/Alipay QR code.
+- Recharge package management.
+- Charts or revenue analytics.
+- Full task content inspection.
+
+Existing backend endpoints for the first version:
+
+```text
+GET /admin/users
+POST /admin/users/{user_id}/balance-adjustments
+```
+
+If the UI needs more detail later, add narrow admin endpoints instead of exposing raw database access.
+
+### Phase 6: Open Free Registration Hardening
 
 Goal: make public free accounts safe enough for broader promotion.
 
@@ -1687,15 +1866,12 @@ Work:
 
 This phase is required before actively promoting registration at scale.
 
-### Phase 5: Metered Recharge Foundation
+### Phase 7: Metered Recharge Foundation
 
-Goal: prepare the product for paid functionality without coupling the app to one payment provider.
+Goal: prepare the product for automated paid functionality without coupling the app to one payment provider.
 
 Work:
 
-- Add balance and usage-ledger model.
-- Add append-only balance transaction ledger.
-- Add reservation, final charge, release, refund, and admin adjustment transaction types.
 - Add purchase order fields.
 - Define starter balance and paid-balance behavior.
 - Define starter-balance and promotional-balance expiration.
@@ -1706,7 +1882,7 @@ Work:
 
 Do this before integrating a payment provider.
 
-### Phase 6: Payment Provider Integration
+### Phase 8: Payment Provider Integration
 
 Goal: paid recharge.
 
@@ -1727,11 +1903,14 @@ Do not start here. Payment should sit on top of a proven balance and usage-ledge
 The next product step should be:
 
 1. Keep current guest trial public.
-2. Allow or prepare open free registration only with strict per-account limits.
+2. Keep registration controlled until quota UI, admin suspension, and rate limits exist.
 3. Improve login/register UI copy so visitors understand accounts are for saved history and starter balance.
-4. Add a post-guest-completion account prompt.
-5. Add visible quota summary for logged-in users.
-6. Keep global server limits as the ultimate protection.
+4. Add starter balance and append-only balance ledger.
+5. Add upload-time quota estimate, reservation, final charge, release, and refund.
+6. Add visible quota summary for logged-in users.
+7. Add admin manual balance adjustment before any automated payment provider.
+8. Add shadow billing and cost diagnostics.
+9. Keep global server limits as the ultimate protection.
 
 This gives FluentFlow a clean public story:
 

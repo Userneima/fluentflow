@@ -15,6 +15,7 @@ from http.cookies import SimpleCookie
 import importlib.metadata
 import json
 import logging
+import math
 import mimetypes
 import os
 import platform
@@ -526,8 +527,19 @@ try:
         count_users,
         create_session,
         create_user,
+        get_user_by_id,
         get_user_by_session_token,
+        list_users,
         revoke_session,
+    )
+    from backend.core.quota_store import (
+        InsufficientBalanceError,
+        account_quota_summary,
+        add_admin_adjustment,
+        finalize_task_charge,
+        grant_starter_balance,
+        release_reservation,
+        reserve_units,
     )
     from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
     from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
@@ -550,8 +562,19 @@ except ImportError:
         count_users,
         create_session,
         create_user,
+        get_user_by_id,
         get_user_by_session_token,
+        list_users,
         revoke_session,
+    )
+    from core.quota_store import (
+        InsufficientBalanceError,
+        account_quota_summary,
+        add_admin_adjustment,
+        finalize_task_charge,
+        grant_starter_balance,
+        release_reservation,
+        reserve_units,
     )
     from core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
     from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
@@ -589,6 +612,200 @@ def _public_account_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _starter_balance_units() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_STARTER_BALANCE_UNITS", "100")), 0)
+    except ValueError:
+        return 100
+
+
+def _public_account_payload(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    public = _public_account_user(user)
+    if not public:
+        return None
+    try:
+        public["quota"] = account_quota_summary(str(public["id"]))
+    except Exception as exc:
+        logger.warning("Failed to load account quota summary for %s: %s", public.get("id"), exc)
+        public["quota"] = {"balance_units": 0, "recent_transactions": []}
+    return public
+
+
+def _grant_starter_balance_if_needed(user: dict[str, Any] | None) -> None:
+    if not user or not user.get("id"):
+        return
+    units = _starter_balance_units()
+    if units <= 0:
+        return
+    try:
+        grant_starter_balance(str(user["id"]), units=units)
+    except Exception as exc:
+        logger.warning("Failed to grant starter balance to %s: %s", user.get("id"), exc)
+
+
+def _account_id_from_client_scope(client_id: str | None) -> str | None:
+    text = (client_id or "").strip()
+    if text and text.startswith("user:"):
+        return text.split(":", 1)[1] or None
+    return None
+
+
+def _normalize_client_scope(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if text.startswith("user:") and text.split(":", 1)[1]:
+        return text
+    return _normalize_client_id(text)
+
+
+def _quota_account_for_client(client_id: str | None) -> dict[str, Any] | None:
+    account_id = _account_id_from_client_scope(client_id)
+    if not account_id:
+        return None
+    try:
+        user = get_user_by_id(account_id)
+    except Exception:
+        return None
+    if not user or user.get("role") == "admin":
+        return None
+    return user
+
+
+def _quota_number(name: str, default: float) -> float:
+    try:
+        return max(float(os.environ.get(name, str(default))), 0.0)
+    except ValueError:
+        return default
+
+
+def _estimate_processing_units(
+    *,
+    duration_seconds: float | None = None,
+    transcript_text: str | None = None,
+    summary_text: str | None = None,
+    skip_summary: bool = False,
+    estimate_only: bool = False,
+) -> dict[str, Any]:
+    duration_minutes = max(float(duration_seconds or 0), 0.0) / 60.0
+    transcription_rate = _quota_number("FLUENTFLOW_TRANSCRIPTION_UNITS_PER_MINUTE", 1.0)
+    transcription_units = int(math.ceil(duration_minutes * transcription_rate)) if duration_minutes > 0 else 0
+
+    transcript_len = len(transcript_text or "")
+    summary_len = len(summary_text or "")
+    ai_units = 0
+    if not skip_summary:
+        if transcript_len > 0 or summary_len > 0:
+            chars_per_unit = max(_quota_number("FLUENTFLOW_AI_CHARS_PER_UNIT", 4000.0), 1.0)
+            weighted_chars = transcript_len + summary_len * 2
+            ai_units = int(math.ceil(weighted_chars / chars_per_unit))
+        elif estimate_only and duration_minutes > 0:
+            ai_units = int(math.ceil(duration_minutes * _quota_number("FLUENTFLOW_AI_ESTIMATE_UNITS_PER_MINUTE", 0.5)))
+
+    default_units = int(_quota_number("FLUENTFLOW_DEFAULT_TASK_ESTIMATE_UNITS", 20.0))
+    total_units = transcription_units + ai_units
+    if estimate_only and total_units <= 0:
+        total_units = default_units
+    elif duration_minutes > 0 or transcript_len > 0:
+        total_units = max(total_units, 1)
+
+    return {
+        "total_units": max(int(total_units), 0),
+        "transcription_units": max(int(transcription_units), 0),
+        "ai_note_units": max(int(ai_units), 0),
+        "duration_seconds": round(float(duration_seconds or 0), 3) if duration_seconds else None,
+        "transcript_chars": transcript_len,
+        "summary_chars": summary_len,
+        "rate_card_version": "quota-v0",
+        "estimate_only": bool(estimate_only),
+        "skip_summary": bool(skip_summary),
+    }
+
+
+def _reserve_task_quota(
+    *,
+    client_id: str | None,
+    task_id: str,
+    estimate: dict[str, Any],
+    reason: str = "Task processing reservation",
+) -> dict[str, Any] | None:
+    user = _quota_account_for_client(client_id)
+    if not user:
+        return None
+    units = int(estimate.get("total_units") or 0)
+    if units <= 0:
+        return None
+    try:
+        tx = reserve_units(
+            str(user["id"]),
+            task_id=task_id,
+            units=units,
+            reason=reason,
+            metadata={"estimate": estimate},
+        )
+    except InsufficientBalanceError as exc:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": "当前账号处理额度不足，请充值或联系维护者增加额度。",
+                "required_units": exc.required_units,
+                "balance_units": exc.balance_units,
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "account_id": user["id"],
+        "reserved_units": units,
+        "transaction": tx,
+        "estimate": estimate,
+    }
+
+
+def _release_task_quota(
+    *,
+    client_id: str | None,
+    task_id: str,
+    reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    user = _quota_account_for_client(client_id)
+    if not user:
+        return
+    try:
+        release_reservation(str(user["id"]), task_id=task_id, reason=reason, metadata=metadata)
+    except Exception as exc:
+        logger.warning("Failed to release quota reservation for %s: %s", task_id, exc)
+
+
+def _finalize_task_quota(
+    *,
+    client_id: str | None,
+    task_id: str,
+    final_usage: dict[str, Any],
+    reason: str = "Finalize task charge",
+) -> dict[str, Any] | None:
+    user = _quota_account_for_client(client_id)
+    if not user:
+        return None
+    try:
+        tx = finalize_task_charge(
+            str(user["id"]),
+            task_id=task_id,
+            final_units=int(final_usage.get("total_units") or 0),
+            reason=reason,
+            metadata={"final_usage": final_usage},
+        )
+        return {
+            "account_id": user["id"],
+            "charged_units": int(final_usage.get("total_units") or 0),
+            "transaction": tx,
+            "final_usage": final_usage,
+            "balance": account_quota_summary(str(user["id"])),
+        }
+    except Exception as exc:
+        logger.warning("Failed to finalize quota charge for %s: %s", task_id, exc)
+        return None
+
+
 def _request_account_user(request: Request) -> dict[str, Any] | None:
     cached = getattr(request.state, "account_user", None)
     if cached:
@@ -597,6 +814,20 @@ def _request_account_user(request: Request) -> dict[str, Any] | None:
     user = get_user_by_session_token(token)
     if user:
         request.state.account_user = user
+    return user
+
+
+def _require_account_user(request: Request) -> dict[str, Any]:
+    user = _request_account_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="FluentFlow account login is required.")
+    return user
+
+
+def _require_admin_user(request: Request) -> dict[str, Any]:
+    user = _require_account_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin permission is required.")
     return user
 
 
@@ -2084,6 +2315,12 @@ def _queue_worker_loop() -> None:
         except Exception as exc:
             logger.exception("Queued transcription failed for %s", task_id)
             if task_id:
+                _release_task_quota(
+                    client_id=_normalize_client_scope(str(item.get("client_id") or "")),
+                    task_id=task_id,
+                    reason="Queued processing failed before completion",
+                    metadata={"route": "/queue/process", "stage": "queued", "raw_error": str(exc)},
+                )
                 friendly_error = _friendly_error_message(exc)
                 upsert_job(
                     task_id=task_id,
@@ -2110,7 +2347,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     filename = str(item.get("filename") or source_path.name or "source")
     base_url = str(item.get("base_url") or _queue_base_url_from_request()).rstrip("/")
     options = dict(item.get("options") or {})
-    client_id = _normalize_client_id(str(item.get("client_id") or ""))
+    client_id = _normalize_client_scope(str(item.get("client_id") or ""))
     if not task_id:
         raise RuntimeError("Queued task is missing task_id")
     if not source_path.is_file():
@@ -2259,7 +2496,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
     title = str(item.get("title") or "").strip() or None
     options = dict(item.get("options") or {})
     base_url = str(item.get("base_url") or _queue_base_url_from_request())
-    client_id = _normalize_client_id(str(item.get("client_id") or ""))
+    client_id = _normalize_client_scope(str(item.get("client_id") or ""))
     if not task_id:
         return
 
@@ -2310,6 +2547,12 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
         target_path = _copy_source_file(task_id, ".mp4", source_path)
         source_fingerprint = _source_fingerprint_for_path(target_path, saved.filename)
         source_file_size_mb = _path_size_mb(target_path)
+        duration_estimate_sec = _media_duration_seconds(target_path)
+        quota_estimate = _estimate_processing_units(
+            duration_seconds=duration_estimate_sec,
+            skip_summary=_truthy_form(options.get("skip_summary")),
+            estimate_only=True,
+        )
         metadata = _metadata(
             route="/video-sources/jobs",
             queue_options=options,
@@ -2317,6 +2560,14 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             source_fingerprint=source_fingerprint,
             video_source=_public_video_source_metadata(saved),
         )
+        quota_reservation = _reserve_task_quota(
+            client_id=client_id,
+            task_id=task_id,
+            estimate=quota_estimate,
+            reason="Video source task processing reservation",
+        )
+        if quota_reservation:
+            metadata["quota"] = quota_reservation
         log_event(
             task_id=task_id,
             event_name="video_source_downloaded",
@@ -2351,6 +2602,12 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
     except Exception as exc:
         logger.exception("Video source job failed for %s", task_id)
         friendly_error = _friendly_error_message(exc)
+        _release_task_quota(
+            client_id=client_id,
+            task_id=task_id,
+            reason="Video source job failed",
+            metadata={"route": "/video-sources/jobs", "raw_error": str(exc)},
+        )
         upsert_job(
             task_id=task_id,
             status="failed",
@@ -2563,7 +2820,7 @@ def auth_status(request: Request) -> dict[str, Any]:
             "authenticated": bool(user),
             "allow_signups": _account_registration_allowed(),
             "bootstrap_required": count_users() == 0,
-            "user": _public_account_user(user),
+            "user": _public_account_payload(user),
             "guest_trial": _guest_trial_config(),
         }
     return {
@@ -2596,7 +2853,7 @@ def auth_login(
             "ok": True,
             "auth_mode": "accounts",
             "account_required": True,
-            "user": _public_account_user(user),
+            "user": _public_account_payload(user),
         }
 
     token = str(payload.get("access_token") or payload.get("token") or "").strip()
@@ -2634,6 +2891,7 @@ def auth_register(
         if "unique" in str(exc).lower():
             raise HTTPException(status_code=409, detail="这个邮箱已经注册") from exc
         raise
+    _grant_starter_balance_if_needed(user)
     token = create_session(
         str(user["id"]),
         days=_session_days(),
@@ -2645,7 +2903,7 @@ def auth_register(
         "ok": True,
         "auth_mode": "accounts",
         "account_required": True,
-        "user": _public_account_user(user),
+        "user": _public_account_payload(user),
         "bootstrap_admin": first_user,
     }
 
@@ -2657,6 +2915,59 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
         response.delete_cookie(SESSION_COOKIE_NAME, samesite="lax")
     response.delete_cookie("fluentflow_access_token", samesite="lax")
     return {"ok": True}
+
+
+@app.get("/account/quota")
+def account_quota(request: Request) -> dict[str, Any]:
+    user = _require_account_user(request)
+    return account_quota_summary(str(user["id"]))
+
+
+@app.get("/admin/users")
+def admin_list_users(request: Request, limit: int = 100) -> dict[str, Any]:
+    _require_admin_user(request)
+    users = []
+    for user in list_users(limit=limit):
+        public = _public_account_payload(user)
+        if public:
+            users.append(public)
+    return {"users": users}
+
+
+@app.post("/admin/users/{user_id}/balance-adjustments")
+def admin_adjust_user_balance(
+    request: Request,
+    user_id: str,
+    payload: dict[str, Any] = Body(default={}),
+) -> dict[str, Any]:
+    admin = _require_admin_user(request)
+    target = get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        units = int(payload.get("units") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="units must be an integer") from None
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+    provider_reference = str(payload.get("provider_reference") or "").strip() or None
+    try:
+        tx = add_admin_adjustment(
+            user_id,
+            units=units,
+            reason=reason,
+            admin_account_id=str(admin["id"]),
+            provider_reference=provider_reference,
+            metadata={"route": "/admin/users/{user_id}/balance-adjustments"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "transaction": tx,
+        "user": _public_account_payload(target),
+    }
 
 
 @app.get("/credentials/status")
@@ -3213,6 +3524,19 @@ async def queue_process(
             source_path=str(source_path),
             source_fingerprint=source_fingerprint,
         )
+        duration_estimate_sec = _media_duration_seconds(source_path)
+        quota_estimate = _estimate_processing_units(
+            duration_seconds=duration_estimate_sec,
+            skip_summary=_truthy_form(base_options.get("skip_summary")),
+            estimate_only=True,
+        )
+        quota_reservation = _reserve_task_quota(
+            client_id=client_id,
+            task_id=task_id_value,
+            estimate=quota_estimate,
+        )
+        if quota_reservation:
+            metadata["quota"] = quota_reservation
         log_event(
             task_id=task_id_value,
             event_name="source_queued",
@@ -3324,6 +3648,25 @@ async def process_video(
     )
     source_fingerprint = _source_fingerprint(content, source_filename)
     in_path = _persist_source_file(task_id_value, suffix, content)
+    duration_preflight_sec = _media_duration_seconds(in_path)
+    quota_estimate = _estimate_processing_units(
+        duration_seconds=duration_preflight_sec,
+        skip_summary=summary_disabled,
+        estimate_only=True,
+    )
+    try:
+        quota_reservation = None if _request_is_internal_queue(request) else _reserve_task_quota(
+            client_id=client_id,
+            task_id=task_id_value,
+            estimate=quota_estimate,
+        )
+    except HTTPException:
+        try:
+            in_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        shutil.rmtree(td, ignore_errors=True)
+        raise
 
     log_event(
         task_id=task_id_value,
@@ -3337,6 +3680,8 @@ async def process_video(
             route="/process",
             source_fingerprint=source_fingerprint,
             source_last_modified_ms=source_last_modified_ms,
+            quota=quota_reservation,
+            quota_estimate=quota_estimate,
         ),
     )
     upsert_job(
@@ -3354,6 +3699,8 @@ async def process_video(
             route="/process",
             source_fingerprint=source_fingerprint,
             source_last_modified_ms=source_last_modified_ms,
+            quota=quota_reservation,
+            quota_estimate=quota_estimate,
         ),
     )
 
@@ -3883,6 +4230,19 @@ async def process_video(
                     **base_result,
                     "status": "completed",
                 }
+                quota_final = _finalize_task_quota(
+                    client_id=client_id,
+                    task_id=task_id_value,
+                    final_usage=_estimate_processing_units(
+                        duration_seconds=duration_sec,
+                        transcript_text=transcript_text,
+                        summary_text="",
+                        skip_summary=True,
+                    ),
+                    reason="Finalize transcript-only task charge",
+                )
+                if quota_final:
+                    result["quota"] = quota_final
                 result = _attach_result_artifacts(task_id_value, result)
                 result = _finalize_completed_result_storage(
                     task_id_value,
@@ -3999,6 +4359,19 @@ async def process_video(
                     "summary_status": "failed",
                     "status": "summary_failed",
                 }
+                quota_final = _finalize_task_quota(
+                    client_id=client_id,
+                    task_id=task_id_value,
+                    final_usage=_estimate_processing_units(
+                        duration_seconds=duration_sec,
+                        transcript_text=transcript_text,
+                        summary_text="",
+                        skip_summary=True,
+                    ),
+                    reason="Finalize transcription charge after summary failure",
+                )
+                if quota_final:
+                    result["quota"] = quota_final
                 result = _attach_result_artifacts(task_id_value, result)
                 result = _finalize_completed_result_storage(
                     task_id_value,
@@ -4136,6 +4509,18 @@ async def process_video(
                     )
 
             # ── Done ───────────────────────────────────────────
+            quota_final = _finalize_task_quota(
+                client_id=client_id,
+                task_id=task_id_value,
+                final_usage=_estimate_processing_units(
+                    duration_seconds=duration_sec,
+                    transcript_text=transcript_text,
+                    summary_text=summary_md,
+                    skip_summary=False,
+                ),
+            )
+            if quota_final:
+                result["quota"] = quota_final
             result = _attach_result_artifacts(task_id_value, result)
             result = _finalize_completed_result_storage(
                 task_id_value,
@@ -4172,6 +4557,12 @@ async def process_video(
             logger.info("Processing stream cancelled by client at stage=%s", current_stage)
             if stt_process is not None and stt_process.is_alive():
                 terminate_process(stt_process)
+            _release_task_quota(
+                client_id=client_id,
+                task_id=task_id_value,
+                reason="Task cancelled before completion",
+                metadata={"stage": current_stage},
+            )
             source_duration_for_cancel = duration_sec or duration_estimate_sec
             _log_task_completed(
                 task_id=task_id_value,
@@ -4207,6 +4598,12 @@ async def process_video(
                 terminate_process(stt_process)
             if summary_status is None and current_stage == "summary":
                 summary_status = "failed"
+            _release_task_quota(
+                client_id=client_id,
+                task_id=task_id_value,
+                reason="Task failed before charge finalization",
+                metadata={"stage": current_stage, "raw_error": str(exc)},
+            )
             log_event(
                 task_id=task_id_value,
                 event_name="task_failed",
@@ -4975,6 +5372,8 @@ async def record_client_event(request: Request, payload: dict[str, Any] = Body(.
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 API_ROUTE_PREFIXES = {
+    "account",
+    "admin",
     "auth",
     "credentials",
     "events",

@@ -133,6 +133,29 @@ Always judge the product type before applying visual taste rules:
 
 ---
 
+## Plan Document Before Large Changes
+For large or product-semantics-heavy changes, create or update a focused plan document before implementation, then use it as the implementation checklist after the direction is accepted.
+
+Use this process when a change touches any of these:
+- account/auth/payment/quota/data-retention semantics
+- task processing pipeline or queue behavior
+- database schema, migrations, storage, or data cleanup
+- deployment, server configuration, or operational recovery
+- cross-cutting frontend + backend behavior
+- pricing, recharge, entitlement, abuse control, or admin workflows
+
+The plan document should capture:
+- user goal and non-goals
+- phased implementation blocks
+- data model / API changes
+- UX states and copy implications
+- risks, rollback, and validation plan
+- what is explicitly not included in the first landing scope
+
+Do not overuse this for small localized fixes, copy tweaks, visual polish, or narrow bug fixes. For those, proceed directly after reading the relevant code and stating the immediate change.
+
+---
+
 ## Minimal Necessary Change
 - Do not modify unrelated files
 - Do not refactor without reason
@@ -203,6 +226,14 @@ Project rules override global rules.
 - Never run git push unless explicitly asked
 - Never assume deployment workflow
 - Check project instructions first
+
+## Server Deploy Trigger
+
+When the user says `上传服务器`, `部署到服务器`, `上线`, `更新线上版本`, `发布到 fluentflow.icu`, or `把当前修改同步到服务器`, treat it as an explicit request to deploy the intended current changes.
+
+Before acting, read `docs/server_deploy_workflow.md` and follow it. The default path is: validate locally, stage only relevant files, commit, push to GitHub, run the server deploy script, and verify health. Ask the user only for secrets, account authorization, server access, payment/cloud confirmations, CAPTCHA, or other steps Codex cannot safely perform.
+
+Do not use `nano` or manual server edits for routine deployment. GitHub remains the source of truth.
 
 ## Version Records
 

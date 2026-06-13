@@ -55,6 +55,19 @@ const apiFetch = (input, init={}) => {
     }
     return fetch(input, {...init, credentials: init.credentials || 'include', headers});
 };
+const apiErrorMessage = (payload, fallback='Request failed') => {
+    const detail = payload?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) return detail.map((item) => item?.msg || item?.message || String(item)).join('; ');
+    if (detail && typeof detail === 'object') {
+        const message = detail.message || detail.detail || fallback;
+        if (detail.required_units != null && detail.balance_units != null) {
+            return `${message} 当前 ${detail.balance_units}，预计需要 ${detail.required_units}。`;
+        }
+        return String(message);
+    }
+    return fallback;
+};
 const getGuestTrialToken = () => (localStorage.getItem(GUEST_TRIAL_TOKEN_KEY) || '').trim();
 const setGuestTrialToken = (token) => {
     const value = String(token || '').trim();
@@ -73,6 +86,17 @@ const clearGuestTrialSession = () => {
 };
 
 const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
+const stripGeneratedFilenamePrefix = (name) => String(name || '').replace(/^(?:[a-f0-9]{12,}|[0-9]{10,})[-_]+/i, '');
+const compactDisplayFilename = (name, maxChars=42) => {
+    const value = stripGeneratedFilenamePrefix(name).trim() || String(name || '').trim();
+    const chars = Array.from(value);
+    if (chars.length <= maxChars) return value;
+    const extMatch = value.match(/(\.[^./\s]{1,8})$/);
+    const ext = extMatch ? extMatch[1] : '';
+    const extLength = Array.from(ext).length;
+    const keep = Math.max(16, maxChars - extLength - 1);
+    return `${chars.slice(0, keep).join('')}…${ext}`;
+};
 const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
 const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
@@ -480,7 +504,7 @@ const normalizeSttModel = (model) => (
 /* ═══════════════ i18n ═══════════════ */
 const msgs = {
   en:{
-    'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Start','nav.tasks':'Tasks','nav.processing':'Run Settings','nav.editor':'Editor','nav.settings':'Settings','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
+    'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Start','nav.tasks':'Tasks','nav.processing':'Run Settings','nav.editor':'Editor','nav.settings':'Settings','nav.admin':'Admin','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
     'status.ready':'System ready','status.idle':'Awaiting task','status.queued':'Queued','status.resolving':'Resolving link…','status.downloading':'Downloading video…','status.saving':'Saving video…','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done','status.failed':'Failed',
     'dash.welcome':'Start a transcription.','dash.subtitle':'Upload a video or audio file. FluentFlow handles the transcription route in the background.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Ready','dash.heroTitle':'Drop a video here to transcribe it.','dash.heroDesc':'FluentFlow extracts audio, transcribes it in the background, and prepares transcript, subtitles, and notes.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import Subtitle/Text','dash.subtitleHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.linkPlaceholder':'Paste Douyin share text or a video link','dash.linkSubmit':'Fetch by link','dash.linkSubmitting':'Fetching…','dash.linkEmpty':'Paste a share text or video link first.','dash.linkQueued':'Video link is being fetched in Background tasks.','dash.azureUploadHint':'Cloud transcription runs in the background. You can leave this page and watch it from Tasks.','dash.uploading':'Uploading and processing','dash.done':'Processing complete','dash.subtitleDone':'Summary generated from transcript file','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet. Completed jobs will appear here.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
     'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.azureUploadAudio':'Cloud Audio','dash.pipeline':'Pipeline','dash.modelProfile':'Route','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'You can leave this page; progress continues under Tasks.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading local model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttAzure':'Cloud transcription in progress','dash.sttAzureUpload':'Uploading audio','dash.sttAzureSubmit':'Submitting cloud job','dash.sttAzureWait':'Waiting for cloud transcription','dash.sttAzureDownload':'Downloading cloud result','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once local transcription emits real segments.',
@@ -493,7 +517,7 @@ const msgs = {
     'work.defaults':'Run defaults','work.defaultsDesc':'These values are used by Dashboard uploads, subtitle imports, and editor reruns.','work.activePrompt':'Default prompt template','work.transcription':'Transcription','work.hotwordLibrary':'Hotword library','work.integratedHotwordLibrary':'Integrated hotword library','work.hotwordHint':'All domain terms and conservative correction candidates are used together for STT prompts and transcript review.','work.viewHotwords':'View contents','work.hotwordDialogTitle':'Hotword library contents','work.hotwordDialogDesc':'Review the terms and conservative correction candidates currently used by FluentFlow.','work.effectiveLibraries':'Included sources','work.hotwordTerms':'Terms','work.confusionPairs':'Confusion candidates','work.autoApply':'auto apply','work.suggestOnly':'suggest only','work.noTerms':'No terms in this preset.','work.noConfusions':'No confusion candidates.','work.hotwordsUnavailable':'Hotword details are unavailable. Restart the backend if this keeps showing.','work.close':'Close','work.reviewMode':'Subtitle review','work.reviewModeHint':'Optional. Raw transcript is always preserved.','work.reviewUseAi':'Use AI to verify suggestions','work.reviewUseAiHint':'AI can only confirm minimal obvious corrections, never rewrite freely.','work.reviewSuggestions':'Review suggestions','work.reviewApplied':'Applied corrections','work.summary':'Summary AI','work.summaryMode':'Note generation mode','work.noteModeAuto':'Auto switches by transcript length: direct under about 20k chars, high-fidelity above it.','work.noteModeDirect':'Sends the transcript in one pass. Faster, best for shorter materials.','work.noteModeHighFidelity':'Extracts evidence in chunks, then writes and checks coverage. Slower, better for long courses.','work.export':'Feishu export','work.currentRun':'Current run','work.activeRunHint':'Dashboard now shows the detailed live progress. Workbench stays focused on run defaults.','work.viewProgress':'View progress','work.saved':'Saved automatically','work.credentialsLink':'Credentials stay in Settings',
   },
   zh:{
-    'nav.subtitle':'视频转飞书 AI','nav.dashboard':'开始处理','nav.tasks':'后台任务','nav.processing':'处理设置','nav.editor':'编辑器','nav.settings':'设置','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
+    'nav.subtitle':'视频转飞书 AI','nav.dashboard':'开始处理','nav.tasks':'后台任务','nav.processing':'处理设置','nav.editor':'编辑器','nav.settings':'设置','nav.admin':'管理','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
     'status.ready':'系统就绪','status.idle':'等待任务','status.queued':'排队中','status.resolving':'解析链接中…','status.downloading':'下载视频中…','status.saving':'保存视频中…','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成','status.failed':'失败',
     'dash.welcome':'开始一次转录','dash.subtitle':'上传视频或音频，FluentFlow 会在后台完成转录、字幕和笔记。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'就绪','dash.heroTitle':'把视频拖到这里开始转录。','dash.heroDesc':'FluentFlow 会自动提取音频，在后台转录，并生成转录文本、字幕和结构化笔记。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕/文本','dash.subtitleHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.linkPlaceholder':'粘贴抖音分享文本或视频链接','dash.linkSubmit':'通过链接获取','dash.linkSubmitting':'获取中…','dash.linkEmpty':'请先粘贴分享文本或视频链接。','dash.linkQueued':'视频链接已进入后台任务获取。','dash.azureUploadHint':'云端转录会在后台继续运行，你可以离开本页并在后台任务里查看进度。','dash.uploading':'正在上传并处理','dash.done':'处理完成','dash.subtitleDone':'已根据字幕文件生成摘要','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录，完成的任务会显示在这里。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
     'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.azureUploadAudio':'云端音频','dash.pipeline':'处理流水线','dash.modelProfile':'转录路线','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'你可以离开本页，进度会在后台任务中继续更新。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载本地模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttAzure':'云端转录中','dash.sttAzureUpload':'正在上传音频','dash.sttAzureSubmit':'正在提交云端任务','dash.sttAzureWait':'等待云端转录','dash.sttAzureDownload':'正在下载云端结果','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按本地转录真实返回的片段推进进度。',
@@ -673,6 +697,20 @@ const fmtBytes = (bytes) => {
     const n = Number(bytes);
     if(!Number.isFinite(n) || n <= 0) return '';
     return fmtFileSize(n / 1024 / 1024);
+};
+const fmtDateTime = (value, lang='zh') => {
+    const ts = Date.parse(value || '');
+    if(!Number.isFinite(ts)) return '-';
+    try {
+        return new Date(ts).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    } catch(_) {
+        return '-';
+    }
 };
 const friendlyTaskError = (message, lang='zh') => {
     const raw = String(message || '').trim();
@@ -1139,7 +1177,7 @@ const useApi = () => {
         if(options.sourceLastModifiedMs) fd.append("source_last_modified_ms", String(options.sourceLastModifiedMs));
         appendProcessOptions(fd, options);
         const r = await apiFetch(`${API_BASE}/process`,{method:"POST",body:fd,signal});
-        if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+        if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(apiErrorMessage(e, `HTTP ${r.status}`)); }
         return await readSseResult(r, onProgress);
     };
     const enqueueProcessFiles = async (files, options={}, signal) => {
@@ -1148,7 +1186,7 @@ const useApi = () => {
         appendProcessOptions(fd, options);
         const r = await apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, signal});
         const data = await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
         return data;
     };
     const guestHeaders = (token) => token ? {'X-FluentFlow-Guest-Token': token} : {};
@@ -1226,7 +1264,7 @@ const useApi = () => {
             signal,
         });
         const data = await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
         return data;
     };
     const subscribeJobEvents = async (taskId, onProgress, signal) => {
@@ -1277,6 +1315,28 @@ const useApi = () => {
         const data = await r.json();
         return Array.isArray(data?.jobs) ? data.jobs : [];
     };
+    const getAccountQuota = async () => {
+        const r = await apiFetch(`${API_BASE}/account/quota`);
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const getAdminUsers = async (limit=100) => {
+        const r = await apiFetch(`${API_BASE}/admin/users?limit=${encodeURIComponent(limit)}`);
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return Array.isArray(data?.users) ? data.users : [];
+    };
+    const adjustUserBalance = async (userId, payload={}) => {
+        const r = await apiFetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}/balance-adjustments`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify(payload || {}),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
     const downloadJobArtifact = async (taskId, kind, filename) => {
         const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`);
         if(!r.ok) throw new Error('Artifact not found');
@@ -1313,7 +1373,7 @@ const useApi = () => {
         return await r.json();
     };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, downloadGuestTrialArtifact, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, getJobs, fetchJobSourceFile, fetchJobArtifactFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, downloadGuestTrialArtifact, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
 };
 
 const useSettings = () => {
@@ -1335,12 +1395,31 @@ const useSettings = () => {
 const SideNav = () => {
     const {t, lang, toggleLang} = useI18n();
     const {authMode, user, guestMode, canRegister, openAuth, logout} = useAuth();
+    const {getAccountQuota} = useApi();
+    const [quota, setQuota] = useState(user?.quota || null);
     const loc = useLocation();
+    useEffect(() => {
+        let cancelled = false;
+        setQuota(user?.quota || null);
+        if (authMode !== 'accounts' || !user || guestMode) return () => { cancelled = true; };
+        const load = () => {
+            getAccountQuota()
+                .then((data) => { if (!cancelled) setQuota(data); })
+                .catch(() => {});
+        };
+        load();
+        const timer = setInterval(load, 30000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [authMode, user?.id, guestMode]);
     const fullItems = [
         {path:'/',icon:'dashboard',k:'nav.dashboard'},
         {path:'/tasks',icon:'monitoring',k:'nav.tasks'},
         {path:'/processing',icon:'tune',k:'nav.processing'},
         {path:'/editor',icon:'subject',k:'nav.editor'},
+        ...(user?.role === 'admin' ? [{path:'/admin',icon:'admin_panel_settings',k:'nav.admin'}] : []),
         {path:'/settings',icon:'settings',k:'nav.settings'},
     ];
     const items = guestMode ? fullItems.filter((item) => ['/', '/editor'].includes(item.path)) : fullItems;
@@ -1373,6 +1452,14 @@ const SideNav = () => {
                             <p className="mt-1 truncate text-sm font-semibold text-slate-800" title={user.email || ''}>
                                 {user.email}
                             </p>
+                            {quota && (
+                                <div className="mt-3 rounded-md bg-blue-50 px-3 py-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-xs font-semibold text-slate-500">{lang==='zh'?'处理额度':'Balance'}</span>
+                                        <span className="text-sm font-bold text-blue-700">{quota.balance_units ?? 0}</span>
+                                    </div>
+                                </div>
+                            )}
                             <button
                                 type="button"
                                 onClick={logout}
@@ -3227,6 +3314,8 @@ const Editor = () => {
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
     const resolvedNoteMode = result?.resolved_note_mode || result?.requested_note_mode || null;
     const noteModeText = resolvedNoteMode ? noteModeLabel(resolvedNoteMode, lang) : null;
+    const rawEditorTitle = result?.filename || t('edit.title');
+    const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
     const playbackDuration = mediaDuration || durSec || 0;
     const activeSegmentIndex = segments.length > 0
         ? (() => {
@@ -3785,7 +3874,13 @@ const Editor = () => {
             <div className="max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-4">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
                                             <div className="min-w-0 pr-2">
-                        <h1 className="max-w-[34ch] text-[clamp(1.75rem,2.15vw,2.35rem)] leading-tight font-extrabold font-headline text-on-surface text-balance">{result.filename || t('edit.title')}</h1>
+                        <h1
+                            className="max-w-[30ch] text-[clamp(1.6rem,1.9vw,2.05rem)] leading-tight font-extrabold font-headline text-on-surface"
+                            title={rawEditorTitle}
+                            aria-label={rawEditorTitle}
+                        >
+                            {editorTitle}
+                        </h1>
 	                        <p className="max-w-[68ch] text-on-surface-variant mt-1 text-sm leading-snug">
 	                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
 		                            {sttElapsedSec > 0 && <>{t('edit.sttElapsed')}: {fmtElapsed(sttElapsedSec)} {sttRealtimeFactor ? `(${fmtSttRelative(sttRealtimeFactor, lang)})` : ''} &bull; </>}
@@ -4112,6 +4207,362 @@ const Editor = () => {
                 </main>
             </div>
         );
+};
+
+/* ═══════════════ Admin ═══════════════ */
+const Admin = () => {
+    const {lang} = useI18n();
+    const {user} = useAuth();
+    const {getAdminUsers, adjustUserBalance} = useApi();
+    const [users, setUsers] = useState([]);
+    const [selectedId, setSelectedId] = useState('');
+    const [query, setQuery] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
+    const [units, setUnits] = useState('');
+    const [reason, setReason] = useState('');
+    const [providerReference, setProviderReference] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const isAdmin = user?.role === 'admin';
+    const loadUsers = async (preferredId='') => {
+        if (!isAdmin) return;
+        setLoading(true);
+        setError('');
+        try {
+            const nextUsers = await getAdminUsers(200);
+            setUsers(nextUsers);
+            const preferred = preferredId || selectedId;
+            const nextSelected = nextUsers.find((item) => item.id === preferred)?.id || nextUsers[0]?.id || '';
+            setSelectedId(nextSelected);
+        } catch(err) {
+            setError(err.message || (lang === 'zh' ? '无法读取用户列表。' : 'Could not load users.'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (isAdmin) loadUsers();
+    }, [isAdmin]);
+
+    const filteredUsers = users.filter((item) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return String(item.email || '').toLowerCase().includes(q) || String(item.id || '').toLowerCase().includes(q);
+    });
+    const selectedUser = users.find((item) => item.id === selectedId) || filteredUsers[0] || null;
+    const transactions = selectedUser?.quota?.recent_transactions || [];
+    const selectedBalance = selectedUser?.quota?.balance_units ?? 0;
+
+    const submitAdjustment = async (e) => {
+        e.preventDefault();
+        if (!selectedUser) return;
+        const parsedUnits = Number.parseInt(units, 10);
+        if (!Number.isInteger(parsedUnits) || parsedUnits === 0) {
+            setError(lang === 'zh' ? '额度变化必须是非 0 整数。' : 'Unit adjustment must be a non-zero integer.');
+            return;
+        }
+        if (!reason.trim()) {
+            setError(lang === 'zh' ? '必须填写调整原因。' : 'Reason is required.');
+            return;
+        }
+        setSubmitting(true);
+        setError('');
+        setNotice('');
+        try {
+            const data = await adjustUserBalance(selectedUser.id, {
+                units: parsedUnits,
+                reason: reason.trim(),
+                provider_reference: providerReference.trim(),
+            });
+            const updatedUser = data.user || null;
+            if (updatedUser?.id) {
+                setUsers((prev) => prev.map((item) => item.id === updatedUser.id ? updatedUser : item));
+                setSelectedId(updatedUser.id);
+            } else {
+                await loadUsers(selectedUser.id);
+            }
+            setUnits('');
+            setReason('');
+            setProviderReference('');
+            setNotice(lang === 'zh' ? '额度已更新。' : 'Balance updated.');
+        } catch(err) {
+            setError(err.message || (lang === 'zh' ? '额度调整失败。' : 'Adjustment failed.'));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (!isAdmin) {
+        return (
+            <div className="ml-64 min-h-screen bg-surface px-8 py-10">
+                <main className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center">
+                    <section className="w-full rounded-sm bg-surface-container-lowest p-8 shadow-sm ring-1 ring-outline-variant/30">
+                        <div className="flex items-start gap-4">
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-sm bg-red-50 text-red-600">
+                                <span className="material-symbols-outlined">lock</span>
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-bold tracking-tight text-on-surface font-headline">
+                                    {lang === 'zh' ? '没有管理员权限' : 'Admin access required'}
+                                </h1>
+                                <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
+                                    {lang === 'zh'
+                                        ? '这个页面只用于维护账号额度和余额流水。普通用户不能访问。'
+                                        : 'This page is only for maintaining account balances and ledger entries.'}
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+                </main>
+            </div>
+        );
+    }
+
+    return (
+        <div className="ml-64 min-h-screen bg-surface">
+            <main className="mx-auto max-w-7xl px-8 py-8">
+                <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-primary">
+                            {lang === 'zh' ? 'Admin' : 'Admin'}
+                        </p>
+                        <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-on-surface font-headline">
+                            {lang === 'zh' ? '用户额度维护' : 'User balance maintenance'}
+                        </h1>
+                        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-on-surface-variant">
+                            {lang === 'zh'
+                                ? '用于早期手动充值：查用户余额和最近流水，按原因增减处理额度。'
+                                : 'Manual early-stage recharge: inspect balances and recent ledger entries, then adjust processing units with a reason.'}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={()=>loadUsers(selectedUser?.id || '')}
+                        disabled={loading}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-700 disabled:opacity-50"
+                    >
+                        <span className={`material-symbols-outlined text-[18px] ${loading ? 'animate-spin' : ''}`}>sync</span>
+                        {lang === 'zh' ? '刷新' : 'Refresh'}
+                    </button>
+                </header>
+
+                {(error || notice) && (
+                    <div className={`mb-5 rounded-sm px-4 py-3 text-sm font-semibold ${error ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                        {error || notice}
+                    </div>
+                )}
+
+                <div className="grid gap-6 xl:grid-cols-[minmax(340px,420px)_1fr]">
+                    <section className="rounded-sm bg-surface-container-lowest shadow-sm ring-1 ring-outline-variant/25">
+                        <div className="border-b ff-border-muted p-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <h2 className="text-sm font-bold text-on-surface font-headline">
+                                    {lang === 'zh' ? '账号列表' : 'Accounts'}
+                                </h2>
+                                <span className="text-xs font-semibold text-on-surface-variant">{filteredUsers.length}</span>
+                            </div>
+                            <div className="mt-3 flex h-10 items-center gap-2 rounded-sm bg-surface-container-low px-3">
+                                <span className="material-symbols-outlined text-[18px] text-slate-400">search</span>
+                                <input
+                                    value={query}
+                                    onChange={(e)=>setQuery(e.target.value)}
+                                    className="h-full min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-slate-400"
+                                    placeholder={lang === 'zh' ? '搜索邮箱或用户 ID' : 'Search email or user ID'}
+                                />
+                            </div>
+                        </div>
+                        <div className="max-h-[calc(100vh-270px)] overflow-y-auto hide-scrollbar">
+                            {loading && users.length === 0 ? (
+                                <div className="space-y-3 p-4">
+                                    {[0,1,2].map((item) => <div key={item} className="h-16 animate-pulse rounded-sm bg-surface-container-low"/>)}
+                                </div>
+                            ) : filteredUsers.length === 0 ? (
+                                <div className="p-6 text-sm font-medium text-on-surface-variant">
+                                    {lang === 'zh' ? '没有匹配的用户。' : 'No matching users.'}
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-outline-variant/30">
+                                    {filteredUsers.map((item) => {
+                                        const active = item.id === selectedUser?.id;
+                                        const balance = item.quota?.balance_units ?? 0;
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={()=>setSelectedId(item.id)}
+                                                className={`w-full px-4 py-3 text-left transition ${active ? 'bg-blue-50' : 'hover:bg-surface-container-low'}`}
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-bold text-on-surface" title={item.email || ''}>{item.email}</p>
+                                                        <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                                                            {item.role || 'user'} · {item.status || 'active'}
+                                                        </p>
+                                                    </div>
+                                                    <span className={`rounded-sm px-2 py-1 text-xs font-extrabold tabular-nums ${balance < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
+                                                        {balance}
+                                                    </span>
+                                                </div>
+                                                <p className="mt-2 text-[11px] font-medium text-slate-400">
+                                                    {lang === 'zh' ? '最近登录' : 'Last login'} {fmtDateTime(item.last_login_at, lang)}
+                                                </p>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </section>
+
+                    <section className="min-w-0 space-y-6">
+                        {selectedUser ? (
+                            <>
+                                <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+                                    <div className="rounded-sm bg-surface-container-lowest p-5 shadow-sm ring-1 ring-outline-variant/25">
+                                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                            <div className="min-w-0">
+                                                <h2 className="truncate text-xl font-bold tracking-tight text-on-surface font-headline" title={selectedUser.email || ''}>
+                                                    {selectedUser.email}
+                                                </h2>
+                                                <p className="mt-2 break-all text-xs font-medium text-on-surface-variant">{selectedUser.id}</p>
+                                                <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+                                                    <span className="rounded-sm bg-surface-container-low px-2.5 py-1 text-on-surface-variant">{selectedUser.role || 'user'}</span>
+                                                    <span className="rounded-sm bg-surface-container-low px-2.5 py-1 text-on-surface-variant">{selectedUser.status || 'active'}</span>
+                                                    <span className="rounded-sm bg-surface-container-low px-2.5 py-1 text-on-surface-variant">
+                                                        {lang === 'zh' ? '创建' : 'Created'} {fmtDateTime(selectedUser.created_at, lang)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="w-full rounded-sm bg-blue-50 px-4 py-3 sm:w-auto sm:min-w-[150px]">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-500">
+                                                    {lang === 'zh' ? '当前额度' : 'Balance'}
+                                                </p>
+                                                <p className="mt-1 text-3xl font-extrabold leading-none text-blue-700 tabular-nums">{selectedBalance}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <form onSubmit={submitAdjustment} className="rounded-sm bg-surface-container-lowest p-5 shadow-sm ring-1 ring-outline-variant/25">
+                                        <h2 className="text-sm font-bold text-on-surface font-headline">
+                                            {lang === 'zh' ? '手动调整额度' : 'Manual adjustment'}
+                                        </h2>
+                                        <div className="mt-4 space-y-3">
+                                            <label className="block space-y-1.5">
+                                                <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                                                    {lang === 'zh' ? '额度变化' : 'Unit delta'}
+                                                </span>
+                                                <input
+                                                    type="number"
+                                                    step="1"
+                                                    value={units}
+                                                    onChange={(e)=>setUnits(e.target.value)}
+                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-bold tabular-nums outline-none focus:border-primary/60 focus:ring-0"
+                                                    placeholder={lang === 'zh' ? '例如 100 或 -20' : 'e.g. 100 or -20'}
+                                                />
+                                            </label>
+                                            <label className="block space-y-1.5">
+                                                <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                                                    {lang === 'zh' ? '原因' : 'Reason'}
+                                                </span>
+                                                <input
+                                                    type="text"
+                                                    value={reason}
+                                                    onChange={(e)=>setReason(e.target.value)}
+                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-semibold outline-none focus:border-primary/60 focus:ring-0"
+                                                    placeholder={lang === 'zh' ? '例如 微信手动充值' : 'e.g. Manual WeChat recharge'}
+                                                />
+                                            </label>
+                                            <label className="block space-y-1.5">
+                                                <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                                                    {lang === 'zh' ? '凭证备注' : 'Reference'}
+                                                </span>
+                                                <input
+                                                    type="text"
+                                                    value={providerReference}
+                                                    onChange={(e)=>setProviderReference(e.target.value)}
+                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-semibold outline-none focus:border-primary/60 focus:ring-0"
+                                                    placeholder={lang === 'zh' ? '可选，订单号或截图编号' : 'Optional order or screenshot ID'}
+                                                />
+                                            </label>
+                                            <button
+                                                type="submit"
+                                                disabled={submitting || !units || !reason.trim()}
+                                                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm bg-primary px-4 text-sm font-extrabold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                                            >
+                                                <span className="material-symbols-outlined text-[18px]">{submitting ? 'hourglass_top' : 'add_card'}</span>
+                                                {submitting ? (lang === 'zh' ? '提交中' : 'Saving') : (lang === 'zh' ? '提交调整' : 'Apply adjustment')}
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                <div className="rounded-sm bg-surface-container-lowest shadow-sm ring-1 ring-outline-variant/25">
+                                    <div className="border-b ff-border-muted px-5 py-4">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <h2 className="text-sm font-bold text-on-surface font-headline">
+                                                {lang === 'zh' ? '最近余额流水' : 'Recent ledger'}
+                                            </h2>
+                                            <span className="text-xs font-semibold text-on-surface-variant">
+                                                {transactions.length}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {transactions.length === 0 ? (
+                                        <div className="p-6 text-sm font-medium text-on-surface-variant">
+                                            {lang === 'zh' ? '暂无余额流水。' : 'No ledger entries yet.'}
+                                        </div>
+                                    ) : (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full min-w-[760px] text-left text-sm">
+                                                <thead className="bg-surface-container-low text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
+                                                    <tr>
+                                                        <th className="px-5 py-3">{lang === 'zh' ? '时间' : 'Time'}</th>
+                                                        <th className="px-5 py-3">{lang === 'zh' ? '类型' : 'Type'}</th>
+                                                        <th className="px-5 py-3 text-right">{lang === 'zh' ? '变化' : 'Delta'}</th>
+                                                        <th className="px-5 py-3 text-right">{lang === 'zh' ? '余额' : 'Balance'}</th>
+                                                        <th className="px-5 py-3">{lang === 'zh' ? '原因' : 'Reason'}</th>
+                                                        <th className="px-5 py-3">{lang === 'zh' ? '任务/凭证' : 'Task / ref'}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-outline-variant/30">
+                                                    {transactions.map((tx) => {
+                                                        const delta = Number(tx.unit_delta) || 0;
+                                                        return (
+                                                            <tr key={tx.id} className="hover:bg-surface-container-low/60">
+                                                                <td className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-on-surface-variant">{fmtDateTime(tx.created_at, lang)}</td>
+                                                                <td className="whitespace-nowrap px-5 py-3 font-semibold text-on-surface">{tx.transaction_type}</td>
+                                                                <td className={`whitespace-nowrap px-5 py-3 text-right font-extrabold tabular-nums ${delta >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                                                    {delta > 0 ? `+${delta}` : delta}
+                                                                </td>
+                                                                <td className="whitespace-nowrap px-5 py-3 text-right font-bold text-on-surface tabular-nums">{tx.balance_after}</td>
+                                                                <td className="max-w-[240px] px-5 py-3 text-on-surface-variant">
+                                                                    <span className="line-clamp-2">{tx.reason || '-'}</span>
+                                                                </td>
+                                                                <td className="max-w-[220px] px-5 py-3 text-xs font-medium text-slate-400">
+                                                                    <span className="line-clamp-2 break-all">{tx.task_id || tx.provider_reference || '-'}</span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="rounded-sm bg-surface-container-lowest p-8 text-sm font-medium text-on-surface-variant shadow-sm ring-1 ring-outline-variant/25">
+                                {loading ? (lang === 'zh' ? '正在读取用户…' : 'Loading users...') : (lang === 'zh' ? '还没有用户。' : 'No users yet.')}
+                            </div>
+                        )}
+                    </section>
+                </div>
+            </main>
+        </div>
+    );
 };
 
 /* ═══════════════ Settings ═══════════════ */
@@ -4614,6 +5065,7 @@ const App = () => {
                 <Route path="/tasks" element={guestMode ? <Dashboard/> : <Tasks/>}/>
                 <Route path="/processing" element={guestMode ? <Dashboard/> : <Processing/>}/>
                 <Route path="/editor" element={<Editor/>}/>
+                <Route path="/admin" element={guestMode ? <Dashboard/> : <Admin/>}/>
                 <Route path="/settings" element={guestMode ? <Dashboard/> : <Settings/>}/>
                         </Routes>
                     </div>
