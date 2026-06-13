@@ -2,6 +2,8 @@
 
 这套模板用于封闭 Beta，不是正式 SaaS 多租户部署。
 
+日常排障、备份、恢复和回滚步骤见 `docs/operations_runbook.md`。
+
 ## 1. 服务器依赖
 
 ```bash
@@ -48,7 +50,6 @@ npm run build:frontend
 sudo cp deploy/fluentflow.env.example /etc/fluentflow/fluentflow.env
 sudo chmod 600 /etc/fluentflow/fluentflow.env
 sudo chown fluentflow:fluentflow /etc/fluentflow/fluentflow.env
-sudo nano /etc/fluentflow/fluentflow.env
 ```
 
 必须替换：
@@ -64,6 +65,7 @@ sudo nano /etc/fluentflow/fluentflow.env
 ```bash
 FLUENTFLOW_AUTH_MODE=accounts
 FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
+FLUENTFLOW_JOB_DB_PATH=/var/lib/fluentflow/fluentflow_jobs.sqlite
 FLUENTFLOW_SESSION_DAYS=30
 ```
 
@@ -88,11 +90,46 @@ FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT=4096
 FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL=32768
 FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
 FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=60
+FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT=20
+FLUENTFLOW_ARTIFACT_RETENTION_DAYS=30
+FLUENTFLOW_QUEUE_PROCESS_TIMEOUT_SECONDS=86400
+FLUENTFLOW_STALE_JOB_SECONDS=90000
 ```
 
 如果暂时不想启用账号系统，也可以不配置 `FLUENTFLOW_AUTH_MODE`，让用户直接打开产品；此时后端仍会按设备、IP 和全站总量拦截异常提交，但任务历史无法跨设备找回。封闭 Beta 才需要额外设置 `FLUENTFLOW_ACCESS_TOKEN`。
 
-## 4. 部署前自检
+任务完成后，服务器会删除原始视频/上传源文件，只保留字幕、笔记和用于字幕校对的压缩 MP3。每个用户默认只保留最近 20 条历史，且历史产物最多保留 30 天；超过限制的旧任务会连同音频和产物一起清理。
+
+## 4. 备份与恢复
+
+上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 Azure、DeepSeek 等密钥写进备份包。
+
+```bash
+cd /opt/fluentflow
+./venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env
+```
+
+恢复前先 dry-run 看会覆盖哪些路径：
+
+```bash
+./venv/bin/python scripts/restore_server_state.py /var/backups/fluentflow/fluentflow-backup-YYYYMMDDTHHMMSSZ.tar.gz --env-file /etc/fluentflow/fluentflow.env
+```
+
+确认后再执行：
+
+```bash
+systemctl stop fluentflow
+./venv/bin/python scripts/restore_server_state.py /var/backups/fluentflow/fluentflow-backup-YYYYMMDDTHHMMSSZ.tar.gz --env-file /etc/fluentflow/fluentflow.env --apply
+systemctl start fluentflow
+```
+
+建议加一个每天凌晨的 cron：
+
+```bash
+0 3 * * * cd /opt/fluentflow && /opt/fluentflow/venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env >/var/log/fluentflow-backup.log 2>&1
+```
+
+## 5. 部署前自检
 
 ```bash
 set -a
@@ -103,7 +140,7 @@ set +a
 
 所有 `FAIL` 都需要先处理。飞书导出如果暂时不开放，可以接受 `lark_export` 的 `WARN`。
 
-## 5. systemd
+## 6. systemd
 
 ```bash
 sudo cp deploy/fluentflow.service.example /etc/systemd/system/fluentflow.service
@@ -112,7 +149,7 @@ sudo systemctl enable --now fluentflow
 sudo systemctl status fluentflow
 ```
 
-## 6. Nginx
+## 7. Nginx
 
 ```bash
 sudo cp deploy/nginx.fluentflow.conf.example /etc/nginx/sites-available/fluentflow
@@ -123,7 +160,43 @@ sudo systemctl reload nginx
 
 `client_max_body_size` 要不小于 `FLUENTFLOW_MAX_UPLOAD_MB`。SSE 进度依赖 `proxy_buffering off`，不要删。
 
-## 7. 上线 smoke test
+## 8. 日常部署与回滚
+
+首次部署完成后，后续更新优先使用脚本，而不是手动复制命令。脚本会先备份数据，再拉取 `main`、安装依赖、构建前端、跑就绪检查、重启服务和检查 `/health`；如果健康检查失败，会回滚到部署前的 Git 版本。
+
+```bash
+cd /opt/fluentflow
+bash deploy/deploy_server.sh
+```
+
+如果服务器上项目目录不是 `/opt/fluentflow`，用环境变量覆盖：
+
+```bash
+FLUENTFLOW_PROJECT_DIR=/path/to/fluentflow bash deploy/deploy_server.sh
+```
+
+## 9. 监控与告警
+
+基础存活检查：
+
+```bash
+curl -fsS http://127.0.0.1/health
+```
+
+运维状态接口 `/ops/status` 会返回队列、任务、磁盘、配置状态。它受账号/访问控制保护，外部监控如果没有 session token，可以先只检查 `/health`：
+
+```bash
+./venv/bin/python scripts/monitor_health.py --base-url http://127.0.0.1 --skip-ops
+```
+
+在服务器本机排查时可以直接看日志：
+
+```bash
+journalctl -u fluentflow -n 100 --no-pager
+journalctl -u nginx -n 100 --no-pager
+```
+
+## 10. 上线 smoke test
 
 1. 打开站点，输入访问口令。
 2. 上传一个 1-3 分钟的小视频，确认能生成转录和笔记。

@@ -6,6 +6,7 @@ __pycache__/
 .Python
 *.so
 .env
+.env.before-*
 .DS_Store
 node_modules/
 *.egg-info/

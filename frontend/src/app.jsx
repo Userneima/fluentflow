@@ -515,7 +515,15 @@ const I18nProvider = ({children}) => {
 };
 const useI18n = () => useContext(I18nCtx);
 
-const AuthCtx = createContext({authMode:'open', user:null, guestMode:false, guestTrial:null, logout:async()=>{}});
+const AuthCtx = createContext({
+    authMode:'open',
+    user:null,
+    guestMode:false,
+    guestTrial:null,
+    canRegister:false,
+    openAuth:()=>{},
+    logout:async()=>{},
+});
 const useAuth = () => useContext(AuthCtx);
 
 /* ═══════════════ App-level state ═══════════════ */
@@ -1326,7 +1334,7 @@ const useSettings = () => {
 /* ═══════════════ shared components ═══════════════ */
 const SideNav = () => {
     const {t, lang, toggleLang} = useI18n();
-    const {authMode, user, guestMode, logout} = useAuth();
+    const {authMode, user, guestMode, canRegister, openAuth, logout} = useAuth();
     const loc = useLocation();
     const fullItems = [
         {path:'/',icon:'dashboard',k:'nav.dashboard'},
@@ -1383,6 +1391,27 @@ const SideNav = () => {
                             <p className="mt-1 text-xs leading-relaxed text-slate-600">
                                 {lang==='zh'?'支持一次短视频真实转录与笔记生成。':'Run one short real transcription and note trial.'}
                             </p>
+                            {authMode === 'accounts' && (
+                                <div className="mt-3 flex flex-col gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={()=>openAuth('login')}
+                                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-3 text-xs font-bold text-white transition hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                    >
+                                        <span className="material-symbols-outlined text-[16px]">login</span>
+                                        {lang==='zh'?'登录账号':'Sign in'}
+                                    </button>
+                                    {canRegister && (
+                                        <button
+                                            type="button"
+                                            onClick={()=>openAuth('register')}
+                                            className="inline-flex h-9 w-full items-center justify-center rounded-md bg-slate-100 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                                        >
+                                            {lang==='zh'?'创建账号':'Create account'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                     <button
@@ -2802,6 +2831,142 @@ const Processing = () => {
     );
 };
 
+const GuestEditorPreview = ({lang}) => {
+    const content = lang === 'zh'
+        ? {
+            eyebrow: '样例预览',
+            title: '处理完成后，编辑器会这样呈现结果',
+            subtitle: '左侧保留可校对的逐字稿，右侧生成可直接使用的结构化笔记。',
+            source: '产品访谈录音片段',
+            transcriptLabel: '转录原文',
+            noteLabel: 'AI 笔记',
+            cta: '上传音视频生成自己的结果',
+            hint: '示例内容不会占用访客试用额度。',
+            segments: [
+                {time: '00:00', speaker: 'Speaker 1', text: '今天这段访谈主要聊的是，用户为什么会在看完课程后没有形成可复用的笔记。'},
+                {time: '00:18', speaker: 'Speaker 2', text: '他们不是没有记录，而是记录太散，回看时找不到结构，也很难继续编辑。'},
+                {time: '00:43', speaker: 'Speaker 1', text: '所以产品要把转录、重点提炼和后续编辑放在同一个工作流里。'},
+                {time: '01:12', speaker: 'Speaker 2', text: '最有价值的不是单纯生成摘要，而是保留可以校对的原文依据。'},
+            ],
+            noteTitle: '试听材料笔记',
+            overviewTitle: '核心观点',
+            overview: '这段访谈讨论了从音视频到可复用笔记的完整工作流：先得到可核对的转录，再用 AI 提炼结构，最后允许用户继续编辑和下载。',
+            bulletsTitle: '整理结果',
+            bullets: [
+                '问题：原始记录分散，用户回看成本高。',
+                '机会：把转录、摘要、编辑整合在同一界面，减少来回切换。',
+                '产品判断：笔记不能只给结论，还要保留可追溯的原文依据。',
+            ],
+            quoteTitle: '可引用片段',
+            quote: '“最有价值的不是单纯生成摘要，而是保留可以校对的原文依据。”',
+        }
+        : {
+            eyebrow: 'Sample preview',
+            title: 'After processing, results will appear like this',
+            subtitle: 'The transcript stays editable on the left, while the AI note is ready to use on the right.',
+            source: 'Product interview excerpt',
+            transcriptLabel: 'Transcript',
+            noteLabel: 'AI note',
+            cta: 'Upload media to create your result',
+            hint: 'This sample does not use your guest trial.',
+            segments: [
+                {time: '00:00', speaker: 'Speaker 1', text: 'This interview is about why users fail to turn course videos into reusable notes.'},
+                {time: '00:18', speaker: 'Speaker 2', text: 'They do take notes, but the notes are scattered and hard to revisit or edit later.'},
+                {time: '00:43', speaker: 'Speaker 1', text: 'The product should keep transcription, insight extraction, and editing in one workflow.'},
+                {time: '01:12', speaker: 'Speaker 2', text: 'The real value is not just summary generation, but keeping the source text available for review.'},
+            ],
+            noteTitle: 'Demo Material Note',
+            overviewTitle: 'Core Idea',
+            overview: 'The conversation describes a workflow that turns media into reusable notes: first a reviewable transcript, then AI structure, then editing and download.',
+            bulletsTitle: 'Generated Structure',
+            bullets: [
+                'Problem: raw notes are scattered and expensive to revisit.',
+                'Opportunity: combine transcription, summary, and editing in one place.',
+                'Product decision: notes should preserve source evidence instead of only showing conclusions.',
+            ],
+            quoteTitle: 'Reusable Quote',
+            quote: '"The real value is not just summary generation, but keeping the source text available for review."',
+        };
+
+    return (
+        <div className="ml-64 min-h-screen bg-[#F5F8FC] p-8 xl:p-10">
+            <main className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-7xl flex-col justify-center">
+                <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="max-w-3xl">
+                        <div className="mb-3 inline-flex items-center gap-2 rounded-sm border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-bold text-primary">
+                            <span className="material-symbols-outlined text-base">visibility</span>
+                            {content.eyebrow}
+                        </div>
+                        <h1 className="font-headline text-3xl font-bold leading-tight text-on-surface">{content.title}</h1>
+                        <p className="mt-3 text-sm leading-6 text-on-surface-variant">{content.subtitle}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-xs font-medium text-slate-500">{content.hint}</span>
+                        <Link to="/" className="inline-flex items-center gap-2 rounded-sm bg-primary px-5 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary-container">
+                            <span className="material-symbols-outlined text-xl">upload_file</span>
+                            {content.cta}
+                        </Link>
+                    </div>
+                </div>
+
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.82fr)]">
+                    <section className="min-w-0 overflow-hidden rounded-sm border border-slate-200 bg-white shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{content.source}</p>
+                                <h2 className="mt-1 text-base font-bold text-on-surface">{content.transcriptLabel}</h2>
+                            </div>
+                            <span className="material-symbols-outlined text-slate-300">graphic_eq</span>
+                        </div>
+                        <div className="max-h-[560px] space-y-3 overflow-y-auto p-5">
+                            {content.segments.map((segment, index) => (
+                                <div key={index} className="grid grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-sm border border-slate-100 bg-slate-50/60 p-4">
+                                    <div className="text-xs font-bold text-primary">{segment.time}</div>
+                                    <div className="min-w-0">
+                                        <div className="mb-1 text-xs font-bold text-slate-500">{segment.speaker}</div>
+                                        <p className="text-sm leading-7 text-slate-700">{segment.text}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="min-w-0 overflow-hidden rounded-sm border border-slate-200 bg-white shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{content.noteLabel}</p>
+                                <h2 className="mt-1 text-base font-bold text-on-surface">{content.noteTitle}</h2>
+                            </div>
+                            <span className="material-symbols-outlined text-slate-300">auto_awesome</span>
+                        </div>
+                        <div className="space-y-6 p-6">
+                            <div>
+                                <h3 className="mb-2 text-sm font-bold text-on-surface">{content.overviewTitle}</h3>
+                                <p className="text-sm leading-7 text-slate-700">{content.overview}</p>
+                            </div>
+                            <div>
+                                <h3 className="mb-3 text-sm font-bold text-on-surface">{content.bulletsTitle}</h3>
+                                <ul className="space-y-3">
+                                    {content.bullets.map((item, index) => (
+                                        <li key={index} className="flex gap-3 text-sm leading-6 text-slate-700">
+                                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary"></span>
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <div className="border-l-2 border-primary/40 bg-primary/5 px-4 py-3">
+                                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">{content.quoteTitle}</h3>
+                                <p className="text-sm leading-7 text-slate-700">{content.quote}</p>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    );
+};
+
 /* ═══════════════ Editor ═══════════════ */
 const Editor = () => {
     const {t, lang} = useI18n();
@@ -3433,6 +3598,8 @@ const Editor = () => {
             }
         } else retranscribeInputRef.current?.click();
     };
+
+    if(!result && guestMode) return <GuestEditorPreview lang={lang} />;
 
     if(!result) return (
         <div className="ml-64 min-h-screen relative pb-8">
@@ -4266,6 +4433,22 @@ const AccessGate = ({children}) => {
         await refreshStatus();
     }, [refreshStatus]);
 
+    const openAuth = useCallback((mode='login') => {
+        setError('');
+        setPassword('');
+        setFormMode(mode === 'register' ? 'register' : 'login');
+        setGuestMode(false);
+        setAuthenticated(false);
+    }, []);
+
+    const continueAsGuest = useCallback(() => {
+        if (!guestTrial?.enabled) return;
+        setError('');
+        setPassword('');
+        setAuthenticated(true);
+        setGuestMode(true);
+    }, [guestTrial]);
+
     const submit = async (e) => {
         e.preventDefault();
         setError('');
@@ -4306,12 +4489,16 @@ const AccessGate = ({children}) => {
     if (checking) {
         return <div className="min-h-screen bg-surface flex items-center justify-center text-sm font-semibold text-on-surface-variant">{lang === 'zh' ? '正在检查访问权限…' : 'Checking access…'}</div>;
     }
+    const canRegister = allowSignups || bootstrapRequired;
     if (!required || authenticated) {
-        return <AuthCtx.Provider value={{authMode, user, guestMode, guestTrial, logout}}>{children}</AuthCtx.Provider>;
+        return (
+            <AuthCtx.Provider value={{authMode, user, guestMode, guestTrial, canRegister, openAuth, logout}}>
+                {children}
+            </AuthCtx.Provider>
+        );
     }
 
     const accountFlow = authMode === 'accounts';
-    const canRegister = allowSignups || bootstrapRequired;
     const registerMode = accountFlow && formMode === 'register';
     const title = accountFlow
         ? (registerMode
@@ -4399,6 +4586,15 @@ const AccessGate = ({children}) => {
                             {registerMode
                                 ? (lang === 'zh' ? '已有账号，去登录' : 'Already have an account')
                                 : (lang === 'zh' ? '没有账号，创建一个' : 'Create an account')}
+                        </button>
+                    )}
+                    {accountFlow && guestTrial?.enabled && !bootstrapRequired && (
+                        <button
+                            type="button"
+                            onClick={continueAsGuest}
+                            className="h-11 rounded-sm px-4 text-sm font-bold text-on-surface-variant transition hover:bg-surface-container-low hover:text-on-surface"
+                        >
+                            {lang === 'zh' ? '继续访客试用' : 'Continue as guest'}
                         </button>
                     )}
                 </div>

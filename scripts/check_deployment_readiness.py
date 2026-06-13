@@ -158,6 +158,14 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
         ),
     ))
 
+    job_db_path = _path_from_env("FLUENTFLOW_JOB_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_jobs.sqlite")
+    job_db_parent_ok, job_db_parent_detail = _check_writable_dir(job_db_path.parent)
+    checks.append(CheckResult(
+        "job_store",
+        "pass" if job_db_parent_ok else "fail",
+        f"任务数据库目录可写：{job_db_path.parent}" if job_db_parent_ok else f"任务数据库目录不可写：{job_db_parent_detail}",
+    ))
+
     checks.append(CheckResult(
         "quota_guard",
         "pass" if quota_guard_configured else ("warn" if access_token_configured else "fail"),

@@ -13,6 +13,7 @@ SECRET_ENV_KEYS = (
     "FLUENTFLOW_ACCOUNT_AUTH",
     "FLUENTFLOW_ALLOW_SIGNUPS",
     "FLUENTFLOW_ACCOUNT_DB_PATH",
+    "FLUENTFLOW_JOB_DB_PATH",
     "FLUENTFLOW_ACCESS_TOKEN",
     "FLUENTFLOW_ACCESS_TOKENS",
     "FLUENTFLOW_ALLOWED_STT_PROVIDERS",
@@ -55,6 +56,7 @@ def _set_storage_dirs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", str(tmp_path / "edited"))
     monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", str(tmp_path / "edit-records"))
     monkeypatch.setenv("FLUENTFLOW_VIDEO_SOURCE_DIR", str(tmp_path / "video-sources"))
+    monkeypatch.setenv("FLUENTFLOW_JOB_DB_PATH", str(tmp_path / "jobs" / "fluentflow_jobs.sqlite"))
 
 
 def _status_by_name(payload: dict, name: str) -> str:
@@ -94,6 +96,7 @@ def test_deployment_readiness_passes_core_cloud_configuration(monkeypatch, tmp_p
 
     assert payload["status"] in {"pass", "warn"}
     assert _status_by_name(payload, "public_mode") == "pass"
+    assert _status_by_name(payload, "job_store") == "pass"
     assert _status_by_name(payload, "stt_provider_policy") == "pass"
     assert _status_by_name(payload, "azure_batch_credentials") == "pass"
     assert "azure-key" not in str(payload)

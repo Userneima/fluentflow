@@ -11,6 +11,7 @@ from backend.core.ai_summarizer import (
     DEFAULT_OPENAI_MODEL,
     DIRECT_MODE_MAX_CHARS,
     _compose_note_system_prompt,
+    _normalize_model,
     _normalize_provider,
     _provider_api_key,
     _provider_base_url,
@@ -38,6 +39,10 @@ class TestAiSummarizer(unittest.TestCase):
             self.assertEqual(_provider_default_model("openai"), DEFAULT_OPENAI_MODEL)
             self.assertEqual(_provider_base_url("deepseek"), "https://api.deepseek.com")
             self.assertEqual(_provider_base_url("openai"), "https://api.openai.com/v1")
+
+    def test_deepseek_chat_is_normalized_to_reasoner(self) -> None:
+        self.assertEqual(DEFAULT_DEEPSEEK_MODEL, "deepseek-reasoner")
+        self.assertEqual(_normalize_model("deepseek", "deepseek-chat"), "deepseek-reasoner")
 
     def test_provider_api_key_uses_matching_env(self) -> None:
         with patch.dict(

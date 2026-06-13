@@ -12,7 +12,7 @@ from openai import OpenAI
 
 DEEPSEEK_BASE_URL: Final[str] = "https://api.deepseek.com"
 OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
-DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-chat"
+DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-reasoner"
 DEFAULT_OPENAI_MODEL: Final[str] = "gpt-5.4-mini"
 DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
 SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai"}
@@ -212,7 +212,14 @@ def _provider_base_url(provider: str) -> str:
 def _provider_default_model(provider: str) -> str:
     if provider == "openai":
         return (os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL).strip()
-    return (os.environ.get("DEEPSEEK_MODEL") or DEFAULT_DEEPSEEK_MODEL).strip()
+    return _normalize_model(provider, os.environ.get("DEEPSEEK_MODEL") or DEFAULT_DEEPSEEK_MODEL)
+
+
+def _normalize_model(provider: str, model: str | None) -> str:
+    value = (model or "").strip()
+    if provider == "deepseek" and (not value or value == "deepseek-chat"):
+        return DEFAULT_DEEPSEEK_MODEL
+    return value or _provider_default_model(provider)
 
 
 def _provider_api_key(provider: str, api_key: str | None = None) -> str:
@@ -433,7 +440,7 @@ def summarize_transcript_with_metadata(
     load_dotenv()
     provider_name = _normalize_provider(provider)
     client = _get_client(provider=provider_name, api_key=api_key)
-    m = (model or _provider_default_model(provider_name)).strip()
+    m = _normalize_model(provider_name, model)
     prompt = _compose_note_system_prompt(system_prompt)
     normalized_mode = _normalize_note_mode(note_mode)
     transcript_text = transcript.strip()
