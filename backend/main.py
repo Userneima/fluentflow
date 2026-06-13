@@ -28,7 +28,7 @@ import uuid
 import wave
 import sys
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -47,6 +47,8 @@ app = FastAPI(title="FluentFlow")
 
 EVENT_SCHEMA_VERSION = "1.3"
 APP_VERSION = "local"
+INTERNAL_QUEUE_TOKEN = uuid.uuid4().hex
+GUEST_TRIAL_TOKEN_HEADER = "x-fluentflow-guest-token"
 
 
 def _project_root() -> Path:
@@ -231,6 +233,69 @@ def _public_mode_enabled() -> bool:
     return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
 
 
+def _guest_trial_enabled() -> bool:
+    raw = os.environ.get("FLUENTFLOW_GUEST_TRIAL_ENABLED")
+    if raw is None:
+        return True
+    return _env_truthy("FLUENTFLOW_GUEST_TRIAL_ENABLED")
+
+
+def _guest_file_limit_mb() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_GUEST_FILE_LIMIT_MB", "150")), 1.0)
+    except ValueError:
+        return 150.0
+
+
+def _guest_duration_limit_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_GUEST_DURATION_LIMIT_SECONDS", "900")), 1.0)
+    except ValueError:
+        return 900.0
+
+
+def _guest_active_processing_slots() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_GUEST_ACTIVE_PROCESSING_SLOTS", "1")), 1)
+    except ValueError:
+        return 1
+
+
+def _guest_waiting_queue_limit() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_GUEST_WAITING_QUEUE_LIMIT", "5")), 0)
+    except ValueError:
+        return 5
+
+
+def _guest_daily_trials_per_ip() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_GUEST_DAILY_TRIALS_PER_IP", "2")), 0)
+    except ValueError:
+        return 2
+
+
+def _guest_result_retention_hours() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_GUEST_RESULT_RETENTION_HOURS", "24")), 1.0)
+    except ValueError:
+        return 24.0
+
+
+def _guest_wait_estimate_per_task_minutes() -> tuple[int, int]:
+    raw = (os.environ.get("FLUENTFLOW_GUEST_WAIT_ESTIMATE_PER_TASK_MINUTES") or "8-12").strip()
+    try:
+        if "-" in raw:
+            lo, hi = raw.split("-", 1)
+            low = max(int(float(lo)), 1)
+            high = max(int(float(hi)), low)
+            return low, high
+        value = max(int(float(raw)), 1)
+        return value, value
+    except ValueError:
+        return 8, 12
+
+
 def _cloud_workspace_url() -> str:
     return (os.environ.get("FLUENTFLOW_CLOUD_WORKSPACE_URL") or "").strip().rstrip("/")
 
@@ -247,6 +312,11 @@ def _should_proxy_cloud_workspace(request: Request) -> bool:
         return False
     first_segment = (path.lstrip("/").split("/", 1)[0] or "")
     return path in {"/health", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"} or first_segment in API_ROUTE_PREFIXES
+
+
+def _request_is_internal_queue(request: Request) -> bool:
+    supplied = request.headers.get("x-fluentflow-internal-queue-token") or ""
+    return bool(supplied and hmac.compare_digest(supplied, INTERNAL_QUEUE_TOKEN))
 
 
 def _proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
@@ -396,6 +466,8 @@ def _is_public_request(request: Request) -> bool:
     if request.method.upper() == "OPTIONS":
         return True
     path = request.url.path
+    if path.startswith("/guest-trial"):
+        return True
     if path in {"/", "/health", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"}:
         return True
     if path.startswith("/assets/"):
@@ -408,6 +480,8 @@ def _is_public_request(request: Request) -> bool:
 async def beta_access_middleware(request: Request, call_next):
     if _should_proxy_cloud_workspace(request):
         return await _proxy_cloud_workspace_request(request)
+    if _request_is_internal_queue(request):
+        return await call_next(request)
     if _account_auth_enabled():
         if _is_public_request(request):
             return await call_next(request)
@@ -445,7 +519,7 @@ try:
     from backend.core.transcript_parser import parse_transcript_file
     from backend.core.transcript_cleaner import clean_repeated_transcript
     from backend.core.event_logger import log_event
-    from backend.core.job_store import get_job, list_jobs, update_job_result, upsert_job
+    from backend.core.job_store import delete_jobs, get_job, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
     from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from backend.core.account_store import (
         authenticate_user,
@@ -469,7 +543,7 @@ except ImportError:
     from core.transcript_parser import parse_transcript_file
     from core.transcript_cleaner import clean_repeated_transcript
     from core.event_logger import log_event
-    from core.job_store import get_job, list_jobs, update_job_result, upsert_job
+    from core.job_store import delete_jobs, get_job, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
     from core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from core.account_store import (
         authenticate_user,
@@ -708,11 +782,32 @@ def _runtime_limits() -> dict[str, Any]:
         "public_mode": _public_mode_enabled(),
         "allowed_stt_providers": list(_allowed_stt_providers()),
         "default_stt_provider": _default_stt_provider(),
+        "guest_trial": _guest_trial_config(),
     }
 
 
-def _duration_limit_error(duration_seconds: float, filename: str | None = None) -> str | None:
+def _guest_trial_config() -> dict[str, Any]:
+    low, high = _guest_wait_estimate_per_task_minutes()
+    return {
+        "enabled": _guest_trial_enabled(),
+        "file_limit_mb": _guest_file_limit_mb(),
+        "duration_limit_seconds": _guest_duration_limit_seconds(),
+        "active_processing_slots": _guest_active_processing_slots(),
+        "waiting_queue_limit": _guest_waiting_queue_limit(),
+        "daily_trials_per_ip": _guest_daily_trials_per_ip(),
+        "result_retention_hours": _guest_result_retention_hours(),
+        "wait_estimate_per_task_minutes": [low, high],
+    }
+
+
+def _duration_limit_error(
+    duration_seconds: float,
+    filename: str | None = None,
+    limit_override_seconds: float | None = None,
+) -> str | None:
     limit = _max_media_duration_seconds()
+    if limit_override_seconds and limit_override_seconds > 0:
+        limit = min(limit, limit_override_seconds) if limit > 0 else limit_override_seconds
     if limit <= 0 or duration_seconds <= limit:
         return None
     name = f"「{filename}」" if filename else "当前媒体"
@@ -1044,6 +1139,132 @@ def _persist_source_file(task_id: str, suffix: str, content: bytes) -> Path:
     return target
 
 
+def _new_guest_trial_token() -> str:
+    return uuid.uuid4().hex
+
+
+def _guest_client_id(token: str) -> str:
+    return f"guest_{_normalize_client_id(token) or _new_guest_trial_token()}"
+
+
+def _request_guest_token(request: Request) -> str:
+    return (
+        request.headers.get(GUEST_TRIAL_TOKEN_HEADER)
+        or request.query_params.get("guest_token")
+        or ""
+    ).strip()
+
+
+def _is_guest_trial_job(job: dict[str, Any] | None) -> bool:
+    metadata = job.get("metadata") if job else None
+    return bool(isinstance(metadata, dict) and isinstance(metadata.get("guest_trial"), dict))
+
+
+def _guest_metadata(job: dict[str, Any] | None) -> dict[str, Any]:
+    metadata = job.get("metadata") if job else None
+    guest = metadata.get("guest_trial") if isinstance(metadata, dict) else None
+    return guest if isinstance(guest, dict) else {}
+
+
+def _guest_trial_jobs(statuses: set[str] | None = None) -> list[dict[str, Any]]:
+    jobs = [job for job in list_jobs(limit=200) if _is_guest_trial_job(job)]
+    if statuses is not None:
+        jobs = [job for job in jobs if str(job.get("status") or "") in statuses]
+    return sorted(jobs, key=lambda item: str(item.get("created_at") or item.get("updated_at") or ""))
+
+
+def _guest_active_jobs() -> list[dict[str, Any]]:
+    return _guest_trial_jobs({"queued", "running"})
+
+
+def _guest_wait_estimate(people_ahead: int) -> dict[str, int]:
+    low, high = _guest_wait_estimate_per_task_minutes()
+    ahead = max(int(people_ahead or 0), 0)
+    return {"min_minutes": ahead * low, "max_minutes": ahead * high}
+
+
+def _guest_queue_snapshot(task_id: str | None = None) -> dict[str, Any]:
+    active = _guest_active_jobs()
+    total_capacity = _guest_active_processing_slots() + _guest_waiting_queue_limit()
+    position = None
+    people_ahead = len(active)
+    if task_id:
+        for index, job in enumerate(active):
+            if job.get("task_id") == task_id:
+                position = index + 1
+                people_ahead = index
+                break
+    return {
+        "active_count": len(active),
+        "capacity": total_capacity,
+        "active_processing_slots": _guest_active_processing_slots(),
+        "waiting_queue_limit": _guest_waiting_queue_limit(),
+        "queue_full": len(active) >= total_capacity,
+        "position": position,
+        "people_ahead": people_ahead,
+        "estimated_wait": _guest_wait_estimate(people_ahead),
+    }
+
+
+def _guest_trial_status_payload(job: dict[str, Any] | None = None) -> dict[str, Any]:
+    result = dict(job.get("result") or {}) if job else None
+    return {
+        "enabled": _guest_trial_enabled(),
+        "config": _guest_trial_config(),
+        "queue": _guest_queue_snapshot(job.get("task_id") if job else None),
+        "job": job,
+        "result": result,
+    }
+
+
+def _enforce_guest_trial_enabled() -> None:
+    if not _guest_trial_enabled():
+        raise HTTPException(status_code=403, detail="访客试用暂未开放。")
+
+
+def _enforce_guest_queue_capacity() -> None:
+    snapshot = _guest_queue_snapshot()
+    if snapshot["queue_full"]:
+        raise HTTPException(
+            status_code=429,
+            detail="当前试用人数较多。为了保证生成质量，访客队列暂时已满，请稍后再试。",
+        )
+
+
+def _guest_daily_usage_for_ip(ip_key: str) -> int:
+    count = 0
+    for job in _guest_trial_jobs():
+        guest = _guest_metadata(job)
+        if guest.get("ip_key") != ip_key:
+            continue
+        if _job_created_today(job):
+            count += 1
+    return count
+
+
+def _enforce_guest_daily_ip_limit(request: Request) -> None:
+    limit = _guest_daily_trials_per_ip()
+    if limit <= 0:
+        return
+    ip_key = _request_ip_key(request)
+    used = _guest_daily_usage_for_ip(ip_key)
+    if used >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"今天这个网络已使用 {used} 次访客试用额度。当前每日上限为 {limit} 次，请明天再试。",
+        )
+
+
+def _guest_job_for_request(request: Request, task_id: str) -> dict[str, Any]:
+    token = _request_guest_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing guest trial token")
+    job = get_job(task_id, client_id=_guest_client_id(token))
+    if not job or _guest_metadata(job).get("token") != token:
+        raise HTTPException(status_code=404, detail="Guest trial job not found")
+    return job
+
+
 def _copy_source_file(task_id: str, suffix: str, source_path: Path | str) -> Path:
     target_dir = _source_storage_dir() / task_id
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -1062,6 +1283,136 @@ def _find_source_file(task_id: str) -> Path | None:
         return None
     candidates = sorted(path for path in target_dir.glob("source.*") if path.is_file())
     return candidates[0] if candidates else None
+
+
+def _remove_tree(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+        return True
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _cleanup_task_source_files(task_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    removed: list[str] = []
+    source_dir = _source_storage_dir() / task_id
+    if _remove_tree(source_dir):
+        removed.append(str(source_dir))
+
+    video_source = (metadata or {}).get("video_source")
+    if isinstance(video_source, dict):
+        for key in ("file_path", "metadata_path"):
+            raw_path = str(video_source.get(key) or "").strip()
+            if not raw_path:
+                continue
+            path = Path(raw_path).expanduser()
+            if _remove_tree(path):
+                removed.append(str(path))
+    return {
+        "source_retention_status": "deleted" if removed else "not_found",
+        "source_retention_removed_paths": removed,
+        "source_retention_cleaned_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _cleanup_task_all_files(task_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    cleanup = _cleanup_task_source_files(task_id, metadata)
+    removed = list(cleanup.get("source_retention_removed_paths") or [])
+    for path in (
+        _artifact_storage_dir() / task_id,
+    ):
+        if _remove_tree(path):
+            removed.append(str(path))
+    task_suffix = _safe_filename_stem(task_id or "task")[:12]
+    for folder, pattern in (
+        (_edited_transcript_dir(), f"*__{task_suffix}_edited.txt"),
+        (_transcript_edit_records_dir(), f"*__{task_suffix}_edit_records.json"),
+    ):
+        if folder.is_dir():
+            for path in folder.glob(pattern):
+                if _remove_tree(path):
+                    removed.append(str(path))
+    cleanup["source_retention_removed_paths"] = removed
+    cleanup["history_retention_status"] = "deleted" if removed else "not_found"
+    return cleanup
+
+
+def _history_retention_per_client() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT", "20")), 0)
+    except ValueError:
+        return 20
+
+
+def _artifact_retention_days() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_ARTIFACT_RETENTION_DAYS", "30")), 0)
+    except ValueError:
+        return 30
+
+
+def _parse_job_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        text = str(value).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
+    if not client_id:
+        return {"pruned_count": 0, "task_ids": []}
+    keep_count = _history_retention_per_client()
+    retention_days = _artifact_retention_days()
+    if keep_count <= 0 and retention_days <= 0:
+        return {"pruned_count": 0, "task_ids": []}
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=retention_days)
+        if retention_days > 0
+        else None
+    )
+    jobs = list_jobs_for_retention(client_id=client_id)
+    pruned_task_ids: list[str] = []
+    for index, job in enumerate(jobs):
+        task_id = str(job.get("task_id") or "")
+        if not task_id or job.get("status") not in {"completed", "failed", "cancelled"}:
+            continue
+        too_many = keep_count > 0 and index >= keep_count
+        updated_at = _parse_job_time(job.get("updated_at") or job.get("created_at"))
+        too_old = cutoff is not None and updated_at is not None and updated_at < cutoff
+        if too_many or too_old:
+            _cleanup_task_all_files(task_id, job.get("metadata"))
+            pruned_task_ids.append(task_id)
+
+    if pruned_task_ids:
+        delete_jobs(pruned_task_ids, client_id=client_id)
+    return {"pruned_count": len(pruned_task_ids), "task_ids": pruned_task_ids}
+
+
+def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
+    next_result = dict(result)
+    artifacts = dict(next_result.get("artifacts") or {})
+    if artifacts.get("playback_audio"):
+        next_result["playback_audio_available"] = True
+    cleanup = _cleanup_task_source_files(task_id, metadata)
+    next_result["source_file_available"] = False
+    next_result.update({
+        key: value
+        for key, value in cleanup.items()
+        if key != "source_retention_removed_paths"
+    })
+    return next_result
 
 
 def _safe_filename_stem(value: str | None, fallback: str = "transcript") -> str:
@@ -1167,6 +1518,48 @@ def _write_text_artifact(task_id: str, kind: str, filename: str, content: str) -
     }
 
 
+def _write_file_artifact(task_id: str, kind: str, filename: str, source_path: Path | str) -> dict[str, Any]:
+    target_dir = _artifact_storage_dir() / task_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / filename
+    tmp = target_dir / f".{filename}.{uuid.uuid4().hex}.tmp"
+    try:
+        shutil.copyfile(str(source_path), tmp)
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return {
+        "kind": kind,
+        "filename": filename,
+        "url": _artifact_url(task_id, kind),
+        "size_bytes": path.stat().st_size,
+        "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _attach_playback_audio_artifact(task_id: str, result: dict[str, Any], audio_path: Path | str) -> dict[str, Any]:
+    path = Path(audio_path)
+    if not path.is_file():
+        return result
+    try:
+        artifact = _write_file_artifact(
+            task_id,
+            "playback_audio",
+            _artifact_filename(result, "_audio.mp3"),
+            path,
+        )
+    except Exception as exc:
+        logger.warning("Playback audio artifact write failed for %s: %s", task_id, exc)
+        return result
+    next_result = dict(result)
+    artifacts = dict(next_result.get("artifacts") or {})
+    artifacts["playback_audio"] = artifact
+    next_result["artifacts"] = artifacts
+    next_result["playback_audio_available"] = True
+    return next_result
+
+
 def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, dict[str, Any]]:
     artifacts: dict[str, dict[str, Any]] = {}
     transcript = str(result.get("transcript_text") or "").strip()
@@ -1211,7 +1604,7 @@ def _attach_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, 
     if not artifacts:
         return result
     next_result = dict(result)
-    next_result["artifacts"] = artifacts
+    next_result["artifacts"] = {**dict(result.get("artifacts") or {}), **artifacts}
     return next_result
 
 
@@ -1370,6 +1763,13 @@ def _metadata(**values: Any) -> dict[str, Any]:
         "app_version": APP_VERSION,
         **{k: v for k, v in values.items() if v is not None},
     }
+
+
+def _job_metadata_for_update(task_id: str, client_id: str | None, **values: Any) -> dict[str, Any]:
+    existing = get_job(task_id, client_id=client_id) if task_id else None
+    current = existing.get("metadata") if existing else None
+    base = current if isinstance(current, dict) else {}
+    return {**base, **_metadata(**values)}
 
 
 def _package_version(package_name: str) -> str | None:
@@ -1582,6 +1982,13 @@ def _queue_timeout_seconds() -> float:
         return 86400.0
 
 
+def _stale_job_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_STALE_JOB_SECONDS", "90000")), 60.0)
+    except ValueError:
+        return 90000.0
+
+
 def _queue_base_url_from_request(request: Request | None = None) -> str:
     configured = (os.environ.get("FLUENTFLOW_SELF_BASE_URL") or "").strip().rstrip("/")
     if configured:
@@ -1643,6 +2050,17 @@ def _enqueue_transcription_job(item: dict[str, Any]) -> None:
         _QUEUED_TASK_IDS.add(task_id)
         _TRANSCRIPTION_QUEUE.put(dict(item))
         _ensure_queue_worker_started_locked()
+
+
+def _queue_status_snapshot() -> dict[str, Any]:
+    with _QUEUE_LOCK:
+        queued_task_ids = sorted(_QUEUED_TASK_IDS)
+    return {
+        "worker_alive": bool(_QUEUE_THREAD and _QUEUE_THREAD.is_alive()),
+        "queue_depth": int(_TRANSCRIPTION_QUEUE.qsize()),
+        "tracked_task_count": len(queued_task_ids),
+        "tracked_task_ids": queued_task_ids[:20],
+    }
 
 
 def _ensure_queue_worker_started_locked() -> None:
@@ -1715,6 +2133,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     }
     if client_id:
         headers["X-FluentFlow-Client-Id"] = client_id
+    headers["X-FluentFlow-Internal-Queue-Token"] = INTERNAL_QUEUE_TOKEN
     tokens = _configured_access_tokens()
     if tokens:
         headers["X-FluentFlow-Access-Token"] = tokens[0]
@@ -1796,6 +2215,7 @@ def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str
         "azure_speech_endpoint",
         "speaker_diarization",
         "system_prompt",
+        "duration_limit_seconds",
     }
     result: dict[str, str] = {}
     for key, value in (payload or {}).items():
@@ -1958,23 +2378,45 @@ def _start_video_source_job(item: dict[str, Any]) -> None:
 
 
 def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
+    recovered = 0
+    failed = 0
     for job in list_jobs(limit=200):
         status = job.get("status")
-        metadata = job.get("metadata") or {}
+        raw_metadata = job.get("metadata") or {}
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
         if status not in {"queued", "running"}:
-            continue
-        if not metadata.get("queue_options") or not metadata.get("source_path"):
             continue
         task_id = str(job.get("task_id") or "")
         source_path = Path(str(metadata.get("source_path") or ""))
-        if not task_id or not source_path.is_file():
+        if not task_id:
+            continue
+        if not metadata.get("queue_options") or not metadata.get("source_path") or not source_path.is_file():
+            upsert_job(
+                task_id=task_id,
+                status="failed",
+                client_id=job.get("client_id"),
+                stage="recovery",
+                progress=0,
+                error_reason="服务重启后无法恢复任务：原始文件已不存在，请重新上传。",
+                metadata={
+                    **metadata,
+                    "recovery_status": "failed_missing_source",
+                    "recovered_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+                },
+            )
+            failed += 1
             continue
         upsert_job(
             task_id=task_id,
             status="queued",
+            client_id=job.get("client_id"),
             stage="queued",
             progress=0,
-            metadata=metadata,
+            metadata={
+                **metadata,
+                "recovery_status": "requeued_after_startup",
+                "recovered_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            },
         )
         _enqueue_transcription_job({
             "task_id": task_id,
@@ -1984,6 +2426,9 @@ def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
             "base_url": base_url or _queue_base_url_from_request(),
             "client_id": job.get("client_id"),
         })
+        recovered += 1
+    if recovered or failed:
+        logger.info("Startup queue recovery finished: recovered=%s failed=%s", recovered, failed)
 
 
 @app.on_event("startup")
@@ -1991,6 +2436,105 @@ async def _startup_resume_queue() -> None:
     global _QUEUE_EVENT_LOOP
     _QUEUE_EVENT_LOOP = asyncio.get_running_loop()
     _resume_queued_transcription_jobs()
+
+
+def _directory_usage(path: Path) -> dict[str, Any]:
+    try:
+        usage = shutil.disk_usage(path if path.exists() else path.parent)
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "total_mb": round(usage.total / (1024 * 1024), 1),
+            "used_mb": round(usage.used / (1024 * 1024), 1),
+            "free_mb": round(usage.free / (1024 * 1024), 1),
+            "used_percent": round((usage.used / usage.total) * 100, 1) if usage.total else None,
+        }
+    except Exception as exc:
+        return {"path": str(path), "exists": path.exists(), "error": str(exc)}
+
+
+def _job_monitor_snapshot() -> dict[str, Any]:
+    jobs = list_jobs(limit=200)
+    counts: dict[str, int] = {}
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(seconds=_stale_job_seconds())
+    stale_jobs: list[dict[str, Any]] = []
+    for job in jobs:
+        status = str(job.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+        if status not in {"queued", "running"}:
+            continue
+        updated_at = _parse_job_time(job.get("updated_at") or job.get("created_at"))
+        if updated_at is not None and updated_at < stale_cutoff:
+            stale_jobs.append({
+                "task_id": job.get("task_id"),
+                "status": status,
+                "stage": job.get("stage"),
+                "updated_at": job.get("updated_at"),
+                "source_filename": job.get("source_filename"),
+            })
+    return {
+        "recent_count": len(jobs),
+        "status_counts": counts,
+        "active_count": counts.get("queued", 0) + counts.get("running", 0),
+        "stale_after_seconds": _stale_job_seconds(),
+        "stale_count": len(stale_jobs),
+        "stale_jobs": stale_jobs[:20],
+    }
+
+
+def _ops_status_payload() -> dict[str, Any]:
+    credentials = credential_status()
+    queue_snapshot = _queue_status_snapshot()
+    job_snapshot = _job_monitor_snapshot()
+    storage = {
+        "sources": _directory_usage(_source_storage_dir()),
+        "artifacts": _directory_usage(_artifact_storage_dir()),
+        "edited_transcripts": _directory_usage(_edited_transcript_dir()),
+        "transcript_edit_records": _directory_usage(_transcript_edit_records_dir()),
+        "video_sources": _directory_usage(_video_source_storage_dir()),
+    }
+    warnings: list[str] = []
+    failures: list[str] = []
+    if job_snapshot["stale_count"]:
+        warnings.append(f"{job_snapshot['stale_count']} 个任务长时间未更新")
+    for name, item in storage.items():
+        used_percent = item.get("used_percent")
+        if isinstance(used_percent, (int, float)):
+            if used_percent >= 95:
+                failures.append(f"{name} 所在磁盘使用率 {used_percent}%")
+            elif used_percent >= 85:
+                warnings.append(f"{name} 所在磁盘使用率 {used_percent}%")
+    if _public_mode_enabled():
+        for key, label in (
+            ("azure_speech_endpoint_configured", "Azure Speech endpoint"),
+            ("azure_speech_key_configured", "Azure Speech key"),
+            ("azure_blob_container_sas_url_configured", "Azure Blob SAS"),
+        ):
+            if not credentials.get(key):
+                failures.append(f"缺少 {label}")
+        if not (credentials.get("deepseek_api_key_configured") or credentials.get("openai_api_key_configured")):
+            failures.append("缺少摘要模型 Key")
+    user_count: int | None = None
+    if _account_auth_enabled():
+        try:
+            user_count = count_users()
+        except Exception as exc:
+            failures.append(f"账号数据库不可读：{exc}")
+    status = "fail" if failures else ("warn" if warnings else "ok")
+    return {
+        "status": status,
+        "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "app_version": APP_VERSION,
+        "public_mode": _public_mode_enabled(),
+        "account_auth_enabled": _account_auth_enabled(),
+        "user_count": user_count,
+        "queue": queue_snapshot,
+        "jobs": job_snapshot,
+        "storage": storage,
+        "credentials": credentials,
+        "warnings": warnings,
+        "failures": failures,
+    }
 
 
 @app.get("/health")
@@ -2004,6 +2548,11 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/ops/status")
+def ops_status() -> dict[str, Any]:
+    return _ops_status_payload()
+
+
 @app.get("/auth/status")
 def auth_status(request: Request) -> dict[str, Any]:
     if _account_auth_enabled():
@@ -2015,10 +2564,12 @@ def auth_status(request: Request) -> dict[str, Any]:
             "allow_signups": _account_registration_allowed(),
             "bootstrap_required": count_users() == 0,
             "user": _public_account_user(user),
+            "guest_trial": _guest_trial_config(),
         }
     return {
         "access_required": _access_control_enabled(),
         "authenticated": (not _access_control_enabled()) or _request_has_access(request),
+        "guest_trial": _guest_trial_config(),
     }
 
 
@@ -2123,12 +2674,210 @@ def runtime_config() -> dict[str, Any]:
         "default_stt_provider": _default_stt_provider(),
         "show_maintainer_settings": not _public_mode_enabled(),
         "limits": _runtime_limits(),
+        "guest_trial": _guest_trial_config(),
     }
 
 
 @app.get("/speaker-diarization/status")
 def get_speaker_diarization_status() -> dict[str, Any]:
     return diarization_status()
+
+
+@app.get("/guest-trial/status")
+def guest_trial_status(request: Request, task_id: Optional[str] = None) -> dict[str, Any]:
+    _enforce_guest_trial_enabled()
+    if task_id:
+        job = _guest_job_for_request(request, task_id)
+        return _guest_trial_status_payload(job)
+    return _guest_trial_status_payload()
+
+
+@app.post("/guest-trial/heartbeat")
+def guest_trial_heartbeat(request: Request, payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    _enforce_guest_trial_enabled()
+    task_id = str(payload.get("task_id") or request.query_params.get("task_id") or "").strip()
+    if task_id:
+        job = _guest_job_for_request(request, task_id)
+        return _guest_trial_status_payload(job)
+    return _guest_trial_status_payload()
+
+
+@app.post("/guest-trial/process")
+async def guest_trial_process(
+    request: Request,
+    file: UploadFile = File(...),
+    ai_provider: Optional[str] = Form(None),
+    ai_model: Optional[str] = Form(None),
+    note_mode: Optional[str] = Form(None),
+    stt_model: Optional[str] = Form(None),
+    stt_language: Optional[str] = Form(None),
+    stt_provider: Optional[str] = Form(None),
+    speaker_diarization: Optional[str] = Form(None),
+    system_prompt: Optional[str] = Form(None),
+) -> dict[str, Any]:
+    _enforce_guest_trial_enabled()
+    _enforce_guest_queue_capacity()
+    _enforce_guest_daily_ip_limit(request)
+    _enforce_submission_rate_limit(request, incoming=1)
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+    suffix = Path(file.filename).suffix.lower() or ".mp4"
+    if suffix not in ALLOWED_SUFFIXES or suffix in TRANSCRIPT_SUFFIXES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
+
+    source_file_size_mb = _upload_size_mb(file)
+    effective_limit_mb = min(_max_upload_mb(), _guest_file_limit_mb())
+    if source_file_size_mb is not None and source_file_size_mb > effective_limit_mb:
+        raise HTTPException(
+            status_code=413,
+            detail=f"访客试用支持 {effective_limit_mb:g} MB 以内的单个音视频文件。",
+        )
+
+    content = await file.read()
+    source_file_size_mb = _file_size_mb(len(content))
+    if source_file_size_mb is not None and source_file_size_mb > effective_limit_mb:
+        raise HTTPException(
+            status_code=413,
+            detail=f"访客试用支持 {effective_limit_mb:g} MB 以内的单个音视频文件。",
+        )
+
+    token = _new_guest_trial_token()
+    client_id = _guest_client_id(token)
+    task_id_value = _new_task_id()
+    source_type = _source_type_for_suffix(suffix)
+    source_fingerprint = _source_fingerprint(content, file.filename)
+    source_path = _persist_source_file(task_id_value, suffix, content)
+    expires_at = (
+        datetime.now(timezone.utc).astimezone() + timedelta(hours=_guest_result_retention_hours())
+    ).isoformat(timespec="seconds")
+
+    options = _queue_options_from_mapping({
+        "ai_provider": ai_provider,
+        "ai_model": ai_model,
+        "note_mode": note_mode,
+        "skip_summary": "false",
+        "stt_model": stt_model,
+        "stt_language": stt_language,
+        "stt_provider": stt_provider or _default_stt_provider(),
+        "speaker_diarization": speaker_diarization,
+        "system_prompt": system_prompt,
+        "duration_limit_seconds": str(_guest_duration_limit_seconds()),
+    })
+    metadata = _metadata(
+        route="/guest-trial/process",
+        queue_options=options,
+        source_path=str(source_path),
+        source_fingerprint=source_fingerprint,
+        guest_trial={
+            "token": token,
+            "ip_key": _request_ip_key(request),
+            "expires_at": expires_at,
+            "file_limit_mb": effective_limit_mb,
+            "duration_limit_seconds": _guest_duration_limit_seconds(),
+        },
+    )
+    log_event(
+        task_id=task_id_value,
+        event_name="guest_trial_queued",
+        source_type=source_type,
+        source_filename=file.filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="queued",
+        success=True,
+        metadata=metadata,
+    )
+    upsert_job(
+        task_id=task_id_value,
+        status="queued",
+        client_id=client_id,
+        stage="queued",
+        progress=0,
+        source_type=source_type,
+        source_filename=file.filename,
+        source_file_size_mb=source_file_size_mb,
+        metadata=metadata,
+    )
+    _enqueue_transcription_job({
+        "task_id": task_id_value,
+        "source_path": str(source_path),
+        "filename": file.filename,
+        "options": options,
+        "base_url": _queue_base_url_from_request(request),
+        "client_id": client_id,
+    })
+    job = get_job(task_id_value, client_id=client_id)
+    return {
+        "ok": True,
+        "guest_token": token,
+        "task_id": task_id_value,
+        "job": job,
+        "queue": _guest_queue_snapshot(task_id_value),
+        "config": _guest_trial_config(),
+    }
+
+
+@app.get("/guest-trial/jobs/{task_id}")
+def get_guest_trial_job(request: Request, task_id: str) -> dict[str, Any]:
+    _enforce_guest_trial_enabled()
+    return _guest_job_for_request(request, task_id)
+
+
+@app.get("/guest-trial/jobs/{task_id}/events")
+async def stream_guest_trial_job_events(request: Request, task_id: str, since: int = 0) -> StreamingResponse:
+    _enforce_guest_trial_enabled()
+    _guest_job_for_request(request, task_id)
+    return StreamingResponse(
+        JOB_EVENTS.subscribe(task_id, since=since),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/guest-trial/jobs/{task_id}/cancel")
+async def cancel_guest_trial_job(request: Request, task_id: str) -> dict[str, Any]:
+    _enforce_guest_trial_enabled()
+    job = _guest_job_for_request(request, task_id)
+    if job.get("status") not in {"queued", "running"}:
+        return {"ok": True, "status": job.get("status")}
+    await JOB_EVENTS.cancel(task_id)
+    upsert_job(
+        task_id=task_id,
+        status="cancelled",
+        client_id=job.get("client_id"),
+        stage="cancelled",
+        progress=0,
+        error_reason="guest_cancelled",
+    )
+    return {"ok": True, "status": "cancelled"}
+
+
+@app.get("/guest-trial/jobs/{task_id}/artifacts/{kind}")
+def download_guest_trial_artifact(request: Request, task_id: str, kind: str) -> FileResponse:
+    _enforce_guest_trial_enabled()
+    _guest_job_for_request(request, task_id)
+    allowed = {
+        "transcript_txt": ".txt",
+        "transcript_srt": ".srt",
+        "transcript_vtt": ".vtt",
+        "summary_md": ".md",
+        "playback_audio": ".mp3",
+    }
+    suffix = allowed.get(kind)
+    if not suffix:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    target_dir = _artifact_storage_dir() / task_id
+    if not target_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    matches = sorted(path for path in target_dir.glob(f"*{suffix}") if path.is_file())
+    if kind == "summary_md":
+        matches = [path for path in matches if path.name.endswith("_summary.md")]
+    elif kind == "transcript_txt":
+        matches = [path for path in matches if not path.name.endswith("_summary.md")]
+    if not matches:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    target = matches[0]
+    return FileResponse(path=str(target), filename=target.name)
 
 
 @app.post("/credentials")
@@ -2259,6 +3008,7 @@ def download_job_artifact(request: Request, task_id: str, kind: str) -> FileResp
         "transcript_srt": ".srt",
         "transcript_vtt": ".vtt",
         "summary_md": ".md",
+        "playback_audio": ".mp3",
     }
     suffix = allowed.get(kind)
     if not suffix:
@@ -2529,6 +3279,7 @@ async def process_video(
     lark_app_id: Optional[str] = Form(None),
     lark_app_secret: Optional[str] = Form(None),
     system_prompt: Optional[str] = Form(None),
+    duration_limit_seconds: Optional[float] = Form(None),
     task_id: Optional[str] = Form(None),
     source_last_modified_ms: Optional[str] = Form(None),
 ) -> StreamingResponse:
@@ -2597,7 +3348,13 @@ async def process_video(
         source_type=source_type,
         source_filename=source_filename,
         source_file_size_mb=source_file_size_mb,
-        metadata={"source_fingerprint": source_fingerprint},
+        metadata=_job_metadata_for_update(
+            task_id_value,
+            client_id,
+            route="/process",
+            source_fingerprint=source_fingerprint,
+            source_last_modified_ms=source_last_modified_ms,
+        ),
     )
 
     loop = asyncio.get_event_loop()
@@ -2631,6 +3388,7 @@ async def process_video(
         lark_success: bool | None = None
         stt_process = None
         stt_queue = None
+        playback_audio_path: Path | None = None
         try:
             if azure_cloud_provider and (not azure_endpoint_value or not azure_key_value):
                 raise RuntimeError(
@@ -2653,10 +3411,14 @@ async def process_video(
                 out_audio = await loop.run_in_executor(
                     None, lambda: extract_compressed_mp3(in_path, output_path=Path(td) / "azure_stt.mp3")
                 )
+                playback_audio_path = out_audio
             else:
                 audio_output_format = "wav"
                 out_audio = await loop.run_in_executor(
                     None, lambda: extract_stt_wav(in_path, output_path=Path(td) / "stt.wav")
+                )
+                playback_audio_path = await loop.run_in_executor(
+                    None, lambda: extract_compressed_mp3(in_path, output_path=Path(td) / "playback.mp3")
                 )
             audio_elapsed_sec = time.perf_counter() - audio_started_at
             log_event(
@@ -2686,7 +3448,7 @@ async def process_video(
 
             duration_estimate_sec = _media_duration_seconds(out_audio)
             if duration_estimate_sec:
-                duration_error = _duration_limit_error(duration_estimate_sec, source_filename)
+                duration_error = _duration_limit_error(duration_estimate_sec, source_filename, duration_limit_seconds)
                 if duration_error:
                     raise RuntimeError(duration_error)
             status_progress_floor = {
@@ -3073,6 +3835,8 @@ async def process_video(
                 "source": source_type,
                 "summary_skipped": summary_disabled,
             })
+            if playback_audio_path is not None:
+                base_result = _attach_playback_audio_artifact(task_id_value, base_result, playback_audio_path)
             base_result = _attach_result_artifacts(task_id_value, base_result)
             current_stage = "transcript_ready"
             log_event(
@@ -3120,6 +3884,11 @@ async def process_video(
                     "status": "completed",
                 }
                 result = _attach_result_artifacts(task_id_value, result)
+                result = _finalize_completed_result_storage(
+                    task_id_value,
+                    result,
+                    (get_job(task_id_value) or {}).get("metadata"),
+                )
                 upsert_job(
                     task_id=task_id_value,
                     status="completed",
@@ -3144,6 +3913,7 @@ async def process_video(
                     stt_provider=stt_provider_value,
                     completion_reason="summary_skipped",
                 )
+                _enforce_history_retention(client_id)
                 yield _sse({"stage": "done", "progress": 100, "result": result})
                 return
 
@@ -3230,6 +4000,11 @@ async def process_video(
                     "status": "summary_failed",
                 }
                 result = _attach_result_artifacts(task_id_value, result)
+                result = _finalize_completed_result_storage(
+                    task_id_value,
+                    result,
+                    (get_job(task_id_value) or {}).get("metadata"),
+                )
                 upsert_job(
                     task_id=task_id_value,
                     status="failed",
@@ -3255,6 +4030,7 @@ async def process_video(
                     stt_provider=stt_provider_value,
                     completion_reason="summary_failed",
                 )
+                _enforce_history_retention(client_id)
                 yield _sse({"stage": "done", "progress": 100, "result": result})
                 return
 
@@ -3361,6 +4137,11 @@ async def process_video(
 
             # ── Done ───────────────────────────────────────────
             result = _attach_result_artifacts(task_id_value, result)
+            result = _finalize_completed_result_storage(
+                task_id_value,
+                result,
+                (get_job(task_id_value) or {}).get("metadata"),
+            )
             _log_task_completed(
                 task_id=task_id_value,
                 started_at=task_started_at,
@@ -3384,6 +4165,7 @@ async def process_video(
                 result=result,
                 summary_status=summary_status,
             )
+            _enforce_history_retention(client_id)
             yield _sse({"stage": "done", "progress": 100, "result": result})
 
         except asyncio.CancelledError:
@@ -4197,9 +4979,11 @@ API_ROUTE_PREFIXES = {
     "credentials",
     "events",
     "export-lark",
+    "guest-trial",
     "health",
     "hotword-libraries",
     "jobs",
+    "ops",
     "process",
     "queue",
     "regenerate-summary",

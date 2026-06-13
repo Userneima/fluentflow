@@ -16,6 +16,9 @@ const API_BASE = (() => {
 
 const ACCESS_TOKEN_KEY = 'fluentflow_access_token';
 const CLIENT_ID_KEY = 'fluentflow_client_id';
+const GUEST_TRIAL_TOKEN_KEY = 'fluentflow_guest_trial_token';
+const GUEST_TRIAL_TASK_KEY = 'fluentflow_guest_trial_task_id';
+const LOCAL_SINGLE_USER_CLIENT_ID = 'local-yuchao';
 const getAccessToken = () => (localStorage.getItem(ACCESS_TOKEN_KEY) || '').trim();
 const setAccessToken = (token) => {
     const value = String(token || '').trim();
@@ -26,7 +29,15 @@ const createClientId = () => (
     window.crypto?.randomUUID?.()
     || `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 );
+const shouldUseLocalSingleUserClientId = () => {
+    const { hostname } = window.location;
+    return hostname === '127.0.0.1' || hostname === 'localhost';
+};
 const getClientId = () => {
+    if (shouldUseLocalSingleUserClientId()) {
+        localStorage.setItem(CLIENT_ID_KEY, LOCAL_SINGLE_USER_CLIENT_ID);
+        return LOCAL_SINGLE_USER_CLIENT_ID;
+    }
     const existing = (localStorage.getItem(CLIENT_ID_KEY) || '').trim();
     if (existing) return existing;
     const next = createClientId();
@@ -44,12 +55,41 @@ const apiFetch = (input, init={}) => {
     }
     return fetch(input, {...init, credentials: init.credentials || 'include', headers});
 };
+const getGuestTrialToken = () => (localStorage.getItem(GUEST_TRIAL_TOKEN_KEY) || '').trim();
+const setGuestTrialToken = (token) => {
+    const value = String(token || '').trim();
+    if (value) localStorage.setItem(GUEST_TRIAL_TOKEN_KEY, value);
+    else localStorage.removeItem(GUEST_TRIAL_TOKEN_KEY);
+};
+const getGuestTrialTaskId = () => (localStorage.getItem(GUEST_TRIAL_TASK_KEY) || '').trim();
+const setGuestTrialTaskId = (taskId) => {
+    const value = String(taskId || '').trim();
+    if (value) localStorage.setItem(GUEST_TRIAL_TASK_KEY, value);
+    else localStorage.removeItem(GUEST_TRIAL_TASK_KEY);
+};
+const clearGuestTrialSession = () => {
+    setGuestTrialToken('');
+    setGuestTrialTaskId('');
+};
 
 const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
 const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
+const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
+const normalizeAiModel = (provider, model) => {
+    const p = provider === 'openai' ? 'openai' : 'deepseek';
+    const value = String(model || '').trim();
+    if (p === 'openai') {
+        return value && value.startsWith('gpt-') ? value : DEFAULT_OPENAI_MODEL;
+    }
+    return value && value !== 'deepseek-chat' ? value : DEFAULT_DEEPSEEK_MODEL;
+};
 const sanitizeSettings = (settings={}) => {
     const next = {...settings};
     SENSITIVE_SETTING_KEYS.forEach((key) => delete next[key]);
+    const provider = next.aiProvider === 'openai' ? 'openai' : 'deepseek';
+    next.aiProvider = provider;
+    next.aiModel = normalizeAiModel(provider, next.aiModel);
     return next;
 };
 const sensitivePatchFromSettings = (settings={}) => ({
@@ -110,6 +150,7 @@ const resultToHistoryEntry = (result, fallback={}) => {
         transcriptEditRecords: result.transcript_edit_records||[],
         transcriptEditRecordsPath: result.transcript_edit_records_path||null,
         artifacts: result.artifacts||null,
+        playbackAudioAvailable: !!result.playback_audio_available,
         requestedNoteMode: result.requested_note_mode||fallback.requestedNoteMode||null,
         resolvedNoteMode: result.resolved_note_mode||null,
         noteModeChunkCount: result.note_mode_chunk_count||null,
@@ -173,6 +214,7 @@ const historyEntryToResult = (h) => h ? ({
     transcript_edit_records: h.transcriptEditRecords||[],
     transcript_edit_records_path: h.transcriptEditRecordsPath||null,
     artifacts: h.artifacts||null,
+    playback_audio_available: !!h.playbackAudioAvailable,
     requested_note_mode: h.requestedNoteMode||null,
     resolved_note_mode: h.resolvedNoteMode||null,
     note_mode_chunk_count: h.noteModeChunkCount||null,
@@ -191,6 +233,9 @@ const noteModeLabel = (mode, lang) => {
     const found = NOTE_MODE_OPTIONS.find((item) => item.value === (mode || 'auto'));
     return found ? (lang === 'zh' ? found.labelZh : found.labelEn) : (mode || 'auto');
 };
+
+const DEFAULT_PROMPT_PRESET = 'autoTranscriptNotes';
+const BUILTIN_EXTRA_PROMPT_KEYS = ['autoTranscriptNotes', 'meeting', 'research', 'quickBullets'];
 
 /* 与 backend/core/ai_summarizer.py 中 FLUENTFLOW_SYSTEM_PROMPT 保持一致，便于本地编辑默认「课程笔记」 */
 const DEFAULT_COURSE_PROMPT = `# Role: FluentFlow 知识架构师
@@ -222,6 +267,11 @@ const DEFAULT_COURSE_PROMPT = `# Role: FluentFlow 知识架构师
 
 /* ═══════════════ Prompt Presets ═══════════════ */
 const PROMPT_PRESETS = {
+    autoTranscriptNotes: {
+        labelEn: 'Transcript Notes (Recommended)',
+        labelZh: '语音转字幕笔记（推荐）',
+        prompt: `当前是一份语音转字幕文件，请你根据这个文件类型生成合适的提示词，并根据这个提示词产出对应的笔记。将最终的笔记内容输出给我即可，无需任何其他内容。`,
+    },
     default: {
         labelEn: 'Course Notes (Default)',
         labelZh: '课程笔记（默认）',
@@ -316,7 +366,7 @@ const getDefaultPromptBody = (settings) => {
     return DEFAULT_COURSE_PROMPT;
 };
 
-/** 内置模板 meeting / research / quickBullets：可经 settings.promptOverrides[key] 覆盖 */
+/** 内置额外模板可经 settings.promptOverrides[key] 覆盖 */
 const getBuiltinExtraPromptBody = (key, settings) => {
     const base = PROMPT_PRESETS[key]?.prompt || '';
     const o = settings && settings.promptOverrides && settings.promptOverrides[key];
@@ -329,15 +379,15 @@ const normalizeUserPresets = (settings) => (Array.isArray(settings?.userPromptPr
 const getHiddenBuiltinPromptPresets = (settings) => (Array.isArray(settings?.hiddenPromptPresets) ? settings.hiddenPromptPresets : []);
 
 const isBuiltinPromptPresetHidden = (key, settings) => (
-    (key === 'meeting' || key === 'research' || key === 'quickBullets') &&
+    BUILTIN_EXTRA_PROMPT_KEYS.includes(key) &&
     getHiddenBuiltinPromptPresets(settings).includes(key)
 );
 
 const resolveSystemPromptFromSettings = (settings) => {
-    const key = (settings && settings.promptPreset) || 'default';
+    const key = (settings && settings.promptPreset) || DEFAULT_PROMPT_PRESET;
     if (key === 'custom') return (settings.customPromptText || '').trim();
     if (key === 'default') return getDefaultPromptBody(settings).trim();
-    if (key === 'meeting' || key === 'research' || key === 'quickBullets') {
+    if (BUILTIN_EXTRA_PROMPT_KEYS.includes(key)) {
         if (isBuiltinPromptPresetHidden(key, settings)) return getDefaultPromptBody(settings).trim();
         return getBuiltinExtraPromptBody(key, settings).trim();
     }
@@ -366,13 +416,14 @@ const editorPresetKeyOrder = (settings) => {
     const ups = normalizeUserPresets(settings).map((p) => p.id);
     const hidden = getHiddenBuiltinPromptPresets(settings);
     return [
+        'autoTranscriptNotes',
         'default',
         'meeting',
         'research',
         'quickBullets',
         ...ups,
         'custom',
-    ].filter((k) => !((k === 'meeting' || k === 'research' || k === 'quickBullets') && hidden.includes(k)));
+    ].filter((k) => !(BUILTIN_EXTRA_PROMPT_KEYS.includes(k) && hidden.includes(k)));
 };
 
 const DEFAULT_STT_MODEL = 'medium';
@@ -396,6 +447,7 @@ const DEFAULT_RUNTIME_CONFIG = {
     allowedSttProviders: ['azure_batch', 'local'],
     defaultSttProvider: DEFAULT_STT_PROVIDER,
     showMaintainerSettings: true,
+    guestTrial: {enabled: false},
 };
 const normalizeRuntimeConfig = (config={}) => {
     const allowed = Array.isArray(config.allowed_stt_providers)
@@ -410,6 +462,7 @@ const normalizeRuntimeConfig = (config={}) => {
         defaultSttProvider: fallbackAllowed.includes(defaultProvider) ? defaultProvider : fallbackAllowed[0],
         showMaintainerSettings: config.show_maintainer_settings !== false,
         limits: config.limits || {},
+        guestTrial: config.guest_trial || config.limits?.guest_trial || DEFAULT_RUNTIME_CONFIG.guestTrial,
     };
 };
 const effectiveSttProvider = (settings={}, runtimeConfig=DEFAULT_RUNTIME_CONFIG) => {
@@ -462,7 +515,7 @@ const I18nProvider = ({children}) => {
 };
 const useI18n = () => useContext(I18nCtx);
 
-const AuthCtx = createContext({authMode:'open', user:null, logout:async()=>{}});
+const AuthCtx = createContext({authMode:'open', user:null, guestMode:false, guestTrial:null, logout:async()=>{}});
 const useAuth = () => useContext(AuthCtx);
 
 /* ═══════════════ App-level state ═══════════════ */
@@ -1090,6 +1143,57 @@ const useApi = () => {
         if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
         return data;
     };
+    const guestHeaders = (token) => token ? {'X-FluentFlow-Guest-Token': token} : {};
+    const getGuestTrialStatus = async (taskId=null, token=getGuestTrialToken()) => {
+        const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : '';
+        const r = await apiFetch(`${API_BASE}/guest-trial/status${qs}`, {headers: guestHeaders(token)});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const processGuestTrialFile = async (file, options={}, signal) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        appendAiOptions(fd, options);
+        if(options.noteMode) fd.append("note_mode", options.noteMode);
+        if(options.sttProvider) fd.append("stt_provider", options.sttProvider);
+        if(options.sttModel) fd.append("stt_model", options.sttModel);
+        if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
+        if(options.speakerDiarization) fd.append("speaker_diarization", "true");
+        const r = await apiFetch(`${API_BASE}/guest-trial/process`, {method:"POST", body:fd, signal});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const getGuestTrialJob = async (taskId, token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}`, {headers: guestHeaders(token)});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const subscribeGuestTrialJobEvents = async (taskId, token, onProgress, signal) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/events`, {headers: guestHeaders(token), signal});
+        if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+        return await readSseResult(r, onProgress);
+    };
+    const cancelGuestTrialJob = async (taskId, token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/cancel`, {method:"POST", headers: guestHeaders(token)});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const downloadGuestTrialArtifact = async (taskId, kind, filename, token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`, {headers: guestHeaders(token)});
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        _dl(blob, filename || `${kind}.txt`);
+    };
+    const fetchGuestTrialArtifactFile = async (taskId, kind, filename='artifact', token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`, {headers: guestHeaders(token)});
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        return new File([blob], filename || kind, {type: blob.type || 'application/octet-stream'});
+    };
     const createVideoSourceJob = async (input, options={}, signal) => {
         const payloadOptions = {};
         if(options.exportToLark) {
@@ -1153,6 +1257,12 @@ const useApi = () => {
         const blob = await r.blob();
         return new File([blob], filename || 'source', {type: blob.type || 'application/octet-stream'});
     };
+    const fetchJobArtifactFile = async (taskId, kind, filename='artifact') => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`);
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        return new File([blob], filename || kind, {type: blob.type || 'application/octet-stream'});
+    };
     const getJobs = async (limit=100) => {
         const r = await apiFetch(`${API_BASE}/jobs?limit=${encodeURIComponent(limit)}`);
         if(!r.ok) throw new Error('Jobs unavailable');
@@ -1195,7 +1305,7 @@ const useApi = () => {
         return await r.json();
     };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, getJobs, fetchJobSourceFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, downloadGuestTrialArtifact, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, getJobs, fetchJobSourceFile, fetchJobArtifactFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
 };
 
 const useSettings = () => {
@@ -1216,15 +1326,16 @@ const useSettings = () => {
 /* ═══════════════ shared components ═══════════════ */
 const SideNav = () => {
     const {t, lang, toggleLang} = useI18n();
-    const {authMode, user, logout} = useAuth();
+    const {authMode, user, guestMode, logout} = useAuth();
     const loc = useLocation();
-    const items = [
+    const fullItems = [
         {path:'/',icon:'dashboard',k:'nav.dashboard'},
         {path:'/tasks',icon:'monitoring',k:'nav.tasks'},
         {path:'/processing',icon:'tune',k:'nav.processing'},
         {path:'/editor',icon:'subject',k:'nav.editor'},
         {path:'/settings',icon:'settings',k:'nav.settings'},
     ];
+    const items = guestMode ? fullItems.filter((item) => ['/', '/editor'].includes(item.path)) : fullItems;
             return (
                 <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-50 border-r border-slate-200 z-50">
                     <div className="flex flex-col h-full p-4">
@@ -1264,6 +1375,16 @@ const SideNav = () => {
                             </button>
                         </div>
                     )}
+                    {guestMode && (
+                        <div className="mb-3 rounded-lg bg-white/70 px-3 py-3 shadow-sm ring-1 ring-slate-200/70">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                {lang==='zh'?'访客试用':'Guest trial'}
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                                {lang==='zh'?'支持一次短视频真实转录与笔记生成。':'Run one short real transcription and note trial.'}
+                            </p>
+                        </div>
+                    )}
                     <button
                         onClick={toggleLang}
                         className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -1284,12 +1405,13 @@ const SideNav = () => {
 /* ═══════════════ Dashboard ═══════════════ */
 const Dashboard = () => {
     const {t, lang} = useI18n();
+    const {guestMode, guestTrial} = useAuth();
     const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
             const subtitleInputRef = useRef(null);
-    const {processVideoSSE, enqueueProcessFiles, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, getCredentialsStatus} = useApi();
+    const {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, getCredentialsStatus} = useApi();
     const {loadSettings} = useSettings();
             const navigate = useNavigate();
     const abortRef = useRef(null);
@@ -1306,7 +1428,7 @@ const Dashboard = () => {
         return () => clearInterval(timer);
     }, [currentJob?.taskId, currentJob?.stage]);
 
-    const handleCancel = () => {
+    const handleCancel = async () => {
         const task = currentTaskRef.current;
         if(task){
             recordEvent({
@@ -1321,6 +1443,9 @@ const Dashboard = () => {
             });
         }
         if(abortRef.current){ abortRef.current.abort(); abortRef.current=null; }
+        if(currentJob?.guestTrial && currentJob.taskId) {
+            try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken || getGuestTrialToken()); } catch(_) {}
+        }
         currentTaskRef.current = null;
         setCurrentJob(null);
     };
@@ -1366,7 +1491,9 @@ const Dashboard = () => {
         setLastResult(result);
         setProcessingResult(result);
         const larkUrl = result.lark_response?.url || null;
-        addToHistory(resultToHistoryEntry(result, {taskId, name:fileName}));
+        if(!fallbackJob?.guestTrial) {
+            addToHistory(resultToHistoryEntry(result, {taskId, name:fileName}));
+        }
         if(larkUrl) addLarkExport({url:larkUrl, title: result.lark_doc_title || fileNameStem(fileName), timestamp:Date.now()});
         setTimeout(() => {
             setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
@@ -1398,7 +1525,9 @@ const Dashboard = () => {
         let stale = false;
         const syncCurrentJob = async () => {
             try {
-                const job = await getJob(currentJob.taskId);
+                const job = currentJob.guestTrial
+                    ? await getGuestTrialJob(currentJob.taskId, currentJob.guestToken || getGuestTrialToken())
+                    : await getJob(currentJob.taskId);
                 if(stale) return;
                 if(job?.status === 'completed' && job.result) {
                     settleCompletedJob(job, currentJob);
@@ -1411,14 +1540,16 @@ const Dashboard = () => {
                     }
                     currentTaskRef.current = null;
                     setUploadError(job.error_reason || 'Task failed.');
-                    addToHistory({
-                        id: Date.now(),
-                        taskId: job.task_id || currentJob.taskId,
-                        name: job.source_filename || currentJob.fileName,
-                        timestamp: Date.now(),
-                        durationMin: 0,
-                        status: 'failed',
-                    });
+                    if(!currentJob.guestTrial) {
+                        addToHistory({
+                            id: Date.now(),
+                            taskId: job.task_id || currentJob.taskId,
+                            name: job.source_filename || currentJob.fileName,
+                            timestamp: Date.now(),
+                            durationMin: 0,
+                            status: 'failed',
+                        });
+                    }
                     setCurrentJob(null);
                 }
             } catch(_) {}
@@ -1442,7 +1573,10 @@ const Dashboard = () => {
             fileSizeMb: currentJob.fileSizeMb,
         };
         let stale = false;
-        subscribeJobEvents(currentJob.taskId, applyProgressEvent, ac.signal).then((result) => {
+        const subscribe = currentJob.guestTrial
+            ? subscribeGuestTrialJobEvents(currentJob.taskId, currentJob.guestToken || getGuestTrialToken(), applyProgressEvent, ac.signal)
+            : subscribeJobEvents(currentJob.taskId, applyProgressEvent, ac.signal);
+        subscribe.then((result) => {
             if(stale) return;
             settleCompletedJob({task_id: currentJob.taskId, source_filename: currentJob.fileName, result}, currentJob);
         }).catch((err) => {
@@ -1457,11 +1591,43 @@ const Dashboard = () => {
         };
     }, [currentJob?.taskId, currentJob?.resume]);
 
+    useEffect(() => {
+        if(!guestMode || currentJob) return;
+        const token = getGuestTrialToken();
+        const taskId = getGuestTrialTaskId();
+        if(!token || !taskId) return;
+        let stale = false;
+        getGuestTrialJob(taskId, token).then((job) => {
+            if(stale || !job) return;
+            if(job.status === 'completed' && job.result) {
+                setLastResult(job.result);
+                setProcessingResult(job.result);
+                return;
+            }
+            if(['queued', 'running'].includes(job.status)) {
+                setCurrentJob({
+                    ...jobToCurrentJob(job),
+                    guestTrial: true,
+                    guestToken: token,
+                    resume: true,
+                    queue: job.metadata?.guest_trial_queue || null,
+                    skipSummary: false,
+                    exportToLark: false,
+                    noteMode: loadSettings().noteMode || 'auto',
+                });
+            }
+        }).catch(() => {
+            clearGuestTrialSession();
+        });
+        return () => { stale = true; };
+    }, [guestMode]);
+
     const mediaExts = /\.(mp4|mov|avi|mkv|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
     const transcriptExts = /\.(srt|vtt|txt|md)$/i;
     const audioExts = /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
 
     const ensureCloudReady = async (sttProvider) => {
+        if (guestMode) return true;
         if (!isAzureCloudProvider(sttProvider)) return true;
         try {
             const status = await getCredentialsStatus();
@@ -1474,11 +1640,26 @@ const Dashboard = () => {
         return false;
     };
 
+    const estimateText = (queue) => {
+        const wait = queue?.estimated_wait;
+        if(!wait) return null;
+        if((wait.min_minutes || 0) <= 0 && (wait.max_minutes || 0) <= 0) {
+            return lang === 'zh' ? '即将开始处理' : 'Starting soon';
+        }
+        return lang === 'zh'
+            ? `预计等待约 ${wait.min_minutes}-${wait.max_minutes} 分钟`
+            : `Estimated wait ${wait.min_minutes}-${wait.max_minutes} min`;
+    };
+
     const startMediaFiles = async (files) => {
         const selectedFiles = Array.from(files || []);
         if(selectedFiles.length === 0) return;
         if(!selectedFiles.every((file) => mediaExts.test(file.name))){
             setUploadError(t('dash.fileError')); return;
+        }
+        if(guestMode && selectedFiles.length > 1) {
+            setUploadError(lang === 'zh' ? '访客试用一次只能上传 1 个音视频文件。' : 'Guest trial accepts one audio/video file at a time.');
+            return;
         }
                 setUploadError(null);
                 setProcessingResult(null);
@@ -1488,6 +1669,82 @@ const Dashboard = () => {
         const sttModel = normalizeSttModel(settings.sttModel);
         const sttProvider = effectiveSttProvider(settings, runtimeConfig);
         if (!(await ensureCloudReady(sttProvider))) return;
+
+        if(guestMode) {
+            const file = selectedFiles[0];
+            const guestConfig = guestTrial || runtimeConfig.guestTrial || {};
+            const fileLimit = Number(guestConfig.file_limit_mb || 150);
+            const fileSizeMb = Math.round(file.size / 1024 / 1024 * 1000) / 1000;
+            if(fileSizeMb > fileLimit) {
+                setUploadError(lang === 'zh'
+                    ? `访客试用支持 ${fileLimit} MB 以内的单个音视频文件。`
+                    : `Guest trial supports one file up to ${fileLimit} MB.`);
+                return;
+            }
+            setLastSourceFile(file);
+            const ac = new AbortController();
+            abortRef.current = ac;
+            setCurrentJob({
+                taskId: null,
+                fileName:file.name,
+                stage:'upload',
+                progress:2,
+                startedAt: Date.now(),
+                sourceType: audioExts.test(file.name) ? "audio" : "video",
+                fileSizeMb,
+                guestTrial: true,
+                sttProvider,
+                sttModel,
+                sttSpeed: settings.sttSpeed||'balanced',
+                sttLanguage: settings.sttLanguage||'auto',
+                skipSummary: false,
+                exportToLark: false,
+                noteMode: settings.noteMode||'auto',
+            });
+            try {
+                const data = await processGuestTrialFile(file, {
+                    ...buildAiOptions(settings),
+                    sttProvider,
+                    sttModel,
+                    sttLanguage: settings.sttLanguage||'auto',
+                    noteMode: settings.noteMode||'auto',
+                }, ac.signal);
+                const token = data.guest_token;
+                const taskId = data.task_id;
+                setGuestTrialToken(token);
+                setGuestTrialTaskId(taskId);
+                currentTaskRef.current = {
+                    taskId,
+                    fileName: file.name,
+                    sourceType: audioExts.test(file.name) ? "audio" : "video",
+                    fileSizeMb,
+                };
+                setCurrentJob({
+                    ...jobToCurrentJob(data.job || {task_id: taskId, source_filename: file.name, status:'queued', stage:'queued', progress:0}),
+                    guestTrial: true,
+                    guestToken: token,
+                    queue: data.queue,
+                    resume: true,
+                    skipSummary: false,
+                    exportToLark: false,
+                    noteMode: settings.noteMode||'auto',
+                    sttProvider,
+                    sttModel,
+                    sttLanguage: settings.sttLanguage||'auto',
+                });
+                const result = await subscribeGuestTrialJobEvents(taskId, token, applyProgressEvent, ac.signal);
+                abortRef.current = null;
+                currentTaskRef.current = null;
+                settleCompletedJob({task_id: taskId, source_filename: file.name, result}, {taskId, fileName:file.name, guestTrial:true});
+                navigate('/editor');
+            } catch(err) {
+                abortRef.current = null;
+                currentTaskRef.current = null;
+                setCurrentJob(null);
+                if(err.name !== 'AbortError') setUploadError(err.message || "Guest trial failed.");
+            }
+            return;
+        }
 
         if(selectedFiles.length > 1) {
             setLastSourceFile(null);
@@ -1587,6 +1844,10 @@ const Dashboard = () => {
             };
 
             const handleVideoLinkSubmit = async () => {
+                if(guestMode) {
+                    setUploadError(lang === 'zh' ? '访客试用暂不支持链接抓取，请直接上传一个音视频文件。' : 'Guest trial does not support link fetching. Upload one audio/video file instead.');
+                    return;
+                }
                 const input = videoLinkInput.trim();
                 if(!input){
                     setUploadError(t('dash.linkEmpty'));
@@ -1632,6 +1893,10 @@ const Dashboard = () => {
                 const file = e.target.files?.[0];
                 if(!file) return;
                 if(subtitleInputRef.current) subtitleInputRef.current.value = '';
+                if(guestMode) {
+                    setUploadError(lang === 'zh' ? '访客试用暂不支持字幕导入，请上传一个音视频文件。' : 'Guest trial does not support transcript imports. Upload one audio/video file instead.');
+                    return;
+                }
                 if(!transcriptExts.test(file.name)){
                     setUploadError(t('dash.subtitleFileError')); return;
                 }
@@ -1722,6 +1987,12 @@ const Dashboard = () => {
     const sttWaitedLong = sttProgressUnknown && !isAzureCloudProvider(currentJob?.sttProvider) && sttElapsedForHint >= 60;
     const selectedSttProvider = currentJob?.sttProvider || effectiveSttProvider(loadSettings(), runtimeConfig);
     const taskInfoCards = [
+        ...(currentJob?.guestTrial && currentJob?.queue
+            ? [
+                {label: lang === 'zh' ? '前方任务' : 'Ahead', value: `${currentJob.queue.people_ahead ?? 0}`},
+                {label: lang === 'zh' ? '等待预估' : 'Wait', value: estimateText(currentJob.queue) || '-'},
+            ]
+            : []),
         {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
         {label:t('dash.fileSize'), value:fmtFileSize(currentJob?.fileSizeMb)},
         ...(isAzureCloudProvider(currentJob?.sttProvider) && currentJob?.azureBatchAudioSizeMb != null
@@ -1762,6 +2033,7 @@ const Dashboard = () => {
                     </div>
 
                     <div className="space-y-6">
+                        {!guestMode && (
                         <form
                             onSubmit={(e)=>{e.preventDefault(); handleVideoLinkSubmit();}}
                             className="flex items-stretch gap-2"
@@ -1784,6 +2056,7 @@ const Dashboard = () => {
                                 {videoLinkSubmitting ? t('dash.linkSubmitting') : t('dash.linkSubmit')}
                             </button>
                         </form>
+                        )}
 
                     <div className="grid grid-cols-12 gap-8">
                         <div className="col-span-12 lg:col-span-9 group">
@@ -1796,8 +2069,12 @@ const Dashboard = () => {
 	                                    {!uploading && (
 	                                    <div className="w-full max-w-[720px] mx-auto">
                                 <span className="bg-white/[0.08] text-blue-100 border border-white/[0.12] px-3 py-1 rounded-sm text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.proTag')}</span>
-                                <h3 className="font-headline text-3xl font-bold text-white leading-tight">{t('dash.heroTitle')}</h3>
-                                <p className="text-slate-300 mt-4 text-sm leading-relaxed">{t('dash.heroDesc')}</p>
+                                <h3 className="font-headline text-3xl font-bold text-white leading-tight">{guestMode ? (lang==='zh'?'访客试用：上传一个短视频生成字幕与笔记':'Guest trial: upload one short file for subtitles and notes') : t('dash.heroTitle')}</h3>
+                                <p className="text-slate-300 mt-4 text-sm leading-relaxed">
+                                    {guestMode
+                                        ? (lang==='zh'?'支持 15 分钟以内、150MB 以内的单个音视频文件。真实转录，完成后可下载结果。':'One audio/video file up to 15 minutes and 150 MB. Real processing with downloadable results.')
+                                        : t('dash.heroDesc')}
+                                </p>
                                     </div>
                                     )}
                                     {uploading && currentJob && (
@@ -1806,7 +2083,11 @@ const Dashboard = () => {
                                             <div className="min-w-0">
                                                 <span className="bg-blue-400/15 text-blue-100 border border-blue-300/30 px-3 py-1 rounded-sm text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.activeTask')}</span>
                                                 <h3 className="font-headline text-3xl font-bold text-white leading-tight truncate">{currentJob.fileName}</h3>
-                                                <p className="text-slate-300 mt-3 text-sm">{t('dash.waitingForTranscript')}</p>
+                                                <p className="text-slate-300 mt-3 text-sm">
+                                                    {currentJob.guestTrial && currentJob.stage === 'queued'
+                                                        ? (lang==='zh'?'文件已进入访客试用队列，开始处理后会自动更新进度。':'Your file is in the guest trial queue. Progress updates automatically when processing starts.')
+                                                        : t('dash.waitingForTranscript')}
+                                                </p>
                                             </div>
                                             <button onClick={handleCancel} className="text-red-300 hover:text-white border border-red-300/40 hover:bg-red-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 flex-shrink-0 transition-colors">
                                                 <span className="material-symbols-outlined text-sm">cancel</span>{t('dash.cancel')}
@@ -1873,12 +2154,14 @@ const Dashboard = () => {
 		                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
 		                                <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.92] text-slate-950 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-[0_16px_46px_-30px_rgba(255,255,255,0.8)] active:translate-y-px disabled:opacity-50 justify-center dark:bg-white/90 dark:hover:bg-white">
 		                                            <span className="material-symbols-outlined">upload_file</span>
-		                                    <span>{uploading ? t('dash.processing') : t('dash.selectFile')}</span>
-		                                        </button>
+		                                    <span>{uploading ? t('dash.processing') : (guestMode ? (lang==='zh'?'开始访客试用':'Start guest trial') : t('dash.selectFile'))}</span>
+		                                </button>
+                                        {!guestMode && (
 		                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.07] text-white border border-white/15 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-white/[0.12] transition-colors active:translate-y-px disabled:opacity-50 justify-center">
 		                                    <span className="material-symbols-outlined">subtitles</span>
 		                                    <span>{t('dash.selectSubtitle')}</span>
 		                                </button>
+                                        )}
 		                                        </div>
 		                                <div className="text-slate-400 text-sm font-bold max-w-xl">{t('dash.dragHint')}</div>
 	                                {isAzureCloudProvider(selectedSttProvider) && (
@@ -2191,7 +2474,7 @@ const Processing = () => {
     };
 
     useEffect(() => {
-        const pk = settings.promptPreset || 'default';
+        const pk = settings.promptPreset || DEFAULT_PROMPT_PRESET;
         if (isBuiltinPromptPresetHidden(pk, settings)) updateSettingNow({promptPreset: 'default'});
         const normalizedSttModel = normalizeSttModel(settings.sttModel);
         if (settings.sttModel !== normalizedSttModel) updateSettingNow({sttModel: normalizedSttModel});
@@ -2241,7 +2524,7 @@ const Processing = () => {
     );
 
     const aiProvider = settings.aiProvider || 'deepseek';
-    const aiModel = settings.aiModel || (aiProvider === 'openai' ? 'gpt-5.4-mini' : 'deepseek-chat');
+    const aiModel = normalizeAiModel(aiProvider, settings.aiModel);
     const activeAiSecretKey = aiProvider === 'openai' ? 'openai_api_key' : 'deepseek_api_key';
     const activeAiConfigured = aiProvider === 'openai'
         ? credentialStatus?.openai_api_key_configured
@@ -2402,7 +2685,7 @@ const Processing = () => {
                             <SectionTitle icon="psychology" title={t('work.summary')} desc={lang==='zh'?'控制是否生成笔记、默认模板和使用的摘要模型。':'Control note generation, default prompt, and summary model.'}/>
                             <div className="space-y-2">
                                 <label className={fieldLabelClass}>{t('work.activePrompt')}</label>
-                                <select className={inputClass} value={settings.promptPreset||'default'} onChange={e=>updateSettingNow({promptPreset:e.target.value})}>
+                                <select className={inputClass} value={settings.promptPreset||DEFAULT_PROMPT_PRESET} onChange={e=>updateSettingNow({promptPreset:e.target.value})}>
                                     {allPresetSelectKeys(settings).map((key) => (
                                         <option key={key} value={key}>{presetDisplayLabel(key, settings, lang)}</option>
                                     ))}
@@ -2427,7 +2710,7 @@ const Processing = () => {
                                 </div>
                                 <div className="space-y-2">
                                     <label className={fieldLabelClass}>{t('set.provider')}</label>
-                                    <select className={inputClass} value={aiProvider} onChange={e=>updateSettingNow({aiProvider:e.target.value,aiModel:e.target.value==='openai'?'gpt-5.4-mini':'deepseek-chat'})}>
+                                    <select className={inputClass} value={aiProvider} onChange={e=>updateSettingNow({aiProvider:e.target.value,aiModel:e.target.value==='openai'?DEFAULT_OPENAI_MODEL:DEFAULT_DEEPSEEK_MODEL})}>
                                         <option value="deepseek">DeepSeek</option>
                                         <option value="openai">OpenAI</option>
                                     </select>
@@ -2442,7 +2725,6 @@ const Processing = () => {
                                         </select>
                                     ) : (
                                         <select className={inputClass} value={aiModel} onChange={e=>updateSettingNow({aiModel:e.target.value})}>
-                                            <option value="deepseek-chat">deepseek-chat</option>
                                             <option value="deepseek-reasoner">deepseek-reasoner</option>
                                         </select>
                                     )}
@@ -2523,6 +2805,7 @@ const Processing = () => {
 /* ═══════════════ Editor ═══════════════ */
 const Editor = () => {
     const {t, lang} = useI18n();
+    const {guestMode} = useAuth();
     const {
         lastResult,
         setLastResult,
@@ -2535,7 +2818,7 @@ const Editor = () => {
         addLarkExport,
         runtimeConfig,
     } = useApp();
-    const {processVideoSSE, fetchJobSourceFile, recordEvent, getJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
+    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
@@ -2551,11 +2834,12 @@ const Editor = () => {
     const transcriptSaveSeqRef = useRef(0);
 
     const initSettings = loadSettings();
-    let initPk = initSettings.promptPreset || 'default';
+    let initPk = initSettings.promptPreset || DEFAULT_PROMPT_PRESET;
     if (isBuiltinPromptPresetHidden(initPk, initSettings)) initPk = 'default';
     const [promptKey, setPromptKey] = useState(initPk);
     const [customText, setCustomText] = useState(initSettings.customPromptText || '');
     const [defaultPromptEdit, setDefaultPromptEdit] = useState(() => getDefaultPromptBody(initSettings));
+    const [autoTranscriptNotesEdit, setAutoTranscriptNotesEdit] = useState(() => getBuiltinExtraPromptBody('autoTranscriptNotes', initSettings));
     const [meetingEdit, setMeetingEdit] = useState(() => getBuiltinExtraPromptBody('meeting', initSettings));
     const [researchEdit, setResearchEdit] = useState(() => getBuiltinExtraPromptBody('research', initSettings));
     const [quickBulletsEdit, setQuickBulletsEdit] = useState(() => getBuiltinExtraPromptBody('quickBullets', initSettings));
@@ -2573,10 +2857,11 @@ const Editor = () => {
     useEffect(() => {
         if (!promptOpen) return;
         const s = loadSettings();
-        const pkRaw = s.promptPreset || 'default';
+        const pkRaw = s.promptPreset || DEFAULT_PROMPT_PRESET;
         const pk = isBuiltinPromptPresetHidden(pkRaw, s) ? 'default' : pkRaw;
         setPromptKey(pk);
         setDefaultPromptEdit(getDefaultPromptBody(s));
+        setAutoTranscriptNotesEdit(getBuiltinExtraPromptBody('autoTranscriptNotes', s));
         setMeetingEdit(getBuiltinExtraPromptBody('meeting', s));
         setResearchEdit(getBuiltinExtraPromptBody('research', s));
         setQuickBulletsEdit(getBuiltinExtraPromptBody('quickBullets', s));
@@ -2588,6 +2873,7 @@ const Editor = () => {
     }, [promptOpen]);
 
     const result = lastResult || (!currentJob ? historyEntryToResult(history.find(h=>h.status==='completed')) : null);
+    const isGuestResult = !!(guestMode && result?.task_id && result.task_id === getGuestTrialTaskId());
     const resultSegmentCount = pickTranscriptSegments(result).length;
     const resultTextLength = (result?.transcript_text || '').length;
     const resultKey = result
@@ -2596,6 +2882,7 @@ const Editor = () => {
     const mediaSourceKey = result
         ? [
             result.task_id || result.filename || 'current_result',
+            result.artifacts?.playback_audio?.filename || (result.playback_audio_available ? 'playback-audio' : 'no-playback-audio'),
             result.source_file_available ? 'stored' : 'unstored',
             lastSourceFile ? `${lastSourceFile.name}:${lastSourceFile.size}:${lastSourceFile.lastModified || 0}` : 'no-local-file',
         ].join(':')
@@ -2627,7 +2914,10 @@ const Editor = () => {
         if (!needsHydration || hydratedTaskIdsRef.current.has(result.task_id)) return;
         hydratedTaskIdsRef.current.add(result.task_id);
         let cancelled = false;
-        getJob(result.task_id)
+        const jobRequest = isGuestResult
+            ? getGuestTrialJob(result.task_id, getGuestTrialToken())
+            : getJob(result.task_id);
+        jobRequest
             .then((job) => {
                 const full = job?.result;
                 if (cancelled || !full) return;
@@ -2649,7 +2939,7 @@ const Editor = () => {
             })
             .catch(() => {});
         return () => { cancelled = true; };
-    }, [resultKey, transcriptUnsaved]);
+    }, [resultKey, transcriptUnsaved, isGuestResult]);
 
     useEffect(() => {
         if (!result) {
@@ -2729,7 +3019,21 @@ const Editor = () => {
             loadMediaFile(lastSourceFile);
             return () => { cancelled = true; };
         }
-        if (result.task_id && result.source_file_available) {
+        const playbackArtifact = result.artifacts?.playback_audio;
+        if (result.task_id && playbackArtifact) {
+            setMediaLoading(true);
+            const fetchArtifact = isGuestResult ? fetchGuestTrialArtifactFile : fetchJobArtifactFile;
+            fetchArtifact(result.task_id, 'playback_audio', playbackArtifact.filename || `${result.filename || 'source'}_audio.mp3`)
+                .then((file) => { if (!cancelled) loadMediaFile(file); })
+                .catch((err) => {
+                    if (!cancelled) {
+                        setMediaError(err.message || 'Audio file unavailable');
+                        setMediaLoading(false);
+                    }
+                });
+            return () => { cancelled = true; };
+        }
+        if (result.task_id && result.source_file_available && !isGuestResult) {
             setMediaLoading(true);
             fetchJobSourceFile(result.task_id, result.filename || 'source')
                 .then((file) => { if (!cancelled) loadMediaFile(file); })
@@ -2741,7 +3045,7 @@ const Editor = () => {
                 });
         }
         return () => { cancelled = true; };
-    }, [mediaSourceKey]);
+    }, [mediaSourceKey, isGuestResult]);
 
     const segments = editedSegments;
     const transcript = editedTranscript || result?.transcript_text || '';
@@ -2789,6 +3093,10 @@ const Editor = () => {
 
     useEffect(() => {
         if (!result?.task_id || !transcriptUnsaved) return;
+        if (isGuestResult) {
+            setTranscriptSaveStatus('idle');
+            return;
+        }
         const seq = ++transcriptSaveSeqRef.current;
         setTranscriptSaveStatus('saving');
         const timer = setTimeout(() => {
@@ -2816,7 +3124,7 @@ const Editor = () => {
                 });
         }, 800);
         return () => clearTimeout(timer);
-    }, [result?.task_id, transcriptUnsaved, transcript, segments, editRecords]);
+    }, [result?.task_id, transcriptUnsaved, transcript, segments, editRecords, isGuestResult]);
 
     const seekToSegment = (seg) => {
         const media = mediaRef.current;
@@ -2850,6 +3158,7 @@ const Editor = () => {
         const s = loadSettings();
         saveSettings({ ...s, promptPreset: newKey });
         if (newKey === 'default') setDefaultPromptEdit(getDefaultPromptBody({ ...s, promptPreset: newKey }));
+        if (newKey === 'autoTranscriptNotes') setAutoTranscriptNotesEdit(getBuiltinExtraPromptBody('autoTranscriptNotes', { ...s, promptPreset: newKey }));
         if (newKey === 'meeting') setMeetingEdit(getBuiltinExtraPromptBody('meeting', { ...s, promptPreset: newKey }));
         if (newKey === 'research') setResearchEdit(getBuiltinExtraPromptBody('research', { ...s, promptPreset: newKey }));
         if (newKey === 'quickBullets') setQuickBulletsEdit(getBuiltinExtraPromptBody('quickBullets', { ...s, promptPreset: newKey }));
@@ -2872,7 +3181,8 @@ const Editor = () => {
     };
 
     const handleBuiltinExtraChange = (key, val) => {
-        if (key === 'meeting') setMeetingEdit(val);
+        if (key === 'autoTranscriptNotes') setAutoTranscriptNotesEdit(val);
+        else if (key === 'meeting') setMeetingEdit(val);
         else if (key === 'research') setResearchEdit(val);
         else if (key === 'quickBullets') setQuickBulletsEdit(val);
         const s = loadSettings();
@@ -2940,6 +3250,10 @@ const Editor = () => {
 
     const handleExportLark = async () => {
         if(!result || exporting) return;
+        if(isGuestResult) {
+            showToast(lang === 'zh' ? '访客试用暂不支持导出到飞书，请先下载结果文件。' : 'Guest trial does not export to Lark. Download the result files instead.', false);
+            return;
+        }
         setExporting(true);
         try {
             const settings = loadSettings();
@@ -2970,6 +3284,10 @@ const Editor = () => {
 
     const handleRegenerate = async () => {
         if(!transcript || regenerating) return;
+        if(isGuestResult) {
+            showToast(lang === 'zh' ? '访客试用暂不支持重新生成，请重新上传一个文件试用。' : 'Guest trial cannot regenerate. Upload a new file to try again.', false);
+            return;
+        }
         setRegenerating(true);
         try {
             const settings = loadSettings();
@@ -3100,6 +3418,10 @@ const Editor = () => {
 
     const confirmRetranscribe = async () => {
         setRetranscribeConfirmOpen(false);
+        if(isGuestResult) {
+            showToast(lang === 'zh' ? '访客试用暂不支持重新转录，请回到首页重新上传。' : 'Guest trial cannot retranscribe here. Start a new upload from Dashboard.', false);
+            return;
+        }
         if(lastSourceFile) runRetranscribe(lastSourceFile);
         else if(result?.task_id && result?.source_file_available) {
             try {
@@ -3311,15 +3633,15 @@ const Editor = () => {
 	                            <span className="material-symbols-outlined text-lg">tune</span>
 	                            <span className="leading-tight text-center whitespace-normal break-keep">{promptOpen ? t('prompt.expanded') : t('prompt.collapsed')}</span>
 	                        </button>
-	                        <button onClick={handleRegenerate} disabled={regenerating||!transcript} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-tertiary/10 text-tertiary font-semibold text-xs rounded-lg hover:bg-tertiary/20 transition disabled:opacity-40">
+	                        <button onClick={handleRegenerate} disabled={isGuestResult||regenerating||!transcript} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-tertiary/10 text-tertiary font-semibold text-xs rounded-lg hover:bg-tertiary/20 transition disabled:opacity-40">
                             <span className={`material-symbols-outlined text-lg ${regenerating?'animate-spin':''}`}>{regenerating?'sync':'refresh'}</span>
                             <span className="leading-tight text-center whitespace-normal break-keep">{t('edit.regenerate')}</span>
                         </button>
-	                        <button onClick={handleRetranscribe} disabled={retranscribing||!!currentJob} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-slate-100 text-slate-700 font-semibold text-xs rounded-lg hover:bg-slate-200 transition disabled:opacity-40">
+	                        <button onClick={handleRetranscribe} disabled={isGuestResult||retranscribing||!!currentJob} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-slate-100 text-slate-700 font-semibold text-xs rounded-lg hover:bg-slate-200 transition disabled:opacity-40">
                             <span className={`material-symbols-outlined text-lg ${retranscribing?'animate-spin':''}`}>{retranscribing?'sync':'record_voice_over'}</span>
                             <span className="leading-tight text-center whitespace-normal break-keep">{retranscribing ? t('edit.retranscribing') : t('edit.retranscribe')}</span>
                         </button>
-                        <button onClick={handleExportLark} disabled={exporting||!summary} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-primary text-white font-semibold text-xs rounded-lg hover:bg-primary-container transition disabled:opacity-40">
+                        <button onClick={handleExportLark} disabled={isGuestResult||exporting||!summary} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-primary text-white font-semibold text-xs rounded-lg hover:bg-primary-container transition disabled:opacity-40">
                             <span className={`material-symbols-outlined text-lg ${exporting?'animate-spin':''}`}>{exporting?'sync':'cloud_upload'}</span>
                             <span className="leading-tight text-center whitespace-normal break-keep">{t('edit.export')}</span>
                         </button>
@@ -3352,7 +3674,7 @@ const Editor = () => {
                                             <span className="material-symbols-outlined text-[16px] leading-none">close</span>
                                         </button>
                                     </span>
-                                ) : (key === 'meeting' || key === 'research' || key === 'quickBullets') ? (
+                                ) : BUILTIN_EXTRA_PROMPT_KEYS.includes(key) ? (
                                     <span key={key} className={`inline-flex items-center gap-0.5 rounded-full border text-xs font-semibold transition-all ${
                                         promptKey===key
                                         ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
@@ -3416,7 +3738,7 @@ const Editor = () => {
                                     </button>
                     </div>
             </div>
-                        ) : promptKey === 'meeting' || promptKey === 'research' || promptKey === 'quickBullets' ? (
+                        ) : BUILTIN_EXTRA_PROMPT_KEYS.includes(promptKey) ? (
                             <div className="space-y-2">
                                 <div className="flex flex-wrap justify-between items-center gap-2">
                                     <label className="text-xs font-medium text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
@@ -3424,7 +3746,7 @@ const Editor = () => {
                             </div>
                                 <textarea
                                     className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
-                                    value={promptKey === 'meeting' ? meetingEdit : promptKey === 'research' ? researchEdit : quickBulletsEdit}
+                                    value={promptKey === 'autoTranscriptNotes' ? autoTranscriptNotesEdit : promptKey === 'meeting' ? meetingEdit : promptKey === 'research' ? researchEdit : quickBulletsEdit}
                                     onChange={(e)=>handleBuiltinExtraChange(promptKey, e.target.value)}
                                 />
                             </div>
@@ -3689,7 +4011,7 @@ const Editor = () => {
 
     const [newPresetNameSettings, setNewPresetNameSettings] = useState('');
     const initialTemplateEditKey = (() => {
-        const key = settings.promptPreset || 'default';
+        const key = settings.promptPreset || DEFAULT_PROMPT_PRESET;
         return isBuiltinPromptPresetHidden(key, settings) ? 'default' : key;
     })();
     const [templateEditKey, setTemplateEditKey] = useState(initialTemplateEditKey);
@@ -3851,31 +4173,13 @@ const Editor = () => {
                                     </div>
                                 </div>
                             )}
-                            {templateEditKey==='meeting' && (
+                            {BUILTIN_EXTRA_PROMPT_KEYS.includes(templateEditKey) && (
                                 <div className="space-y-2">
                                     <div className="flex flex-wrap justify-between items-center gap-2">
                                         <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
-                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings('meeting')} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
+                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings(templateEditKey)} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
                                     </div>
-                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody('meeting', settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),meeting:e.target.value}}))}/>
-                                </div>
-                            )}
-                            {templateEditKey==='research' && (
-                                <div className="space-y-2">
-                                    <div className="flex flex-wrap justify-between items-center gap-2">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
-                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings('research')} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
-                                    </div>
-                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody('research', settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),research:e.target.value}}))}/>
-                                </div>
-                            )}
-                            {templateEditKey==='quickBullets' && (
-                                <div className="space-y-2">
-                                    <div className="flex flex-wrap justify-between items-center gap-2">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{t('set.editBuiltinTemplate')}</label>
-                                        <button type="button" onClick={()=>resetBuiltinOverrideInSettings('quickBullets')} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
-                                    </div>
-                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody('quickBullets', settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),quickBullets:e.target.value}}))}/>
+                                    <textarea className="w-full min-h-[220px] bg-surface-container-low border-none rounded-sm px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/20 resize-y" value={getBuiltinExtraPromptBody(templateEditKey, settings)} onChange={e=>setSettings(s=>({...s,promptOverrides:{...(s.promptOverrides||{}),[templateEditKey]:e.target.value}}))}/>
                                 </div>
                             )}
                             {normalizeUserPresets(settings).length > 0 && (
@@ -3909,6 +4213,8 @@ const AccessGate = ({children}) => {
     const [allowSignups, setAllowSignups] = useState(false);
     const [bootstrapRequired, setBootstrapRequired] = useState(false);
     const [user, setUser] = useState(null);
+    const [guestTrial, setGuestTrial] = useState(null);
+    const [guestMode, setGuestMode] = useState(false);
     const [formMode, setFormMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -3923,18 +4229,24 @@ const AccessGate = ({children}) => {
             const data = await r.json().catch(()=>({}));
             const nextMode = data.auth_mode || (data.access_required ? 'access_code' : 'open');
             const nextRequired = !!(data.account_required || data.access_required);
+            const nextGuestTrial = data.guest_trial || null;
+            const nextGuestAllowed = !!nextGuestTrial?.enabled && nextRequired && !data.authenticated;
             setAuthMode(nextMode);
             setRequired(nextRequired);
-            setAuthenticated(!nextRequired || !!data.authenticated);
+            setAuthenticated(!nextRequired || !!data.authenticated || nextGuestAllowed);
             setAllowSignups(!!data.allow_signups);
             setBootstrapRequired(!!data.bootstrap_required);
             setUser(data.user || null);
+            setGuestTrial(nextGuestTrial);
+            setGuestMode(nextGuestAllowed);
             if (data.bootstrap_required) setFormMode('register');
         } catch(_) {
             setAuthMode('open');
             setRequired(false);
             setAuthenticated(true);
             setUser(null);
+            setGuestTrial(null);
+            setGuestMode(false);
         } finally {
             setChecking(false);
         }
@@ -3949,6 +4261,7 @@ const AccessGate = ({children}) => {
         setAccessToken('');
         setToken('');
         setUser(null);
+        clearGuestTrialSession();
         setAuthenticated(false);
         await refreshStatus();
     }, [refreshStatus]);
@@ -3978,6 +4291,7 @@ const AccessGate = ({children}) => {
             if (accountFlow) {
                 setUser(data.user || null);
                 setPassword('');
+                setGuestMode(false);
             } else {
                 setAccessToken(token.trim());
             }
@@ -3993,7 +4307,7 @@ const AccessGate = ({children}) => {
         return <div className="min-h-screen bg-surface flex items-center justify-center text-sm font-semibold text-on-surface-variant">{lang === 'zh' ? '正在检查访问权限…' : 'Checking access…'}</div>;
     }
     if (!required || authenticated) {
-        return <AuthCtx.Provider value={{authMode, user, logout}}>{children}</AuthCtx.Provider>;
+        return <AuthCtx.Provider value={{authMode, user, guestMode, guestTrial, logout}}>{children}</AuthCtx.Provider>;
     }
 
     const accountFlow = authMode === 'accounts';
@@ -4093,20 +4407,23 @@ const AccessGate = ({children}) => {
     );
 };
 
-const App = () => (
+const App = () => {
+    const {guestMode} = useAuth();
+    return (
                 <div className="flex min-h-screen w-full bg-surface">
         <SideNav/>
                     <div className="flex-1 flex flex-col w-full h-full relative">
                         <Routes>
                 <Route path="/" element={<Dashboard/>}/>
-                <Route path="/tasks" element={<Tasks/>}/>
-                <Route path="/processing" element={<Processing/>}/>
+                <Route path="/tasks" element={guestMode ? <Dashboard/> : <Tasks/>}/>
+                <Route path="/processing" element={guestMode ? <Dashboard/> : <Processing/>}/>
                 <Route path="/editor" element={<Editor/>}/>
-                <Route path="/settings" element={<Settings/>}/>
+                <Route path="/settings" element={guestMode ? <Dashboard/> : <Settings/>}/>
                         </Routes>
                     </div>
                 </div>
             );
+};
 
 createRoot(document.getElementById('root')).render(
     <BrowserRouter><I18nProvider><AccessGate><AppProvider><App/></AppProvider></AccessGate></I18nProvider></BrowserRouter>
