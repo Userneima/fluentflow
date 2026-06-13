@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from backend.core.job_store import ensure_job_db, get_job, list_jobs, update_job_result, upsert_job
+from backend.core.job_store import delete_jobs, ensure_job_db, get_job, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
 
 
 def test_job_store_persists_status_and_result(tmp_path: Path) -> None:
@@ -91,6 +91,31 @@ def test_job_store_filters_by_client_id(tmp_path: Path) -> None:
         client_id="client-a",
     )
     assert updated is None
+
+
+def test_job_store_lists_all_jobs_for_retention_and_deletes_by_client(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    for idx in range(3):
+        upsert_job(
+            task_id=f"task-{idx}",
+            status="completed",
+            client_id="client-a",
+            result={"task_id": f"task-{idx}"},
+            db_path=db,
+        )
+    upsert_job(
+        task_id="other-client",
+        status="completed",
+        client_id="client-b",
+        result={"task_id": "other-client"},
+        db_path=db,
+    )
+
+    assert len(list_jobs_for_retention(db_path=db, client_id="client-a")) == 3
+    assert delete_jobs(["task-0", "other-client"], db_path=db, client_id="client-a") == 1
+    assert get_job("task-0", db_path=db) is None
+    assert get_job("other-client", db_path=db) is not None
 
 
 def test_job_store_migrates_legacy_db_without_client_id(tmp_path: Path) -> None:

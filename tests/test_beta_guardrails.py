@@ -18,7 +18,9 @@ def test_auth_status_is_open_by_default(monkeypatch) -> None:
         response = client.get("/auth/status")
 
     assert response.status_code == 200
-    assert response.json() == {"access_required": False, "authenticated": True}
+    payload = response.json()
+    assert payload["access_required"] is False
+    assert payload["authenticated"] is True
 
 
 def test_auth_middleware_rejects_api_without_access_code(monkeypatch) -> None:
@@ -223,6 +225,36 @@ def test_submission_rate_limit_blocks_repeated_requests(monkeypatch) -> None:
     main._SUBMISSION_RATE_EVENTS.clear()
 
 
+def test_history_retention_prunes_oldest_completed_task_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", str(tmp_path / "edited"))
+    monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", str(tmp_path / "edit-records"))
+    monkeypatch.setenv("FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT", "1")
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_RETENTION_DAYS", "0")
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    jobs = [
+        {"task_id": "keep", "status": "completed", "updated_at": now, "metadata": {}},
+        {"task_id": "prune", "status": "completed", "updated_at": now, "metadata": {}},
+    ]
+    for task_id in ("keep", "prune"):
+        (tmp_path / "sources" / task_id).mkdir(parents=True)
+        (tmp_path / "sources" / task_id / "source.mp4").write_bytes(b"video")
+        (tmp_path / "artifacts" / task_id).mkdir(parents=True)
+        (tmp_path / "artifacts" / task_id / "audio.mp3").write_bytes(b"audio")
+    deleted: list[str] = []
+    monkeypatch.setattr(main, "list_jobs_for_retention", lambda client_id=None: jobs)
+    monkeypatch.setattr(main, "delete_jobs", lambda task_ids, client_id=None: deleted.extend(task_ids) or len(task_ids))
+
+    result = main._enforce_history_retention("client-a")
+
+    assert result["task_ids"] == ["prune"]
+    assert deleted == ["prune"]
+    assert (tmp_path / "sources" / "keep").is_dir()
+    assert not (tmp_path / "sources" / "prune").exists()
+    assert not (tmp_path / "artifacts" / "prune").exists()
+
+
 def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
@@ -237,3 +269,89 @@ def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None
     assert payload["allowed_stt_providers"] == ["azure_batch"]
     assert payload["show_maintainer_settings"] is False
     assert "key" not in str(payload).lower()
+
+
+def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp_path, monkeypatch) -> None:
+    source_path = tmp_path / "sources" / "task-ok" / "source.mp4"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"video")
+    jobs = [
+        {
+            "task_id": "task-ok",
+            "status": "running",
+            "client_id": "client-a",
+            "source_filename": "ok.mp4",
+            "metadata": {"queue_options": {"stt_provider": "azure_batch"}, "source_path": str(source_path)},
+        },
+        {
+            "task_id": "task-missing",
+            "status": "queued",
+            "client_id": "client-a",
+            "source_filename": "missing.mp4",
+            "metadata": {"queue_options": {"stt_provider": "azure_batch"}, "source_path": str(tmp_path / "missing.mp4")},
+        },
+    ]
+    updates: list[dict] = []
+    enqueued: list[dict] = []
+    monkeypatch.setattr(main, "list_jobs", lambda *args, **kwargs: jobs)
+    monkeypatch.setattr(main, "upsert_job", lambda **kwargs: updates.append(kwargs))
+    monkeypatch.setattr(main, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+
+    main._resume_queued_transcription_jobs(base_url="http://127.0.0.1:8000")
+
+    assert [item["task_id"] for item in enqueued] == ["task-ok"]
+    assert any(item["task_id"] == "task-ok" and item["status"] == "queued" for item in updates)
+    assert any(item["task_id"] == "task-missing" and item["status"] == "failed" for item in updates)
+
+
+def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "get_job",
+        lambda task_id, client_id=None: {
+            "task_id": task_id,
+            "client_id": client_id,
+            "metadata": {
+                "route": "/queue/process",
+                "queue_options": {"stt_provider": "azure_batch"},
+                "source_path": "/var/lib/fluentflow/sources/task/source.mp4",
+            },
+        },
+    )
+
+    metadata = main._job_metadata_for_update(
+        "task",
+        "client-a",
+        route="/process",
+        source_fingerprint={"sha256": "abc"},
+    )
+
+    assert metadata["route"] == "/process"
+    assert metadata["queue_options"] == {"stt_provider": "azure_batch"}
+    assert metadata["source_path"] == "/var/lib/fluentflow/sources/task/source.mp4"
+    assert metadata["source_fingerprint"] == {"sha256": "abc"}
+
+
+def test_ops_status_reports_stale_jobs_without_secret_values(tmp_path, monkeypatch) -> None:
+    old_time = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
+    monkeypatch.setenv("FLUENTFLOW_STALE_JOB_SECONDS", "60")
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", str(tmp_path / "edited"))
+    monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", str(tmp_path / "edit-records"))
+    monkeypatch.setenv("FLUENTFLOW_VIDEO_SOURCE_DIR", str(tmp_path / "videos"))
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "super-secret-value")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "stale", "status": "running", "stage": "stt", "updated_at": old_time, "source_filename": "demo.mp4"},
+            {"task_id": "done", "status": "completed", "stage": "done", "updated_at": old_time},
+        ],
+    )
+
+    payload = main._ops_status_payload()
+
+    assert payload["status"] == "warn"
+    assert payload["jobs"]["stale_count"] == 1
+    assert "super-secret-value" not in str(payload)

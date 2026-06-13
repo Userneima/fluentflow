@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.main import _attach_result_artifacts
+from backend.main import _attach_playback_audio_artifact, _attach_result_artifacts
 
 
 def test_attach_result_artifacts_writes_transcript_and_subtitle_files(tmp_path, monkeypatch) -> None:
@@ -45,3 +45,21 @@ def test_attach_result_artifacts_preserves_result_when_nothing_to_write(tmp_path
 
     assert next_result == result
     assert not (tmp_path / "task_empty").exists()
+
+
+def test_playback_audio_artifact_survives_result_artifact_refresh(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
+    audio = tmp_path / "playback.mp3"
+    audio.write_bytes(b"mp3")
+    result = _attach_playback_audio_artifact(
+        "task_audio",
+        {"filename": "lesson.mp4", "transcript_text": "一句话"},
+        audio,
+    )
+
+    next_result = _attach_result_artifacts("task_audio", result)
+
+    artifacts = next_result["artifacts"]
+    assert "playback_audio" in artifacts
+    assert "transcript_txt" in artifacts
+    assert (tmp_path / "task_audio" / artifacts["playback_audio"]["filename"]).read_bytes() == b"mp3"

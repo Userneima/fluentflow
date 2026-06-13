@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "fluentflow_jobs.sqlite"
+DEFAULT_DB_PATH = Path(os.environ.get("FLUENTFLOW_JOB_DB_PATH") or PROJECT_ROOT / "data" / "fluentflow_jobs.sqlite").expanduser()
 
 
 SCHEMA_SQL = """
@@ -171,6 +172,23 @@ def list_jobs(
     return [_row_to_dict(row) for row in rows]
 
 
+def list_jobs_for_retention(
+    db_path: Path | str = DEFAULT_DB_PATH,
+    client_id: str | None = None,
+) -> list[dict[str, Any]]:
+    ensure_job_db(db_path)
+    with sqlite3.connect(Path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        if client_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE client_id = ? ORDER BY updated_at DESC",
+                (client_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM jobs ORDER BY updated_at DESC").fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 def update_job_result(
     task_id: str,
     result: dict[str, Any],
@@ -198,6 +216,26 @@ def update_job_result(
         )
         updated = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
     return _row_to_dict(updated) if updated else None
+
+
+def delete_jobs(
+    task_ids: list[str] | tuple[str, ...],
+    db_path: Path | str = DEFAULT_DB_PATH,
+    client_id: str | None = None,
+) -> int:
+    ids = [str(task_id).strip() for task_id in task_ids if str(task_id).strip()]
+    if not ids:
+        return 0
+    ensure_job_db(db_path)
+    placeholders = ",".join("?" for _ in ids)
+    params: list[Any] = list(ids)
+    where = f"task_id IN ({placeholders})"
+    if client_id is not None:
+        where += " AND client_id = ?"
+        params.append(client_id)
+    with sqlite3.connect(Path(db_path)) as conn:
+        cursor = conn.execute(f"DELETE FROM jobs WHERE {where}", params)
+        return int(cursor.rowcount or 0)
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
