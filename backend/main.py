@@ -612,6 +612,16 @@ def _public_account_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _account_quota_payload(user: dict[str, Any] | None) -> dict[str, Any]:
+    if not user or not user.get("id"):
+        return {"balance_units": 0, "recent_transactions": [], "unlimited": False, "quota_exempt": False}
+    summary = account_quota_summary(str(user["id"]))
+    is_admin = user.get("role") == "admin"
+    summary["unlimited"] = bool(is_admin)
+    summary["quota_exempt"] = bool(is_admin)
+    return summary
+
+
 def _starter_balance_units() -> int:
     try:
         return max(int(os.environ.get("FLUENTFLOW_STARTER_BALANCE_UNITS", "100")), 0)
@@ -624,10 +634,10 @@ def _public_account_payload(user: dict[str, Any] | None) -> dict[str, Any] | Non
     if not public:
         return None
     try:
-        public["quota"] = account_quota_summary(str(public["id"]))
+        public["quota"] = _account_quota_payload(user)
     except Exception as exc:
         logger.warning("Failed to load account quota summary for %s: %s", public.get("id"), exc)
-        public["quota"] = {"balance_units": 0, "recent_transactions": []}
+        public["quota"] = {"balance_units": 0, "recent_transactions": [], "unlimited": False, "quota_exempt": False}
     return public
 
 
@@ -1195,13 +1205,39 @@ def _job_created_today(job: dict[str, Any]) -> bool:
     return created.astimezone().date() == datetime.now(timezone.utc).astimezone().date()
 
 
+def _job_is_imported_history(job: dict[str, Any]) -> bool:
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    return bool(
+        metadata.get("imported_by_account_id")
+        or metadata.get("source_type") == "imported_local_history"
+        or result.get("imported_from_local_history")
+        or job.get("source_type") == "imported_local_history"
+    )
+
+
+def _job_counts_toward_daily_submission(job: dict[str, Any]) -> bool:
+    return _job_created_today(job) and not _job_is_imported_history(job)
+
+
+def _client_scope_is_admin(client_id: str | None) -> bool:
+    account_id = _account_id_from_client_scope(client_id)
+    if not account_id:
+        return False
+    try:
+        user = get_user_by_id(account_id)
+    except Exception:
+        return False
+    return bool(user and user.get("role") == "admin")
+
+
 def _daily_usage_for_client(
     client_id: str | None,
     exclude_task_id: str | None = None,
 ) -> dict[str, float]:
     jobs = [
         job for job in list_jobs(limit=200, client_id=client_id)
-        if job.get("task_id") != exclude_task_id and _job_created_today(job)
+        if job.get("task_id") != exclude_task_id and _job_counts_toward_daily_submission(job)
     ]
     upload_mb = 0.0
     for job in jobs:
@@ -1215,7 +1251,7 @@ def _daily_usage_for_client(
 def _daily_usage_global(exclude_task_id: str | None = None) -> dict[str, float]:
     jobs = [
         job for job in list_jobs(limit=200)
-        if job.get("task_id") != exclude_task_id and _job_created_today(job)
+        if job.get("task_id") != exclude_task_id and _job_counts_toward_daily_submission(job)
     ]
     upload_mb = 0.0
     for job in jobs:
@@ -1233,6 +1269,8 @@ def _enforce_daily_quota(
     incoming_upload_mb: float | None = None,
     exclude_task_id: str | None = None,
 ) -> None:
+    if _client_scope_is_admin(client_id):
+        return
     job_limit = _daily_job_limit_per_client()
     upload_limit = _daily_upload_mb_per_client()
     if job_limit <= 0 and upload_limit <= 0:
@@ -1261,10 +1299,13 @@ def _enforce_daily_quota(
 
 def _enforce_global_daily_quota(
     *,
+    client_id: str | None = None,
     incoming_jobs: int = 1,
     incoming_upload_mb: float | None = None,
     exclude_task_id: str | None = None,
 ) -> None:
+    if _client_scope_is_admin(client_id):
+        return
     job_limit = _daily_job_limit_global()
     upload_limit = _daily_upload_mb_global()
     if job_limit <= 0 and upload_limit <= 0:
@@ -2698,6 +2739,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             exclude_task_id=task_id,
         )
         _enforce_global_daily_quota(
+            client_id=client_id,
             incoming_jobs=1,
             incoming_upload_mb=saved_size_mb,
             exclude_task_id=task_id,
@@ -3079,7 +3121,7 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
 @app.get("/account/quota")
 def account_quota(request: Request) -> dict[str, Any]:
     user = _require_account_user(request)
-    return account_quota_summary(str(user["id"]))
+    return _account_quota_payload(user)
 
 
 @app.post("/account/import-history")
@@ -3616,7 +3658,7 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
     _enforce_active_job_limit(client_id, incoming=1)
     _enforce_global_active_job_limit(incoming=1)
     _enforce_daily_quota(client_id, incoming_jobs=1)
-    _enforce_global_daily_quota(incoming_jobs=1)
+    _enforce_global_daily_quota(client_id=client_id, incoming_jobs=1)
 
     options = _queue_options_from_mapping(payload.get("options") if isinstance(payload.get("options"), dict) else {})
     task_id_value = _new_task_id()
@@ -3733,7 +3775,7 @@ async def queue_process(
                 detail=f"File is too large: {source_file_size_mb} MB. Limit is {max_upload_mb:g} MB.",
             )
     _enforce_daily_quota(client_id, incoming_jobs=len(files), incoming_upload_mb=total_upload_mb)
-    _enforce_global_daily_quota(incoming_jobs=len(files), incoming_upload_mb=total_upload_mb)
+    _enforce_global_daily_quota(client_id=client_id, incoming_jobs=len(files), incoming_upload_mb=total_upload_mb)
 
     base_options = _queue_options_from_form(
         export_to_lark=export_to_lark,
@@ -3901,6 +3943,7 @@ async def process_video(
         exclude_task_id=task_id_value,
     )
     _enforce_global_daily_quota(
+        client_id=client_id,
         incoming_jobs=1,
         incoming_upload_mb=source_file_size_mb,
         exclude_task_id=task_id_value,

@@ -1550,6 +1550,7 @@ const SideNav = () => {
         {path:'/settings',icon:'settings',k:'nav.settings'},
     ];
     const items = guestMode ? fullItems.filter((item) => ['/', '/editor'].includes(item.path)) : fullItems;
+    const quotaExempt = user?.role === 'admin' || quota?.unlimited || quota?.quota_exempt;
             return (
                 <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-50 border-r border-slate-200 z-50">
                     <div className="flex flex-col h-full p-4">
@@ -1582,8 +1583,8 @@ const SideNav = () => {
                             {quota && (
                                 <div className="mt-3 rounded-md bg-surface-container-low px-3 py-2">
                                     <div className="flex items-center justify-between gap-3">
-                                        <span className="text-xs font-semibold text-on-surface-variant">{lang==='zh'?'处理额度':'Balance'}</span>
-                                        <span className="text-sm font-bold text-primary">{quota.balance_units ?? 0}</span>
+                                        <span className="text-xs font-semibold text-on-surface-variant">{quotaExempt ? (lang==='zh'?'额度豁免':'Quota exempt') : (lang==='zh'?'处理额度':'Balance')}</span>
+                                        <span className="text-sm font-bold text-primary">{quotaExempt ? (lang==='zh'?'无限':'Unlimited') : (quota.balance_units ?? 0)}</span>
                                     </div>
                                 </div>
                             )}
@@ -4483,6 +4484,7 @@ const Admin = () => {
     const selectedUser = users.find((item) => item.id === selectedId) || filteredUsers[0] || null;
     const transactions = selectedUser?.quota?.recent_transactions || [];
     const selectedBalance = selectedUser?.quota?.balance_units ?? 0;
+    const selectedQuotaExempt = selectedUser?.role === 'admin' || selectedUser?.quota?.unlimited || selectedUser?.quota?.quota_exempt;
 
     const submitAdjustment = async (e) => {
         e.preventDefault();
@@ -4614,6 +4616,7 @@ const Admin = () => {
                                     {filteredUsers.map((item) => {
                                         const active = item.id === selectedUser?.id;
                                         const balance = item.quota?.balance_units ?? 0;
+                                        const quotaExempt = item.role === 'admin' || item.quota?.unlimited || item.quota?.quota_exempt;
                                         return (
                                             <button
                                                 key={item.id}
@@ -4628,8 +4631,8 @@ const Admin = () => {
                                                             {item.role || 'user'} · {item.status || 'active'}
                                                         </p>
                                                     </div>
-                                                    <span className={`rounded-sm px-2 py-1 text-xs font-extrabold tabular-nums ${balance < 0 ? 'bg-red-500/10 text-red-600' : 'bg-surface-container text-on-surface-variant'}`}>
-                                                        {balance}
+                                                    <span className={`rounded-sm px-2 py-1 text-xs font-extrabold ${quotaExempt ? 'bg-primary/10 text-primary' : `tabular-nums ${balance < 0 ? 'bg-red-500/10 text-red-600' : 'bg-surface-container text-on-surface-variant'}`}`}>
+                                                        {quotaExempt ? (lang === 'zh' ? '无限' : 'Unlimited') : balance}
                                                     </span>
                                                 </div>
                                                 <p className="mt-2 text-[11px] font-medium text-on-surface-variant">
@@ -4664,9 +4667,11 @@ const Admin = () => {
                                             </div>
                                             <div className="rounded-sm bg-primary/10 px-4 py-3">
                                                 <p className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                                                    {lang === 'zh' ? '当前额度' : 'Balance'}
+                                                    {selectedQuotaExempt ? (lang === 'zh' ? '额度豁免' : 'Quota exempt') : (lang === 'zh' ? '当前额度' : 'Balance')}
                                                 </p>
-                                                <p className="mt-1 text-3xl font-extrabold leading-none text-primary tabular-nums">{selectedBalance}</p>
+                                                <p className={`mt-1 text-3xl font-extrabold leading-none text-primary ${selectedQuotaExempt ? '' : 'tabular-nums'}`}>
+                                                    {selectedQuotaExempt ? (lang === 'zh' ? '无限' : 'Unlimited') : selectedBalance}
+                                                </p>
                                             </div>
                                         </div>
                                     </div>

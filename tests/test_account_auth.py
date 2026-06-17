@@ -54,9 +54,12 @@ def test_account_status_bootstraps_first_admin(monkeypatch, tmp_path) -> None:
     assert register.status_code == 200
     assert register.json()["user"]["role"] == "admin"
     assert register.json()["user"]["quota"]["balance_units"] == 100
+    assert register.json()["user"]["quota"]["unlimited"] is True
+    assert register.json()["user"]["quota"]["quota_exempt"] is True
     assert after.json()["authenticated"] is True
     assert after.json()["user"]["email"] == "owner@example.com"
     assert after.json()["user"]["quota"]["balance_units"] == 100
+    assert after.json()["user"]["quota"]["unlimited"] is True
 
 
 def test_account_middleware_rejects_api_without_session(monkeypatch, tmp_path) -> None:
@@ -146,6 +149,7 @@ def test_account_quota_endpoint_and_admin_adjustment(monkeypatch, tmp_path) -> N
         forbidden = client.get("/admin/users")
         client.post("/auth/logout")
         client.post("/auth/login", json={"email": "owner@example.com", "password": "secure-pass"})
+        admin_quota = client.get("/account/quota")
         users = client.get("/admin/users")
         adjustment = client.post(
             f"/admin/users/{user_id}/balance-adjustments",
@@ -155,9 +159,14 @@ def test_account_quota_endpoint_and_admin_adjustment(monkeypatch, tmp_path) -> N
     assert admin.status_code == 200
     assert user_quota.status_code == 200
     assert user_quota.json()["balance_units"] == 100
+    assert user_quota.json()["unlimited"] is False
     assert forbidden.status_code == 403
+    assert admin_quota.status_code == 200
+    assert admin_quota.json()["unlimited"] is True
+    assert admin_quota.json()["quota_exempt"] is True
     assert users.status_code == 200
     assert any(item["email"] == "user@example.com" for item in users.json()["users"])
+    assert next(item for item in users.json()["users"] if item["email"] == "owner@example.com")["quota"]["unlimited"] is True
     assert adjustment.status_code == 200
     assert adjustment.json()["user"]["quota"]["balance_units"] == 125
     assert adjustment.json()["transaction"]["provider_reference"] == "test-ref"

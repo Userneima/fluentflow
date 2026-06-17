@@ -148,6 +148,59 @@ def test_daily_job_quota_blocks_excess_submissions(monkeypatch) -> None:
     assert "每日上限" in exc.value.detail
 
 
+def test_daily_job_quota_ignores_imported_history(monkeypatch) -> None:
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "2")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "0")
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {
+                "task_id": "imported-a",
+                "created_at": now,
+                "source_type": "imported_local_history",
+                "source_file_size_mb": 10,
+                "metadata": {"imported_by_account_id": "account-1"},
+                "result": {"imported_from_local_history": True},
+            },
+            {
+                "task_id": "imported-b",
+                "created_at": now,
+                "source_type": "imported_local_history",
+                "source_file_size_mb": 10,
+                "metadata": {"imported_by_account_id": "account-1"},
+            },
+        ],
+    )
+
+    main._enforce_daily_quota("user:account-1", incoming_jobs=1)
+
+
+def test_daily_quota_skips_admin_client_scope(monkeypatch) -> None:
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "1")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL", "1")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "0")
+    monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL", "0")
+    monkeypatch.setattr(
+        main,
+        "get_user_by_id",
+        lambda account_id: {"id": account_id, "role": "admin"},
+    )
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda *args, **kwargs: [
+            {"task_id": "today-a", "created_at": now, "source_file_size_mb": 10},
+            {"task_id": "today-b", "created_at": now, "source_file_size_mb": 10},
+        ],
+    )
+
+    main._enforce_daily_quota("user:admin-1", incoming_jobs=1)
+    main._enforce_global_daily_quota(client_id="user:admin-1", incoming_jobs=1)
+
+
 def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
     now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "0")
