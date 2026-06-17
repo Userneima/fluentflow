@@ -27,6 +27,44 @@
 
 如果某一类没有变化，可以省略。注意事项里要写清是否需要重启后端、重新构建前端、迁移数据、更新环境变量或通知用户。
 
+## Unreleased｜本地桌面与云端账号历史同步
+
+### 用户可见变化
+
+- 登录后如果检测到本机旧历史，会在开始页提示导入到当前账号。
+- 导入需要用户手动确认；确认后会上传转录文本和摘要，导入完成后最近活动从云端账号历史显示。
+- 本地桌面快捷方式默认把账号、任务、上传、历史和额度 API 转发到 `https://fluentflow.icu`，后续桌面和网页使用同一份云端工作区。
+
+### 维护者变化
+
+- 新增 `docs/local_cloud_sync_plan.md`，明确桌面本地前端、云端 API、旧历史导入和隐私边界。
+- 后端新增 `POST /account/import-history`，用于把确认导入的本机历史写入当前登录账号。
+- 后端新增 local-only `GET /local-history/candidates`，仅用于桌面云工作区读取本机 SQLite 候选历史。
+- 导入后的历史作为 completed account job 保存，并生成可下载文本/摘要 artifacts。
+
+### 数据 / 口径变化
+
+- 导入历史会生成新的 `imported_*` task id，不复用本地旧 task id，避免跨账号或跨设备主键冲突。
+- 导入记录不包含原始音视频文件，`source_file_available` 和 `playback_audio_available` 为 false。
+- 重复导入按原始 task id 和 source fingerprint 去重。
+
+### 注意事项
+
+- 需要重新构建前端资源。
+- 需要重新安装或更新桌面 `FluentFlow.app` 快捷方式，才能启用默认云端工作区。
+- 本次不会自动上传旧记录；用户需要在界面中点击导入。
+
+## Unreleased｜UI 暗黑模式规范固化
+
+### 维护者变化
+
+- 新增 `docs/ui_design_system.md`，把 FluentFlow 的工具型 UI、暗黑模式、语义色 token、字体层级、表面层级和组件约束固化为项目规范。
+- `AGENTS.md` 新增 UI / 暗黑模式路由规则，要求后续创建、重构或视觉调整 FluentFlow 页面前先读取该规范。
+
+### 注意事项
+
+- 本次只改变维护文档和协作规则，不改变运行时代码、用户数据、主题 token 或部署配置。
+
 ## Unreleased｜服务器部署触发规则
 
 ### 维护者变化

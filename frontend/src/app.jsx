@@ -135,6 +135,30 @@ const minimizeHistoryEntry = (entry) => ({
     cleanedSegments: null,
     rawSegments: null,
 });
+const localHistoryKey = (entry) => {
+    if (!entry) return '';
+    return String(entry.taskId || entry.sourceFingerprint || `${entry.name || 'untitled'}:${entry.timestamp || ''}`);
+};
+const readBrowserHistoryEntries = () => {
+    try {
+        const entries = JSON.parse(localStorage.getItem('fluentflow_history') || '[]');
+        return Array.isArray(entries) ? entries : [];
+    } catch(_) {
+        return [];
+    }
+};
+const mergeImportCandidates = (...groups) => {
+    const seen = new Set();
+    const merged = [];
+    groups.flat().forEach((entry) => {
+        if (!entry || entry.status !== 'completed') return;
+        const key = localHistoryKey(entry);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        merged.push(entry);
+    });
+    return merged;
+};
 const resultToHistoryEntry = (result, fallback={}) => {
     const durSec = result.audio_duration_seconds || 0;
     return {
@@ -244,6 +268,32 @@ const historyEntryToResult = (h) => h ? ({
     note_mode_chunk_count: h.noteModeChunkCount||null,
     source_file_available: !!h.sourceFileAvailable,
 }) : null;
+const historyEntryToImportEntry = (entry) => ({
+    task_id: entry.taskId || null,
+    taskId: entry.taskId || null,
+    name: entry.name || 'Imported transcript',
+    timestamp: entry.timestamp || null,
+    source: entry.source || 'browser_local_history',
+    sourceFingerprint: entry.sourceFingerprint || null,
+    sourceFileSizeMb: entry.sourceFileSizeMb || null,
+    transcriptText: entry.transcriptText || '',
+    segments: entry.segments || [],
+    summary: entry.summary || '',
+    summarySkipped: !!entry.summarySkipped,
+    summaryStatus: entry.summaryStatus || null,
+    audioDurationSec: entry.audioDurationSec || 0,
+    sttElapsedSec: entry.sttElapsedSec || 0,
+    sttProvider: entry.sttProvider || null,
+    sttProviderLabel: entry.sttProviderLabel || null,
+    sttModel: entry.sttModel || null,
+    sttSpeed: entry.sttSpeed || null,
+    sttLanguage: entry.sttLanguage || null,
+    detectedLanguage: entry.detectedLanguage || null,
+    transcriptEdited: !!entry.transcriptEdited,
+    transcriptEditedAt: entry.transcriptEditedAt || null,
+    transcriptEditRecords: entry.transcriptEditRecords || [],
+    result: historyEntryToResult(entry),
+});
 const createTaskId = () => (
     window.crypto?.randomUUID?.() ||
     `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
@@ -554,6 +604,7 @@ const useAuth = () => useContext(AuthCtx);
 const AppCtx = createContext();
 
 const AppProvider = ({children}) => {
+    const {authMode, user, guestMode} = useAuth();
     const [history, setHistory] = useState(() => {
         try { return JSON.parse(localStorage.getItem('fluentflow_history')||'[]'); } catch(_){ return []; }
     });
@@ -564,12 +615,21 @@ const AppProvider = ({children}) => {
     const [lastResult, setLastResult] = useState(null);
     const [lastSourceFile, setLastSourceFile] = useState(null);
     const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
+    const [localHistoryImport, setLocalHistoryImport] = useState({
+        checking: false,
+        importing: false,
+        candidates: [],
+        importedCount: 0,
+        skippedCount: 0,
+        error: '',
+    });
 
     useEffect(() => {
+        let cancelled = false;
         apiFetch(`${API_BASE}/runtime-config`)
             .then((r) => r.ok ? r.json() : null)
             .then((data) => {
-                if (data) setRuntimeConfig(normalizeRuntimeConfig(data));
+                if (data && !cancelled) setRuntimeConfig(normalizeRuntimeConfig(data));
             })
             .catch(() => {});
         try {
@@ -585,19 +645,50 @@ const AppProvider = ({children}) => {
                 });
             }
         } catch(_) {}
+        if (guestMode || (authMode === 'accounts' && !user?.id)) return;
+        const browserLocalEntries = readBrowserHistoryEntries();
+        setLocalHistoryImport((state) => ({...state, checking: true, error: ''}));
         apiFetch(`${API_BASE}/jobs?limit=100`)
             .then((r) => r.ok ? r.json() : null)
-            .then((data) => {
+            .then(async (data) => {
                 if (!Array.isArray(data?.jobs)) return;
                 const entries = data.jobs
                     .filter((job) => job.result)
                     .map(jobToHistoryEntry);
+                if (cancelled) return;
                 setHistory(entries);
                 const running = data.jobs.find((job) => job.status === 'running');
                 if (running) setCurrentJob(jobToCurrentJob(running));
+                const cloudKeys = new Set(entries.map(localHistoryKey).filter(Boolean));
+                const browserCandidates = browserLocalEntries.filter((entry) => {
+                    const key = localHistoryKey(entry);
+                    return key && !cloudKeys.has(key) && entry.status === 'completed';
+                });
+                let localJobCandidates = [];
+                try {
+                    const localResponse = await apiFetch(`${API_BASE}/local-history/candidates?limit=100`);
+                    if (localResponse.ok) {
+                        const localData = await localResponse.json().catch(() => ({}));
+                        localJobCandidates = Array.isArray(localData?.jobs)
+                            ? localData.jobs.map(jobToHistoryEntry).filter((entry) => {
+                                const key = localHistoryKey(entry);
+                                return key && !cloudKeys.has(key);
+                            })
+                            : [];
+                    }
+                } catch(_) {}
+                if (cancelled) return;
+                setLocalHistoryImport((state) => ({
+                    ...state,
+                    checking: false,
+                    candidates: mergeImportCandidates(localJobCandidates, browserCandidates),
+                }));
             })
-            .catch(() => {});
-    }, []);
+            .catch(() => {
+                if (!cancelled) setLocalHistoryImport((state) => ({...state, checking: false}));
+            });
+        return () => { cancelled = true; };
+    }, [authMode, user?.id, guestMode]);
 
     const persistHistory = (h) => { setHistory(h); localStorage.setItem('fluentflow_history', JSON.stringify(h.map(minimizeHistoryEntry))); };
     const addToHistory = (entry) => persistHistory([
@@ -608,13 +699,46 @@ const AppProvider = ({children}) => {
 
     const persistLarkExports = (e) => { setLarkExports(e); localStorage.setItem('fluentflow_lark_exports', JSON.stringify(e)); };
     const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
+    const importLocalHistory = async () => {
+        const candidates = localHistoryImport.candidates || [];
+        if (!candidates.length || localHistoryImport.importing) return;
+        setLocalHistoryImport((state) => ({...state, importing: true, error: ''}));
+        try {
+            const r = await apiFetch(`${API_BASE}/account/import-history`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({entries: candidates.map(historyEntryToImportEntry)}),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+            const importedEntries = Array.isArray(data.imported)
+                ? data.imported.filter((job) => job.result).map(jobToHistoryEntry)
+                : [];
+            const merged = mergeImportCandidates(importedEntries, history);
+            persistHistory(merged.slice(0, 100));
+            setLocalHistoryImport({
+                checking: false,
+                importing: false,
+                candidates: [],
+                importedCount: data.imported_count || importedEntries.length,
+                skippedCount: data.skipped_count || 0,
+                error: '',
+            });
+        } catch(err) {
+            setLocalHistoryImport((state) => ({
+                ...state,
+                importing: false,
+                error: err.message || 'Import failed',
+            }));
+        }
+    };
 
     const stats = {
         totalMinutes: Math.round(history.reduce((s,h) => s + (h.durationMin||0), 0)),
         notesGenerated: history.filter(h => h.status==='completed').length,
     };
 
-    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
+    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig,localHistoryImport,importLocalHistory}}>{children}</AppCtx.Provider>;
 };
 const useApp = () => useContext(AppCtx);
 
@@ -693,6 +817,9 @@ const fmtFileSize = (mb) => {
     if(n >= 1024) return `${(n/1024).toFixed(n >= 10240 ? 0 : 1)} GB`;
     return `${n.toFixed(n >= 10 ? 1 : 2)} MB`;
 };
+const totalFileSizeMb = (files=[]) => (
+    Math.round(Array.from(files || []).reduce((sum, file) => sum + (Number(file?.size) || 0), 0) / 1024 / 1024 * 1000) / 1000
+);
 const fmtBytes = (bytes) => {
     const n = Number(bytes);
     if(!Number.isFinite(n) || n <= 0) return '';
@@ -1443,27 +1570,27 @@ const SideNav = () => {
                         </Link>;
                             })}
                         </nav>
-                        <div className="mt-auto border-t border-slate-200/60 px-2 pt-3">
+                        <div className="mt-auto border-t ff-border-muted px-2 pt-3">
                     {authMode === 'accounts' && user && (
-                        <div className="mb-3 rounded-lg bg-white/70 px-3 py-3 shadow-sm ring-1 ring-slate-200/70">
-                            <p className="truncate text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <div className="mb-3 rounded-lg bg-surface-container-lowest px-3 py-3 shadow-sm border ff-border-muted">
+                            <p className="truncate text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
                                 {lang==='zh'?'当前账号':'Account'}
                             </p>
-                            <p className="mt-1 truncate text-sm font-semibold text-slate-800" title={user.email || ''}>
+                            <p className="mt-1 truncate text-sm font-semibold text-on-surface" title={user.email || ''}>
                                 {user.email}
                             </p>
                             {quota && (
-                                <div className="mt-3 rounded-md bg-blue-50 px-3 py-2">
+                                <div className="mt-3 rounded-md bg-surface-container-low px-3 py-2">
                                     <div className="flex items-center justify-between gap-3">
-                                        <span className="text-xs font-semibold text-slate-500">{lang==='zh'?'处理额度':'Balance'}</span>
-                                        <span className="text-sm font-bold text-blue-700">{quota.balance_units ?? 0}</span>
+                                        <span className="text-xs font-semibold text-on-surface-variant">{lang==='zh'?'处理额度':'Balance'}</span>
+                                        <span className="text-sm font-bold text-primary">{quota.balance_units ?? 0}</span>
                                     </div>
                                 </div>
                             )}
                             <button
                                 type="button"
                                 onClick={logout}
-                                className="mt-2 inline-flex items-center gap-1.5 rounded-md px-0 text-xs font-semibold text-slate-500 transition hover:text-red-600"
+                                className="mt-2 inline-flex items-center gap-1.5 rounded-md px-0 text-xs font-semibold text-on-surface-variant transition hover:text-red-600"
                             >
                                 <span className="material-symbols-outlined text-[16px]">logout</span>
                                 {lang==='zh'?'退出登录':'Sign out'}
@@ -1471,11 +1598,11 @@ const SideNav = () => {
                         </div>
                     )}
                     {guestMode && (
-                        <div className="mb-3 rounded-lg bg-white/70 px-3 py-3 shadow-sm ring-1 ring-slate-200/70">
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <div className="mb-3 rounded-lg bg-surface-container-lowest px-3 py-3 shadow-sm border ff-border-muted">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
                                 {lang==='zh'?'访客试用':'Guest trial'}
                             </p>
-                            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                            <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
                                 {lang==='zh'?'支持一次短视频真实转录与笔记生成。':'Run one short real transcription and note trial.'}
                             </p>
                             {authMode === 'accounts' && (
@@ -1483,7 +1610,7 @@ const SideNav = () => {
                                     <button
                                         type="button"
                                         onClick={()=>openAuth('login')}
-                                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-3 text-xs font-bold text-white transition hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-xs font-bold text-white transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                                     >
                                         <span className="material-symbols-outlined text-[16px]">login</span>
                                         {lang==='zh'?'登录账号':'Sign in'}
@@ -1492,7 +1619,7 @@ const SideNav = () => {
                                         <button
                                             type="button"
                                             onClick={()=>openAuth('register')}
-                                            className="inline-flex h-9 w-full items-center justify-center rounded-md bg-slate-100 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                                            className="inline-flex h-9 w-full items-center justify-center rounded-md bg-surface-container px-3 text-xs font-bold text-on-surface transition hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                                         >
                                             {lang==='zh'?'创建账号':'Create account'}
                                         </button>
@@ -1503,12 +1630,12 @@ const SideNav = () => {
                     )}
                     <button
                         onClick={toggleLang}
-                        className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                         aria-label={lang==='zh'?'切换界面语言':'Switch interface language'}
                     >
-                        <span className="material-symbols-outlined text-[20px] leading-none text-slate-400 group-hover:text-slate-700">translate</span>
+                        <span className="material-symbols-outlined text-[20px] leading-none text-outline group-hover:text-on-surface-variant">translate</span>
                         <span className="min-w-0 flex-1 truncate text-left">{lang==='zh'?'界面语言':'Language'}</span>
-                        <span className="min-w-8 rounded-md bg-blue-50 px-2 py-1 text-center text-[11px] font-bold leading-none text-primary">
+                        <span className="min-w-8 rounded-md bg-primary/10 px-2 py-1 text-center text-[11px] font-bold leading-none text-primary">
                             {lang==='en'?'中文':'EN'}
                         </span>
                     </button>
@@ -1522,7 +1649,7 @@ const SideNav = () => {
 const Dashboard = () => {
     const {t, lang} = useI18n();
     const {guestMode, guestTrial} = useAuth();
-    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
+    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig, localHistoryImport, importLocalHistory} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
@@ -1864,6 +1991,19 @@ const Dashboard = () => {
 
         if(selectedFiles.length > 1) {
             setLastSourceFile(null);
+            const queuedFileCount = selectedFiles.length;
+            setCurrentJob({
+                taskId: null,
+                fileName: lang === 'zh' ? `${queuedFileCount} 个文件` : `${queuedFileCount} files`,
+                stage:'upload',
+                progress:2,
+                startedAt: Date.now(),
+                sourceType:'queue_upload',
+                fileSizeMb: totalFileSizeMb(selectedFiles),
+                queueTotal: queuedFileCount,
+                queueUpload: true,
+            });
+            navigate('/tasks');
             try {
                 await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark||false,
@@ -1876,9 +2016,13 @@ const Dashboard = () => {
                     sttLanguage: settings.sttLanguage||'auto',
                 });
                 setCurrentJob(null);
-                navigate('/tasks');
+                navigate('/tasks', {replace:true, state:{queueSubmittedAt: Date.now()}});
             } catch(err) {
-                setUploadError(err.message || "Queue failed.");
+                setCurrentJob(null);
+                navigate('/tasks', {
+                    replace:true,
+                    state:{queueSubmitError: friendlyTaskError(err.message || "Queue failed.", lang)},
+                });
             }
             return;
         }
@@ -2298,6 +2442,44 @@ const Dashboard = () => {
                         </div>
 
                         <div className="col-span-12 lg:col-span-3 flex flex-col gap-5">
+                            {!guestMode && localHistoryImport?.candidates?.length > 0 && (
+                                <div className="rounded-sm border border-primary/25 bg-primary/10 p-4 text-sm text-on-surface shadow-sm">
+                                    <div className="flex items-start gap-3">
+                                        <span className="material-symbols-outlined text-primary">sync</span>
+                                        <div className="min-w-0 flex-1">
+                                            <h4 className="font-bold text-on-surface">{lang==='zh'?'发现本机历史':'Local history found'}</h4>
+                                            <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
+                                                {lang==='zh'
+                                                    ? `本机有 ${localHistoryImport.candidates.length} 条旧记录尚未进入当前账号。确认后会上传转录文本和摘要，用于多端同步。`
+                                                    : `${localHistoryImport.candidates.length} local records are not in this account yet. Import uploads transcripts and summaries for cross-device sync.`}
+                                            </p>
+                                            {localHistoryImport.error && (
+                                                <p className="mt-2 text-xs font-semibold text-red-600">{localHistoryImport.error}</p>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={importLocalHistory}
+                                                disabled={localHistoryImport.importing}
+                                                className="mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-sm bg-primary px-3 text-xs font-bold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                                            >
+                                                <span className={`material-symbols-outlined text-[16px] ${localHistoryImport.importing ? 'animate-spin' : ''}`}>
+                                                    {localHistoryImport.importing ? 'sync' : 'cloud_upload'}
+                                                </span>
+                                                {localHistoryImport.importing
+                                                    ? (lang==='zh'?'正在导入':'Importing')
+                                                    : (lang==='zh'?'导入当前账号':'Import to account')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {!guestMode && localHistoryImport?.importedCount > 0 && (
+                                <div className="rounded-sm border border-green-500/20 bg-green-500/10 p-3 text-xs font-semibold text-green-700 dark:text-green-300">
+                                    {lang==='zh'
+                                        ? `已导入 ${localHistoryImport.importedCount} 条本机历史到当前账号。`
+                                        : `Imported ${localHistoryImport.importedCount} local records to this account.`}
+                                </div>
+                            )}
                             <div className="flex items-center justify-between px-2">
                         <h4 className="font-headline text-xl font-bold text-on-surface">{t('dash.recent')}</h4>
                         <Link to="/tasks" className="text-xs font-bold text-primary hover:underline">{t('dash.viewAll')}</Link>
@@ -2341,12 +2523,14 @@ const Dashboard = () => {
 /* ═══════════════ Background Tasks ═══════════════ */
 const Tasks = () => {
     const {t, lang} = useI18n();
-    const {setLastResult, setCurrentJob, addToHistory} = useApp();
+    const {currentJob, setLastResult, setCurrentJob, addToHistory} = useApp();
     const {getJobs, getJob, downloadJobArtifact} = useApi();
     const navigate = useNavigate();
+    const location = useLocation();
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState(() => location.state?.queueSubmitError || null);
+    const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
 
     const loadJobs = useCallback(async () => {
         try {
@@ -2359,6 +2543,18 @@ const Tasks = () => {
             setLoading(false);
         }
     }, [lang]);
+
+    useEffect(() => {
+        if(location.state?.queueSubmitError) {
+            navigate('/tasks', {replace:true, state:{}});
+            return;
+        }
+        if(location.state?.queueSubmittedAt) {
+            setLoading(true);
+            loadJobs();
+            navigate('/tasks', {replace:true, state:{}});
+        }
+    }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, loadJobs]);
 
     useEffect(() => {
         let stale = false;
@@ -2464,7 +2660,39 @@ const Tasks = () => {
                     )}
 
                     <section className="space-y-3">
-                        {jobs.length === 0 && !loading && (
+                        {queueUploadJob && (
+                            <article className="rounded-sm bg-surface-container-lowest border border-primary/20 shadow-sm p-5">
+                                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <div className="w-10 h-10 rounded-sm bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                                            <span className="material-symbols-outlined text-lg animate-spin">sync</span>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h2 className="text-base font-headline font-bold text-on-surface">
+                                                {lang === 'zh' ? '正在上传到后台任务' : 'Uploading to background tasks'}
+                                            </h2>
+                                            <p className="text-sm text-on-surface-variant mt-1">
+                                                {lang === 'zh'
+                                                    ? `已选择 ${queueUploadJob.queueTotal || 0} 个文件，上传完成后会自动出现在任务列表。`
+                                                    : `${queueUploadJob.queueTotal || 0} files selected. They will appear here after upload finishes.`}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 lg:w-[280px]">
+                                        <div className="rounded-sm bg-surface-container-low px-3 py-2">
+                                            <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('dash.elapsed')}</p>
+                                            <p className="text-sm font-semibold text-on-surface mt-1">{fmtElapsed(Math.floor((Date.now() - (queueUploadJob.startedAt || Date.now())) / 1000))}</p>
+                                        </div>
+                                        <div className="rounded-sm bg-surface-container-low px-3 py-2">
+                                            <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('dash.fileSize')}</p>
+                                            <p className="text-sm font-semibold text-on-surface mt-1">{fmtFileSize(queueUploadJob.fileSizeMb)}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-4 h-2 rounded-full overflow-hidden bg-surface-container-highest progress-indeterminate"></div>
+                            </article>
+                        )}
+                        {jobs.length === 0 && !loading && !queueUploadJob && (
                             <div className="rounded-sm bg-surface-container-lowest border ff-border-muted p-10 text-center">
                                 <span className="material-symbols-outlined text-4xl text-outline mb-3">pending_actions</span>
                                 <p className="text-sm text-on-surface-variant">{t('tasks.empty')}</p>
@@ -4848,7 +5076,7 @@ const AccessGate = ({children}) => {
             const nextMode = data.auth_mode || (data.access_required ? 'access_code' : 'open');
             const nextRequired = !!(data.account_required || data.access_required);
             const nextGuestTrial = data.guest_trial || null;
-            const nextGuestAllowed = !!nextGuestTrial?.enabled && nextRequired && !data.authenticated;
+            const nextGuestAllowed = !!nextGuestTrial?.enabled && nextRequired && !data.authenticated && !data.bootstrap_required;
             setAuthMode(nextMode);
             setRequired(nextRequired);
             setAuthenticated(!nextRequired || !!data.authenticated || nextGuestAllowed);

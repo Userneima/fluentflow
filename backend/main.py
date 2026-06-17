@@ -1631,6 +1631,165 @@ def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
     return {"pruned_count": len(pruned_task_ids), "task_ids": pruned_task_ids}
 
 
+def _import_text(value: Any, max_chars: int) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if len(text) > max_chars:
+        raise HTTPException(status_code=413, detail="Imported history entry is too large.")
+    return text
+
+
+def _import_segments(value: Any, max_segments: int = 5000) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    clean: list[dict[str, Any]] = []
+    for item in value[:max_segments]:
+        if not isinstance(item, dict):
+            continue
+        segment: dict[str, Any] = {}
+        for key in ("start", "end"):
+            try:
+                segment[key] = float(item[key])
+            except Exception:
+                pass
+        text = str(item.get("text") or "").strip()
+        if text:
+            segment["text"] = text[:5000]
+        if segment:
+            clean.append(segment)
+    return clean
+
+
+def _import_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _normalize_import_entry(entry: dict[str, Any], max_chars: int) -> dict[str, Any] | None:
+    raw_result = entry.get("result") if isinstance(entry.get("result"), dict) else {}
+    original_task_id = str(
+        raw_result.get("task_id") or entry.get("task_id") or entry.get("taskId") or ""
+    ).strip()
+    filename = str(
+        raw_result.get("filename")
+        or raw_result.get("source_filename")
+        or entry.get("name")
+        or entry.get("source_filename")
+        or "Imported transcript"
+    ).strip()[:240]
+    transcript_text = _import_text(
+        raw_result.get("transcript_text")
+        or raw_result.get("cleaned_transcript_text")
+        or entry.get("transcriptText")
+        or "",
+        max_chars,
+    )
+    summary_markdown = _import_text(
+        raw_result.get("summary_markdown") or entry.get("summary") or "",
+        max_chars,
+    )
+    segments = _import_segments(raw_result.get("segments") or entry.get("segments"))
+    if not transcript_text and segments:
+        transcript_text = "\n".join(str(seg.get("text") or "") for seg in segments if seg.get("text"))[:max_chars]
+    if not transcript_text and not summary_markdown:
+        return None
+
+    source_fingerprint = str(
+        raw_result.get("source_fingerprint") or entry.get("sourceFingerprint") or ""
+    ).strip()[:128] or None
+    audio_duration = _import_number(raw_result.get("audio_duration_seconds") or entry.get("audioDurationSec"))
+    stt_elapsed = _import_number(raw_result.get("stt_elapsed_seconds") or entry.get("sttElapsedSec"))
+    timestamp_raw = entry.get("timestamp") or raw_result.get("timestamp")
+    try:
+        imported_timestamp = int(float(timestamp_raw)) if timestamp_raw else None
+    except Exception:
+        imported_timestamp = None
+
+    result: dict[str, Any] = {
+        "status": "completed",
+        "filename": filename,
+        "source": raw_result.get("source") or entry.get("source") or "imported_local_history",
+        "transcript_text": transcript_text,
+        "segments": segments,
+        "summary_markdown": summary_markdown,
+        "summary_skipped": bool(raw_result.get("summary_skipped") or entry.get("summarySkipped")),
+        "summary_status": raw_result.get("summary_status") or entry.get("summaryStatus") or ("completed" if summary_markdown else "skipped"),
+        "audio_duration_seconds": audio_duration or 0,
+        "stt_elapsed_seconds": stt_elapsed or 0,
+        "stt_provider": raw_result.get("stt_provider") or entry.get("sttProvider"),
+        "stt_provider_label": raw_result.get("stt_provider_label") or entry.get("sttProviderLabel"),
+        "stt_model": raw_result.get("stt_model") or entry.get("sttModel"),
+        "stt_speed": raw_result.get("stt_speed") or entry.get("sttSpeed"),
+        "stt_language": raw_result.get("stt_language") or entry.get("sttLanguage"),
+        "detected_language": raw_result.get("detected_language") or entry.get("detectedLanguage"),
+        "source_fingerprint": source_fingerprint,
+        "source_file_available": False,
+        "playback_audio_available": False,
+        "imported_from_local_history": True,
+        "original_task_id": original_task_id or None,
+    }
+    if raw_result.get("transcript_edited") or entry.get("transcriptEdited"):
+        result["transcript_edited"] = True
+        result["transcript_edited_at"] = raw_result.get("transcript_edited_at") or entry.get("transcriptEditedAt")
+        result["transcript_edit_records"] = raw_result.get("transcript_edit_records") or entry.get("transcriptEditRecords") or []
+    return {
+        "original_task_id": original_task_id or None,
+        "source_fingerprint": source_fingerprint,
+        "filename": filename,
+        "imported_timestamp": imported_timestamp,
+        "source": result["source"],
+        "result": {k: v for k, v in result.items() if v is not None},
+        "source_file_size_mb": _import_number(entry.get("source_file_size_mb") or entry.get("sourceFileSizeMb")),
+    }
+
+
+def _existing_import_keys(client_id: str) -> set[str]:
+    keys: set[str] = set()
+    for job in list_jobs_for_retention(client_id=client_id):
+        task_id = str(job.get("task_id") or "")
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        for value in (
+            task_id,
+            metadata.get("original_task_id"),
+            metadata.get("source_fingerprint"),
+            result.get("original_task_id"),
+            result.get("source_fingerprint"),
+        ):
+            if value:
+                keys.add(str(value))
+    return keys
+
+
+def _import_task_id(account_id: str, entry: dict[str, Any]) -> str:
+    source = "|".join(
+        str(value or "")
+        for value in (
+            account_id,
+            entry.get("original_task_id"),
+            entry.get("source_fingerprint"),
+            entry.get("filename"),
+            entry.get("imported_timestamp"),
+        )
+    )
+    return f"imported_{hashlib.sha256(source.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _local_history_export_allowed(request: Request) -> bool:
+    if not _cloud_workspace_enabled():
+        return False
+    client_host = (request.client.host if request.client else "") or ""
+    url_host = request.url.hostname or ""
+    allowed = {"127.0.0.1", "localhost", "::1", "testclient"}
+    return client_host in allowed or url_host in allowed
+
+
 def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
     next_result = dict(result)
     artifacts = dict(next_result.get("artifacts") or {})
@@ -2923,6 +3082,88 @@ def account_quota(request: Request) -> dict[str, Any]:
     return account_quota_summary(str(user["id"]))
 
 
+@app.post("/account/import-history")
+def import_account_history(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    user = _require_account_user(request)
+    client_id = _request_client_scope(request)
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="entries must be a list")
+
+    max_entries = max(1, min(int(os.environ.get("FLUENTFLOW_IMPORT_HISTORY_MAX_ENTRIES", "100")), 300))
+    max_chars = max(1000, int(os.environ.get("FLUENTFLOW_IMPORT_HISTORY_MAX_CHARS", "1000000")))
+    existing_keys = _existing_import_keys(client_id)
+    imported: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+
+    for raw_entry in entries[:max_entries]:
+        if not isinstance(raw_entry, dict):
+            skipped.append({"reason": "invalid_entry"})
+            continue
+        normalized = _normalize_import_entry(raw_entry, max_chars=max_chars)
+        if not normalized:
+            skipped.append({"reason": "empty_result"})
+            continue
+        dedupe_keys = {
+            str(value)
+            for value in (normalized.get("original_task_id"), normalized.get("source_fingerprint"))
+            if value
+        }
+        if dedupe_keys & existing_keys:
+            skipped.append({
+                "reason": "duplicate",
+                "original_task_id": normalized.get("original_task_id"),
+                "filename": normalized.get("filename"),
+            })
+            continue
+
+        task_id_value = _import_task_id(str(user["id"]), normalized)
+        if task_id_value in existing_keys or get_job(task_id_value, client_id=client_id):
+            skipped.append({
+                "reason": "duplicate",
+                "original_task_id": normalized.get("original_task_id"),
+                "filename": normalized.get("filename"),
+            })
+            continue
+
+        result = dict(normalized["result"])
+        result["task_id"] = task_id_value
+        result = _attach_result_artifacts(task_id_value, result)
+        metadata = _metadata(
+            source_type="imported_local_history",
+            original_task_id=normalized.get("original_task_id"),
+            source_fingerprint=normalized.get("source_fingerprint"),
+            imported_by_account_id=str(user["id"]),
+            imported_timestamp=normalized.get("imported_timestamp"),
+        )
+        upsert_job(
+            task_id=task_id_value,
+            status="completed",
+            client_id=client_id,
+            stage="done",
+            progress=100,
+            source_type=str(normalized.get("source") or "imported_local_history"),
+            source_filename=str(normalized.get("filename") or "Imported transcript"),
+            source_file_size_mb=normalized.get("source_file_size_mb"),
+            summary_status=result.get("summary_status") or "completed",
+            result=result,
+            metadata=metadata,
+        )
+        job = get_job(task_id_value, client_id=client_id)
+        if job:
+            imported.append(job)
+        existing_keys.add(task_id_value)
+        existing_keys.update(dedupe_keys)
+
+    return {
+        "ok": True,
+        "imported_count": len(imported),
+        "skipped_count": len(skipped),
+        "imported": imported,
+        "skipped": skipped,
+    }
+
+
 @app.get("/admin/users")
 def admin_list_users(request: Request, limit: int = 100) -> dict[str, Any]:
     _require_admin_user(request)
@@ -3232,6 +3473,19 @@ def azure_speech_smoke_test(payload: dict[str, Any] = Body(default={})) -> dict[
 @app.get("/jobs")
 def get_jobs(request: Request, limit: int = 50) -> dict[str, Any]:
     return {"jobs": list_jobs(limit=limit, client_id=_request_client_scope(request))}
+
+
+@app.get("/local-history/candidates")
+def local_history_candidates(request: Request, limit: int = 100) -> dict[str, Any]:
+    if not _local_history_export_allowed(request):
+        raise HTTPException(status_code=404, detail="Local history export is unavailable.")
+    safe_limit = max(1, min(int(limit or 100), 200))
+    candidates = [
+        job
+        for job in list_jobs(limit=safe_limit)
+        if job.get("status") == "completed" and isinstance(job.get("result"), dict)
+    ]
+    return {"jobs": candidates, "count": len(candidates)}
 
 
 @app.get("/jobs/{task_id}")

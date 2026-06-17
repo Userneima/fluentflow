@@ -113,6 +113,12 @@ Always judge the product type before applying visual taste rules:
 - Do not sacrifice core task completion, readability, accessibility, or performance for visual novelty.
 - Avoid replacing one template with another; use taste skills to serve the product goal, not to impose a fixed aesthetic.
 
+## FluentFlow UI / Dark Mode Standards
+
+- Before creating, redesigning, or visually refactoring FluentFlow UI, read `docs/ui_design_system.md`.
+- For dark mode or theme-related work, use the project's semantic Tailwind tokens and CSS variables as the source of truth.
+- Do not add raw color utilities for persistent surfaces unless the local migration context makes it unavoidable; when touching an old area, prefer replacing raw colors with semantic tokens.
+
 ---
 
 # Execution Standards
@@ -176,6 +182,13 @@ Do not overuse this for small localized fixes, copy tweaks, visual polish, or na
 After modifications:
 - Run relevant test / lint / build when available
 - Do not claim completion without verification
+
+## UI Visual Review Boundary
+For UI-page visual polish where the main question is subjective appearance, color balance, spacing, or taste:
+- Codex should make the targeted code change and run only the fast necessary checks, usually frontend build and lightweight static validation.
+- Do not spend time on repeated browser screenshot loops unless the user explicitly asks for rendered QA or the change affects interaction, routing, login, upload, payment, data state, or other functional behavior.
+- Let the user review the actual visual result in the local app and provide screenshot/text feedback for further iteration.
+- Still update cache-busting asset versions when needed so the user sees the latest local UI.
 
 ---
 

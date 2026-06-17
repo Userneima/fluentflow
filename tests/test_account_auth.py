@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 import backend.main as main
+from backend.core import job_store
 
 
 def _enable_account_auth(monkeypatch, tmp_path) -> None:
@@ -11,6 +14,29 @@ def _enable_account_auth(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
     monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+
+
+def _patch_job_store(monkeypatch, db_path: Path) -> None:
+    monkeypatch.setattr(
+        main,
+        "upsert_job",
+        lambda **kwargs: job_store.upsert_job(**kwargs, db_path=db_path),
+    )
+    monkeypatch.setattr(
+        main,
+        "get_job",
+        lambda task_id, client_id=None: job_store.get_job(task_id, db_path=db_path, client_id=client_id),
+    )
+    monkeypatch.setattr(
+        main,
+        "list_jobs",
+        lambda limit=50, client_id=None: job_store.list_jobs(limit=limit, db_path=db_path, client_id=client_id),
+    )
+    monkeypatch.setattr(
+        main,
+        "list_jobs_for_retention",
+        lambda client_id=None: job_store.list_jobs_for_retention(db_path=db_path, client_id=client_id),
+    )
 
 
 def test_account_status_bootstraps_first_admin(monkeypatch, tmp_path) -> None:
@@ -157,3 +183,42 @@ def test_account_user_without_balance_cannot_start_processing(monkeypatch, tmp_p
     assert response.status_code == 402
     detail = response.json()["detail"]
     assert detail["required_units"] > detail["balance_units"]
+
+
+def test_account_import_history_creates_account_job_and_dedupes(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+
+    entry = {
+        "taskId": "local-task-1",
+        "name": "Local lesson.mp4",
+        "timestamp": 1_718_000_000_000,
+        "source": "local_desktop",
+        "sourceFingerprint": "fingerprint-1",
+        "transcriptText": "hello from local history",
+        "segments": [{"start": 0, "end": 1.2, "text": "hello from local history"}],
+        "summary": "## Summary\nLocal note",
+        "audioDurationSec": 72,
+        "sttElapsedSec": 8,
+        "sttProvider": "azure_batch",
+    }
+
+    with TestClient(main.app) as client:
+        unauthenticated = client.post("/account/import-history", json={"entries": [entry]})
+        register = client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
+        first = client.post("/account/import-history", json={"entries": [entry]})
+        second = client.post("/account/import-history", json={"entries": [entry]})
+        jobs = client.get("/jobs")
+
+    assert unauthenticated.status_code == 401
+    assert register.status_code == 200
+    assert first.status_code == 200
+    assert first.json()["imported_count"] == 1
+    assert first.json()["imported"][0]["client_id"] == f"user:{register.json()['user']['id']}"
+    assert first.json()["imported"][0]["result"]["transcript_text"] == "hello from local history"
+    assert second.status_code == 200
+    assert second.json()["imported_count"] == 0
+    assert second.json()["skipped"][0]["reason"] == "duplicate"
+    assert jobs.status_code == 200
+    assert len(jobs.json()["jobs"]) == 1
