@@ -3230,6 +3230,11 @@ def runtime_config() -> dict[str, Any]:
     }
 
 
+@app.get("/favicon.ico")
+def favicon() -> Response:
+    return Response(status_code=204)
+
+
 @app.get("/speaker-diarization/status")
 def get_speaker_diarization_status() -> dict[str, Any]:
     return diarization_status()
@@ -3478,14 +3483,14 @@ def get_jobs(request: Request, limit: int = 50) -> dict[str, Any]:
 @app.get("/local-history/candidates")
 def local_history_candidates(request: Request, limit: int = 100) -> dict[str, Any]:
     if not _local_history_export_allowed(request):
-        raise HTTPException(status_code=404, detail="Local history export is unavailable.")
+        return {"jobs": [], "count": 0, "available": False}
     safe_limit = max(1, min(int(limit or 100), 200))
     candidates = [
         job
         for job in list_jobs(limit=safe_limit)
         if job.get("status") == "completed" and isinstance(job.get("result"), dict)
     ]
-    return {"jobs": candidates, "count": len(candidates)}
+    return {"jobs": candidates, "count": len(candidates), "available": True}
 
 
 @app.get("/jobs/{task_id}")

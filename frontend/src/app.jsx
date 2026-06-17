@@ -4318,9 +4318,9 @@ const Editor = () => {
                                         </div>
 	                            )) : (
                                     <div className="min-h-full flex flex-col gap-3">
-                                        <div className="rounded-sm border border-amber-200/60 bg-amber-50/60 px-3 py-2 flex items-start gap-2">
-                                            <span className="material-symbols-outlined text-amber-700 text-base mt-0.5">info</span>
-                                            <p className="text-xs leading-relaxed text-slate-700">
+                                        <div className="rounded-sm border border-primary/20 bg-primary/5 px-3.5 py-3 flex items-start gap-3">
+                                            <span className="material-symbols-outlined text-primary text-base mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">info</span>
+                                            <p className="text-xs leading-relaxed text-on-surface-variant">
                                                 {lang==='zh'
                                                     ? '当前结果没有时间戳分段，只能按纯文本编辑。常见原因是旧历史记录、纯文本导入，或任务结果没有成功写入后端。重新转录原音频后会恢复左侧时间戳分段。'
                                                     : 'This result has no timestamped segments, so it is shown as plain text. This usually comes from old history, plain-text import, or a result that was not saved to the backend. Retranscribing the source audio restores timestamped segments.'}
@@ -4550,27 +4550,25 @@ const Admin = () => {
     }
 
     return (
-        <div className="ml-64 min-h-screen bg-surface">
-            <main className="mx-auto max-w-7xl px-8 py-8">
+        <div className="ml-64 min-h-screen overflow-x-hidden bg-surface">
+            <main className="mx-auto w-full max-w-[1500px] px-6 py-8 lg:px-8">
                 <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-primary">
-                            {lang === 'zh' ? 'Admin' : 'Admin'}
-                        </p>
+                    <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-primary">Admin</p>
                         <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-on-surface font-headline">
                             {lang === 'zh' ? '用户额度维护' : 'User balance maintenance'}
                         </h1>
                         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-on-surface-variant">
                             {lang === 'zh'
-                                ? '用于早期手动充值：查用户余额和最近流水，按原因增减处理额度。'
-                                : 'Manual early-stage recharge: inspect balances and recent ledger entries, then adjust processing units with a reason.'}
+                                ? '查余额、看流水、按原因手动增减处理额度。'
+                                : 'Inspect balances, review ledger entries, and adjust processing units with a reason.'}
                         </p>
                     </div>
                     <button
                         type="button"
                         onClick={()=>loadUsers(selectedUser?.id || '')}
                         disabled={loading}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-700 disabled:opacity-50"
+                        className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm bg-primary px-4 text-sm font-bold text-white transition hover:bg-primary/90 active:translate-y-px disabled:opacity-50"
                     >
                         <span className={`material-symbols-outlined text-[18px] ${loading ? 'animate-spin' : ''}`}>sync</span>
                         {lang === 'zh' ? '刷新' : 'Refresh'}
@@ -4578,31 +4576,31 @@ const Admin = () => {
                 </header>
 
                 {(error || notice) && (
-                    <div className={`mb-5 rounded-sm px-4 py-3 text-sm font-semibold ${error ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                    <div className={`mb-5 rounded-sm border px-4 py-3 text-sm font-semibold ${error ? 'border-red-500/20 bg-red-500/10 text-red-600' : 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300'}`}>
                         {error || notice}
                     </div>
                 )}
 
-                <div className="grid gap-6 xl:grid-cols-[minmax(340px,420px)_1fr]">
-                    <section className="rounded-sm bg-surface-container-lowest shadow-sm ring-1 ring-outline-variant/25">
+                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+                    <section className="min-w-0 overflow-hidden rounded-sm bg-surface-container-lowest shadow-sm ring-1 ring-outline-variant/25">
                         <div className="border-b ff-border-muted p-4">
                             <div className="flex items-center justify-between gap-3">
                                 <h2 className="text-sm font-bold text-on-surface font-headline">
                                     {lang === 'zh' ? '账号列表' : 'Accounts'}
                                 </h2>
-                                <span className="text-xs font-semibold text-on-surface-variant">{filteredUsers.length}</span>
+                                <span className="text-xs font-semibold tabular-nums text-on-surface-variant">{filteredUsers.length}</span>
                             </div>
-                            <div className="mt-3 flex h-10 items-center gap-2 rounded-sm bg-surface-container-low px-3">
-                                <span className="material-symbols-outlined text-[18px] text-slate-400">search</span>
+                            <label className="mt-3 flex h-10 items-center gap-2 rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 focus-within:border-primary/60">
+                                <span className="material-symbols-outlined text-[18px] text-outline">search</span>
                                 <input
                                     value={query}
                                     onChange={(e)=>setQuery(e.target.value)}
-                                    className="h-full min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-slate-400"
+                                    className="h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-on-surface outline-none placeholder:text-outline"
                                     placeholder={lang === 'zh' ? '搜索邮箱或用户 ID' : 'Search email or user ID'}
                                 />
-                            </div>
+                            </label>
                         </div>
-                        <div className="max-h-[calc(100vh-270px)] overflow-y-auto hide-scrollbar">
+                        <div className="max-h-[calc(100vh-265px)] overflow-y-auto hide-scrollbar">
                             {loading && users.length === 0 ? (
                                 <div className="space-y-3 p-4">
                                     {[0,1,2].map((item) => <div key={item} className="h-16 animate-pulse rounded-sm bg-surface-container-low"/>)}
@@ -4621,7 +4619,7 @@ const Admin = () => {
                                                 key={item.id}
                                                 type="button"
                                                 onClick={()=>setSelectedId(item.id)}
-                                                className={`w-full px-4 py-3 text-left transition ${active ? 'bg-blue-50' : 'hover:bg-surface-container-low'}`}
+                                                className={`w-full px-4 py-3 text-left transition active:translate-y-px ${active ? 'bg-primary/10' : 'hover:bg-surface-container-low'}`}
                                             >
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="min-w-0">
@@ -4630,11 +4628,11 @@ const Admin = () => {
                                                             {item.role || 'user'} · {item.status || 'active'}
                                                         </p>
                                                     </div>
-                                                    <span className={`rounded-sm px-2 py-1 text-xs font-extrabold tabular-nums ${balance < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
+                                                    <span className={`rounded-sm px-2 py-1 text-xs font-extrabold tabular-nums ${balance < 0 ? 'bg-red-500/10 text-red-600' : 'bg-surface-container text-on-surface-variant'}`}>
                                                         {balance}
                                                     </span>
                                                 </div>
-                                                <p className="mt-2 text-[11px] font-medium text-slate-400">
+                                                <p className="mt-2 text-[11px] font-medium text-on-surface-variant">
                                                     {lang === 'zh' ? '最近登录' : 'Last login'} {fmtDateTime(item.last_login_at, lang)}
                                                 </p>
                                             </button>
@@ -4645,12 +4643,12 @@ const Admin = () => {
                         </div>
                     </section>
 
-                    <section className="min-w-0 space-y-6">
+                    <section className="min-w-0 space-y-5">
                         {selectedUser ? (
                             <>
-                                <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-                                    <div className="rounded-sm bg-surface-container-lowest p-5 shadow-sm ring-1 ring-outline-variant/25">
-                                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]">
+                                    <div className="min-w-0 rounded-sm bg-surface-container-lowest p-5 shadow-sm ring-1 ring-outline-variant/25">
+                                        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_160px]">
                                             <div className="min-w-0">
                                                 <h2 className="truncate text-xl font-bold tracking-tight text-on-surface font-headline" title={selectedUser.email || ''}>
                                                     {selectedUser.email}
@@ -4664,20 +4662,20 @@ const Admin = () => {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className="w-full rounded-sm bg-blue-50 px-4 py-3 sm:w-auto sm:min-w-[150px]">
-                                                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-500">
+                                            <div className="rounded-sm bg-primary/10 px-4 py-3">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-primary">
                                                     {lang === 'zh' ? '当前额度' : 'Balance'}
                                                 </p>
-                                                <p className="mt-1 text-3xl font-extrabold leading-none text-blue-700 tabular-nums">{selectedBalance}</p>
+                                                <p className="mt-1 text-3xl font-extrabold leading-none text-primary tabular-nums">{selectedBalance}</p>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <form onSubmit={submitAdjustment} className="rounded-sm bg-surface-container-lowest p-5 shadow-sm ring-1 ring-outline-variant/25">
+                                    <form onSubmit={submitAdjustment} className="min-w-0 rounded-sm bg-surface-container-lowest p-5 shadow-sm ring-1 ring-outline-variant/25">
                                         <h2 className="text-sm font-bold text-on-surface font-headline">
                                             {lang === 'zh' ? '手动调整额度' : 'Manual adjustment'}
                                         </h2>
-                                        <div className="mt-4 space-y-3">
+                                        <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
                                             <label className="block space-y-1.5">
                                                 <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
                                                     {lang === 'zh' ? '额度变化' : 'Unit delta'}
@@ -4687,8 +4685,8 @@ const Admin = () => {
                                                     step="1"
                                                     value={units}
                                                     onChange={(e)=>setUnits(e.target.value)}
-                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-bold tabular-nums outline-none focus:border-primary/60 focus:ring-0"
-                                                    placeholder={lang === 'zh' ? '例如 100 或 -20' : 'e.g. 100 or -20'}
+                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-bold tabular-nums text-on-surface outline-none focus:border-primary/60 focus:ring-0"
+                                                    placeholder={lang === 'zh' ? '例如 100' : 'e.g. 100'}
                                                 />
                                             </label>
                                             <label className="block space-y-1.5">
@@ -4699,11 +4697,11 @@ const Admin = () => {
                                                     type="text"
                                                     value={reason}
                                                     onChange={(e)=>setReason(e.target.value)}
-                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-semibold outline-none focus:border-primary/60 focus:ring-0"
-                                                    placeholder={lang === 'zh' ? '例如 微信手动充值' : 'e.g. Manual WeChat recharge'}
+                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
+                                                    placeholder={lang === 'zh' ? '微信手动充值' : 'Manual recharge'}
                                                 />
                                             </label>
-                                            <label className="block space-y-1.5">
+                                            <label className="block space-y-1.5 sm:col-span-2 2xl:col-span-1">
                                                 <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
                                                     {lang === 'zh' ? '凭证备注' : 'Reference'}
                                                 </span>
@@ -4711,14 +4709,14 @@ const Admin = () => {
                                                     type="text"
                                                     value={providerReference}
                                                     onChange={(e)=>setProviderReference(e.target.value)}
-                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-semibold outline-none focus:border-primary/60 focus:ring-0"
+                                                    className="h-10 w-full rounded-sm border border-outline-variant/40 bg-surface-container-low px-3 text-sm font-semibold text-on-surface outline-none focus:border-primary/60 focus:ring-0"
                                                     placeholder={lang === 'zh' ? '可选，订单号或截图编号' : 'Optional order or screenshot ID'}
                                                 />
                                             </label>
                                             <button
                                                 type="submit"
                                                 disabled={submitting || !units || !reason.trim()}
-                                                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm bg-primary px-4 text-sm font-extrabold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                                                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm bg-primary px-4 text-sm font-extrabold text-white transition hover:bg-primary/90 active:translate-y-px disabled:opacity-50 sm:col-span-2 2xl:col-span-1"
                                             >
                                                 <span className="material-symbols-outlined text-[18px]">{submitting ? 'hourglass_top' : 'add_card'}</span>
                                                 {submitting ? (lang === 'zh' ? '提交中' : 'Saving') : (lang === 'zh' ? '提交调整' : 'Apply adjustment')}
@@ -4727,13 +4725,13 @@ const Admin = () => {
                                     </form>
                                 </div>
 
-                                <div className="rounded-sm bg-surface-container-lowest shadow-sm ring-1 ring-outline-variant/25">
+                                <div className="min-w-0 overflow-hidden rounded-sm bg-surface-container-lowest shadow-sm ring-1 ring-outline-variant/25">
                                     <div className="border-b ff-border-muted px-5 py-4">
                                         <div className="flex items-center justify-between gap-3">
                                             <h2 className="text-sm font-bold text-on-surface font-headline">
                                                 {lang === 'zh' ? '最近余额流水' : 'Recent ledger'}
                                             </h2>
-                                            <span className="text-xs font-semibold text-on-surface-variant">
+                                            <span className="text-xs font-semibold tabular-nums text-on-surface-variant">
                                                 {transactions.length}
                                             </span>
                                         </div>
@@ -4744,7 +4742,7 @@ const Admin = () => {
                                         </div>
                                     ) : (
                                         <div className="overflow-x-auto">
-                                            <table className="w-full min-w-[760px] text-left text-sm">
+                                            <table className="w-full min-w-[720px] text-left text-sm">
                                                 <thead className="bg-surface-container-low text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
                                                     <tr>
                                                         <th className="px-5 py-3">{lang === 'zh' ? '时间' : 'Time'}</th>
@@ -4762,14 +4760,14 @@ const Admin = () => {
                                                             <tr key={tx.id} className="hover:bg-surface-container-low/60">
                                                                 <td className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-on-surface-variant">{fmtDateTime(tx.created_at, lang)}</td>
                                                                 <td className="whitespace-nowrap px-5 py-3 font-semibold text-on-surface">{tx.transaction_type}</td>
-                                                                <td className={`whitespace-nowrap px-5 py-3 text-right font-extrabold tabular-nums ${delta >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                                                <td className={`whitespace-nowrap px-5 py-3 text-right font-extrabold tabular-nums ${delta >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-600'}`}>
                                                                     {delta > 0 ? `+${delta}` : delta}
                                                                 </td>
                                                                 <td className="whitespace-nowrap px-5 py-3 text-right font-bold text-on-surface tabular-nums">{tx.balance_after}</td>
                                                                 <td className="max-w-[240px] px-5 py-3 text-on-surface-variant">
                                                                     <span className="line-clamp-2">{tx.reason || '-'}</span>
                                                                 </td>
-                                                                <td className="max-w-[220px] px-5 py-3 text-xs font-medium text-slate-400">
+                                                                <td className="max-w-[220px] px-5 py-3 text-xs font-medium text-on-surface-variant">
                                                                     <span className="line-clamp-2 break-all">{tx.task_id || tx.provider_reference || '-'}</span>
                                                                 </td>
                                                             </tr>
