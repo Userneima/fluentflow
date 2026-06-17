@@ -23,7 +23,13 @@ run_readiness() {
 
 restart_and_check() {
   systemctl restart "$SERVICE_NAME"
-  sleep 2
+  local attempt
+  for attempt in {1..30}; do
+    if systemctl is-active --quiet "$SERVICE_NAME" && curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
   systemctl is-active --quiet "$SERVICE_NAME"
   curl -fsS --max-time 15 "$HEALTH_URL" >/dev/null
 }
