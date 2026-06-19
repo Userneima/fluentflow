@@ -11,7 +11,7 @@
 
 ```mermaid
 flowchart TB
-  User["用户浏览器"] --> Frontend["静态前端<br/>frontend/assets"]
+  User["用户浏览器"] --> Frontend["Vite 静态前端<br/>frontend/dist"]
   Frontend --> API["FastAPI 后端<br/>backend/main.py"]
   API --> Jobs["SQLite 任务库<br/>fluentflow_jobs.sqlite"]
   API --> Events["SQLite 事件日志<br/>fluentflow_events.sqlite"]
@@ -30,10 +30,10 @@ flowchart TB
 
 主要文件：
 
-- `frontend/src/app.jsx`：React 前端源文件。
+- `frontend/src/app.jsx`：React 前端入口。
+- `frontend/src/routes/`：页面级模块。
 - `frontend/src/tailwind.css`：Tailwind 输入样式。
-- `frontend/assets/app.js`：构建后的前端 JS。
-- `frontend/assets/tailwind.css`：构建后的 CSS。
+- `frontend/dist/`：Vite 构建后的前端页面和带 hash 的 JS/CSS。
 
 构建命令：
 

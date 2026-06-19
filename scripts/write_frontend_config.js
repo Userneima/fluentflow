@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const outDir = path.join(root, "frontend", "assets");
+const outDir = path.join(root, "frontend", "public", "assets");
 const outFile = path.join(outDir, "config.js");
 
 const normalizeApiBase = (value) => {

@@ -270,11 +270,11 @@ STT 耗时强依赖设备性能，因此事件日志会记录：
 
 解决：将处理中心改为工作台，把高频运行参数前置；设置页只保留飞书凭证、提示词模板库、导出历史、主题和清除历史等低频内容。
 
-### 7. 前端运行方式从 CDN/Babel 迁到本地构建
+### 7. 前端运行方式迁到 Vite
 
-问题：页面依赖 `cdn.tailwindcss.com` 和浏览器内 Babel，会出现生产环境警告，也让 JSX 和 Tailwind 编译发生在用户浏览器中。
+问题：页面曾经历过 CDN/Babel、手写构建脚本和手动资源版本号，容易出现源码已改但浏览器仍加载旧 UI 的问题。
 
-解决：新增前端构建脚本，将 JSX 预编译为 `frontend/assets/app.js`，Tailwind 预编译为 `frontend/assets/tailwind.css`，`index.html` 只加载本地构建产物。
+解决：前端使用 Vite 构建，源码入口在 `frontend/src/app.jsx`，生产产物输出到 `frontend/dist/`，JS/CSS 资源由 Vite 自动 hash。
 
 ### 8. STT 模型下限从 small 调整为 medium
 

@@ -1,0 +1,11 @@
+{
+  "buildCommand": "npm run build:frontend",
+  "installCommand": "npm ci",
+  "outputDirectory": "frontend/dist",
+  "rewrites": [
+    {
+      "source": "/((?!assets/|favicon.ico).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

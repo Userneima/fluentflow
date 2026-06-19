@@ -520,7 +520,7 @@ try:
     from backend.core.transcript_parser import parse_transcript_file
     from backend.core.transcript_cleaner import clean_repeated_transcript
     from backend.core.event_logger import log_event
-    from backend.core.job_store import delete_jobs, get_job, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+    from backend.core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
     from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from backend.core.account_store import (
         authenticate_user,
@@ -555,7 +555,7 @@ except ImportError:
     from core.transcript_parser import parse_transcript_file
     from core.transcript_cleaner import clean_repeated_transcript
     from core.event_logger import log_event
-    from core.job_store import delete_jobs, get_job, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+    from core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
     from core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from core.account_store import (
         authenticate_user,
@@ -2257,28 +2257,45 @@ def _canonical_stt_provider(value: str | None) -> str:
     return "local"
 
 
-def _allowed_stt_providers() -> tuple[str, ...]:
+def _request_can_use_local_stt(request: Request | None = None) -> bool:
+    if not _public_mode_enabled():
+        return True
+    if request is None:
+        return False
+    if _request_is_internal_queue(request):
+        return True
+    try:
+        user = _request_account_user(request)
+    except Exception:
+        user = None
+    if user and user.get("role") == "admin":
+        return True
+    url_host = (request.url.hostname or "").strip().lower()
+    return url_host in {"127.0.0.1", "localhost", "::1", "testclient"}
+
+
+def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
     raw = os.environ.get("FLUENTFLOW_ALLOWED_STT_PROVIDERS")
     if raw is None or not raw.strip():
-        return ("azure_batch",) if _public_mode_enabled() else ("azure_batch", "local")
+        return ("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",)
     providers: list[str] = []
     for item in raw.split(","):
         provider = _canonical_stt_provider(item)
         if provider in {"azure_batch", "local"} and provider not in providers:
             providers.append(provider)
-    return tuple(providers) or (("azure_batch",) if _public_mode_enabled() else ("azure_batch", "local"))
+    return tuple(providers) or (("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",))
 
 
-def _default_stt_provider() -> str:
+def _default_stt_provider(request: Request | None = None) -> str:
     requested = _canonical_stt_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "azure_batch")
-    allowed = _allowed_stt_providers()
+    allowed = _allowed_stt_providers(request)
     return requested if requested in allowed else allowed[0]
 
 
-def _normalize_stt_provider(value: str | None) -> str:
-    provider = _canonical_stt_provider(value) if value else _default_stt_provider()
-    allowed = _allowed_stt_providers()
-    return provider if provider in allowed else _default_stt_provider()
+def _normalize_stt_provider(value: str | None, request: Request | None = None) -> str:
+    provider = _canonical_stt_provider(value) if value else _default_stt_provider(request)
+    allowed = _allowed_stt_providers(request)
+    return provider if provider in allowed else _default_stt_provider(request)
 
 
 def _stt_provider_label(provider: str) -> str:
@@ -3259,13 +3276,13 @@ def get_credentials_status() -> dict[str, Any]:
 
 
 @app.get("/runtime-config")
-def runtime_config() -> dict[str, Any]:
-    allowed = list(_allowed_stt_providers())
+def runtime_config(request: Request) -> dict[str, Any]:
+    allowed = list(_allowed_stt_providers(request))
     return {
         "public_mode": _public_mode_enabled(),
         "auth_mode": "accounts" if _account_auth_enabled() else ("access_code" if _access_control_enabled() else "open"),
         "allowed_stt_providers": allowed,
-        "default_stt_provider": _default_stt_provider(),
+        "default_stt_provider": _default_stt_provider(request),
         "show_maintainer_settings": not _public_mode_enabled(),
         "limits": _runtime_limits(),
         "guest_trial": _guest_trial_config(),
@@ -3518,8 +3535,14 @@ def azure_speech_smoke_test(payload: dict[str, Any] = Body(default={})) -> dict[
 
 
 @app.get("/jobs")
-def get_jobs(request: Request, limit: int = 50) -> dict[str, Any]:
-    return {"jobs": list_jobs(limit=limit, client_id=_request_client_scope(request))}
+def get_jobs(request: Request, limit: int = 50, include_result: bool = False) -> dict[str, Any]:
+    client_id = _request_client_scope(request)
+    jobs = (
+        list_jobs(limit=limit, client_id=client_id)
+        if include_result
+        else list_job_summaries(limit=limit, client_id=client_id)
+    )
+    return {"jobs": jobs}
 
 
 @app.get("/local-history/candidates")
@@ -3541,6 +3564,21 @@ def get_job_detail(request: Request, task_id: str) -> dict[str, Any]:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@app.delete("/jobs/{task_id}")
+def delete_job_detail(request: Request, task_id: str) -> dict[str, Any]:
+    client_id = _request_client_scope(request)
+    job = get_job(task_id, client_id=client_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") not in {"failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be deleted")
+    _cleanup_task_all_files(task_id, job.get("metadata"))
+    deleted = delete_jobs([task_id], client_id=client_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, "task_id": task_id, "deleted": True}
 
 
 @app.patch("/jobs/{task_id}/transcript")
@@ -4012,7 +4050,7 @@ async def process_video(
         model_size = "medium"
     speed_profile = (stt_speed or "").strip() or "balanced"
     language = (stt_language or "").strip() or "auto"
-    stt_provider_value = _normalize_stt_provider(stt_provider)
+    stt_provider_value = _normalize_stt_provider(stt_provider, request)
     azure_cloud_provider = stt_provider_value == "azure_batch"
     diarization_requested = _truthy_form(speaker_diarization)
     azure_endpoint_value: str | None = None
@@ -5670,8 +5708,10 @@ async def record_client_event(request: Request, payload: dict[str, Any] = Body(.
     return {"ok": True, "task_id": task_id_value}
 
 
-# Serve frontend assets and let direct client-side routes fall back to index.
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+# Serve Vite production assets and let direct client-side routes fall back to index.
+FRONTEND_ROOT = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_DIST_DIR = FRONTEND_ROOT / "dist"
+FRONTEND_DIR = FRONTEND_DIST_DIR if (FRONTEND_DIST_DIR / "index.html").exists() else FRONTEND_ROOT
 FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 API_ROUTE_PREFIXES = {
     "account",

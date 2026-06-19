@@ -15,7 +15,7 @@
 
 | 检查项 | 操作 | 通过标准 |
 | --- | --- | --- |
-| 前端构建 | `npm run build:frontend` | 无报错，`frontend/assets/app.js` 和 CSS 可更新 |
+| 前端构建 | `npm run build:frontend` | 无报错，`frontend/dist/` 生成 Vite hash 资源 |
 | 后端导入 | `python3 -m compileall backend scripts tests` | 无语法错误 |
 | 自动测试 | `PYTHONPATH=. ./venv/bin/pytest -q` | 现有测试通过 |
 | 首页可打开 | 访问 `http://127.0.0.1:8000` | 页面正常加载，无白屏 |

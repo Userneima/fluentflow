@@ -135,7 +135,7 @@ FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 npm run build:frontend
 ```
 
-只改 `frontend/src/app.jsx` 或 `frontend/src/tailwind.css` 后，需要重新构建，否则浏览器仍可能加载旧的 `frontend/assets/app.js` 和 CSS。
+只改 `frontend/src/` 后，需要重新构建。Vite 会输出新的 `frontend/dist/` hash 资源，后端会优先托管这个目录。
 
 ### 本地启动后端
 

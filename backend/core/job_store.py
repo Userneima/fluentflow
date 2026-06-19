@@ -154,6 +154,7 @@ def list_jobs(
     limit: int = 50,
     db_path: Path | str = DEFAULT_DB_PATH,
     client_id: str | None = None,
+    include_result: bool = True,
 ) -> list[dict[str, Any]]:
     ensure_job_db(db_path)
     safe_limit = max(1, min(int(limit or 50), 200))
@@ -169,7 +170,15 @@ def list_jobs(
                 "SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?",
                 (safe_limit,),
             ).fetchall()
-    return [_row_to_dict(row) for row in rows]
+    return [_row_to_dict(row) if include_result else _row_to_summary_dict(row) for row in rows]
+
+
+def list_job_summaries(
+    limit: int = 50,
+    db_path: Path | str = DEFAULT_DB_PATH,
+    client_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return list_jobs(limit=limit, db_path=db_path, client_id=client_id, include_result=False)
 
 
 def list_jobs_for_retention(
@@ -253,5 +262,65 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "summary_status": row["summary_status"],
         "error_reason": row["error_reason"],
         "result": _json_loads(row["result_json"]),
+        "metadata": _json_loads(row["metadata_json"]),
+    }
+
+
+def _result_summary(result: Any) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    lark_response = result.get("lark_response") if isinstance(result.get("lark_response"), dict) else None
+    summary_markdown = result.get("summary_markdown") or ""
+    transcript_text = result.get("transcript_text") or result.get("transcript_text_preview") or ""
+    return {
+        "task_id": result.get("task_id"),
+        "status": result.get("status"),
+        "filename": result.get("filename"),
+        "audio_duration_seconds": result.get("audio_duration_seconds"),
+        "stt_elapsed_seconds": result.get("stt_elapsed_seconds"),
+        "stt_realtime_factor": result.get("stt_realtime_factor"),
+        "stt_provider": result.get("stt_provider"),
+        "stt_provider_label": result.get("stt_provider_label"),
+        "stt_model": result.get("stt_model"),
+        "stt_speed": result.get("stt_speed"),
+        "stt_language": result.get("stt_language"),
+        "detected_language": result.get("detected_language"),
+        "summary_status": result.get("summary_status"),
+        "summary_error": result.get("summary_error"),
+        "summary_skipped": result.get("summary_skipped"),
+        "summary_markdown": str(summary_markdown)[:240] if summary_markdown else "",
+        "summary_preview": str(summary_markdown)[:240] if summary_markdown else "",
+        "transcript_text": str(transcript_text)[:240] if transcript_text else "",
+        "transcript_text_preview": str(transcript_text)[:240] if transcript_text else "",
+        "artifacts": result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {},
+        "lark_response": {"url": lark_response.get("url")} if lark_response and lark_response.get("url") else None,
+        "feishu_doc_url": result.get("feishu_doc_url"),
+        "lark_error": result.get("lark_error"),
+        "source_fingerprint": result.get("source_fingerprint"),
+        "playback_audio_available": result.get("playback_audio_available"),
+        "source_file_available": result.get("source_file_available"),
+        "requested_note_mode": result.get("requested_note_mode"),
+        "resolved_note_mode": result.get("resolved_note_mode"),
+        "note_mode_chunk_count": result.get("note_mode_chunk_count"),
+        "imported_from_local_history": result.get("imported_from_local_history"),
+    }
+
+
+def _row_to_summary_dict(row: sqlite3.Row) -> dict[str, Any]:
+    result = _result_summary(_json_loads(row["result_json"]))
+    return {
+        "task_id": row["task_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "status": row["status"],
+        "client_id": row["client_id"],
+        "stage": row["stage"],
+        "progress": row["progress"],
+        "source_type": row["source_type"],
+        "source_filename": row["source_filename"],
+        "source_file_size_mb": row["source_file_size_mb"],
+        "summary_status": row["summary_status"],
+        "error_reason": row["error_reason"],
+        "result": result,
         "metadata": _json_loads(row["metadata_json"]),
     }
