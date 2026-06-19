@@ -9,6 +9,8 @@ __pycache__/
 .env.before-*
 .DS_Store
 node_modules/
+frontend/dist/
+frontend/public/assets/config.js
 *.egg-info/
 .eggs/
 dist/

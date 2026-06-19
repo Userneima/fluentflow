@@ -1,6 +1,8 @@
-const {useState,useEffect,useRef,useCallback,useMemo,createContext,useContext} = React;
-const {createRoot} = ReactDOM;
-const {BrowserRouter,Routes,Route,Link,useNavigate,useLocation} = ReactRouterDOM;
+import React, {useState,useEffect,useRef,useCallback,useMemo,createContext,useContext} from 'react';
+import {createRoot} from 'react-dom/client';
+import {BrowserRouter,Routes,Route,Link,useNavigate,useLocation} from 'react-router-dom';
+import './tailwind.css';
+import Tasks from './routes/tasks.jsx';
 
 /** API 根路径：线上与后端同域时用相对路径；本地前端单独跑在其它端口时指向本机 8000。 */
 const API_BASE = (() => {
@@ -136,8 +138,101 @@ const minimizeHistoryEntry = (entry) => ({
     rawSegments: null,
 });
 const localHistoryKey = (entry) => {
-    if (!entry) return '';
-    return String(entry.taskId || entry.sourceFingerprint || `${entry.name || 'untitled'}:${entry.timestamp || ''}`);
+    return localHistoryIdentityKeys(entry)[0] || '';
+};
+const localHistoryIdentityKeys = (entry) => {
+    if (!entry) return [];
+    const result = entry.result && typeof entry.result === 'object' ? entry.result : {};
+    const keys = [
+        entry.taskId,
+        entry.originalTaskId,
+        entry.sourceFingerprint,
+        result.task_id,
+        result.original_task_id,
+        result.source_fingerprint,
+    ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    if (!keys.length) {
+        keys.push(`${entry.name || 'untitled'}:${entry.timestamp || ''}`);
+    }
+    return [...new Set(keys)];
+};
+const processedImportKeysKey = (accountId) => `fluentflow_processed_import_keys_${accountId || 'local'}`;
+const getProcessedImportKeys = (accountId) => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(processedImportKeysKey(accountId)) || '[]');
+        return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : []);
+    } catch(_) {
+        return new Set();
+    }
+};
+const addProcessedImportKeys = (accountId, keys) => {
+    const existing = getProcessedImportKeys(accountId);
+    keys.forEach((key) => {
+        const normalized = String(key || '').trim();
+        if (normalized) existing.add(normalized);
+    });
+    const values = Array.from(existing);
+    if (values.length > 1000) values.splice(0, values.length - 1000);
+    try {
+        localStorage.setItem(processedImportKeysKey(accountId), JSON.stringify(values));
+    } catch(_) {}
+};
+const accountJobsCacheKey = (accountId) => `fluentflow_account_jobs_cache_${accountId || 'local'}`;
+const compactTextForCache = (value, maxChars=240) => (
+    value ? String(value).slice(0, maxChars) : ''
+);
+const minimizeJobForCache = (job) => {
+    if (!job || typeof job !== 'object') return null;
+    const result = job.result && typeof job.result === 'object' ? job.result : null;
+    return {
+        ...job,
+        result: result ? {
+            ...result,
+            transcript_text_preview: result.transcript_text_preview || compactTextForCache(result.transcript_text),
+            transcript_text: compactTextForCache(result.transcript_text),
+            summary_markdown: compactTextForCache(result.summary_markdown),
+            segments: [],
+            cleaned_segments: null,
+            raw_segments: null,
+            raw_transcript_text: null,
+            cleaned_transcript_text: null,
+        } : result,
+    };
+};
+export const readCachedAccountJobs = (accountId) => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(accountJobsCacheKey(accountId)) || '{}');
+        const jobs = Array.isArray(parsed?.jobs) ? parsed.jobs : [];
+        return jobs.filter((job) => job && typeof job === 'object');
+    } catch(_) {
+        return [];
+    }
+};
+export const writeCachedAccountJobs = (accountId, jobs) => {
+    try {
+        const compactJobs = (Array.isArray(jobs) ? jobs : [])
+            .map(minimizeJobForCache)
+            .filter(Boolean)
+            .slice(0, 100);
+        localStorage.setItem(accountJobsCacheKey(accountId), JSON.stringify({
+            updatedAt: Date.now(),
+            jobs: compactJobs,
+        }));
+    } catch(_) {}
+};
+const mergeCachedJobs = (...groups) => {
+    const seen = new Set();
+    const merged = [];
+    groups.flat().forEach((job) => {
+        if (!job || typeof job !== 'object') return;
+        const key = String(job.task_id || job.result?.task_id || '').trim();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        merged.push(job);
+    });
+    return merged;
 };
 const readBrowserHistoryEntries = () => {
     try {
@@ -152,9 +247,9 @@ const mergeImportCandidates = (...groups) => {
     const merged = [];
     groups.flat().forEach((entry) => {
         if (!entry || entry.status !== 'completed') return;
-        const key = localHistoryKey(entry);
-        if (!key || seen.has(key)) return;
-        seen.add(key);
+        const keys = localHistoryIdentityKeys(entry);
+        if (!keys.length || keys.some((key) => seen.has(key))) return;
+        keys.forEach((key) => seen.add(key));
         merged.push(entry);
     });
     return merged;
@@ -186,6 +281,7 @@ const resultToHistoryEntry = (result, fallback={}) => {
         sttLanguage: result.stt_language||null,
         detectedLanguage: result.detected_language||null,
         sourceFingerprint: result.source_fingerprint||null,
+        originalTaskId: result.original_task_id||fallback.originalTaskId||null,
         rawTranscriptText: result.raw_transcript_text||null,
         cleanedTranscriptText: result.cleaned_transcript_text||null,
         cleanedSegments: result.cleaned_segments||null,
@@ -206,7 +302,7 @@ const resultToHistoryEntry = (result, fallback={}) => {
         sourceFileAvailable: !!result.source_file_available,
     };
 };
-const jobToHistoryEntry = (job) => {
+export const jobToHistoryEntry = (job) => {
     const result = job.result || {};
     return resultToHistoryEntry(result, {
         taskId: job.task_id,
@@ -215,7 +311,7 @@ const jobToHistoryEntry = (job) => {
         source: job.source_type,
     });
 };
-const jobToCurrentJob = (job) => ({
+export const jobToCurrentJob = (job) => ({
     taskId: job.task_id,
     fileName: job.source_filename || 'Running task',
     stage: job.stage || 'upload',
@@ -558,7 +654,7 @@ const msgs = {
     'status.ready':'System ready','status.idle':'Awaiting task','status.queued':'Queued','status.resolving':'Resolving link…','status.downloading':'Downloading video…','status.saving':'Saving video…','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done','status.failed':'Failed',
     'dash.welcome':'Start a transcription.','dash.subtitle':'Upload a video or audio file. FluentFlow handles the transcription route in the background.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Ready','dash.heroTitle':'Drop a video here to transcribe it.','dash.heroDesc':'FluentFlow extracts audio, transcribes it in the background, and prepares transcript, subtitles, and notes.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import Subtitle/Text','dash.subtitleHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.linkPlaceholder':'Paste Douyin share text or a video link','dash.linkSubmit':'Fetch by link','dash.linkSubmitting':'Fetching…','dash.linkEmpty':'Paste a share text or video link first.','dash.linkQueued':'Video link is being fetched in Background tasks.','dash.azureUploadHint':'Cloud transcription runs in the background. You can leave this page and watch it from Tasks.','dash.uploading':'Uploading and processing','dash.done':'Processing complete','dash.subtitleDone':'Summary generated from transcript file','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet. Completed jobs will appear here.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
     'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.azureUploadAudio':'Cloud Audio','dash.pipeline':'Pipeline','dash.modelProfile':'Route','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'You can leave this page; progress continues under Tasks.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading local model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttAzure':'Cloud transcription in progress','dash.sttAzureUpload':'Uploading audio','dash.sttAzureSubmit':'Submitting cloud job','dash.sttAzureWait':'Waiting for cloud transcription','dash.sttAzureDownload':'Downloading cloud result','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once local transcription emits real segments.',
-    'tasks.title':'Background tasks','tasks.subtitle':'Track long-running transcription jobs without keeping the Start page open.','tasks.refresh':'Refresh','tasks.open':'Open result','tasks.download':'Download','tasks.progress':'Progress','tasks.route':'Route','tasks.updated':'Updated','tasks.empty':'No background tasks yet. Start with an upload from Start.','tasks.queued':'Queued','tasks.running':'Running','tasks.completed':'Completed','tasks.failed':'Failed','tasks.error':'Failure reason','tasks.source':'Source','tasks.summary':'Summary','tasks.detail':'Stage detail','tasks.artifacts':'Outputs','tasks.outputsReady':'Ready outputs','tasks.noOutputs':'Outputs appear here after completion.','tasks.larkDoc':'Lark doc','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.md':'Summary',
+    'tasks.title':'Background tasks','tasks.subtitle':'Track long-running transcription jobs without keeping the Start page open.','tasks.refresh':'Refresh','tasks.open':'Open result','tasks.delete':'Delete','tasks.deleteConfirm':'Delete this failed task record?','tasks.download':'Download','tasks.progress':'Progress','tasks.route':'Route','tasks.updated':'Updated','tasks.empty':'No background tasks yet. Start with an upload from Start.','tasks.queued':'Queued','tasks.running':'Running','tasks.completed':'Completed','tasks.failed':'Failed','tasks.error':'Failure reason','tasks.source':'Source','tasks.summary':'Summary','tasks.detail':'Stage detail','tasks.artifacts':'Outputs','tasks.outputsReady':'Ready outputs','tasks.noOutputs':'Outputs appear here after completion.','tasks.larkDoc':'Lark doc','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.md':'Summary',
     'proc.title':'Run settings','proc.subtitle':'Set the few choices that affect every upload. Cloud infrastructure is managed by the product owner.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from Start when you are ready.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
     'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.summaryPending':'AI summary is still generating.','edit.summarySkipped':'Transcript-only mode is enabled. Click Regenerate when you need an AI summary.','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.retranscribe':'Retranscribe','edit.retranscribing':'Retranscribing…','edit.pickSourceAgain':'Choose source file','edit.retranscribeDone':'Retranscription complete','edit.retranscribeConfirmTitle':'Retranscribe this audio?','edit.retranscribeConfirmDesc':'FluentFlow will run STT again with the current Workbench settings and replace the transcript and summary for this result.','edit.retranscribeUnavailableTitle':'Source file is not available','edit.retranscribeUnavailableDesc':'Browsers cannot reopen a local file from history without your permission. Choose the original audio/video file to retranscribe it with current settings.','edit.retranscribeConfirmAction':'Start retranscription','edit.retranscribeChooseAction':'Choose original file','edit.cancel':'Cancel','edit.segments':'segments','edit.duration':'Duration','edit.sttElapsed':'Transcription time','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm','edit.reviewButton':'Review changes','edit.reviewTitle':'Transcript review changes','edit.reviewDesc':'Check the AI-confirmed term corrections with nearby context.','edit.reviewEmpty':'No obvious term issues were found.','edit.reviewApplied':'Applied','edit.reviewPending':'Suggested only','edit.reviewOriginal':'Original','edit.reviewSuggested':'Suggested','edit.reviewContext':'Context','edit.reviewReason':'Reason','edit.copySuggestion':'Copy suggested sentence','edit.copied':'Copied','edit.editedTranscript':'Edited transcript','edit.transcriptSaving':'Saving…','edit.transcriptSaved':'Saved','edit.transcriptSaveFailed':'Save failed','edit.editRecords':'Edit records','edit.editRecordsTitle':'Transcript edit records','edit.editRecordsDesc':'Each record keeps the changed sentence and nearby context. These records are saved locally with the edited transcript.','edit.editRecordsEmpty':'No changed segment has been recorded yet.','edit.before':'Before','edit.after':'After','edit.previousSentence':'Previous sentence','edit.nextSentence':'Next sentence','edit.followPlayback':'Follow playback','edit.audioUnavailable':'Choose the original audio/video to listen while editing.','edit.chooseAudio':'Choose source audio','edit.sourceLoading':'Loading source audio…',
     'prompt.label':'Prompt Template','prompt.select':'Select prompt style','prompt.customPlaceholder':'Enter your custom system prompt here...','prompt.expanded':'Collapse prompt','prompt.collapsed':'Change prompt','prompt.activeHint':'Active: ','prompt.editHint':'Edit prompt before regenerating','prompt.saveAsPreset':'Save custom as preset',
@@ -571,7 +667,7 @@ const msgs = {
     'status.ready':'系统就绪','status.idle':'等待任务','status.queued':'排队中','status.resolving':'解析链接中…','status.downloading':'下载视频中…','status.saving':'保存视频中…','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成','status.failed':'失败',
     'dash.welcome':'开始一次转录','dash.subtitle':'上传视频或音频，FluentFlow 会在后台完成转录、字幕和笔记。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'就绪','dash.heroTitle':'把视频拖到这里开始转录。','dash.heroDesc':'FluentFlow 会自动提取音频，在后台转录，并生成转录文本、字幕和结构化笔记。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕/文本','dash.subtitleHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.linkPlaceholder':'粘贴抖音分享文本或视频链接','dash.linkSubmit':'通过链接获取','dash.linkSubmitting':'获取中…','dash.linkEmpty':'请先粘贴分享文本或视频链接。','dash.linkQueued':'视频链接已进入后台任务获取。','dash.azureUploadHint':'云端转录会在后台继续运行，你可以离开本页并在后台任务里查看进度。','dash.uploading':'正在上传并处理','dash.done':'处理完成','dash.subtitleDone':'已根据字幕文件生成摘要','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录，完成的任务会显示在这里。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
     'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.azureUploadAudio':'云端音频','dash.pipeline':'处理流水线','dash.modelProfile':'转录路线','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'你可以离开本页，进度会在后台任务中继续更新。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载本地模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttAzure':'云端转录中','dash.sttAzureUpload':'正在上传音频','dash.sttAzureSubmit':'正在提交云端任务','dash.sttAzureWait':'等待云端转录','dash.sttAzureDownload':'正在下载云端结果','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按本地转录真实返回的片段推进进度。',
-    'tasks.title':'后台任务','tasks.subtitle':'长时间转录不需要停留在开始页，这里统一查看进度、失败原因和产物。','tasks.refresh':'刷新','tasks.open':'打开结果','tasks.download':'下载','tasks.progress':'进度','tasks.route':'路线','tasks.updated':'更新于','tasks.empty':'暂无后台任务。从开始处理页上传文件后会出现在这里。','tasks.queued':'排队中','tasks.running':'运行中','tasks.completed':'已完成','tasks.failed':'失败','tasks.error':'失败原因','tasks.source':'来源','tasks.summary':'摘要','tasks.detail':'阶段详情','tasks.artifacts':'结果产物','tasks.outputsReady':'可下载产物','tasks.noOutputs':'完成后会在这里显示下载入口。','tasks.larkDoc':'飞书文档','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.md':'摘要',
+    'tasks.title':'后台任务','tasks.subtitle':'长时间转录不需要停留在开始页，这里统一查看进度、失败原因和产物。','tasks.refresh':'刷新','tasks.open':'打开结果','tasks.delete':'删除','tasks.deleteConfirm':'删除这条失败任务记录？','tasks.download':'下载','tasks.progress':'进度','tasks.route':'路线','tasks.updated':'更新于','tasks.empty':'暂无后台任务。从开始处理页上传文件后会出现在这里。','tasks.queued':'排队中','tasks.running':'运行中','tasks.completed':'已完成','tasks.failed':'失败','tasks.error':'失败原因','tasks.source':'来源','tasks.summary':'摘要','tasks.detail':'阶段详情','tasks.artifacts':'结果产物','tasks.outputsReady':'可下载产物','tasks.noOutputs':'完成后会在这里显示下载入口。','tasks.larkDoc':'飞书文档','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.md':'摘要',
     'proc.title':'处理设置','proc.subtitle':'这里只保留每次上传前会影响结果的少量选择；云端基础设施由产品维护者管理。','proc.noJob':'当前没有任务','proc.noJobDesc':'参数确认后，从开始处理页上传文件。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
     'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.summaryPending':'AI 摘要仍在生成中。','edit.summarySkipped':'当前是仅转录模式，未生成 AI 摘要。需要时可点击重新生成。','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.retranscribe':'重新转录','edit.retranscribing':'重新转录中…','edit.pickSourceAgain':'选择原文件','edit.retranscribeDone':'重新转录完成','edit.retranscribeConfirmTitle':'重新转录当前音频？','edit.retranscribeConfirmDesc':'FluentFlow 会使用当前工作台设置重新执行 STT，并替换当前结果里的转录文本和摘要。','edit.retranscribeUnavailableTitle':'当前没有可直接重转的原文件','edit.retranscribeUnavailableDesc':'浏览器不会在历史记录里长期保留本地音视频文件权限。请选择原始音视频文件，再用当前设置重新转录。','edit.retranscribeConfirmAction':'确认重新转录','edit.retranscribeChooseAction':'选择原始文件','edit.cancel':'取消','edit.segments':'段','edit.duration':'时长','edit.sttElapsed':'转录耗时','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认','edit.reviewButton':'查看审阅','edit.reviewTitle':'字幕审阅修改点','edit.reviewDesc':'查看 AI 确认过的术语修正，并对照前后文判断是否合理。','edit.reviewEmpty':'没有发现明显术语错误。','edit.reviewApplied':'已应用','edit.reviewPending':'仅建议','edit.reviewOriginal':'原句','edit.reviewSuggested':'建议句','edit.reviewContext':'上下文','edit.reviewReason':'原因','edit.copySuggestion':'复制建议句','edit.copied':'已复制','edit.editedTranscript':'已修改转录','edit.transcriptSaving':'保存中…','edit.transcriptSaved':'已保存','edit.transcriptSaveFailed':'保存失败','edit.editRecords':'修改记录','edit.editRecordsTitle':'转录稿修改记录','edit.editRecordsDesc':'每条记录会保留修改句子和相邻上下文，并随编辑稿一起保存到本地。','edit.editRecordsEmpty':'还没有记录到分段修改。','edit.before':'修改前','edit.after':'修改后','edit.previousSentence':'上一句','edit.nextSentence':'下一句','edit.followPlayback':'跟随播放','edit.audioUnavailable':'选择原始音视频后，可边听边校对。','edit.chooseAudio':'选择原音频','edit.sourceLoading':'正在读取原音频…',
     'prompt.label':'提示词模板','prompt.select':'选择提示词风格','prompt.customPlaceholder':'在此输入自定义系统提示词…','prompt.expanded':'收起提示词','prompt.collapsed':'更换提示词','prompt.activeHint':'当前：','prompt.editHint':'重新生成前可编辑提示词','prompt.saveAsPreset':'将自定义保存为预设',
@@ -587,7 +683,7 @@ const I18nProvider = ({children}) => {
     const toggleLang = () => { const n = lang==='en'?'zh':'en'; setLang(n); localStorage.setItem('fluentflow_lang',n); };
     return <I18nCtx.Provider value={{t,lang,toggleLang}}>{children}</I18nCtx.Provider>;
 };
-const useI18n = () => useContext(I18nCtx);
+export const useI18n = () => useContext(I18nCtx);
 
 const AuthCtx = createContext({
     authMode:'open',
@@ -598,7 +694,7 @@ const AuthCtx = createContext({
     openAuth:()=>{},
     logout:async()=>{},
 });
-const useAuth = () => useContext(AuthCtx);
+export const useAuth = () => useContext(AuthCtx);
 
 /* ═══════════════ App-level state ═══════════════ */
 const AppCtx = createContext();
@@ -646,12 +742,22 @@ const AppProvider = ({children}) => {
             }
         } catch(_) {}
         if (guestMode || (authMode === 'accounts' && !user?.id)) return;
+        const cachedJobs = readCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local');
+        if (cachedJobs.length) {
+            const cachedEntries = cachedJobs
+                .filter((job) => job.result)
+                .map(jobToHistoryEntry);
+            setHistory(cachedEntries);
+            const cachedRunning = cachedJobs.find((job) => job.status === 'running' || job.status === 'queued');
+            if (cachedRunning) setCurrentJob(jobToCurrentJob(cachedRunning));
+        }
         const browserLocalEntries = readBrowserHistoryEntries();
         setLocalHistoryImport((state) => ({...state, checking: true, error: ''}));
         apiFetch(`${API_BASE}/jobs?limit=100`)
             .then((r) => r.ok ? r.json() : null)
             .then(async (data) => {
                 if (!Array.isArray(data?.jobs)) return;
+                writeCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local', data.jobs);
                 const entries = data.jobs
                     .filter((job) => job.result)
                     .map(jobToHistoryEntry);
@@ -659,21 +765,21 @@ const AppProvider = ({children}) => {
                 setHistory(entries);
                 const running = data.jobs.find((job) => job.status === 'running');
                 if (running) setCurrentJob(jobToCurrentJob(running));
-                const cloudKeys = new Set(entries.map(localHistoryKey).filter(Boolean));
-                const browserCandidates = browserLocalEntries.filter((entry) => {
-                    const key = localHistoryKey(entry);
-                    return key && !cloudKeys.has(key) && entry.status === 'completed';
-                });
+                const cloudKeys = new Set(entries.flatMap(localHistoryIdentityKeys).filter(Boolean));
+                const processedKeys = getProcessedImportKeys(user?.id);
+                const isNewImportCandidate = (entry) => {
+                    if (!entry || entry.status !== 'completed') return false;
+                    const keys = localHistoryIdentityKeys(entry);
+                    return keys.length > 0 && !keys.some((key) => cloudKeys.has(key) || processedKeys.has(key));
+                };
+                const browserCandidates = browserLocalEntries.filter(isNewImportCandidate);
                 let localJobCandidates = [];
                 try {
                     const localResponse = await apiFetch(`${API_BASE}/local-history/candidates?limit=100`);
                     if (localResponse.ok) {
                         const localData = await localResponse.json().catch(() => ({}));
                         localJobCandidates = Array.isArray(localData?.jobs)
-                            ? localData.jobs.map(jobToHistoryEntry).filter((entry) => {
-                                const key = localHistoryKey(entry);
-                                return key && !cloudKeys.has(key);
-                            })
+                            ? localData.jobs.map(jobToHistoryEntry).filter(isNewImportCandidate)
                             : [];
                     }
                 } catch(_) {}
@@ -714,8 +820,12 @@ const AppProvider = ({children}) => {
             const importedEntries = Array.isArray(data.imported)
                 ? data.imported.filter((job) => job.result).map(jobToHistoryEntry)
                 : [];
+            if (Array.isArray(data.imported) && data.imported.length) {
+                writeCachedAccountJobs(user?.id, mergeCachedJobs(data.imported, readCachedAccountJobs(user?.id)));
+            }
             const merged = mergeImportCandidates(importedEntries, history);
             persistHistory(merged.slice(0, 100));
+            addProcessedImportKeys(user?.id, candidates.flatMap(localHistoryIdentityKeys));
             setLocalHistoryImport({
                 checking: false,
                 importing: false,
@@ -740,7 +850,7 @@ const AppProvider = ({children}) => {
 
     return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig,localHistoryImport,importLocalHistory}}>{children}</AppCtx.Provider>;
 };
-const useApp = () => useContext(AppCtx);
+export const useApp = () => useContext(AppCtx);
 
 /* ═══════════════ helpers ═══════════════ */
 const fmtTime = (sec) => { const m=Math.floor(sec/60); const s=Math.floor(sec%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
@@ -802,7 +912,7 @@ const buildTranscriptEditRecords = (beforeSegments=[], afterSegments=[], source=
     }
     return records;
 };
-const fmtElapsed = (sec) => {
+export const fmtElapsed = (sec) => {
     const n = Math.max(0, Number(sec) || 0);
     const h = Math.floor(n / 3600);
     const m = Math.floor((n % 3600) / 60);
@@ -811,7 +921,7 @@ const fmtElapsed = (sec) => {
         ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
         : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 };
-const fmtFileSize = (mb) => {
+export const fmtFileSize = (mb) => {
     const n = Number(mb);
     if(!Number.isFinite(n) || n <= 0) return '-';
     if(n >= 1024) return `${(n/1024).toFixed(n >= 10240 ? 0 : 1)} GB`;
@@ -820,7 +930,7 @@ const fmtFileSize = (mb) => {
 const totalFileSizeMb = (files=[]) => (
     Math.round(Array.from(files || []).reduce((sum, file) => sum + (Number(file?.size) || 0), 0) / 1024 / 1024 * 1000) / 1000
 );
-const fmtBytes = (bytes) => {
+export const fmtBytes = (bytes) => {
     const n = Number(bytes);
     if(!Number.isFinite(n) || n <= 0) return '';
     return fmtFileSize(n / 1024 / 1024);
@@ -839,7 +949,7 @@ const fmtDateTime = (value, lang='zh') => {
         return '-';
     }
 };
-const friendlyTaskError = (message, lang='zh') => {
+export const friendlyTaskError = (message, lang='zh') => {
     const raw = String(message || '').trim();
     if(!raw) return lang === 'zh' ? '处理失败，但没有返回具体原因。请重试一次。' : 'The task failed without a specific reason. Try again.';
     const lower = raw.toLowerCase();
@@ -878,7 +988,7 @@ const sttStatusLabel = (status, t) => {
     return key ? t(key) : t('dash.waitingSegment');
 };
 const sttProgressFraction = (job) => Math.max(0, Math.min(1, Number(job?.sttProgress) || 0));
-const isSttProgressUnmeasured = (job) => (
+export const isSttProgressUnmeasured = (job) => (
     job?.stage === 'stt'
     && sttProgressFraction(job) <= 0
     && job?.sttStatus !== 'transcribing_segments'
@@ -887,7 +997,7 @@ const jobProgressLabel = (job, t) => isSttProgressUnmeasured(job)
     ? t('dash.progressUnknown')
     : `${Math.round(Math.max(0, Math.min(100, Number(job?.progress) || 0)))}%`;
 
-const timeAgo = (ts, t) => {
+export const timeAgo = (ts, t) => {
     const d = Date.now()-ts, m=Math.floor(d/60000), h=Math.floor(d/3600000), dy=Math.floor(d/86400000);
     if(m<1) return t('dash.justNow');
     if(m<60) return `${m} ${t('dash.mAgo')}`;
@@ -1125,7 +1235,7 @@ const dlSummaryPdf = async (summaryElRef, filename) => {
     if(!window.html2pdf) throw new Error('html2pdf not loaded');
     const el = summaryElRef.current;
     if(!el) return;
-    await html2pdf().set({
+    await window.html2pdf().set({
         margin: [12,12,12,12],
         filename: _baseName(filename)+'_summary.pdf',
         image: {type:'jpeg', quality:0.95},
@@ -1196,7 +1306,7 @@ const dlSummaryImage = async (summaryElRef, filename) => {
         }
 
         // Fallback：回退到 html2pdf -> toCanvas（仍使用 temp 容器）
-        const canvasResult = await html2pdf()
+        const canvasResult = await window.html2pdf()
             .set({
                 html2canvas: {scale:2, useCORS:true, scrollY:0, backgroundColor: bg, windowHeight: temp.scrollHeight},
             })
@@ -1250,7 +1360,7 @@ const DropdownMenu = ({trigger, items, align='right'}) => {
 };
 
 /* ═══════════════ hooks ═══════════════ */
-const useApi = () => {
+export const useApi = () => {
     const appendAiOptions = (fd, options={}) => {
         if(options.aiProvider) fd.append("ai_provider", options.aiProvider);
         if(options.aiModel) fd.append("ai_model", options.aiModel);
@@ -1424,6 +1534,12 @@ const useApi = () => {
         if(!r.ok) throw new Error('Job not found');
         return await r.json();
     };
+    const deleteJob = async (taskId) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`, {method:"DELETE"});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
     const fetchJobSourceFile = async (taskId, filename='source') => {
         const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/source`);
         if(!r.ok) throw new Error('Source file not found');
@@ -1500,7 +1616,7 @@ const useApi = () => {
         return await r.json();
     };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, downloadGuestTrialArtifact, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, downloadGuestTrialArtifact, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, deleteJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
 };
 
 const useSettings = () => {
@@ -2521,281 +2637,7 @@ const Dashboard = () => {
             );
         };
 
-/* ═══════════════ Background Tasks ═══════════════ */
-const Tasks = () => {
-    const {t, lang} = useI18n();
-    const {currentJob, setLastResult, setCurrentJob, addToHistory} = useApp();
-    const {getJobs, getJob, downloadJobArtifact} = useApi();
-    const navigate = useNavigate();
-    const location = useLocation();
-    const [jobs, setJobs] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(() => location.state?.queueSubmitError || null);
-    const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
-
-    const loadJobs = useCallback(async () => {
-        try {
-            const next = await getJobs(100);
-            setJobs(next);
-            setError(null);
-        } catch (err) {
-            setError(friendlyTaskError(err.message || String(err), lang));
-        } finally {
-            setLoading(false);
-        }
-    }, [lang]);
-
-    useEffect(() => {
-        if(location.state?.queueSubmitError) {
-            navigate('/tasks', {replace:true, state:{}});
-            return;
-        }
-        if(location.state?.queueSubmittedAt) {
-            setLoading(true);
-            loadJobs();
-            navigate('/tasks', {replace:true, state:{}});
-        }
-    }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, loadJobs]);
-
-    useEffect(() => {
-        let stale = false;
-        const run = async () => { if (!stale) await loadJobs(); };
-        run();
-        const timer = setInterval(run, 5000);
-        return () => {
-            stale = true;
-            clearInterval(timer);
-        };
-    }, [loadJobs]);
-
-    const openJob = async (job) => {
-        if (job.status === 'running') {
-            setCurrentJob(jobToCurrentJob(job));
-            return;
-        }
-        try {
-            const fresh = await getJob(job.task_id);
-            const result = fresh?.result || job.result;
-            if (result) {
-                setLastResult(result);
-                addToHistory(jobToHistoryEntry({...job, result}));
-                navigate('/editor');
-            }
-        } catch (err) {
-            setError(friendlyTaskError(err.message || String(err), lang));
-        }
-    };
-
-    const downloadArtifact = async (job, kind) => {
-        const artifact = job.result?.artifacts?.[kind];
-        await downloadJobArtifact(job.task_id, kind, artifact?.filename);
-    };
-
-    const statusLabel = (job) => {
-        if (job.status === 'queued') return t('tasks.queued');
-        if (job.status === 'completed') return t('tasks.completed');
-        if (job.status === 'failed') return t('tasks.failed');
-        return t('tasks.running');
-    };
-    const statusClass = (job) => (
-        job.status === 'completed'
-            ? 'bg-blue-50 text-primary border-blue-100'
-            : job.status === 'failed'
-                ? 'bg-red-50 text-red-600 border-red-100'
-                : job.status === 'queued'
-                    ? 'bg-slate-50 text-slate-600 border-slate-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-100'
-    );
-    const formatUpdated = (job) => {
-        const ts = Date.parse(job.updated_at || job.created_at || '');
-        if (!ts) return '-';
-        return timeAgo(ts, t);
-    };
-    const providerLabel = (job) => (
-        job.source_type === 'video_link'
-            ? (lang === 'zh' ? '视频链接获取' : 'Video link fetch')
-            :
-        job.metadata?.stt_provider_label ||
-        job.result?.stt_provider_label ||
-        (job.metadata?.stt_provider === 'azure_batch' || job.result?.stt_provider === 'azure_batch'
-            ? (lang === 'zh' ? '云端转录' : 'Cloud transcription')
-            : 'faster-whisper')
-    );
-    const stageLabel = (job) => t(`status.${job.stage || (job.status === 'failed' ? 'failed' : 'idle')}`);
-    const stageDetail = (job) => {
-        const progressMeta = job.metadata?.video_source_progress || {};
-        const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
-        const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
-        const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
-        if (progressMeta.message) return `${progressMeta.message}${byteText}`;
-        if (job.status === 'queued') return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
-        if (job.status === 'running') return job.summary_status || stageLabel(job);
-        if (job.status === 'completed') return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
-        if (job.status === 'failed') return friendlyTaskError(job.error_reason, lang);
-        return '-';
-    };
-    const artifactButtons = [
-        ['transcript_srt', t('tasks.srt')],
-        ['transcript_txt', t('tasks.txt')],
-        ['transcript_vtt', t('tasks.vtt')],
-        ['summary_md', t('tasks.md')],
-    ];
-
-    return (
-        <div className="ml-64 min-h-screen relative pb-8">
-            <main className="p-12 max-w-7xl mx-auto h-[calc(100vh-2rem)] overflow-y-auto hide-scrollbar">
-                <div className="space-y-8">
-                    <header className="flex flex-col md:flex-row md:items-end justify-between gap-5">
-                        <div className="max-w-3xl">
-                            <h1 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-2">{t('tasks.title')}</h1>
-                            <p className="text-on-surface-variant font-body max-w-2xl">{t('tasks.subtitle')}</p>
-                        </div>
-                        <button type="button" onClick={loadJobs} className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-sm bg-surface-container-lowest text-on-surface font-bold text-sm border ff-border-muted hover:bg-surface-container-low transition-colors">
-                            <span className={`material-symbols-outlined text-base ${loading ? 'animate-spin' : ''}`}>refresh</span>
-                            {t('tasks.refresh')}
-                        </button>
-                    </header>
-
-                    {error && (
-                        <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>
-                    )}
-
-                    <section className="space-y-3">
-                        {queueUploadJob && (
-                            <article className="rounded-sm bg-surface-container-lowest border border-primary/20 shadow-sm p-5">
-                                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                                    <div className="flex items-start gap-3 min-w-0">
-                                        <div className="w-10 h-10 rounded-sm bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                                            <span className="material-symbols-outlined text-lg animate-spin">sync</span>
-                                        </div>
-                                        <div className="min-w-0">
-                                            <h2 className="text-base font-headline font-bold text-on-surface">
-                                                {lang === 'zh' ? '正在上传到后台任务' : 'Uploading to background tasks'}
-                                            </h2>
-                                            <p className="text-sm text-on-surface-variant mt-1">
-                                                {lang === 'zh'
-                                                    ? `已选择 ${queueUploadJob.queueTotal || 0} 个文件，上传完成后会自动出现在任务列表。`
-                                                    : `${queueUploadJob.queueTotal || 0} files selected. They will appear here after upload finishes.`}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3 lg:w-[280px]">
-                                        <div className="rounded-sm bg-surface-container-low px-3 py-2">
-                                            <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('dash.elapsed')}</p>
-                                            <p className="text-sm font-semibold text-on-surface mt-1">{fmtElapsed(Math.floor((Date.now() - (queueUploadJob.startedAt || Date.now())) / 1000))}</p>
-                                        </div>
-                                        <div className="rounded-sm bg-surface-container-low px-3 py-2">
-                                            <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('dash.fileSize')}</p>
-                                            <p className="text-sm font-semibold text-on-surface mt-1">{fmtFileSize(queueUploadJob.fileSizeMb)}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-4 h-2 rounded-full overflow-hidden bg-surface-container-highest progress-indeterminate"></div>
-                            </article>
-                        )}
-                        {jobs.length === 0 && !loading && !queueUploadJob && (
-                            <div className="rounded-sm bg-surface-container-lowest border ff-border-muted p-10 text-center">
-                                <span className="material-symbols-outlined text-4xl text-outline mb-3">pending_actions</span>
-                                <p className="text-sm text-on-surface-variant">{t('tasks.empty')}</p>
-                            </div>
-                        )}
-                        {jobs.map((job) => {
-                            const progress = Math.max(0, Math.min(100, Number(job.progress) || (job.status === 'completed' ? 100 : 0)));
-                            const result = job.result || {};
-                            const artifacts = result.artifacts || {};
-                            const availableArtifacts = artifactButtons.filter(([kind]) => artifacts[kind]);
-                            const larkUrl = result.lark_response?.url || result.feishu_doc_url || null;
-                            const canOpen = !!result && job.status === 'completed';
-                            return (
-                                <article key={job.task_id} className="rounded-sm bg-surface-container-lowest border ff-border-muted shadow-sm p-5">
-                                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
-                                        <div className="min-w-0 flex-1 space-y-4">
-                                            <div className="flex flex-wrap items-start gap-3">
-                                                <div className="w-10 h-10 rounded-sm bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                                                    <span className="material-symbols-outlined text-lg">{job.source_type === 'transcript_file' ? 'subtitles' : 'movie'}</span>
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <h2 className="text-base font-headline font-bold text-on-surface truncate">{job.source_filename || job.task_id}</h2>
-                                                    <p className="text-xs text-on-surface-variant mt-1">
-                                                        {t('tasks.updated')} {formatUpdated(job)}
-                                                        {job.source_file_size_mb ? ` • ${fmtFileSize(job.source_file_size_mb)}` : ''}
-                                                        {result.audio_duration_seconds ? ` • ${fmtElapsed(result.audio_duration_seconds)}` : ''}
-                                                    </p>
-                                                </div>
-                                                <span className={`px-2.5 py-1 rounded-sm border text-[11px] font-bold ${statusClass(job)}`}>{statusLabel(job)}</span>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                                <div className="rounded-sm bg-surface-container-low px-3 py-2">
-                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.progress')}</p>
-                                                    <p className="text-sm font-semibold text-on-surface mt-1">{stageLabel(job)} · {Math.round(progress)}%</p>
-                                                </div>
-                                                <div className="rounded-sm bg-surface-container-low px-3 py-2">
-                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.route')}</p>
-                                                    <p className="text-sm font-semibold text-on-surface mt-1 truncate">{providerLabel(job)}</p>
-                                                </div>
-                                                <div className="rounded-sm bg-surface-container-low px-3 py-2">
-                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.summary')}</p>
-                                                    <p className="text-sm font-semibold text-on-surface mt-1 truncate">{result.summary_skipped ? t('dash.summaryOff') : (job.summary_status || result.summary_status || '-')}</p>
-                                                </div>
-                                            </div>
-
-                                            <div className="rounded-sm bg-surface-container-low px-3 py-2">
-                                                <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.detail')}</p>
-                                                <p className="text-sm font-semibold text-on-surface mt-1 leading-relaxed">{stageDetail(job)}</p>
-                                            </div>
-
-                                            {job.status === 'running' && (
-                                                <div className={`h-2 rounded-full overflow-hidden bg-surface-container-highest ${isSttProgressUnmeasured(jobToCurrentJob(job)) ? 'progress-indeterminate' : ''}`}>
-                                                    {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-primary transition-all duration-500" style={{width:`${progress}%`}}></div>}
-                                                </div>
-                                            )}
-                                            {job.status === 'failed' && job.error_reason && (
-                                                <p className="text-xs leading-relaxed text-red-600 bg-red-50 border border-red-100 rounded-sm px-3 py-2">
-                                                    <span className="font-bold">{t('tasks.error')}：</span>{friendlyTaskError(job.error_reason, lang)}
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        <div className="lg:w-[320px] flex-shrink-0 space-y-3">
-                                            <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-sm bg-primary text-white font-bold text-sm hover:bg-primary-container transition-colors disabled:opacity-40">
-                                                <span className="material-symbols-outlined text-base">open_in_new</span>
-                                                {t('tasks.open')}
-                                            </button>
-                                            <div className="rounded-sm border ff-border-muted p-3">
-                                                <div className="flex items-center justify-between gap-3 mb-2">
-                                                    <p className="text-[10px] uppercase tracking-wider font-bold text-outline">{t('tasks.artifacts')}</p>
-                                                    <span className="text-[11px] font-bold text-on-surface-variant">
-                                                        {availableArtifacts.length ? `${availableArtifacts.length} ${t('tasks.outputsReady')}` : t('tasks.noOutputs')}
-                                                    </span>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    {artifactButtons.map(([kind, label]) => {
-                                                        const artifact = artifacts[kind];
-                                                        return (
-                                                        <button key={kind} type="button" disabled={!artifact} title={artifact?.filename || label} onClick={() => downloadArtifact(job, kind)} className={`px-3 py-2 rounded-sm text-xs font-bold transition-colors ${artifact ? 'bg-surface-container-low text-on-surface hover:bg-surface-container border ff-border-muted' : 'bg-surface-container-low text-outline opacity-45'}`}>
-                                                            <span className="block truncate">{label}</span>
-                                                        </button>
-                                                    );})}
-                                                </div>
-                                                {larkUrl && (
-                                                    <a href={larkUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex w-full items-center justify-center gap-2 px-3 py-2 rounded-sm border border-primary/30 text-xs font-bold text-primary hover:bg-primary/10 transition-colors">
-                                                        <span className="material-symbols-outlined text-sm">open_in_new</span>
-                                                        {t('tasks.larkDoc')}
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </article>
-                            );
-                        })}
-                    </section>
-                </div>
-            </main>
-        </div>
-    );
-};
+/* Background Tasks route lives in frontend/src/routes/tasks.jsx */
 
 /* ═══════════════ Processing ═══════════════ */
 const Processing = () => {
@@ -3104,14 +2946,14 @@ const Processing = () => {
                                     label={t('set.autoExport')}
                                     icon="ios_share"
                                 />
-                                {showMaintainerSettings && <ToggleRow
+                                <ToggleRow
                                     id="workLarkViaCli"
                                     checked={settings.larkViaCli||false}
                                     onChange={e=>updateSettingNow({larkViaCli:e.target.checked})}
                                     label={t('set.larkViaCli')}
                                     hint={t('set.larkViaCliHint')}
                                     icon="terminal"
-                                />}
+                                />
                             </div>
                             {showMaintainerSettings && !settings.larkViaCli && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
@@ -3133,9 +2975,11 @@ const Processing = () => {
                             )}
                             {!showMaintainerSettings && (
                                 <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
-                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">cloud_done</span>
+                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">{settings.larkViaCli ? 'terminal' : 'cloud_done'}</span>
                                     <p className="text-xs text-on-surface-variant leading-relaxed">
-                                        {lang==='zh'?'飞书导出连接由后台统一配置；用户只需要选择是否自动导出。':'Lark export credentials are configured in the backend. Users only choose whether to export automatically.'}
+                                        {settings.larkViaCli
+                                            ? (lang==='zh'?'将使用后端进程可调用的本机 lark-cli 和当前登录身份导出。':'Export will use the local lark-cli available to the backend process.')
+                                            : (lang==='zh'?'将使用后台统一配置的飞书 OpenAPI 凭证导出。':'Export will use the backend-configured Lark OpenAPI credentials.')}
                                     </p>
                                 </div>
                             )}
@@ -4247,52 +4091,82 @@ const Editor = () => {
 
                         <div className="flex-1 min-h-0 flex gap-4 overflow-hidden">
                             <section className="flex-1 min-h-0 bg-surface-container-low rounded-sm flex flex-col overflow-hidden">
-                                <div className="p-5 flex justify-between items-center border-b border-surface-container-highest">
-                                    <div className="min-w-0">
-                                        <h2 className="font-headline font-bold text-lg flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-primary">subject</span>
-                                            {t('edit.transcript')}
-	                                            {transcriptDirty && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/50 px-2 py-0.5 rounded-full">{t('edit.editedTranscript')}</span>}
-                                                {segments.length === 0 && <span className="text-[10px] font-bold text-slate-600 bg-white/60 border border-slate-200/60 px-2 py-0.5 rounded-full">{lang==='zh'?'纯文本模式':'Plain text'}</span>}
-	                                            {transcriptSaveStatus !== 'idle' && (
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                                    transcriptSaveStatus === 'failed'
-                                                        ? 'text-red-600 bg-red-50 border border-red-500/20'
-                                                        : 'text-emerald-700 bg-green-50 border border-green-500/20'
-                                                }`}>
-                                                    {transcriptSaveStatus === 'saving'
-                                                        ? t('edit.transcriptSaving')
-                                                        : transcriptSaveStatus === 'failed'
-                                                            ? t('edit.transcriptSaveFailed')
-                                                            : t('edit.transcriptSaved')}
-                                                </span>
-                                            )}
-                                        </h2>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={()=>setEditRecordsOpen(true)}
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-primary bg-blue-50 hover:bg-blue-100 rounded-lg transition border border-blue-200/50"
-                                >
-                                    <span className="material-symbols-outlined text-sm">edit_note</span>
-                                    {t('edit.editRecords')} {editRecords.length}
-                                </button>
-                                <DropdownMenu
-                                    trigger={
-                                        <button className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-primary bg-blue-50 hover:bg-blue-100 rounded-lg transition border border-blue-200/50">
-                                            <span className="material-symbols-outlined text-sm">download</span>
-                                            {t('dl.transcript')}
-                                        </button>
-                                    }
-                                    items={[
-                                        {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,result.filename); recordDownload('transcript_downloaded','txt'); showToast(t('dl.success'));}},
-                                        {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,result.filename); recordDownload('transcript_downloaded','srt'); showToast(t('dl.success'));}},
-                                        {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,result.filename); recordDownload('transcript_downloaded','vtt'); showToast(t('dl.success'));}},
-                                    ]}
-                                />
-                                </div>
+                                <div className="p-4 sm:p-5 border-b border-surface-container-highest">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className="material-symbols-outlined text-primary text-[20px]">subject</span>
+                                                <h2 className="font-headline font-bold text-lg text-on-surface truncate">
+                                                    {t('edit.transcript')}
+                                                </h2>
                                             </div>
+                                            {(transcriptDirty || segments.length === 0 || transcriptSaveStatus !== 'idle') && (
+                                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-7 text-[11px] font-semibold leading-tight text-on-surface-variant">
+                                                    {transcriptDirty && (
+                                                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                                                            {t('edit.editedTranscript')}
+                                                        </span>
+                                                    )}
+                                                    {segments.length === 0 && (
+                                                        <span className="inline-flex items-center gap-1 text-on-surface-variant">
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-outline"></span>
+                                                            {lang==='zh'?'纯文本模式':'Plain text'}
+                                                        </span>
+                                                    )}
+                                                    {transcriptSaveStatus !== 'idle' && (
+                                                        <span className={`inline-flex items-center gap-1 ${
+                                                            transcriptSaveStatus === 'failed'
+                                                                ? 'text-error'
+                                                                : transcriptSaveStatus === 'saving'
+                                                                    ? 'text-primary'
+                                                                    : 'text-emerald-700 dark:text-emerald-300'
+                                                        }`}>
+                                                            <span className={`material-symbols-outlined text-[13px] ${
+                                                                transcriptSaveStatus === 'saving' ? 'animate-spin' : ''
+                                                            }`}>
+                                                                {transcriptSaveStatus === 'saving'
+                                                                    ? 'sync'
+                                                                    : transcriptSaveStatus === 'failed'
+                                                                        ? 'error'
+                                                                        : 'check_circle'}
+                                                            </span>
+                                                            {transcriptSaveStatus === 'saving'
+                                                                ? t('edit.transcriptSaving')
+                                                                : transcriptSaveStatus === 'failed'
+                                                                    ? t('edit.transcriptSaveFailed')
+                                                                    : t('edit.transcriptSaved')}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex shrink-0 items-center justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={()=>setEditRecordsOpen(true)}
+                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border ff-border-control bg-surface-container-lowest px-3 text-xs font-bold text-on-surface-variant transition hover:bg-primary/5 hover:text-primary active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                                            >
+                                                <span className="material-symbols-outlined text-[17px]">edit_note</span>
+                                                <span>{t('edit.editRecords')}</span>
+                                                <span className="tabular-nums text-primary">{editRecords.length}</span>
+                                            </button>
+                                            <DropdownMenu
+                                                trigger={
+                                                    <button className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm bg-primary px-3 text-xs font-bold text-on-primary transition hover:bg-primary-container active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                                                        <span className="material-symbols-outlined text-[17px]">download</span>
+                                                        {lang === 'zh' ? '导出' : t('dl.transcript')}
+                                                    </button>
+                                                }
+                                                items={[
+                                                    {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,result.filename); recordDownload('transcript_downloaded','txt'); showToast(t('dl.success'));}},
+                                                    {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,result.filename); recordDownload('transcript_downloaded','srt'); showToast(t('dl.success'));}},
+                                                    {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,result.filename); recordDownload('transcript_downloaded','vtt'); showToast(t('dl.success'));}},
+                                                ]}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
                         <div ref={transcriptScrollRef} className="flex-1 min-h-0 overflow-y-auto p-5 space-y-2 hide-scrollbar">
                             {segments.length > 0 ? segments.map((seg,i) => (
                                 <div

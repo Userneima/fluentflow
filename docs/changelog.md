@@ -27,17 +27,50 @@
 
 如果某一类没有变化，可以省略。注意事项里要写清是否需要重启后端、重新构建前端、迁移数据、更新环境变量或通知用户。
 
+## Unreleased｜后台失败任务可删除
+
+### 用户可见变化
+
+- 后台任务页的失败记录新增“删除”操作，删除后会从列表和本地缓存中移除。
+- 失败任务不再整张卡片大面积高亮，只保留状态和失败原因的错误提示，减少对正常历史记录的干扰。
+
+### 维护者变化
+
+- 新增 `DELETE /jobs/{task_id}`，只允许删除 `failed` 或 `cancelled` 任务，并同步清理该任务的源文件、产物和编辑备份。
+
+### 注意事项
+
+- 需要重新构建前端并重启后端服务。
+
+## Unreleased｜前端迁移到 Vite 构建
+
+### 维护者变化
+
+- 前端从 CDN React + Babel 拼接脚本迁移到 Vite，生产构建输出到 `frontend/dist/`，JS/CSS 资源由 Vite 自动 hash。
+- 后端优先托管 `frontend/dist/index.html` 和 `frontend/dist/assets`，减少源码已改但浏览器仍加载旧 `frontend/assets/app.js` 的问题。
+- 后台任务页继续保留在 `frontend/src/routes/tasks.jsx`，通过 ES module import/export 接入主应用。
+- 项目 `AGENTS.md` 更新为 Vite 口径，避免未来代理继续编辑旧构建产物。
+
+### 注意事项
+
+- 前端 UI 修改后继续使用 `npm run build:frontend`；不要手动编辑 `frontend/dist`。
+- 部署时需要执行 `npm ci && npm run build:frontend`，再重启后端服务。
+
 ## Unreleased｜管理员额度与历史导入口径修复
 
 ### 用户可见变化
 
 - 管理员账号的侧栏和管理页额度显示为“额度豁免 / 无限”，不再显示普通余额数字造成误解。
+- 公共模式下管理员/本地维护入口可以重新选择本地转录路线；普通公共用户仍默认只使用云端转录。
 - 导入本机历史记录不再占用“今天提交任务”的每日处理上限。
+- 已导入或已判重处理过的本机历史不再每次进入开始页都重复提示导入。
+- 开始页最近活动和后台任务页会先读取当前账号的本地任务快照，再后台刷新云端记录，重新打开 App 时不再只能空等 `/jobs` 加载。
 - 管理员不再受普通账号/设备的每日任务数和每日上传量限制。
 
 ### 维护者变化
 
 - `/account/quota` 和 `/admin/users` 返回管理员额度豁免标记：`unlimited`、`quota_exempt`。
+- `/runtime-config` 和 `/process` 会按请求身份判断可用 STT 路线，避免管理员 UI 能选本地但提交时被后端改回云端。
 - 每日任务统计会排除 `imported_local_history` 记录，避免历史同步污染提交量口径。
 
 ### 注意事项

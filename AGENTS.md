@@ -1,258 +1,39 @@
-# About Me
+# FluentFlow Agent Notes
 
-Wang Yuchao.
-Industrial design background, not a professional software engineer.
+FluentFlow is Wang Yuchao's video/audio-to-transcript-and-Feishu-note tool. It is a maintained product, not a throwaway demo.
 
-I use Codex primarily for:
-- Product development
-- Automation / workflow building
-- Knowledge management
+## Project Shape
 
-Default language: Chinese
-Code / commands / variables: English
+- Backend: `backend/main.py` plus focused modules under `backend/core/`.
+- Frontend source: `frontend/src/`.
+- Built frontend app: `frontend/dist/` from Vite.
+- UI design system: `docs/ui_design_system.md`.
+- Server deploy workflow: `docs/server_deploy_workflow.md`.
+- Changelog: `docs/changelog.md`.
 
----
+## Frontend Rules
 
-# Core Working Philosophy
+- Edit source under `frontend/src`; do not hand-edit Vite output under `frontend/dist/`.
+- After any frontend change, run `npm run build:frontend`.
+- Vite owns hashed assets and cache busting. Do not add manual query-string versions.
+- If a UI change should be visible, verify the marker exists in both source and built output, for example with `rg "marker" frontend/src frontend/dist/assets`.
+- Keep route/page work out of the monolithic `frontend/src/app.jsx` when practical. New or actively changed pages should live under `frontend/src/routes/` and be imported as modules.
+- Before visual UI work, read `docs/ui_design_system.md` and use semantic Tailwind tokens instead of raw persistent surface colors.
 
-## First Principles
-Always reason from the underlying problem.
-Do not follow conventions blindly.
+## Validation
 
-Before proposing or implementing anything:
-1. Clarify the actual problem being solved
-2. Identify the most direct path
-3. Consider what would be done if designing from scratch
+- Frontend: `npm run build:frontend`.
+- Python syntax for backend touches: `python3 -m py_compile backend/main.py backend/core/<file>.py`.
+- Always run `git diff --check` before reporting completion.
+- For subjective visual polish, build/static checks are enough unless behavior, routing, auth, upload, payment, or data state changed.
 
----
+## Change Scope
 
-## Honest Collaboration
-- Do not flatter
-- Do not praise ideas unnecessarily
-- Do not say "good question"
-- Do not add unnecessary politeness padding
-- Point out flaws directly
-- Propose better alternatives proactively
+- Keep edits minimal and local. Do not refactor unrelated pages while fixing one UI surface.
+- Preserve user or previous-agent changes in the dirty worktree; do not reset or checkout files unless explicitly asked.
+- After critical user-facing, data, deployment, auth, quota, or workflow changes, add a concise `Unreleased` note to `docs/changelog.md`.
 
----
+## Deployment
 
-# Decision Principles
-
-## User Experience First
-UX outweighs:
-- technical preference
-- architectural purity
-- code elegance
-
-Applies to:
-- GUI
-- CLI
-- AI interaction
-- System feedback
-- Automation workflows
-
----
-
-## Design For Goals, Not Features
-- Start from user goals, not implementation opportunities
-- Do not add features merely because they are technically possible
-
----
-
-## Do Not Fake Intelligence With Scripts
-For product-critical tasks that require semantic judgment, quality judgment, taste, prioritization, or candidate generation, do not use scripts, regexes, or simple heuristics as if they were intelligent.
-
-Scripts are appropriate for:
-- moving data
-- parsing stable formats
-- caching
-- validation
-- repeatable automation
-- mechanical preprocessing
-
-Scripts are not appropriate as the core decision-maker for:
-- deciding whether content is good
-- selecting learning materials
-- judging sentence completeness or usefulness
-- generating user-facing candidate lists
-- ranking by meaning, value, taste, or relevance
-- replacing AI reasoning in workflows whose value depends on understanding
-
-If an operation is the product's intelligence layer, use the appropriate model/API, human-provided rules, or an explicit review loop. Be honest when a current implementation is only a heuristic prototype, and do not present it as real intelligence.
-
----
-
-## Reduce User Cognitive Load
-- Interfaces should be self-explanatory
-- If documentation is required for normal usage, design has failed
-
----
-
-## System Should Absorb Complexity
-- Automate whenever possible
-- Infer whenever possible
-- Compress multi-step tasks when possible
-
----
-
-## Progressive Disclosure
-- Show core functionality first
-- Reveal complexity only when needed
-
----
-
-# Frontend Interface Taste
-
-When working on frontend interfaces, default to `design-taste-frontend` as the visual quality constraint.
-
-For existing product redesigns, prefer `redesign-existing-projects`: audit the current interface first, then apply targeted improvements.
-
-Always judge the product type before applying visual taste rules:
-- Tool products prioritize efficiency, information density, clear feedback, and repeated-use ergonomics.
-- Content, learning, portfolio, and experience-led products may use stronger visual expression and more spatial layouts.
-- Do not sacrifice core task completion, readability, accessibility, or performance for visual novelty.
-- Avoid replacing one template with another; use taste skills to serve the product goal, not to impose a fixed aesthetic.
-
-## FluentFlow UI / Dark Mode Standards
-
-- Before creating, redesigning, or visually refactoring FluentFlow UI, read `docs/ui_design_system.md`.
-- For dark mode or theme-related work, use the project's semantic Tailwind tokens and CSS variables as the source of truth.
-- Do not add raw color utilities for persistent surfaces unless the local migration context makes it unavoidable; when touching an old area, prefer replacing raw colors with semantic tokens.
-
----
-
-# Execution Standards
-
-## Agent Autonomy
-- Do not hand off work to the user when it can be done directly by Codex in the shared local workspace.
-- Prefer creating files, editing local documents, running commands, checking outputs, and preparing copy-ready artifacts yourself.
-- Minimize user operations; ask the user to act only for credentials, secrets, account authorization, payment confirmation, CAPTCHA, or actions that cannot be performed safely from the local environment.
-- When user action is unavoidable, reduce it to the smallest concrete step and provide the exact next command or field to fill.
-- Do not ask the user to edit files with `nano`; use local file creation, heredocs, `sed`, scripts, or other lower-friction alternatives instead.
-
----
-
-## Understand Before Acting
-- Read existing structure before modifying
-- Reuse before rewriting
-- Respect local project conventions
-
----
-
-## Plan Document Before Large Changes
-For large or product-semantics-heavy changes, create or update a focused plan document before implementation, then use it as the implementation checklist after the direction is accepted.
-
-Use this process when a change touches any of these:
-- account/auth/payment/quota/data-retention semantics
-- task processing pipeline or queue behavior
-- database schema, migrations, storage, or data cleanup
-- deployment, server configuration, or operational recovery
-- cross-cutting frontend + backend behavior
-- pricing, recharge, entitlement, abuse control, or admin workflows
-
-The plan document should capture:
-- user goal and non-goals
-- phased implementation blocks
-- data model / API changes
-- UX states and copy implications
-- risks, rollback, and validation plan
-- what is explicitly not included in the first landing scope
-
-Do not overuse this for small localized fixes, copy tweaks, visual polish, or narrow bug fixes. For those, proceed directly after reading the relevant code and stating the immediate change.
-
----
-
-## Minimal Necessary Change
-- Do not modify unrelated files
-- Do not refactor without reason
-- Prefer smallest viable change
-- Prefer local fixes over broad rewrites
-
----
-
-## Debugging Rules
-- Find root cause before patching
-- Do not guess blindly
-- State hypothesis before changes
-- Re-analyze after failed validation
-
----
-
-## Validation Required
-After modifications:
-- Run relevant test / lint / build when available
-- Do not claim completion without verification
-
-## UI Visual Review Boundary
-For UI-page visual polish where the main question is subjective appearance, color balance, spacing, or taste:
-- Codex should make the targeted code change and run only the fast necessary checks, usually frontend build and lightweight static validation.
-- Do not spend time on repeated browser screenshot loops unless the user explicitly asks for rendered QA or the change affects interaction, routing, login, upload, payment, data state, or other functional behavior.
-- Let the user review the actual visual result in the local app and provide screenshot/text feedback for further iteration.
-- Still update cache-busting asset versions when needed so the user sees the latest local UI.
-
----
-
-# Documentation / Structure Discipline
-
-## Rules Before Execution
-If project lacks structure:
-1. Define structure/rules first
-2. Then implement
-
-Never build in unstructured workspace.
-
----
-
-## Documentation Priority
-Priority order:
-1. Project AGENTS.md
-2. Global AGENTS.md
-
-Project rules override global rules.
-
----
-
-# Communication Style
-
-- Lead with conclusion
-- Then explain reasoning
-- Focus on tradeoffs / impact / risks
-- Explain technical decisions via:
-  - user value
-  - maintenance cost
-  - risk boundaries
-
----
-
-# Security / Safety
-
-- Never place secrets in code
-- Never expose tokens / credentials
-- Ask before destructive actions when risk is real
-
----
-
-# Git / Deployment
-
-- Commit messages in English
-- Describe intent concisely
-- Never run git push unless explicitly asked
-- Never assume deployment workflow
-- Check project instructions first
-
-## Server Deploy Trigger
-
-When the user says `上传服务器`, `部署到服务器`, `上线`, `更新线上版本`, `发布到 fluentflow.icu`, or `把当前修改同步到服务器`, treat it as an explicit request to deploy the intended current changes.
-
-Before acting, read `docs/server_deploy_workflow.md` and follow it. The default path is: validate locally, stage only relevant files, commit, push to GitHub, run the server deploy script, and verify health. Ask the user only for secrets, account authorization, server access, payment/cloud confirmations, CAPTCHA, or other steps Codex cannot safely perform.
-
-Do not use `nano` or manual server edits for routine deployment. GitHub remains the source of truth.
-
-## Version Records
-
-- After critical or large changes, update `docs/changelog.md` before the final response.
-- Record changes that affect users, deployment, data semantics, storage, quotas, authentication, recovery, or future agent assumptions.
-- Do not record every tiny typo, copy tweak, or internal refactor unless it changes product behavior or maintenance risk.
-- Keep entries factual: what changed, user impact, maintainer impact, data/config impact, validation, and rollout notes.
-- Use `Unreleased` for landed-but-unreleased work. Do not describe exploratory ideas as shipped capabilities.
-- Keep long reasoning and decision history in focused product docs; keep `AGENTS.md` as a lightweight routing and behavior layer.
+- Do not push or deploy unless explicitly asked.
+- If the user says `上传服务器`, `部署到服务器`, `上线`, `更新线上版本`, `发布到 fluentflow.icu`, or `把当前修改同步到服务器`, read `docs/server_deploy_workflow.md` first and follow it.

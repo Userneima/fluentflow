@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 import pytest
 
@@ -98,6 +99,17 @@ def test_public_mode_defaults_to_cloud_transcription(monkeypatch) -> None:
 
     assert main._allowed_stt_providers() == ("azure_batch",)
     assert main._normalize_stt_provider("local") == "azure_batch"
+
+
+def test_public_mode_allows_admin_to_choose_local_transcription(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
+    monkeypatch.setattr(main, "_request_account_user", lambda request: {"id": "admin", "role": "admin"})
+    request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("fluentflow.icu", 443)})
+
+    assert main._allowed_stt_providers(request) == ("azure_batch", "local")
+    assert main._normalize_stt_provider("local", request) == "local"
 
 
 def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
