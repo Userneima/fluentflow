@@ -1413,7 +1413,10 @@ export const useApi = () => {
         if(options.taskId) fd.append("task_id", options.taskId);
         if(options.sourceLastModifiedMs) fd.append("source_last_modified_ms", String(options.sourceLastModifiedMs));
         appendProcessOptions(fd, options);
-        const r = await apiFetch(`${API_BASE}/process`,{method:"POST",body:fd,signal});
+        const headers = normalizeSttProvider(options.sttProvider) === 'local'
+            ? {'X-FluentFlow-Execution-Target': 'local'}
+            : undefined;
+        const r = await apiFetch(`${API_BASE}/process`,{method:"POST",body:fd,headers,signal});
         if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(apiErrorMessage(e, `HTTP ${r.status}`)); }
         return await readSseResult(r, onProgress);
     };
@@ -1535,7 +1538,10 @@ export const useApi = () => {
         return await r.json();
     };
     const deleteJob = async (taskId) => {
-        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`, {method:"DELETE"});
+        let r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`, {method:"DELETE"});
+        if (r.status === 405) {
+            r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/delete`, {method:"POST"});
+        }
         const data = await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
         return data;

@@ -305,14 +305,31 @@ def _cloud_workspace_enabled() -> bool:
     return bool(_cloud_workspace_url())
 
 
+LOCAL_CLOUD_WORKSPACE_PATHS = {
+    "/health",
+    "/runtime-config",
+    "/credentials/status",
+    "/speaker-diarization/status",
+    "/local-history/candidates",
+}
+
+
+def _request_prefers_local_execution(request: Request) -> bool:
+    return (request.headers.get("x-fluentflow-execution-target") or "").strip().lower() == "local"
+
+
 def _should_proxy_cloud_workspace(request: Request) -> bool:
     if not _cloud_workspace_enabled():
         return False
     path = request.url.path
     if path == "/" or path.startswith("/assets/"):
         return False
+    if path in LOCAL_CLOUD_WORKSPACE_PATHS:
+        return False
+    if path == "/process" and _request_prefers_local_execution(request):
+        return False
     first_segment = (path.lstrip("/").split("/", 1)[0] or "")
-    return path in {"/health", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"} or first_segment in API_ROUTE_PREFIXES
+    return path in {"/auth/status", "/auth/login", "/auth/register", "/auth/logout"} or first_segment in API_ROUTE_PREFIXES
 
 
 def _request_is_internal_queue(request: Request) -> bool:
@@ -1005,6 +1022,10 @@ def _max_media_duration_seconds() -> float:
 
 
 def _runtime_limits() -> dict[str, Any]:
+    return _runtime_limits_for_request()
+
+
+def _runtime_limits_for_request(request: Request | None = None) -> dict[str, Any]:
     duration_limit = _max_media_duration_seconds()
     return {
         "max_upload_mb": _max_upload_mb(),
@@ -1021,8 +1042,8 @@ def _runtime_limits() -> dict[str, Any]:
         "access_control_enabled": _access_control_enabled(),
         "account_auth_enabled": _account_auth_enabled(),
         "public_mode": _public_mode_enabled(),
-        "allowed_stt_providers": list(_allowed_stt_providers()),
-        "default_stt_provider": _default_stt_provider(),
+        "allowed_stt_providers": list(_allowed_stt_providers(request)),
+        "default_stt_provider": _default_stt_provider(request),
         "guest_trial": _guest_trial_config(),
     }
 
@@ -2264,12 +2285,6 @@ def _request_can_use_local_stt(request: Request | None = None) -> bool:
         return False
     if _request_is_internal_queue(request):
         return True
-    try:
-        user = _request_account_user(request)
-    except Exception:
-        user = None
-    if user and user.get("role") == "admin":
-        return True
     url_host = (request.url.hostname or "").strip().lower()
     return url_host in {"127.0.0.1", "localhost", "::1", "testclient"}
 
@@ -2283,6 +2298,8 @@ def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
         provider = _canonical_stt_provider(item)
         if provider in {"azure_batch", "local"} and provider not in providers:
             providers.append(provider)
+    if _public_mode_enabled() and not _request_can_use_local_stt(request):
+        providers = [provider for provider in providers if provider != "local"]
     return tuple(providers) or (("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",))
 
 
@@ -3013,13 +3030,13 @@ def _ops_status_payload() -> dict[str, Any]:
 
 
 @app.get("/health")
-def health() -> dict[str, Any]:
+def health(request: Request) -> dict[str, Any]:
     return {
         "status": "ok",
         "app_version": APP_VERSION,
         "event_schema_version": EVENT_SCHEMA_VERSION,
         "runtime": _runtime_context_metadata(),
-        "limits": _runtime_limits(),
+        "limits": _runtime_limits_for_request(request),
     }
 
 
@@ -3284,7 +3301,7 @@ def runtime_config(request: Request) -> dict[str, Any]:
         "allowed_stt_providers": allowed,
         "default_stt_provider": _default_stt_provider(request),
         "show_maintainer_settings": not _public_mode_enabled(),
-        "limits": _runtime_limits(),
+        "limits": _runtime_limits_for_request(request),
         "guest_trial": _guest_trial_config(),
     }
 
@@ -3566,8 +3583,7 @@ def get_job_detail(request: Request, task_id: str) -> dict[str, Any]:
     return job
 
 
-@app.delete("/jobs/{task_id}")
-def delete_job_detail(request: Request, task_id: str) -> dict[str, Any]:
+def _delete_job_for_request(request: Request, task_id: str) -> dict[str, Any]:
     client_id = _request_client_scope(request)
     job = get_job(task_id, client_id=client_id)
     if not job:
@@ -3579,6 +3595,16 @@ def delete_job_detail(request: Request, task_id: str) -> dict[str, Any]:
     if not deleted:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True, "task_id": task_id, "deleted": True}
+
+
+@app.delete("/jobs/{task_id}")
+def delete_job_detail(request: Request, task_id: str) -> dict[str, Any]:
+    return _delete_job_for_request(request, task_id)
+
+
+@app.post("/jobs/{task_id}/delete")
+def delete_job_detail_fallback(request: Request, task_id: str) -> dict[str, Any]:
+    return _delete_job_for_request(request, task_id)
 
 
 @app.patch("/jobs/{task_id}/transcript")

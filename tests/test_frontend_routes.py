@@ -50,6 +50,31 @@ def test_failed_job_can_be_deleted(monkeypatch) -> None:
     assert deleted == [(["task-failed"], "client-a")]
 
 
+def test_failed_job_can_be_deleted_via_post_fallback(monkeypatch) -> None:
+    deleted: list[tuple[list[str], str | None]] = []
+    cleaned: list[str] = []
+
+    monkeypatch.setattr(
+        main,
+        "get_job",
+        lambda task_id, client_id=None: {
+            "task_id": task_id,
+            "status": "failed",
+            "client_id": client_id,
+            "metadata": {"source": "test"},
+        },
+    )
+    monkeypatch.setattr(main, "_cleanup_task_all_files", lambda task_id, metadata=None: cleaned.append(task_id) or {})
+    monkeypatch.setattr(main, "delete_jobs", lambda task_ids, client_id=None: deleted.append((list(task_ids), client_id)) or 1)
+
+    response = TestClient(app).post("/jobs/task-failed/delete", headers={"X-FluentFlow-Client-Id": "client-a"})
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] is True
+    assert cleaned == ["task-failed"]
+    assert deleted == [(["task-failed"], "client-a")]
+
+
 def test_completed_job_delete_is_rejected(monkeypatch) -> None:
     monkeypatch.setattr(
         main,
