@@ -8,21 +8,22 @@ from fastapi.testclient import TestClient
 
 import backend.main as main
 from backend.core import job_store
+import backend.core.server_helpers as _H
 
 
 def _patch_job_store(monkeypatch, db_path: Path) -> None:
     monkeypatch.setattr(
-        main,
+        _H,
         "upsert_job",
         lambda **kwargs: job_store.upsert_job(**kwargs, db_path=db_path),
     )
     monkeypatch.setattr(
-        main,
+        _H,
         "get_job",
         lambda task_id, client_id=None: job_store.get_job(task_id, db_path=db_path, client_id=client_id),
     )
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda limit=50, client_id=None: job_store.list_jobs(limit=limit, db_path=db_path, client_id=client_id),
     )
@@ -33,7 +34,7 @@ def _enable_account_auth(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCOUNT_DB_PATH", str(tmp_path / "accounts.sqlite"))
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
 
 def test_guest_trial_status_bypasses_account_login_wall(monkeypatch, tmp_path: Path) -> None:
@@ -57,9 +58,9 @@ def test_guest_trial_process_creates_private_queued_job(monkeypatch, tmp_path: P
     monkeypatch.setenv("FLUENTFLOW_GUEST_FILE_LIMIT_MB", "150")
     monkeypatch.setenv("FLUENTFLOW_GUEST_DURATION_LIMIT_SECONDS", "900")
     _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
-    monkeypatch.setattr(main, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
     enqueued: list[dict[str, Any]] = []
-    monkeypatch.setattr(main, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -112,7 +113,7 @@ def test_guest_trial_queue_capacity_rejects_before_upload(monkeypatch, tmp_path:
             db_path=db_path,
         )
     enqueued: list[dict[str, Any]] = []
-    monkeypatch.setattr(main, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -129,7 +130,7 @@ def test_guest_trial_queue_capacity_rejects_before_upload(monkeypatch, tmp_path:
 def test_guest_trial_daily_ip_limit_counts_only_today(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_GUEST_DAILY_TRIALS_PER_IP", "1")
     monkeypatch.setattr(
-        main,
+        _H,
         "_guest_trial_jobs",
         lambda *args, **kwargs: [
             {
@@ -139,7 +140,7 @@ def test_guest_trial_daily_ip_limit_counts_only_today(monkeypatch) -> None:
             }
         ],
     )
-    request = type("Request", (), {"headers": {"x-forwarded-for": "203.0.113.9"}, "client": None})()
+    request = type("Request", (), {"headers": {}, "client": type("Client", (), {"host": "203.0.113.9"})()})()
 
     try:
         main._enforce_guest_daily_ip_limit(request)

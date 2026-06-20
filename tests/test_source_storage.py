@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.main import _find_source_file, _persist_source_file
+from backend.core.server_helpers import _find_source_file, _persist_source_file
 
 
 def test_persist_and_find_source_file(tmp_path: Path) -> None:

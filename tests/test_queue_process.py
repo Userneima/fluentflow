@@ -3,17 +3,18 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import backend.main as main
+import backend.core.server_helpers as _H
 
 
 def test_queue_process_persists_multiple_files_without_running_stt(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
 
     jobs: list[dict] = []
     enqueued: list[dict] = []
-    monkeypatch.setattr(main, "upsert_job", lambda **kwargs: jobs.append(kwargs))
-    monkeypatch.setattr(main, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
 
     with TestClient(main.app) as client:
         response = client.post(

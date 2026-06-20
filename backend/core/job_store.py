@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -86,50 +87,58 @@ def upsert_job(
 ) -> None:
     if not task_id:
         return
-    try:
-        ensure_job_db(db_path)
-        now = _now_iso()
-        with sqlite3.connect(Path(db_path)) as conn:
-            conn.execute(
-                """
-                INSERT INTO jobs (
-                    task_id, created_at, updated_at, status, client_id, stage, progress,
-                    source_type, source_filename, source_file_size_mb, summary_status,
-                    error_reason, result_json, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(task_id) DO UPDATE SET
-                    updated_at=excluded.updated_at,
-                    status=excluded.status,
-                    client_id=COALESCE(excluded.client_id, jobs.client_id),
-                    stage=COALESCE(excluded.stage, jobs.stage),
-                    progress=COALESCE(excluded.progress, jobs.progress),
-                    source_type=COALESCE(excluded.source_type, jobs.source_type),
-                    source_filename=COALESCE(excluded.source_filename, jobs.source_filename),
-                    source_file_size_mb=COALESCE(excluded.source_file_size_mb, jobs.source_file_size_mb),
-                    summary_status=COALESCE(excluded.summary_status, jobs.summary_status),
-                    error_reason=COALESCE(excluded.error_reason, jobs.error_reason),
-                    result_json=COALESCE(excluded.result_json, jobs.result_json),
-                    metadata_json=COALESCE(excluded.metadata_json, jobs.metadata_json)
-                """,
-                (
-                    task_id,
-                    now,
-                    now,
-                    status,
-                    client_id,
-                    stage,
-                    progress,
-                    source_type,
-                    source_filename,
-                    source_file_size_mb,
-                    summary_status,
-                    error_reason,
-                    _json_dumps(result),
-                    _json_dumps(metadata),
-                ),
-            )
-    except Exception as exc:  # pragma: no cover - persistence must not break processing
-        logger.warning("Job store update failed for %s: %s", task_id, exc)
+    last_exc = None
+    for attempt in range(3):
+        try:
+            ensure_job_db(db_path)
+            now = _now_iso()
+            with sqlite3.connect(Path(db_path)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO jobs (
+                        task_id, created_at, updated_at, status, client_id, stage, progress,
+                        source_type, source_filename, source_file_size_mb, summary_status,
+                        error_reason, result_json, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                        updated_at=excluded.updated_at,
+                        status=excluded.status,
+                        client_id=COALESCE(excluded.client_id, jobs.client_id),
+                        stage=COALESCE(excluded.stage, jobs.stage),
+                        progress=COALESCE(excluded.progress, jobs.progress),
+                        source_type=COALESCE(excluded.source_type, jobs.source_type),
+                        source_filename=COALESCE(excluded.source_filename, jobs.source_filename),
+                        source_file_size_mb=COALESCE(excluded.source_file_size_mb, jobs.source_file_size_mb),
+                        summary_status=COALESCE(excluded.summary_status, jobs.summary_status),
+                        error_reason=COALESCE(excluded.error_reason, jobs.error_reason),
+                        result_json=COALESCE(excluded.result_json, jobs.result_json),
+                        metadata_json=COALESCE(excluded.metadata_json, jobs.metadata_json)
+                    WHERE jobs.status != 'cancelled' OR excluded.status = 'cancelled'
+                    """,
+                    (
+                        task_id,
+                        now,
+                        now,
+                        status,
+                        client_id,
+                        stage,
+                        progress,
+                        source_type,
+                        source_filename,
+                        source_file_size_mb,
+                        summary_status,
+                        error_reason,
+                        _json_dumps(result),
+                        _json_dumps(metadata),
+                    ),
+                )
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+    logger.error("Job store update failed for %s after 3 retries: %s", task_id, last_exc)
+    raise last_exc
 
 
 def get_job(
@@ -285,6 +294,10 @@ def _result_summary(result: Any) -> dict[str, Any] | None:
         "stt_speed": result.get("stt_speed"),
         "stt_language": result.get("stt_language"),
         "detected_language": result.get("detected_language"),
+        "source_language": result.get("source_language"),
+        "subtitle_mode": result.get("subtitle_mode"),
+        "translation_status": result.get("translation_status"),
+        "translation_error": result.get("translation_error"),
         "summary_status": result.get("summary_status"),
         "summary_error": result.get("summary_error"),
         "summary_skipped": result.get("summary_skipped"),
@@ -302,6 +315,8 @@ def _result_summary(result: Any) -> dict[str, Any] | None:
         "requested_note_mode": result.get("requested_note_mode"),
         "resolved_note_mode": result.get("resolved_note_mode"),
         "note_mode_chunk_count": result.get("note_mode_chunk_count"),
+        "prompt_preset": result.get("prompt_preset"),
+        "prompt_preset_label": result.get("prompt_preset_label"),
         "imported_from_local_history": result.get("imported_from_local_history"),
     }
 

@@ -1,24 +1,29 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from fastapi import Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 import pytest
 
 import backend.main as main
+import backend.core.server_helpers as _H
 
 
 def test_auth_status_is_open_by_default(monkeypatch) -> None:
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
     with TestClient(main.app) as client:
         response = client.get("/auth/status")
 
     assert response.status_code == 200
+    request = Request({"type": "http", "method": "GET", "path": "/jobs", "headers": [], "server": ("testclient", 80)})
+    assert main._request_client_scope(request) == "anonymous"
     payload = response.json()
     assert payload["access_required"] is False
     assert payload["authenticated"] is True
@@ -27,7 +32,7 @@ def test_auth_status_is_open_by_default(monkeypatch) -> None:
 def test_auth_middleware_rejects_api_without_access_code(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCESS_TOKEN", "beta-code")
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
     with TestClient(main.app) as client:
         rejected = client.get("/jobs")
@@ -40,7 +45,7 @@ def test_auth_middleware_rejects_api_without_access_code(monkeypatch) -> None:
 def test_auth_login_sets_cookie(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCESS_TOKEN", "beta-code")
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
     with TestClient(main.app) as client:
         response = client.post("/auth/login", json={"access_token": "beta-code"})
@@ -56,7 +61,7 @@ def test_queue_file_limit_rejects_before_persistence(tmp_path, monkeypatch) -> N
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
     monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -105,7 +110,7 @@ def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> No
     monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
     monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
-    monkeypatch.setattr(main, "_request_account_user", lambda request: {"id": "admin", "role": "admin"})
+    monkeypatch.setattr(_H, "_request_account_user", lambda request: {"id": "admin", "role": "admin"})
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("fluentflow.icu", 443)})
 
     assert main._allowed_stt_providers(request) == ("azure_batch",)
@@ -146,10 +151,113 @@ def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch)
         "headers": [],
         "server": ("127.0.0.1", 8000),
     })
+    local_video_source_request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/video-sources/jobs",
+        "headers": [(b"x-fluentflow-execution-target", b"local")],
+        "server": ("127.0.0.1", 8000),
+    })
+    local_job_events_request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/jobs/task-local/events",
+        "headers": [(b"x-fluentflow-execution-target", b"local")],
+        "server": ("127.0.0.1", 8000),
+    })
+    local_jobs_request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/jobs",
+        "headers": [(b"x-fluentflow-execution-target", b"local")],
+        "server": ("127.0.0.1", 8000),
+    })
+    remote_local_process_request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/process",
+        "headers": [(b"x-fluentflow-execution-target", b"local")],
+        "server": ("fluentflow.icu", 443),
+    })
 
     assert main._should_proxy_cloud_workspace(runtime_request) is False
     assert main._should_proxy_cloud_workspace(local_process_request) is False
+    assert main._should_proxy_cloud_workspace(local_video_source_request) is False
+    assert main._should_proxy_cloud_workspace(local_job_events_request) is False
     assert main._should_proxy_cloud_workspace(cloud_process_request) is True
+    assert main._request_is_local_execution(local_process_request) is True
+    assert main._request_is_local_execution(local_jobs_request) is True
+    assert main._request_is_local_execution(remote_local_process_request) is False
+
+
+def test_local_status_routes_are_public_only_on_localhost() -> None:
+    local_request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/credentials/status",
+        "headers": [],
+        "server": ("127.0.0.1", 8000),
+    })
+    public_request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/credentials/status",
+        "headers": [],
+        "server": ("fluentflow.icu", 443),
+    })
+
+    assert main._is_public_request(local_request) is True
+    assert main._is_public_request(public_request) is False
+
+
+def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_ACCOUNT_AUTH", "1")
+    monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", raising=False)
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/process",
+        "headers": [(b"x-fluentflow-execution-target", b"local"), (b"x-fluentflow-client-id", b"local-yuchao")],
+        "server": ("127.0.0.1", 8000),
+    })
+
+    async def call_next(_request):
+        return JSONResponse({"ok": True})
+
+    response = asyncio.run(main.beta_access_middleware(request, call_next))
+
+    assert response.status_code == 200
+    assert main._request_client_scope(request) == "local-yuchao"
+
+
+def test_local_history_candidates_include_transcript_bearing_failed_jobs(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://fluentflow.icu")
+    monkeypatch.setattr(
+        _H,
+        "list_jobs",
+        lambda limit=100, **kwargs: [
+            {
+                "task_id": "summary-failed",
+                "status": "failed",
+                "result": {
+                    "task_id": "summary-failed",
+                    "filename": "demo.mp4",
+                    "transcript_text": "transcript is available",
+                    "summary_status": "failed",
+                    "summary_error": "summary failed",
+                },
+            },
+            {"task_id": "hard-failed", "status": "failed", "result": {}},
+        ],
+    )
+
+    with TestClient(main.app) as client:
+        response = client.get("/local-history/candidates?limit=20")
+
+    assert response.status_code == 200
+    jobs = response.json()["jobs"]
+    assert [job["task_id"] for job in jobs] == ["summary-failed"]
 
 
 def test_public_cloud_filters_explicit_local_provider(monkeypatch) -> None:
@@ -172,7 +280,7 @@ def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
 def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", "1")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "existing", "status": "running"},
@@ -192,7 +300,7 @@ def test_daily_job_quota_blocks_excess_submissions(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "2")
     monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "0")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "today-a", "created_at": now, "source_file_size_mb": 10},
@@ -213,7 +321,7 @@ def test_daily_job_quota_ignores_imported_history(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "2")
     monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "0")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {
@@ -244,12 +352,12 @@ def test_daily_quota_skips_admin_client_scope(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "0")
     monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL", "0")
     monkeypatch.setattr(
-        main,
+        _H,
         "get_user_by_id",
         lambda account_id: {"id": account_id, "role": "admin"},
     )
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "today-a", "created_at": now, "source_file_size_mb": 10},
@@ -266,7 +374,7 @@ def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT", "0")
     monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT", "100")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "today-a", "created_at": now, "source_file_size_mb": 80},
@@ -283,7 +391,7 @@ def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
 def test_global_active_job_limit_blocks_server_overload(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL", "2")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "running-a", "status": "running"},
@@ -304,7 +412,7 @@ def test_global_daily_upload_quota_blocks_excess_usage(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL", "0")
     monkeypatch.setenv("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL", "100")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "today-a", "created_at": now, "source_file_size_mb": 90},
@@ -323,8 +431,8 @@ def test_submission_rate_limit_blocks_repeated_requests(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS", "60")
     main._SUBMISSION_RATE_EVENTS.clear()
     request = SimpleNamespace(
-        headers={"x-forwarded-for": "203.0.113.10"},
-        client=SimpleNamespace(host="127.0.0.1"),
+        headers={},
+        client=SimpleNamespace(host="203.0.113.10"),
     )
 
     main._enforce_submission_rate_limit(request, incoming=1)
@@ -356,8 +464,8 @@ def test_history_retention_prunes_oldest_completed_task_files(tmp_path, monkeypa
         (tmp_path / "artifacts" / task_id).mkdir(parents=True)
         (tmp_path / "artifacts" / task_id / "audio.mp3").write_bytes(b"audio")
     deleted: list[str] = []
-    monkeypatch.setattr(main, "list_jobs_for_retention", lambda client_id=None: jobs)
-    monkeypatch.setattr(main, "delete_jobs", lambda task_ids, client_id=None: deleted.extend(task_ids) or len(task_ids))
+    monkeypatch.setattr(_H, "list_jobs_for_retention", lambda client_id=None: jobs)
+    monkeypatch.setattr(_H, "delete_jobs", lambda task_ids, client_id=None: deleted.extend(task_ids) or len(task_ids))
 
     result = main._enforce_history_retention("client-a")
 
@@ -371,7 +479,7 @@ def test_history_retention_prunes_oldest_completed_task_files(tmp_path, monkeypa
 def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
     with TestClient(main.app) as client:
         response = client.get("/runtime-config")
@@ -406,9 +514,9 @@ def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp
     ]
     updates: list[dict] = []
     enqueued: list[dict] = []
-    monkeypatch.setattr(main, "list_jobs", lambda *args, **kwargs: jobs)
-    monkeypatch.setattr(main, "upsert_job", lambda **kwargs: updates.append(kwargs))
-    monkeypatch.setattr(main, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+    monkeypatch.setattr(_H, "list_jobs", lambda *args, **kwargs: jobs)
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: updates.append(kwargs))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
 
     main._resume_queued_transcription_jobs(base_url="http://127.0.0.1:8000")
 
@@ -419,7 +527,7 @@ def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp
 
 def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> None:
     monkeypatch.setattr(
-        main,
+        _H,
         "get_job",
         lambda task_id, client_id=None: {
             "task_id": task_id,
@@ -455,7 +563,7 @@ def test_ops_status_reports_stale_jobs_without_secret_values(tmp_path, monkeypat
     monkeypatch.setenv("FLUENTFLOW_VIDEO_SOURCE_DIR", str(tmp_path / "videos"))
     monkeypatch.setenv("AZURE_SPEECH_KEY", "super-secret-value")
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda *args, **kwargs: [
             {"task_id": "stale", "status": "running", "stage": "stt", "updated_at": old_time, "source_filename": "demo.mp4"},

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from backend.main import JobEventHub
+from backend.core.server_helpers import JobEventHub
 
 
 def _payload(chunk: str) -> dict:

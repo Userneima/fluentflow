@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.main import _attach_playback_audio_artifact, _attach_result_artifacts
+from fastapi.testclient import TestClient
+
+import backend.main as main
+from backend.core import job_store
+from backend.core.server_helpers import _attach_playback_audio_artifact, _attach_result_artifacts
+import backend.core.server_helpers as _H
 
 
 def test_attach_result_artifacts_writes_transcript_and_subtitle_files(tmp_path, monkeypatch) -> None:
@@ -37,6 +42,34 @@ def test_attach_result_artifacts_writes_transcript_and_subtitle_files(tmp_path, 
     assert summary.startswith("# 摘要")
 
 
+def test_attach_result_artifacts_writes_bilingual_subtitles(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
+    result = {
+        "filename": "english-lesson.mp4",
+        "transcript_text": "Hello world\nSecond sentence",
+        "segments": [
+            {"start": 0.0, "end": 1.25, "text": "Hello world"},
+            {"start": 1.25, "end": 3.5, "text": "Second sentence"},
+        ],
+        "translated_segments_zh": [
+            {"start": 0.0, "end": 1.25, "text": "你好，世界"},
+            {"start": 1.25, "end": 3.5, "text": "第二句"},
+        ],
+    }
+
+    next_result = _attach_result_artifacts("task_bilingual_test", result)
+
+    artifacts = next_result["artifacts"]
+    assert "transcript_srt" in artifacts
+    assert "transcript_bilingual_srt" in artifacts
+    assert "transcript_bilingual_vtt" in artifacts
+    bilingual_srt = (
+        tmp_path / "task_bilingual_test" / artifacts["transcript_bilingual_srt"]["filename"]
+    ).read_text(encoding="utf-8")
+    assert "Hello world\n你好，世界" in bilingual_srt
+    assert artifacts["transcript_bilingual_srt"]["filename"].endswith("_bilingual_zh.srt")
+
+
 def test_attach_result_artifacts_preserves_result_when_nothing_to_write(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
     result = {"filename": "empty.mp4"}
@@ -63,3 +96,46 @@ def test_playback_audio_artifact_survives_result_artifact_refresh(tmp_path, monk
     assert "playback_audio" in artifacts
     assert "transcript_txt" in artifacts
     assert (tmp_path / "task_audio" / artifacts["playback_audio"]["filename"]).read_bytes() == b"mp3"
+
+
+def test_upload_job_playback_audio_persists_artifact_with_original_suffix(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "jobs.sqlite"
+    artifact_dir = tmp_path / "artifacts"
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(artifact_dir))
+    monkeypatch.delenv("FLUENTFLOW_ACCOUNT_AUTH", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", raising=False)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "get_job", lambda task_id, client_id=None: job_store.get_job(task_id, db_path=db_path, client_id=client_id))
+    monkeypatch.setattr(_H, "update_job_result", lambda task_id, result, client_id=None: job_store.update_job_result(task_id, result, db_path=db_path, client_id=client_id))
+
+    job_store.upsert_job(
+        task_id="task_media",
+        client_id="local-yuchao",
+        status="completed",
+        stage="done",
+        progress=100,
+        source_type="audio",
+        source_filename="lesson.m4a",
+        result={"task_id": "task_media", "filename": "lesson.m4a", "transcript_text": "hello"},
+        db_path=db_path,
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/jobs/task_media/playback-audio",
+            headers={"X-FluentFlow-Client-Id": "local-yuchao"},
+            files={"file": ("picked.m4a", b"audio-bytes", "audio/mp4")},
+        )
+        download = client.get(
+            "/jobs/task_media/artifacts/playback_audio",
+            headers={"X-FluentFlow-Client-Id": "local-yuchao"},
+        )
+
+    assert response.status_code == 200
+    artifact = response.json()["result"]["artifacts"]["playback_audio"]
+    assert artifact["filename"].endswith(".m4a")
+    assert response.json()["result"]["playback_audio_storage"] == "local"
+    assert (artifact_dir / "task_media" / artifact["filename"]).read_bytes() == b"audio-bytes"
+    assert download.status_code == 200
+    assert download.content == b"audio-bytes"

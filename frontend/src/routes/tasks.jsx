@@ -6,6 +6,7 @@ import {
     fmtElapsed,
     fmtFileSize,
     friendlyTaskError,
+    hasTranscriptResult,
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobToHistoryEntry,
@@ -16,13 +17,39 @@ import {
     useAuth,
     useI18n,
     writeCachedAccountJobs,
-} from '../app.jsx';
+} from '../app/shared.jsx';
+
+const isVideoSourceJob = (job) => (
+    job?.source_type === 'video_link'
+    || job?.metadata?.route === '/video-sources/jobs'
+    || !!job?.metadata?.video_source
+);
+
+const stripExtension = (value) => String(value || '').replace(/\.[a-z0-9]{2,6}$/i, '').trim();
+
+const stripGeneratedVideoPrefix = (value) => {
+    const text = stripExtension(value);
+    return text.replace(/^[a-z0-9_-]{6,80}[-_]+(?=.)/i, '').trim() || text;
+};
+
+const jobDisplayTitle = (job, lang) => {
+    const videoSource = job?.metadata?.video_source || {};
+    if (isVideoSourceJob(job)) {
+        const title = String(videoSource.title || '').trim();
+        if (title) return title;
+        const filename = videoSource.filename || job?.result?.filename || job?.source_filename;
+        const cleaned = stripGeneratedVideoPrefix(filename);
+        if (cleaned && cleaned !== job?.task_id) return cleaned;
+        return lang === 'zh' ? '视频链接任务' : 'Video link task';
+    }
+    return String(job?.source_filename || job?.result?.filename || '').trim() || (lang === 'zh' ? '未命名任务' : 'Untitled task');
+};
 
 const Tasks = () => {
     const {t, lang} = useI18n();
     const {authMode, user} = useAuth();
     const {currentJob, setLastResult, setCurrentJob, addToHistory} = useApp();
-    const {getJobs, getJob, deleteJob, downloadJobArtifact} = useApi();
+    const {getJobs, getJob, cancelJob, deleteJob, downloadJobArtifact} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
@@ -30,8 +57,12 @@ const Tasks = () => {
     const [loading, setLoading] = useState(() => readCachedAccountJobs(cacheAccountId).length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
+    const [cancellingTaskId, setCancellingTaskId] = useState('');
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const isLiveJob = (job) => job.status === 'queued' || job.status === 'running';
+    const isCancelledJob = (job) => job.status === 'cancelled';
+    const isDeletableJob = (job) => !isLiveJob(job);
+    const isLocalJob = (job) => job.client_id === 'local-yuchao' || job.metadata?.stt_provider === 'local';
     const [taskFilter, setTaskFilter] = useState('all');
     const stats = useMemo(() => ({
         live: jobs.filter(isLiveJob).length,
@@ -50,7 +81,7 @@ const Tasks = () => {
         return jobs
             .filter((job) => {
                 if (taskFilter === 'live') return isLiveJob(job);
-                if (taskFilter === 'failed') return job.status === 'failed';
+                if (taskFilter === 'failed') return job.status === 'failed' || job.status === 'cancelled';
                 if (taskFilter === 'completed') return job.status === 'completed';
                 return true;
             })
@@ -65,7 +96,20 @@ const Tasks = () => {
 
     const loadJobs = useCallback(async () => {
         try {
-            const next = await getJobs(100);
+            const [accountJobs, localJobs] = await Promise.all([
+                getJobs(100).catch(() => []),
+                getJobs(100, {sttProvider: 'local'}).catch(() => []),
+            ]);
+            const byId = new Map(readCachedAccountJobs(cacheAccountId).map((job) => [job.task_id, job]).filter(([taskId]) => taskId));
+            [...accountJobs, ...localJobs].forEach((job) => {
+                if (!job?.task_id) return;
+                const existing = byId.get(job.task_id);
+                if (existing?.status === 'cancelled' && job.status !== 'cancelled') return;
+                const existingTs = Date.parse(existing?.updated_at || existing?.created_at || '') || 0;
+                const nextTs = Date.parse(job.updated_at || job.created_at || '') || 0;
+                if (!existing || nextTs >= existingTs) byId.set(job.task_id, job);
+            });
+            const next = Array.from(byId.values());
             writeCachedAccountJobs(cacheAccountId, next);
             setJobs(next);
             setError(null);
@@ -113,7 +157,7 @@ const Tasks = () => {
             return;
         }
         try {
-            const fresh = await getJob(job.task_id);
+            const fresh = await getJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
             const result = fresh?.result || job.result;
             if (result) {
                 setLastResult(result);
@@ -129,19 +173,56 @@ const Tasks = () => {
         const artifact = job.result?.artifacts?.[kind];
         await downloadJobArtifact(job.task_id, kind, artifact?.filename);
     };
-    const deleteFailedJob = async (job) => {
-        if (job.status !== 'failed') return;
+    const cancelLiveJob = async (job) => {
+        if (!isLiveJob(job)) return;
+        const confirmText = lang === 'zh'
+            ? '取消这个正在处理的任务？已生成的完整结果不会保留。'
+            : 'Cancel this active task? A complete result will not be kept.';
+        if (!window.confirm(confirmText)) return;
+        setCancellingTaskId(job.task_id);
+        try {
+            await cancelJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            setJobs((current) => {
+                const next = current.map((item) => item.task_id === job.task_id ? {
+                    ...item,
+                    status: 'cancelled',
+                    error_reason: 'user_cancelled',
+                    updated_at: new Date().toISOString(),
+                } : item);
+                writeCachedAccountJobs(cacheAccountId, next);
+                return next;
+            });
+            if (currentJob?.taskId === job.task_id) setCurrentJob(null);
+            setError(null);
+            loadJobs();
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setCancellingTaskId('');
+        }
+    };
+
+    const deleteFinishedJob = async (job) => {
+        if (!isDeletableJob(job)) return;
         if (!window.confirm(t('tasks.deleteConfirm'))) return;
         setDeletingTaskId(job.task_id);
-        try {
-            await deleteJob(job.task_id);
+        const removeLocalRecord = () => {
             setJobs((current) => {
                 const next = current.filter((item) => item.task_id !== job.task_id);
                 writeCachedAccountJobs(cacheAccountId, next);
                 return next;
             });
+        };
+        try {
+            await deleteJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            removeLocalRecord();
             setError(null);
         } catch (err) {
+            if (err.status === 404) {
+                removeLocalRecord();
+                setError(null);
+                return;
+            }
             setError(friendlyTaskError(err.message || String(err), lang));
         } finally {
             setDeletingTaskId('');
@@ -152,6 +233,7 @@ const Tasks = () => {
         if (job.status === 'queued') return t('tasks.queued');
         if (job.status === 'completed') return t('tasks.completed');
         if (job.status === 'failed') return t('tasks.failed');
+        if (job.status === 'cancelled') return lang === 'zh' ? '已取消' : 'Cancelled';
         return t('tasks.running');
     };
     const statusClass = (job) => (
@@ -159,6 +241,8 @@ const Tasks = () => {
             ? 'bg-primary/10 text-primary border-primary/20'
             : job.status === 'failed'
                 ? 'bg-error-container text-on-error-container border-error/20'
+                : job.status === 'cancelled'
+                    ? 'bg-surface-container text-on-surface-variant border-outline-variant/40'
                 : job.status === 'queued'
                     ? 'bg-surface-container text-on-surface-variant border-outline-variant/40'
                     : 'bg-tertiary/10 text-tertiary border-tertiary/20'
@@ -184,10 +268,17 @@ const Tasks = () => {
         const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
         const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
         const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
+        const summaryFailed = job.summary_status === 'failed' || job.result?.summary_status === 'failed' || job.result?.summary_error;
         if (progressMeta.message) return `${progressMeta.message}${byteText}`;
+        if (summaryFailed && hasTranscriptResult(job.result)) {
+            return lang === 'zh'
+                ? `转录已保存，AI 摘要失败。打开结果后可重新生成。${job.result?.summary_error ? ` ${job.result.summary_error}` : ''}`
+                : `Transcript saved, but AI summary failed. Open the result to regenerate it.${job.result?.summary_error ? ` ${job.result.summary_error}` : ''}`;
+        }
         if (job.status === 'queued') return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
         if (job.status === 'running') return job.summary_status || stageLabel(job);
         if (job.status === 'completed') return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
+        if (job.status === 'cancelled') return lang === 'zh' ? '任务已取消，可以删除这条记录。' : 'Task cancelled. You can delete this record.';
         if (job.status === 'failed') return friendlyTaskError(job.error_reason, lang);
         return '-';
     };
@@ -195,6 +286,8 @@ const Tasks = () => {
         ['transcript_srt', t('tasks.srt')],
         ['transcript_txt', t('tasks.txt')],
         ['transcript_vtt', t('tasks.vtt')],
+        ['transcript_bilingual_srt', t('tasks.bilingualSrt')],
+        ['transcript_bilingual_vtt', t('tasks.bilingualVtt')],
         ['summary_md', t('tasks.md')],
     ];
 
@@ -278,8 +371,10 @@ const Tasks = () => {
                             const artifacts = result.artifacts || {};
                             const availableArtifacts = artifactButtons.filter(([kind]) => artifacts[kind]);
                             const larkUrl = result.lark_response?.url || result.feishu_doc_url || null;
-                            const canOpen = !!result && job.status === 'completed';
-                            const showDetail = isLiveJob(job) || job.status === 'failed';
+                            const canOpen = hasTranscriptResult(result) || (!!result && job.status === 'completed');
+                            const summaryFailed = job.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
+                            const showDetail = isLiveJob(job) || job.status === 'failed' || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result));
+                            const displayTitle = jobDisplayTitle(job, lang);
                             return (
                                 <article key={job.task_id} className="rounded-sm bg-surface-container-lowest border ff-border-muted shadow-sm p-4">
                                     <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
@@ -289,7 +384,7 @@ const Tasks = () => {
                                                     <span className="material-symbols-outlined text-lg">{job.source_type === 'transcript_file' ? 'subtitles' : 'movie'}</span>
                                                 </div>
                                                 <div className="min-w-0 flex-1">
-                                                    <h2 className="text-sm font-headline font-extrabold text-on-surface truncate" title={job.source_filename || job.task_id}>{job.source_filename || job.task_id}</h2>
+                                                    <h2 className="text-sm font-headline font-extrabold text-on-surface truncate" title={displayTitle}>{displayTitle}</h2>
                                                     <p className="text-xs text-on-surface-variant mt-1">
                                                         {formatUpdated(job)}
                                                         {job.source_file_size_mb ? ` • ${fmtFileSize(job.source_file_size_mb)}` : ''}
@@ -307,8 +402,8 @@ const Tasks = () => {
                                                             {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-primary transition-all duration-500" style={{width:`${progress}%`}}></div>}
                                                         </div>
                                                     )}
-                                                    <p className={`rounded-sm px-3 py-2 text-xs font-semibold leading-relaxed ${job.status === 'failed' ? 'border border-error/20 bg-error-container text-on-error-container' : 'bg-surface-container-low text-on-surface-variant'}`}>
-                                                        {job.status === 'failed' ? <span className="font-bold">{t('tasks.error')}： </span> : null}
+                                                    <p className={`rounded-sm px-3 py-2 text-xs font-semibold leading-relaxed ${job.status === 'failed' && !canOpen ? 'border border-error/20 bg-error-container text-on-error-container' : summaryFailed && hasTranscriptResult(result) ? 'border border-amber-400/25 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-surface-container-low text-on-surface-variant'}`}>
+                                                        {job.status === 'failed' && !canOpen ? <span className="font-bold">{t('tasks.error')}： </span> : null}
                                                         {stageDetail(job)}
                                                     </p>
                                                 </div>
@@ -316,16 +411,22 @@ const Tasks = () => {
                                         </div>
 
                                         <div className="lg:w-[430px] flex-shrink-0 space-y-2">
-                                            {job.status === 'failed' ? (
-                                                <button type="button" disabled={deletingTaskId === job.task_id} onClick={() => deleteFailedJob(job)} className="w-full inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm border border-error/20 bg-surface-container-low text-error font-bold text-xs hover:bg-error-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
-                                                    <span className="material-symbols-outlined text-base">{deletingTaskId === job.task_id ? 'sync' : 'delete'}</span>
-                                                    {t('tasks.delete')}
+                                            {isLiveJob(job) ? (
+                                                <button type="button" disabled={cancellingTaskId === job.task_id} onClick={() => cancelLiveJob(job)} className="w-full inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm border border-error/20 bg-surface-container-low text-error font-bold text-xs hover:bg-error-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
+                                                    <span className={`material-symbols-outlined text-base ${cancellingTaskId === job.task_id ? 'animate-spin' : ''}`}>{cancellingTaskId === job.task_id ? 'sync' : 'cancel'}</span>
+                                                    {lang === 'zh' ? '取消任务' : 'Cancel task'}
                                                 </button>
                                             ) : (
-                                                <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="w-full inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm bg-primary text-on-primary font-bold text-xs hover:bg-primary-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
-                                                    <span className="material-symbols-outlined text-base">open_in_new</span>
-                                                    {t('tasks.open')}
-                                                </button>
+                                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                                    <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm bg-primary text-on-primary font-bold text-xs hover:bg-primary-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
+                                                        <span className="material-symbols-outlined text-base">open_in_new</span>
+                                                        {t('tasks.open')}
+                                                    </button>
+                                                    <button type="button" disabled={!isDeletableJob(job) || deletingTaskId === job.task_id} onClick={() => deleteFinishedJob(job)} className="inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm border border-error/20 bg-surface-container-low text-error font-bold text-xs hover:bg-error-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
+                                                        <span className={`material-symbols-outlined text-base ${deletingTaskId === job.task_id ? 'animate-spin' : ''}`}>{deletingTaskId === job.task_id ? 'sync' : 'delete'}</span>
+                                                        {t('tasks.delete')}
+                                                    </button>
+                                                </div>
                                             )}
                                             <div className="flex flex-wrap items-center justify-start gap-1.5 lg:justify-end">
                                                 {availableArtifacts.length > 0 ? (

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -16,7 +17,7 @@ DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-reasoner"
 DEFAULT_OPENAI_MODEL: Final[str] = "gpt-5.4-mini"
 DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
 SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai"}
-SUPPORTED_NOTE_MODES: Final[set[str]] = {"auto", "direct", "fast", "high_fidelity"}
+SUPPORTED_NOTE_MODES: Final[set[str]] = {"auto", "direct", "fast", "high_fidelity", "chapter_coverage"}
 DIRECT_MODE_MAX_CHARS: Final[int] = 20_000
 HIGH_FIDELITY_NOTICE_CHARS: Final[int] = 60_000
 
@@ -68,6 +69,13 @@ _NOTE_CONTENT_POLICY: Final[str] = """
 - 保留原文中的具体经验、案例、判断依据、步骤、限制条件和关键细节；不要只输出抽象结论。
 - 如果原文信息不足，不要补全成看似完整但没有依据的答案。
 - 「延伸思考」或「下一步」只能基于原文自然引出，不能新增事实或替用户做超出原文的判断。
+"""
+
+_NOTE_OUTPUT_LANGUAGE: Final[str] = """
+
+# Output Language
+- 最终笔记默认使用中文输出。即使输入转录稿是英文，也应直接理解英文原文并写成中文笔记。
+- 不要把英文原文整段翻译后再作为笔记；笔记应是基于原文的结构化中文整理。
 """
 
 _FEISHU_NOTE_FORMATTING_PREFERENCES: Final[str] = """
@@ -158,6 +166,15 @@ _COVERAGE_SYSTEM: Final[str] = """你是 FluentFlow 的笔记覆盖率审查助�
 如果没有明显遗漏，只输出：COVERED
 如果有遗漏，请用 Markdown 列出「需要补入的遗漏点」，不要重写整篇笔记。"""
 
+_SEGMENT_TRANSLATION_SYSTEM: Final[str] = """你是 FluentFlow 的字幕翻译助手。
+请把输入 JSON 数组中的英文字幕逐条翻译为自然、准确、简洁的中文。
+
+要求：
+- 保留原意，不补充原文没有的信息。
+- 不解释、不总结、不合并字幕。
+- 输出严格 JSON 数组，每项格式为 {"index": 数字, "text_zh": "中文翻译"}。
+- index 必须和输入一致；不要输出 Markdown 或代码围栏。"""
+
 _REVISION_WRAPPER: Final[str] = """下面是已生成的课程笔记，以及覆盖率审查发现的遗漏点。
 请在不推翻原结构的前提下，把遗漏点自然补入笔记，输出完整修订版 Markdown。
 
@@ -194,6 +211,13 @@ class SummaryResult:
     chunk_count: int
     coverage_checked: bool = False
     coverage_revision_used: bool = False
+
+
+@dataclass(frozen=True)
+class SegmentTranslationResult:
+    segments: list[dict[str, Any]]
+    translated_count: int
+    chunk_count: int
 
 
 def _normalize_provider(provider: str | None) -> str:
@@ -261,6 +285,7 @@ def _compose_note_system_prompt(system_prompt: str | None) -> str:
     return (
         f"{base.rstrip()}"
         f"{_NOTE_CONTENT_POLICY}"
+        f"{_NOTE_OUTPUT_LANGUAGE}"
         f"{_FEISHU_NOTE_FORMATTING_PREFERENCES}"
         f"{_NOTE_OUTPUT_GUARDRAILS}"
     )
@@ -348,6 +373,46 @@ def _chunk_text(text: str, max_chars: int, overlap: int) -> list[str]:
     return chunks
 
 
+def _chunk_indexed_segments(segments: list[dict[str, Any]], max_chars: int) -> list[list[dict[str, Any]]]:
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_len = 0
+    for index, segment in enumerate(segments):
+        text = str(segment.get("text") or "").strip()
+        if not text:
+            continue
+        item = {"index": index, "text": text}
+        item_len = len(text) + 32
+        if current and current_len + item_len > max_chars:
+            chunks.append(current)
+            current = [item]
+            current_len = item_len
+        else:
+            current.append(item)
+            current_len += item_len
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _extract_json_array(text: str) -> list[Any]:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        parsed = json.loads(raw[start : end + 1])
+    if not isinstance(parsed, list):
+        raise ValueError("Translation response is not a JSON array")
+    return parsed
+
+
 def _normalize_note_mode(mode: str | None) -> str:
     value = (mode or os.environ.get("FLUENTFLOW_NOTE_MODE") or "auto").strip().lower()
     if value not in SUPPORTED_NOTE_MODES:
@@ -356,6 +421,8 @@ def _normalize_note_mode(mode: str | None) -> str:
 
 
 def _resolve_note_mode(mode: str, transcript_length: int) -> str:
+    if mode == "chapter_coverage":
+        return "high_fidelity"
     if mode != "auto":
         return mode
     return "direct" if transcript_length <= DIRECT_MODE_MAX_CHARS else "high_fidelity"
@@ -512,6 +579,60 @@ def summarize_transcript_with_metadata(
     )
 
 
+def translate_segments_to_zh(
+    segments: list[dict[str, Any]],
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    max_chunk_chars: int = 8_000,
+) -> SegmentTranslationResult:
+    """Translate timestamped English transcript segments to Chinese while preserving indices."""
+    load_dotenv()
+    source_segments = [dict(segment) for segment in segments if isinstance(segment, dict)]
+    if not source_segments:
+        return SegmentTranslationResult(segments=[], translated_count=0, chunk_count=0)
+
+    provider_name = _normalize_provider(provider)
+    client = _get_client(provider=provider_name, api_key=api_key)
+    m = _normalize_model(provider_name, model)
+    translations: dict[int, str] = {}
+    chunks = _chunk_indexed_segments(source_segments, max_chunk_chars)
+    for chunk in chunks:
+        payload = json.dumps(chunk, ensure_ascii=False)
+        translated = _extract_json_array(_chat(client, m, _SEGMENT_TRANSLATION_SYSTEM, payload, temperature=0.1))
+        for item in translated:
+            if not isinstance(item, dict):
+                continue
+            try:
+                index = int(item.get("index"))
+            except (TypeError, ValueError):
+                continue
+            text_zh = str(item.get("text_zh") or "").strip()
+            if text_zh:
+                translations[index] = text_zh
+
+    translated_segments: list[dict[str, Any]] = []
+    for index, segment in enumerate(source_segments):
+        text_zh = translations.get(index, "")
+        if not text_zh:
+            continue
+        translated_segment = {
+            "start": segment.get("start"),
+            "end": segment.get("end"),
+            "text": text_zh,
+            "source_text": str(segment.get("text") or ""),
+        }
+        if segment.get("speaker"):
+            translated_segment["speaker"] = segment.get("speaker")
+        translated_segments.append(translated_segment)
+    return SegmentTranslationResult(
+        segments=translated_segments,
+        translated_count=len(translated_segments),
+        chunk_count=len(chunks),
+    )
+
+
 def summarize_transcript_to_markdown(
     transcript: str,
     *,
@@ -550,6 +671,8 @@ __all__ = [
     "DIRECT_MODE_MAX_CHARS",
     "HIGH_FIDELITY_NOTICE_CHARS",
     "SummaryResult",
+    "SegmentTranslationResult",
+    "translate_segments_to_zh",
     "summarize_transcript_with_metadata",
     "summarize_transcript_to_markdown",
 ]

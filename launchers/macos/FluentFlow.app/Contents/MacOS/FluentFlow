@@ -60,7 +60,7 @@ mkdir -p "$LOG_DIR"
 # tee 同时写日志与终端，避免旧版 | head 导致管道关闭拖死 uvicorn。
 osascript <<EOF
 tell application "Terminal"
-	do script "cd '${REPO}' && FLUENTFLOW_CLOUD_WORKSPACE_URL='${CLOUD_WORKSPACE_URL}' '${VENV_PY}' -m uvicorn backend.main:app --host 127.0.0.1 --port ${API_PORT} 2>&1 | tee -a '${LOG_FILE}'"
+	do script "cd '${REPO}' && if [ -f .env ]; then set -a; source .env; set +a; fi; FLUENTFLOW_CLOUD_WORKSPACE_URL='${CLOUD_WORKSPACE_URL}' '${VENV_PY}' -m uvicorn backend.main:app --host 127.0.0.1 --port ${API_PORT} 2>&1 | tee -a '${LOG_FILE}'"
 	delay 1.5
 	try
 		set miniaturized of front window to true

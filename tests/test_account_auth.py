@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 import backend.main as main
 from backend.core import job_store
+import backend.core.server_helpers as _H
 
 
 def _enable_account_auth(monkeypatch, tmp_path) -> None:
@@ -13,27 +15,32 @@ def _enable_account_auth(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCOUNT_DB_PATH", str(tmp_path / "accounts.sqlite"))
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
 
 
 def _patch_job_store(monkeypatch, db_path: Path) -> None:
     monkeypatch.setattr(
-        main,
+        _H,
         "upsert_job",
         lambda **kwargs: job_store.upsert_job(**kwargs, db_path=db_path),
     )
     monkeypatch.setattr(
-        main,
+        _H,
         "get_job",
         lambda task_id, client_id=None: job_store.get_job(task_id, db_path=db_path, client_id=client_id),
     )
     monkeypatch.setattr(
-        main,
+        _H,
         "list_jobs",
         lambda limit=50, client_id=None: job_store.list_jobs(limit=limit, db_path=db_path, client_id=client_id),
     )
     monkeypatch.setattr(
-        main,
+        _H,
+        "list_job_summaries",
+        lambda limit=50, client_id=None: job_store.list_job_summaries(limit=limit, db_path=db_path, client_id=client_id),
+    )
+    monkeypatch.setattr(
+        _H,
         "list_jobs_for_retention",
         lambda client_id=None: job_store.list_jobs_for_retention(db_path=db_path, client_id=client_id),
     )
@@ -109,7 +116,7 @@ def test_account_scope_replaces_device_scope(monkeypatch, tmp_path) -> None:
         captured["client_id"] = kwargs.get("client_id")
         return []
 
-    monkeypatch.setattr(main, "list_jobs", fake_list_jobs)
+    monkeypatch.setattr(_H, "list_job_summaries", fake_list_jobs)
 
     with TestClient(main.app) as client:
         register = client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
@@ -127,7 +134,7 @@ def test_cloud_workspace_proxy_bypasses_local_account_gate(monkeypatch, tmp_path
     async def fake_proxy(request):
         return main.JSONResponse({"proxied": request.url.path})
 
-    monkeypatch.setattr(main, "_proxy_cloud_workspace_request", fake_proxy)
+    monkeypatch.setattr(_H, "_proxy_cloud_workspace_request", fake_proxy)
 
     with TestClient(main.app) as client:
         response = client.get("/jobs")
@@ -177,7 +184,7 @@ def test_account_user_without_balance_cannot_start_processing(monkeypatch, tmp_p
     monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")
     monkeypatch.setenv("FLUENTFLOW_STARTER_BALANCE_UNITS", "0")
     monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
-    monkeypatch.setattr(main, "_media_duration_seconds", lambda *_args, **_kwargs: 600.0)
+    monkeypatch.setattr(_H, "_media_duration_seconds", lambda *_args, **_kwargs: 600.0)
 
     with TestClient(main.app) as client:
         client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
@@ -192,6 +199,62 @@ def test_account_user_without_balance_cannot_start_processing(monkeypatch, tmp_p
     assert response.status_code == 402
     detail = response.json()["detail"]
     assert detail["required_units"] > detail["balance_units"]
+
+
+def test_account_user_without_balance_cannot_summarize_transcript_file(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
+    monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")
+    monkeypatch.setenv("FLUENTFLOW_STARTER_BALANCE_UNITS", "0")
+
+    with TestClient(main.app) as client:
+        client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
+        client.post("/auth/logout")
+        user = client.post("/auth/register", json={"email": "user@example.com", "password": "secure-pass"})
+        response = client.post(
+            "/summarize-transcript-file",
+            files={"file": ("lesson.txt", b"hello transcript", "text/plain")},
+        )
+
+    assert user.status_code == 200
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["required_units"] > detail["balance_units"]
+
+
+def test_transcript_file_summary_charges_account_ai_units(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
+    monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")
+    monkeypatch.setattr(
+        _H,
+        "summarize_transcript_with_metadata",
+        lambda transcript, **_kwargs: SimpleNamespace(
+            markdown="short note",
+            requested_mode="auto",
+            resolved_mode="direct",
+            transcript_length=len(transcript),
+            chunk_count=1,
+            coverage_checked=False,
+            coverage_revision_used=False,
+        ),
+    )
+
+    with TestClient(main.app) as client:
+        client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
+        client.post("/auth/logout")
+        user = client.post("/auth/register", json={"email": "user@example.com", "password": "secure-pass"})
+        response = client.post(
+            "/summarize-transcript-file",
+            files={"file": ("lesson.txt", b"abc", "text/plain")},
+        )
+        quota = client.get("/account/quota")
+
+    assert user.status_code == 200
+    assert response.status_code == 200
+    assert response.json()["summary_status"] == "completed"
+    assert response.json()["quota"]["charged_units"] == 1
+    assert quota.json()["balance_units"] == 99
 
 
 def test_account_import_history_creates_account_job_and_dedupes(monkeypatch, tmp_path) -> None:

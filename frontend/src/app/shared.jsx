@@ -1,0 +1,1081 @@
+import {useState,useEffect,useRef,useCallback,useMemo,createContext,useContext} from 'react';
+import {
+    BUILTIN_EXTRA_PROMPT_KEYS,
+    DEFAULT_PROMPT_PRESET,
+    allPresetSelectKeys,
+    getBuiltinExtraPromptBody,
+    getDefaultPromptBody,
+    isBuiltinPromptPresetHidden,
+    normalizeUserPresets,
+    presetDisplayLabel,
+    resolveSystemPromptFromSettings,
+} from '../lib/promptPresets.js';
+import { pickTranscriptSegments } from '../lib/format.js';
+import { _dl } from '../lib/download.js';
+
+/** API 根路径：线上与后端同域时用相对路径；本地前端单独跑在其它端口时指向本机 8000。 */
+export const API_BASE = (() => {
+    const normalize = (value) => String(value || '').trim().replace(/\/+$/, '');
+    const configured = normalize(window.FLUENTFLOW_CONFIG?.apiBase || localStorage.getItem('fluentflow_api_base'));
+    if (configured) return configured;
+    const { hostname, port } = window.location;
+    if (!hostname) return "http://127.0.0.1:8000";
+    const local = hostname === "localhost" || hostname === "127.0.0.1";
+    if (local && port === "5185") return "http://127.0.0.1:8000";
+    return "";
+})();
+
+export const ACCESS_TOKEN_KEY = 'fluentflow_access_token';
+export const CLIENT_ID_KEY = 'fluentflow_client_id';
+export const GUEST_TRIAL_TOKEN_KEY = 'fluentflow_guest_trial_token';
+export const GUEST_TRIAL_TASK_KEY = 'fluentflow_guest_trial_task_id';
+export const LOCAL_SINGLE_USER_CLIENT_ID = 'local-yuchao';
+export const getAccessToken = () => (localStorage.getItem(ACCESS_TOKEN_KEY) || '').trim();
+export const setAccessToken = (token) => {
+    const value = String(token || '').trim();
+    if (value) localStorage.setItem(ACCESS_TOKEN_KEY, value);
+    else localStorage.removeItem(ACCESS_TOKEN_KEY);
+};
+export const createClientId = () => (
+    window.crypto?.randomUUID?.()
+    || `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+);
+export const shouldUseLocalSingleUserClientId = () => {
+    const { hostname } = window.location;
+    return hostname === '127.0.0.1' || hostname === 'localhost';
+};
+export const getClientId = () => {
+    if (shouldUseLocalSingleUserClientId()) {
+        localStorage.setItem(CLIENT_ID_KEY, LOCAL_SINGLE_USER_CLIENT_ID);
+        return LOCAL_SINGLE_USER_CLIENT_ID;
+    }
+    const existing = (localStorage.getItem(CLIENT_ID_KEY) || '').trim();
+    if (existing) return existing;
+    const next = createClientId();
+    localStorage.setItem(CLIENT_ID_KEY, next);
+    return next;
+};
+export const apiFetch = (input, init={}) => {
+    const token = getAccessToken();
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('X-FluentFlow-Client-Id')) {
+        headers.set('X-FluentFlow-Client-Id', getClientId());
+    }
+    if (token && !headers.has('X-FluentFlow-Access-Token')) {
+        headers.set('X-FluentFlow-Access-Token', token);
+    }
+    return fetch(input, {...init, credentials: init.credentials || 'include', headers});
+};
+export const apiErrorMessage = (payload, fallback='Request failed') => {
+    const detail = payload?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) return detail.map((item) => item?.msg || item?.message || String(item)).join('; ');
+    if (detail && typeof detail === 'object') {
+        const message = detail.message || detail.detail || fallback;
+        if (detail.required_units != null && detail.balance_units != null) {
+            return `${message} 当前 ${detail.balance_units}，预计需要 ${detail.required_units}。`;
+        }
+        return String(message);
+    }
+    return fallback;
+};
+export const getGuestTrialToken = () => (localStorage.getItem(GUEST_TRIAL_TOKEN_KEY) || '').trim();
+export const setGuestTrialToken = (token) => {
+    const value = String(token || '').trim();
+    if (value) localStorage.setItem(GUEST_TRIAL_TOKEN_KEY, value);
+    else localStorage.removeItem(GUEST_TRIAL_TOKEN_KEY);
+};
+export const getGuestTrialTaskId = () => (localStorage.getItem(GUEST_TRIAL_TASK_KEY) || '').trim();
+export const setGuestTrialTaskId = (taskId) => {
+    const value = String(taskId || '').trim();
+    if (value) localStorage.setItem(GUEST_TRIAL_TASK_KEY, value);
+    else localStorage.removeItem(GUEST_TRIAL_TASK_KEY);
+};
+export const clearGuestTrialSession = () => {
+    setGuestTrialToken('');
+    setGuestTrialTaskId('');
+};
+
+export { fileNameStem, stripGeneratedFilenamePrefix, compactDisplayFilename } from '../lib/format.js';
+export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
+export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
+export const SUPPORTED_FRONTEND_NOTE_MODES = new Set(['auto', 'direct', 'high_fidelity']);
+export const normalizeAiModel = (provider, model) => {
+    const p = provider === 'openai' ? 'openai' : 'deepseek';
+    const value = String(model || '').trim();
+    if (p === 'openai') {
+        return value && value.startsWith('gpt-') ? value : DEFAULT_OPENAI_MODEL;
+    }
+    return value && value !== 'deepseek-chat' ? value : DEFAULT_DEEPSEEK_MODEL;
+};
+export const sanitizeSettings = (settings={}) => {
+    const next = {...settings};
+    SENSITIVE_SETTING_KEYS.forEach((key) => delete next[key]);
+    const provider = next.aiProvider === 'openai' ? 'openai' : 'deepseek';
+    next.aiProvider = provider;
+    next.aiModel = normalizeAiModel(provider, next.aiModel);
+    if (!SUPPORTED_FRONTEND_NOTE_MODES.has(next.noteMode)) {
+        next.noteMode = 'auto';
+    }
+    return next;
+};
+export const sensitivePatchFromSettings = (settings={}) => ({
+    deepseek_api_key: settings.deepseekApiKey || '',
+    openai_api_key: settings.openaiApiKey || '',
+    lark_app_id: settings.larkAppId || '',
+    lark_app_secret: settings.larkAppSecret || '',
+    azure_speech_key: settings.azureSpeechKey || '',
+    azure_speech_endpoint: settings.azureSpeechEndpoint || '',
+    azure_blob_container_sas_url: settings.azureBlobContainerSasUrl || '',
+});
+export const minimizeHistoryEntry = (entry) => ({
+    ...entry,
+    transcriptText: entry.transcriptText ? String(entry.transcriptText).slice(0, 240) : '',
+    summary: entry.summary ? String(entry.summary).slice(0, 240) : '',
+    segments: entry.taskId ? [] : (entry.segments || []),
+    rawTranscriptText: null,
+    cleanedTranscriptText: null,
+    cleanedSegments: null,
+    rawSegments: null,
+});
+export const localHistoryKey = (entry) => {
+    return localHistoryIdentityKeys(entry)[0] || '';
+};
+export const localHistoryIdentityKeys = (entry) => {
+    if (!entry) return [];
+    const result = entry.result && typeof entry.result === 'object' ? entry.result : {};
+    const keys = [
+        entry.taskId,
+        entry.originalTaskId,
+        entry.sourceFingerprint,
+        result.task_id,
+        result.original_task_id,
+        result.source_fingerprint,
+    ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    if (!keys.length) {
+        keys.push(`${entry.name || 'untitled'}:${entry.timestamp || ''}`);
+    }
+    return [...new Set(keys)];
+};
+export const processedImportKeysKey = (accountId) => `fluentflow_processed_import_keys_${accountId || 'local'}`;
+export const getProcessedImportKeys = (accountId) => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(processedImportKeysKey(accountId)) || '[]');
+        return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : []);
+    } catch(_) {
+        return new Set();
+    }
+};
+export const addProcessedImportKeys = (accountId, keys) => {
+    const existing = getProcessedImportKeys(accountId);
+    keys.forEach((key) => {
+        const normalized = String(key || '').trim();
+        if (normalized) existing.add(normalized);
+    });
+    const values = Array.from(existing);
+    if (values.length > 1000) values.splice(0, values.length - 1000);
+    try {
+        localStorage.setItem(processedImportKeysKey(accountId), JSON.stringify(values));
+    } catch(_) {}
+};
+export const accountJobsCacheKey = (accountId) => `fluentflow_account_jobs_cache_${accountId || 'local'}`;
+export const compactTextForCache = (value, maxChars=240) => (
+    value ? String(value).slice(0, maxChars) : ''
+);
+export const minimizeJobForCache = (job) => {
+    if (!job || typeof job !== 'object') return null;
+    const result = job.result && typeof job.result === 'object' ? job.result : null;
+    return {
+        ...job,
+        result: result ? {
+            ...result,
+            transcript_text_preview: result.transcript_text_preview || compactTextForCache(result.transcript_text),
+            transcript_text: compactTextForCache(result.transcript_text),
+            summary_markdown: compactTextForCache(result.summary_markdown),
+            segments: [],
+            cleaned_segments: null,
+            raw_segments: null,
+            translated_segments_zh: null,
+            raw_transcript_text: null,
+            cleaned_transcript_text: null,
+        } : result,
+    };
+};
+export const readCachedAccountJobs = (accountId) => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(accountJobsCacheKey(accountId)) || '{}');
+        const jobs = Array.isArray(parsed?.jobs) ? parsed.jobs : [];
+        return jobs.filter((job) => job && typeof job === 'object');
+    } catch(_) {
+        return [];
+    }
+};
+export const writeCachedAccountJobs = (accountId, jobs) => {
+    try {
+        const compactJobs = (Array.isArray(jobs) ? jobs : [])
+            .map(minimizeJobForCache)
+            .filter(Boolean)
+            .slice(0, 100);
+        localStorage.setItem(accountJobsCacheKey(accountId), JSON.stringify({
+            updatedAt: Date.now(),
+            jobs: compactJobs,
+        }));
+    } catch(_) {}
+};
+export const mergeCachedJobs = (...groups) => {
+    const seen = new Set();
+    const merged = [];
+    groups.flat().forEach((job) => {
+        if (!job || typeof job !== 'object') return;
+        const key = String(job.task_id || job.result?.task_id || '').trim();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        merged.push(job);
+    });
+    return merged;
+};
+export const readBrowserHistoryEntries = () => {
+    try {
+        const entries = JSON.parse(localStorage.getItem('fluentflow_history') || '[]');
+        return Array.isArray(entries) ? entries : [];
+    } catch(_) {
+        return [];
+    }
+};
+export const mergeImportCandidates = (...groups) => {
+    const seen = new Set();
+    const merged = [];
+    groups.flat().forEach((entry) => {
+        if (!entry || entry.status !== 'completed') return;
+        const keys = localHistoryIdentityKeys(entry);
+        if (!keys.length || keys.some((key) => seen.has(key))) return;
+        keys.forEach((key) => seen.add(key));
+        merged.push(entry);
+    });
+    return merged;
+};
+export const hasTranscriptResult = (result={}) => (
+    !!(
+        result
+        && (
+            String(result.transcript_text || '').trim()
+            || String(result.transcript_text_preview || '').trim()
+            || (Array.isArray(result.segments) && result.segments.length > 0)
+            || (Array.isArray(result.cleaned_segments) && result.cleaned_segments.length > 0)
+            || (Array.isArray(result.raw_segments) && result.raw_segments.length > 0)
+        )
+    )
+);
+export const historyStatusFromJob = (job={}) => {
+    const result = job.result || {};
+    if (hasTranscriptResult(result)) return 'completed';
+    if (job.status === 'queued' || job.status === 'running') return 'processing';
+    return job.status === 'completed' ? 'completed' : (job.status || 'failed');
+};
+export const jobVisibleInHistory = (job={}) => !!(job?.task_id || job?.result);
+export const resultToHistoryEntry = (result, fallback={}) => {
+    const durSec = result.audio_duration_seconds || 0;
+    const hasTranscript = hasTranscriptResult(result);
+    return {
+        id: fallback.id || Date.now(),
+        taskId: result.task_id || fallback.taskId,
+        name: result.filename || fallback.name || 'Untitled',
+        timestamp: fallback.timestamp || Date.now(),
+        durationMin: Math.round(durSec/60*10)/10,
+        status: hasTranscript ? 'completed' : (fallback.status || (result.status === 'completed' ? 'completed' : (result.status || 'failed'))),
+        transcriptText: result.transcript_text||result.transcript_text_preview||'',
+        segments: pickTranscriptSegments(result),
+        summary: result.summary_markdown||'',
+        summarySkipped: !!result.summary_skipped,
+        summaryStatus: result.summary_status||null,
+        summaryError: result.summary_error||null,
+        larkUrl: result.lark_response?.url || null,
+        larkError: result.lark_error||null,
+        audioDurationSec: durSec,
+        sttElapsedSec: result.stt_elapsed_seconds||0,
+        sttRealtimeFactor: result.stt_realtime_factor||null,
+        sttProvider: result.stt_provider||null,
+        sttProviderLabel: result.stt_provider_label||null,
+        sttModel: result.stt_model||null,
+        sttSpeed: result.stt_speed||null,
+        sttLanguage: result.stt_language||null,
+        detectedLanguage: result.detected_language||null,
+        sourceLanguage: result.source_language||null,
+        subtitleMode: result.subtitle_mode||null,
+        translatedSegmentsZh: Array.isArray(result.translated_segments_zh) ? result.translated_segments_zh : [],
+        translationStatus: result.translation_status||null,
+        translationError: result.translation_error||null,
+        sourceFingerprint: result.source_fingerprint||null,
+        originalTaskId: result.original_task_id||fallback.originalTaskId||null,
+        rawTranscriptText: result.raw_transcript_text||null,
+        cleanedTranscriptText: result.cleaned_transcript_text||null,
+        cleanedSegments: result.cleaned_segments||null,
+        rawSegments: result.raw_segments||null,
+        transcriptCleanup: result.transcript_cleanup||null,
+        transcriptEdited: !!result.transcript_edited,
+        transcriptEditedAt: result.transcript_edited_at||null,
+        editedTranscriptPath: result.edited_transcript_path||null,
+        editedTranscriptSavedAt: result.edited_transcript_saved_at||null,
+        transcriptEditRecords: result.transcript_edit_records||[],
+        transcriptEditRecordsPath: result.transcript_edit_records_path||null,
+        artifacts: result.artifacts||null,
+        playbackAudioAvailable: !!result.playback_audio_available,
+        playbackAudioStorage: result.playback_audio_storage||null,
+        requestedNoteMode: result.requested_note_mode||fallback.requestedNoteMode||null,
+        resolvedNoteMode: result.resolved_note_mode||null,
+        noteModeChunkCount: result.note_mode_chunk_count||null,
+        promptPreset: result.prompt_preset||fallback.promptPreset||null,
+        promptPresetLabel: result.prompt_preset_label||fallback.promptPresetLabel||null,
+        source: result.source||fallback.source||null,
+        sourceFileAvailable: !!result.source_file_available,
+    };
+};
+export const jobToHistoryEntry = (job) => {
+    const result = job.result || {};
+    const entry = resultToHistoryEntry(result, {
+        taskId: job.task_id,
+        name: job.source_filename,
+        timestamp: Date.parse(job.updated_at || job.created_at || '') || Date.now(),
+        status: historyStatusFromJob(job),
+        source: job.source_type,
+    });
+    return {
+        ...entry,
+        status: historyStatusFromJob(job),
+        summaryStatus: result.summary_status || job.summary_status || entry.summaryStatus,
+        summaryError: result.summary_error || job.error_reason || entry.summaryError,
+    };
+};
+export const jobToCurrentJob = (job) => ({
+    taskId: job.task_id,
+    fileName: job.source_filename || 'Running task',
+    stage: job.stage || 'upload',
+    progress: job.progress ?? 0,
+    startedAt: Date.parse(job.created_at || '') || Date.now(),
+    sourceType: job.source_type || null,
+    fileSizeMb: job.source_file_size_mb || null,
+    resume: true,
+    sttProvider: job.metadata?.stt_provider || job.result?.stt_provider || null,
+    sttProgress: job.metadata?.stt_progress,
+    transcribedSeconds: job.metadata?.transcribed_seconds,
+    durationSeconds: job.metadata?.duration_seconds,
+    sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
+    sttStatus: job.metadata?.stt_status,
+    azureBatchAudioSizeMb: job.metadata?.azure_batch_audio_size_mb,
+});
+export const historyEntryToResult = (h) => h ? ({
+    task_id: h.taskId,
+    source: h.source||null,
+    transcript_text: h.transcriptText,
+    segments: h.segments,
+    summary_markdown: h.summary,
+    summary_skipped: !!h.summarySkipped,
+    summary_status: h.summaryStatus||null,
+    summary_error: h.summaryError||null,
+    filename: h.name,
+    audio_duration_seconds: h.audioDurationSec,
+    stt_elapsed_seconds: h.sttElapsedSec||0,
+    stt_realtime_factor: h.sttRealtimeFactor||null,
+    stt_provider: h.sttProvider||null,
+    stt_provider_label: h.sttProviderLabel||null,
+    stt_model: h.sttModel||null,
+    stt_speed: h.sttSpeed||null,
+    stt_language: h.sttLanguage||null,
+    detected_language: h.detectedLanguage||null,
+    source_language: h.sourceLanguage||null,
+    subtitle_mode: h.subtitleMode||null,
+    translated_segments_zh: h.translatedSegmentsZh||[],
+    translation_status: h.translationStatus||null,
+    translation_error: h.translationError||null,
+    source_fingerprint: h.sourceFingerprint||null,
+    raw_transcript_text: h.rawTranscriptText||null,
+    cleaned_transcript_text: h.cleanedTranscriptText||null,
+    cleaned_segments: h.cleanedSegments||null,
+    raw_segments: h.rawSegments||null,
+    transcript_cleanup: h.transcriptCleanup||null,
+    transcript_edited: !!h.transcriptEdited,
+    transcript_edited_at: h.transcriptEditedAt||null,
+    edited_transcript_path: h.editedTranscriptPath||null,
+    edited_transcript_saved_at: h.editedTranscriptSavedAt||null,
+    transcript_edit_records: h.transcriptEditRecords||[],
+    transcript_edit_records_path: h.transcriptEditRecordsPath||null,
+    artifacts: h.artifacts||null,
+    playback_audio_available: !!h.playbackAudioAvailable,
+    playback_audio_storage: h.playbackAudioStorage||null,
+    requested_note_mode: h.requestedNoteMode||null,
+    resolved_note_mode: h.resolvedNoteMode||null,
+    note_mode_chunk_count: h.noteModeChunkCount||null,
+    prompt_preset: h.promptPreset||null,
+    prompt_preset_label: h.promptPresetLabel||null,
+    source_file_available: !!h.sourceFileAvailable,
+    imported_from_local_history: h.source === 'imported_local_history' || h.source === 'browser_local_history' || String(h.taskId || '').startsWith('imported_'),
+}) : null;
+export const historyEntryToImportEntry = (entry) => ({
+    task_id: entry.taskId || null,
+    taskId: entry.taskId || null,
+    name: entry.name || 'Imported transcript',
+    timestamp: entry.timestamp || null,
+    source: entry.source || 'browser_local_history',
+    sourceFingerprint: entry.sourceFingerprint || null,
+    sourceFileSizeMb: entry.sourceFileSizeMb || null,
+    transcriptText: entry.transcriptText || '',
+    segments: entry.segments || [],
+    summary: entry.summary || '',
+    summarySkipped: !!entry.summarySkipped,
+    summaryStatus: entry.summaryStatus || null,
+    summaryError: entry.summaryError || null,
+    audioDurationSec: entry.audioDurationSec || 0,
+    sttElapsedSec: entry.sttElapsedSec || 0,
+    sttProvider: entry.sttProvider || null,
+    sttProviderLabel: entry.sttProviderLabel || null,
+    sttModel: entry.sttModel || null,
+    sttSpeed: entry.sttSpeed || null,
+    sttLanguage: entry.sttLanguage || null,
+    detectedLanguage: entry.detectedLanguage || null,
+    sourceLanguage: entry.sourceLanguage || null,
+    subtitleMode: entry.subtitleMode || null,
+    translatedSegmentsZh: entry.translatedSegmentsZh || [],
+    translationStatus: entry.translationStatus || null,
+    translationError: entry.translationError || null,
+    transcriptEdited: !!entry.transcriptEdited,
+    transcriptEditedAt: entry.transcriptEditedAt || null,
+    transcriptEditRecords: entry.transcriptEditRecords || [],
+    result: historyEntryToResult(entry),
+});
+export const createTaskId = () => (
+    window.crypto?.randomUUID?.() ||
+    `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+);
+export const NOTE_MODE_OPTIONS = [
+    {value: 'auto', labelEn: 'Auto', labelZh: '自动选择'},
+    {value: 'direct', labelEn: 'Direct context', labelZh: '直接上下文'},
+    {value: 'high_fidelity', labelEn: 'High-fidelity', labelZh: '高保真笔记'},
+];
+export const noteModeLabel = (mode, lang) => {
+    const found = NOTE_MODE_OPTIONS.find((item) => item.value === (mode || 'auto'));
+    return found ? (lang === 'zh' ? found.labelZh : found.labelEn) : (mode || 'auto');
+};
+
+export const DEFAULT_STT_MODEL = 'medium';
+export const DEFAULT_STT_PROVIDER = 'azure_batch';
+export const normalizeSttProvider = (provider) => (
+    provider === 'local' || provider === 'azure_batch' || provider === 'azure_fast'
+        ? (provider === 'azure_fast' ? 'azure_batch' : provider)
+        : DEFAULT_STT_PROVIDER
+);
+export const isAzureCloudProvider = (provider) => (
+    normalizeSttProvider(provider) === 'azure_batch'
+);
+export const localExecutionHeaders = (options={}) => (
+    normalizeSttProvider(options.sttProvider) === 'local'
+        ? {'X-FluentFlow-Execution-Target': 'local'}
+        : {}
+);
+export const isLocalHistoryResult = (result={}) => (
+    !!result?.imported_from_local_history ||
+    result?.source === 'imported_local_history' ||
+    result?.source === 'browser_local_history' ||
+    String(result?.task_id || '').startsWith('imported_')
+);
+export const isAzureSpeechConfigured = (status) => (
+    !!status?.azure_speech_endpoint_configured && !!status?.azure_speech_key_configured
+);
+export const isAzureBatchConfigured = (status) => (
+    isAzureSpeechConfigured(status) && !!status?.azure_blob_container_sas_url_configured
+);
+export const DEFAULT_RUNTIME_CONFIG = {
+    publicMode: false,
+    allowedSttProviders: ['azure_batch', 'local'],
+    defaultSttProvider: DEFAULT_STT_PROVIDER,
+    showMaintainerSettings: true,
+    guestTrial: {enabled: false},
+};
+export const normalizeRuntimeConfig = (config={}) => {
+    const allowed = Array.isArray(config.allowed_stt_providers)
+        ? config.allowed_stt_providers.map(normalizeSttProvider)
+        : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
+    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'azure_batch' || item === 'local'))];
+    const fallbackAllowed = uniqueAllowed.length ? uniqueAllowed : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
+    const defaultProvider = normalizeSttProvider(config.default_stt_provider || DEFAULT_STT_PROVIDER);
+    return {
+        publicMode: !!config.public_mode,
+        allowedSttProviders: fallbackAllowed,
+        defaultSttProvider: fallbackAllowed.includes(defaultProvider) ? defaultProvider : fallbackAllowed[0],
+        showMaintainerSettings: config.show_maintainer_settings !== false,
+        limits: config.limits || {},
+        guestTrial: config.guest_trial || config.limits?.guest_trial || DEFAULT_RUNTIME_CONFIG.guestTrial,
+    };
+};
+export const effectiveSttProvider = (settings={}, runtimeConfig=DEFAULT_RUNTIME_CONFIG) => {
+    const wanted = normalizeSttProvider(settings.sttProvider);
+    return runtimeConfig.allowedSttProviders.includes(wanted) ? wanted : runtimeConfig.defaultSttProvider;
+};
+export const azureSpeechMissingMessage = (lang) => (
+    lang === 'zh'
+        ? '云端转录暂不可用，请联系产品维护者检查后台配置。'
+        : 'Cloud transcription is unavailable. Ask the product maintainer to check backend configuration.'
+);
+export const normalizeSttModel = (model) => (
+    model === 'large-v3' || model === 'medium' ? model : DEFAULT_STT_MODEL
+);
+/* ═══════════════ i18n ═══════════════ */
+export const msgs = {
+  en:{
+    'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Start','nav.tasks':'Tasks','nav.processing':'Run Settings','nav.editor':'Editor','nav.settings':'Settings','nav.admin':'Admin','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
+    'status.ready':'System ready','status.idle':'Awaiting task','status.queued':'Queued','status.resolving':'Resolving link…','status.downloading':'Downloading video…','status.saving':'Saving video…','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.translation':'Translating subtitles…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done','status.failed':'Failed',
+    'dash.welcome':'Start a transcription.','dash.subtitle':'Upload a video or audio file. FluentFlow handles the transcription route in the background.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Ready','dash.heroTitle':'Drop a video here to transcribe it.','dash.heroDesc':'FluentFlow extracts audio, transcribes it in the background, and prepares transcript, subtitles, and notes.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import Subtitle/Text','dash.subtitleHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to start transcription; import existing subtitles to generate notes directly.','dash.linkPlaceholder':'Paste Douyin share text or a video link','dash.linkSubmit':'Fetch by link','dash.linkSubmitting':'Fetching…','dash.linkEmpty':'Paste a share text or video link first.','dash.linkQueued':'Video link is being fetched. Progress stays visible here and in Background tasks.','dash.viewTasks':'View tasks','dash.azureUploadHint':'Cloud transcription runs in the background. You can leave this page and watch it from Tasks.','dash.uploading':'Uploading and processing','dash.done':'Processing complete','dash.subtitleDone':'Summary generated from transcript file','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet. Completed jobs will appear here.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
+    'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.azureUploadAudio':'Cloud Audio','dash.pipeline':'Pipeline','dash.modelProfile':'Route','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'You can leave this page; progress continues under Tasks.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading local model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttAzure':'Cloud transcription in progress','dash.sttAzureUpload':'Uploading audio','dash.sttAzureSubmit':'Submitting cloud job','dash.sttAzureWait':'Waiting for cloud transcription','dash.sttAzureDownload':'Downloading cloud result','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once local transcription emits real segments.',
+    'tasks.title':'Background tasks','tasks.subtitle':'Track long-running transcription jobs without keeping the Start page open.','tasks.refresh':'Refresh','tasks.open':'Open result','tasks.delete':'Delete','tasks.deleteConfirm':'Delete this task record?','tasks.download':'Download','tasks.progress':'Progress','tasks.route':'Route','tasks.updated':'Updated','tasks.empty':'No background tasks yet. Start with an upload from Start.','tasks.queued':'Queued','tasks.running':'Running','tasks.completed':'Completed','tasks.failed':'Failed','tasks.error':'Failure reason','tasks.source':'Source','tasks.summary':'Summary','tasks.detail':'Stage detail','tasks.artifacts':'Outputs','tasks.outputsReady':'Ready outputs','tasks.noOutputs':'Outputs appear here after completion.','tasks.larkDoc':'Lark doc','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.bilingualSrt':'Bilingual SRT','tasks.bilingualVtt':'Bilingual VTT','tasks.md':'Summary',
+    'proc.title':'Run settings','proc.subtitle':'Set the few choices that affect every upload. Cloud infrastructure is managed by the product owner.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from Start when you are ready.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
+    'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.summaryPending':'AI summary is still generating.','edit.summarySkipped':'Transcript-only mode is enabled. Click Regenerate when you need an AI summary.','edit.summaryFailed':'Transcript is saved, but AI summary failed. Click Regenerate to try again.','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate','edit.retranscribe':'Retranscribe','edit.retranscribing':'Retranscribing…','edit.pickSourceAgain':'Choose source file','edit.retranscribeDone':'Retranscription complete','edit.retranscribeConfirmTitle':'Retranscribe this audio?','edit.retranscribeConfirmDesc':'FluentFlow will run STT again with the current Workbench settings and replace the transcript and summary for this result.','edit.retranscribeUnavailableTitle':'Source file is not available','edit.retranscribeUnavailableDesc':'Browsers cannot reopen a local file from history without your permission. Choose the original audio/video file to retranscribe it with current settings.','edit.retranscribeConfirmAction':'Start retranscription','edit.retranscribeChooseAction':'Choose original file','edit.cancel':'Cancel','edit.segments':'segments','edit.duration':'Duration','edit.sttElapsed':'Transcription time','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Summary regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm','edit.reviewButton':'Review changes','edit.reviewTitle':'Transcript review changes','edit.reviewDesc':'Check the AI-confirmed term corrections with nearby context.','edit.reviewEmpty':'No obvious term issues were found.','edit.reviewApplied':'Applied','edit.reviewPending':'Suggested only','edit.reviewOriginal':'Original','edit.reviewSuggested':'Suggested','edit.reviewContext':'Context','edit.reviewReason':'Reason','edit.copySuggestion':'Copy suggested sentence','edit.copied':'Copied','edit.editedTranscript':'Edited transcript','edit.transcriptSaving':'Saving…','edit.transcriptSaved':'Saved','edit.transcriptSaveFailed':'Save failed','edit.editRecords':'Edit records','edit.editRecordsTitle':'Transcript edit records','edit.editRecordsDesc':'Each record keeps the changed sentence and nearby context. These records are saved locally with the edited transcript.','edit.editRecordsEmpty':'No changed segment has been recorded yet.','edit.before':'Before','edit.after':'After','edit.previousSentence':'Previous sentence','edit.nextSentence':'Next sentence','edit.followPlayback':'Follow playback','edit.audioUnavailable':'Choose the original audio/video to listen while editing.','edit.chooseAudio':'Choose source audio','edit.sourceLoading':'Loading source audio…',
+    'prompt.label':'Prompt Template','prompt.select':'Select prompt style','prompt.customPlaceholder':'Enter your custom system prompt here...','prompt.expanded':'Collapse prompt','prompt.collapsed':'Change prompt','prompt.activeHint':'Active: ','prompt.editHint':'Edit prompt before regenerating','prompt.saveAsPreset':'Save custom as preset',
+    'dl.transcript':'Export Transcript','dl.summary':'Download Summary','dl.txt':'Plain Text (.txt)','dl.md':'Markdown (.md)','dl.srt':'Source subtitles (.srt)','dl.vtt':'Source WebVTT (.vtt)','dl.bilingualSrt':'Bilingual subtitles (.srt)','dl.bilingualVtt':'Bilingual WebVTT (.vtt)','dl.pdf':'PDF Document','dl.word':'Word Document (.docx)','dl.generating':'Generating…','dl.success':'Download started',
+    'set.title':'Settings','set.subtitle':'Keep template maintenance, export history, and app preferences here.','set.larkTitle':'Lark / Feishu Credentials','set.larkDesc':'Store credentials only. Export behavior now lives in Run Settings.','set.autoExport':'Auto-export to Lark after processing','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttProvider':'Transcription Route','set.providerLocal':'Local transcription','set.providerAzureBatch':'Cloud transcription','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.sttLanguage':'Audio Language','set.langAuto':'Auto detect','set.langZh':'Chinese','set.langEn':'English','set.sttSpeed':'Transcription Speed','set.speedFast':'Fast','set.speedBalanced':'Balanced','set.speedAccurate':'Accurate','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Not recommended)','set.optMedium':'medium (Minimum usable)','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.skipSummary':'Transcript-only mode','set.skipSummaryHint':'Skip AI summary after audio transcription or subtitle import. You can regenerate later in the editor.','set.provider':'Provider','set.aiModel':'AI Model','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Template Library','set.promptDesc':'Edit reusable prompt templates here. Choose the active default in Run Settings.','set.defaultPrompt':'Default Prompt','set.templateToEdit':'Template to edit','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
+    'work.defaults':'Run defaults','work.defaultsDesc':'These values are used by Dashboard uploads, subtitle imports, and editor reruns.','work.activePrompt':'Default prompt template','work.transcription':'Transcription','work.hotwordLibrary':'Hotword library','work.integratedHotwordLibrary':'Integrated hotword library','work.hotwordHint':'All domain terms and conservative correction candidates are used together for STT prompts and transcript review.','work.viewHotwords':'View contents','work.hotwordDialogTitle':'Hotword library contents','work.hotwordDialogDesc':'Review the terms and conservative correction candidates currently used by FluentFlow.','work.effectiveLibraries':'Included sources','work.hotwordTerms':'Terms','work.confusionPairs':'Confusion candidates','work.autoApply':'auto apply','work.suggestOnly':'suggest only','work.noTerms':'No terms in this preset.','work.noConfusions':'No confusion candidates.','work.hotwordsUnavailable':'Hotword details are unavailable. Restart the backend if this keeps showing.','work.close':'Close','work.reviewMode':'Subtitle review','work.reviewModeHint':'Optional. Raw transcript is always preserved.','work.reviewUseAi':'Use AI to verify suggestions','work.reviewUseAiHint':'AI can only confirm minimal obvious corrections, never rewrite freely.','work.reviewSuggestions':'Review suggestions','work.reviewApplied':'Applied corrections','work.summary':'Summary AI','work.summaryMode':'Note generation mode','work.noteModeAuto':'Auto switches by transcript length: direct under about 20k chars, high-fidelity above it.','work.noteModeDirect':'Sends the transcript in one pass. Faster, best for shorter materials.','work.noteModeHighFidelity':'Extracts evidence in chunks, then writes and checks coverage. Slower, better for long courses.','work.export':'Feishu export','work.currentRun':'Current run','work.activeRunHint':'Dashboard now shows the detailed live progress. Workbench stays focused on run defaults.','work.viewProgress':'View progress','work.saved':'Saved automatically','work.credentialsLink':'Credentials stay in Settings',
+  },
+  zh:{
+    'nav.subtitle':'视频转飞书 AI','nav.dashboard':'开始处理','nav.tasks':'后台任务','nav.processing':'处理设置','nav.editor':'编辑器','nav.settings':'设置','nav.admin':'管理','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
+    'status.ready':'系统就绪','status.idle':'等待任务','status.queued':'排队中','status.resolving':'解析链接中…','status.downloading':'下载视频中…','status.saving':'保存视频中…','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.translation':'正在翻译字幕…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成','status.failed':'失败',
+    'dash.welcome':'开始一次转录','dash.subtitle':'上传视频或音频，FluentFlow 会在后台完成转录、字幕和笔记。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'就绪','dash.heroTitle':'把视频拖到这里开始转录。','dash.heroDesc':'FluentFlow 会自动提取音频，在后台转录，并生成转录文本、字幕和结构化笔记。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕/文本','dash.subtitleHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；已有字幕可直接导入生成笔记。','dash.linkPlaceholder':'粘贴抖音分享文本或视频链接','dash.linkSubmit':'通过链接获取','dash.linkSubmitting':'获取中…','dash.linkEmpty':'请先粘贴分享文本或视频链接。','dash.linkQueued':'视频链接正在获取中，进度会同时显示在主页和后台任务。','dash.viewTasks':'查看后台','dash.azureUploadHint':'云端转录会在后台继续运行，你可以离开本页并在后台任务里查看进度。','dash.uploading':'正在上传并处理','dash.done':'处理完成','dash.subtitleDone':'已根据字幕文件生成摘要','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录，完成的任务会显示在这里。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
+    'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.azureUploadAudio':'云端音频','dash.pipeline':'处理流水线','dash.modelProfile':'转录路线','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'你可以离开本页，进度会在后台任务中继续更新。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载本地模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttAzure':'云端转录中','dash.sttAzureUpload':'正在上传音频','dash.sttAzureSubmit':'正在提交云端任务','dash.sttAzureWait':'等待云端转录','dash.sttAzureDownload':'正在下载云端结果','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按本地转录真实返回的片段推进进度。',
+    'tasks.title':'后台任务','tasks.subtitle':'长时间转录不需要停留在开始页，这里统一查看进度、失败原因和产物。','tasks.refresh':'刷新','tasks.open':'打开结果','tasks.delete':'删除','tasks.deleteConfirm':'删除这条任务记录？','tasks.download':'下载','tasks.progress':'进度','tasks.route':'路线','tasks.updated':'更新于','tasks.empty':'暂无后台任务。从开始处理页上传文件后会出现在这里。','tasks.queued':'排队中','tasks.running':'运行中','tasks.completed':'已完成','tasks.failed':'失败','tasks.error':'失败原因','tasks.source':'来源','tasks.summary':'摘要','tasks.detail':'阶段详情','tasks.artifacts':'结果产物','tasks.outputsReady':'可下载产物','tasks.noOutputs':'完成后会在这里显示下载入口。','tasks.larkDoc':'飞书文档','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.bilingualSrt':'双语 SRT','tasks.bilingualVtt':'双语 VTT','tasks.md':'摘要',
+    'proc.title':'处理设置','proc.subtitle':'这里只保留每次上传前会影响结果的少量选择；云端基础设施由产品维护者管理。','proc.noJob':'当前没有任务','proc.noJobDesc':'参数确认后，从开始处理页上传文件。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
+    'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.summaryPending':'AI 摘要仍在生成中。','edit.summarySkipped':'当前是仅转录模式，未生成 AI 摘要。需要时可点击重新生成。','edit.summaryFailed':'转录已保存，但 AI 摘要失败。可以点击重新生成再试一次。','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重新生成','edit.retranscribe':'重新转录','edit.retranscribing':'重新转录中…','edit.pickSourceAgain':'选择原文件','edit.retranscribeDone':'重新转录完成','edit.retranscribeConfirmTitle':'重新转录当前音频？','edit.retranscribeConfirmDesc':'FluentFlow 会使用当前工作台设置重新执行 STT，并替换当前结果里的转录文本和摘要。','edit.retranscribeUnavailableTitle':'当前没有可直接重转的原文件','edit.retranscribeUnavailableDesc':'浏览器不会在历史记录里长期保留本地音视频文件权限。请选择原始音视频文件，再用当前设置重新转录。','edit.retranscribeConfirmAction':'确认重新转录','edit.retranscribeChooseAction':'选择原始文件','edit.cancel':'取消','edit.segments':'段','edit.duration':'时长','edit.sttElapsed':'转录耗时','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'摘要已重新生成','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认','edit.reviewButton':'查看审阅','edit.reviewTitle':'字幕审阅修改点','edit.reviewDesc':'查看 AI 确认过的术语修正，并对照前后文判断是否合理。','edit.reviewEmpty':'没有发现明显术语错误。','edit.reviewApplied':'已应用','edit.reviewPending':'仅建议','edit.reviewOriginal':'原句','edit.reviewSuggested':'建议句','edit.reviewContext':'上下文','edit.reviewReason':'原因','edit.copySuggestion':'复制建议句','edit.copied':'已复制','edit.editedTranscript':'已修改转录','edit.transcriptSaving':'保存中…','edit.transcriptSaved':'已保存','edit.transcriptSaveFailed':'保存失败','edit.editRecords':'修改记录','edit.editRecordsTitle':'转录稿修改记录','edit.editRecordsDesc':'每条记录会保留修改句子和相邻上下文，并随编辑稿一起保存到本地。','edit.editRecordsEmpty':'还没有记录到分段修改。','edit.before':'修改前','edit.after':'修改后','edit.previousSentence':'上一句','edit.nextSentence':'下一句','edit.followPlayback':'跟随播放','edit.audioUnavailable':'选择原始音视频后，可边听边校对。','edit.chooseAudio':'选择原音频','edit.sourceLoading':'正在读取原音频…',
+    'prompt.label':'提示词模板','prompt.select':'选择提示词风格','prompt.customPlaceholder':'在此输入自定义系统提示词…','prompt.expanded':'收起提示词','prompt.collapsed':'更换提示词','prompt.activeHint':'当前：','prompt.editHint':'重新生成前可编辑提示词','prompt.saveAsPreset':'将自定义保存为预设',
+    'dl.transcript':'导出转录文本','dl.summary':'下载摘要','dl.txt':'纯文本 (.txt)','dl.md':'Markdown (.md)','dl.srt':'原文字幕 (.srt)','dl.vtt':'原文 WebVTT (.vtt)','dl.bilingualSrt':'中英双语字幕 (.srt)','dl.bilingualVtt':'中英双语 WebVTT (.vtt)','dl.pdf':'PDF 文档','dl.word':'Word 文档 (.docx)','dl.generating':'生成中…','dl.success':'已开始下载',
+    'set.title':'设置','set.subtitle':'这里只保留模板维护、导出历史和应用偏好。','set.larkTitle':'飞书凭证','set.larkDesc':'这里只保存连接凭证；是否自动导出等处理选项已移到处理设置。','set.autoExport':'处理完成后自动导出到飞书','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttProvider':'转录路线','set.providerLocal':'本地转录','set.providerAzureBatch':'云端转录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.sttLanguage':'音频语言','set.langAuto':'自动识别','set.langZh':'中文','set.langEn':'英文','set.sttSpeed':'转录速度','set.speedFast':'快速','set.speedBalanced':'均衡','set.speedAccurate':'高准确率','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（不推荐）','set.optMedium':'medium（最低可用）','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.skipSummary':'仅转录模式','set.skipSummaryHint':'音视频转录或字幕导入后跳过 AI 摘要；之后可在编辑器里重新生成。','set.provider':'服务商','set.aiModel':'AI 模型','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'深色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板库','set.promptDesc':'在这里维护可复用提示词；当前默认使用哪个在处理设置中选择。','set.defaultPrompt':'默认提示词','set.templateToEdit':'要编辑的模板','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
+    'work.defaults':'处理默认值','work.defaultsDesc':'仪表盘上传、字幕导入、编辑器重新生成都会使用这些设置。','work.activePrompt':'默认提示词模板','work.transcription':'转录','work.hotwordLibrary':'热词库','work.integratedHotwordLibrary':'综合热词库','work.hotwordHint':'所有领域词和保守错词候选会一起用于 STT 提示词和字幕审阅。','work.viewHotwords':'查看内容','work.hotwordDialogTitle':'热词库内容','work.hotwordDialogDesc':'查看 FluentFlow 当前用于转录提示和保守审阅的领域词、错词候选。','work.effectiveLibraries':'包含来源','work.hotwordTerms':'领域词','work.confusionPairs':'错词候选','work.autoApply':'自动应用','work.suggestOnly':'仅建议','work.noTerms':'当前没有领域词。','work.noConfusions':'没有错词候选。','work.hotwordsUnavailable':'暂时无法读取热词详情。如果一直如此，请重启后端。','work.close':'关闭','work.reviewMode':'字幕审阅','work.reviewModeHint':'可选。原始转录会始终保留。','work.reviewUseAi':'使用 AI 复核建议','work.reviewUseAiHint':'AI 只能确认明显的最小修正，不能自由改写。','work.reviewSuggestions':'审阅建议','work.reviewApplied':'已应用修正','work.summary':'摘要 AI','work.summaryMode':'笔记生成模式','work.noteModeAuto':'按转录长度自动切换：约 2 万字以内直接生成，超过后用高保真模式。','work.noteModeDirect':'整段一次发送给模型，速度更快，适合较短材料。','work.noteModeHighFidelity':'先分段提取证据，再成文并检查覆盖率，耗时更久，适合长课程。','work.export':'飞书导出','work.currentRun':'当前任务','work.activeRunHint':'主页已经展示更完整的实时进度，工作台只保留本次运行参数。','work.viewProgress':'查看进度','work.saved':'自动保存','work.credentialsLink':'凭证仍在设置页',
+  },
+};
+export const I18nCtx = createContext();
+export const I18nProvider = ({children}) => {
+    const [lang,setLang] = useState(() => localStorage.getItem('fluentflow_lang')||'zh');
+    const t = (k) => msgs[lang]?.[k] ?? msgs.en[k] ?? k;
+    const toggleLang = () => { const n = lang==='en'?'zh':'en'; setLang(n); localStorage.setItem('fluentflow_lang',n); };
+    return <I18nCtx.Provider value={{t,lang,toggleLang}}>{children}</I18nCtx.Provider>;
+};
+export const useI18n = () => useContext(I18nCtx);
+
+export const AuthCtx = createContext({
+    authMode:'open',
+    user:null,
+    guestMode:false,
+    guestTrial:null,
+    canRegister:false,
+    openAuth:()=>{},
+    logout:async()=>{},
+});
+export const useAuth = () => useContext(AuthCtx);
+
+/* ═══════════════ App-level state ═══════════════ */
+export const AppCtx = createContext();
+
+export const AppProvider = ({children}) => {
+    const {authMode, user, guestMode} = useAuth();
+    const [history, setHistory] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('fluentflow_history')||'[]'); } catch(_){ return []; }
+    });
+    const [larkExports, setLarkExports] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('fluentflow_lark_exports')||'[]'); } catch(_){ return []; }
+    });
+    const [currentJob, setCurrentJob] = useState(null);
+    const [lastResult, setLastResult] = useState(null);
+    const [lastSourceFile, setLastSourceFile] = useState(null);
+    const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
+    const [localHistoryImport, setLocalHistoryImport] = useState({
+        checking: false,
+        importing: false,
+        candidates: [],
+        importedCount: 0,
+        skippedCount: 0,
+        error: '',
+    });
+
+    useEffect(() => {
+        let cancelled = false;
+        apiFetch(`${API_BASE}/runtime-config`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((data) => {
+                if (data && !cancelled) setRuntimeConfig(normalizeRuntimeConfig(data));
+            })
+            .catch(() => {});
+        try {
+            const rawSettings = JSON.parse(localStorage.getItem("fluentflow_settings")||"{}");
+            const hasLegacySecrets = SENSITIVE_SETTING_KEYS.some((key) => rawSettings[key]);
+            if (hasLegacySecrets) {
+                apiFetch(`${API_BASE}/credentials`, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(sensitivePatchFromSettings(rawSettings)),
+                }).finally(() => {
+                    localStorage.setItem("fluentflow_settings", JSON.stringify(sanitizeSettings(rawSettings)));
+                });
+            }
+        } catch(_) {}
+        if (guestMode || (authMode === 'accounts' && !user?.id)) return;
+        const cachedJobs = readCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local');
+        if (cachedJobs.length) {
+            const cachedEntries = cachedJobs
+                .filter(jobVisibleInHistory)
+                .map(jobToHistoryEntry);
+            setHistory(cachedEntries);
+            const cachedRunning = cachedJobs.find((job) => job.status === 'running' || job.status === 'queued');
+            if (cachedRunning) setCurrentJob(jobToCurrentJob(cachedRunning));
+        }
+        const browserLocalEntries = readBrowserHistoryEntries();
+        setLocalHistoryImport((state) => ({...state, checking: true, error: ''}));
+        apiFetch(`${API_BASE}/jobs?limit=100`)
+            .then((r) => r.ok ? r.json() : null)
+            .then(async (data) => {
+                if (!Array.isArray(data?.jobs)) return;
+                writeCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local', data.jobs);
+                const entries = data.jobs
+                    .filter(jobVisibleInHistory)
+                    .map(jobToHistoryEntry);
+                if (cancelled) return;
+                setHistory(entries);
+                const running = data.jobs.find((job) => job.status === 'running');
+                if (running) setCurrentJob(jobToCurrentJob(running));
+                const cloudKeys = new Set(entries.flatMap(localHistoryIdentityKeys).filter(Boolean));
+                const processedKeys = getProcessedImportKeys(user?.id);
+                const isNewImportCandidate = (entry) => {
+                    if (!entry || entry.status !== 'completed') return false;
+                    const keys = localHistoryIdentityKeys(entry);
+                    return keys.length > 0 && !keys.some((key) => cloudKeys.has(key) || processedKeys.has(key));
+                };
+                const browserCandidates = browserLocalEntries.filter(isNewImportCandidate);
+                let localJobCandidates = [];
+                try {
+                    const localResponse = await apiFetch(`${API_BASE}/local-history/candidates?limit=100`);
+                    if (localResponse.ok) {
+                        const localData = await localResponse.json().catch(() => ({}));
+                        localJobCandidates = Array.isArray(localData?.jobs)
+                            ? localData.jobs.map(jobToHistoryEntry).filter(isNewImportCandidate)
+                            : [];
+                    }
+                } catch(_) {}
+                if (cancelled) return;
+                setLocalHistoryImport((state) => ({
+                    ...state,
+                    checking: false,
+                    candidates: mergeImportCandidates(localJobCandidates, browserCandidates),
+                }));
+            })
+            .catch(() => {
+                if (!cancelled) setLocalHistoryImport((state) => ({...state, checking: false}));
+            });
+        return () => { cancelled = true; };
+    }, [authMode, user?.id, guestMode]);
+
+    const persistHistory = (h) => { setHistory(h); localStorage.setItem('fluentflow_history', JSON.stringify(h.map(minimizeHistoryEntry))); };
+    const addToHistory = (entry) => persistHistory([
+        entry,
+        ...history.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
+    ].slice(0, 100));
+    const clearHistory = () => { persistHistory([]); persistLarkExports([]); };
+
+    const persistLarkExports = (e) => { setLarkExports(e); localStorage.setItem('fluentflow_lark_exports', JSON.stringify(e)); };
+    const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
+    const importLocalHistory = async () => {
+        const candidates = localHistoryImport.candidates || [];
+        if (!candidates.length || localHistoryImport.importing) return;
+        setLocalHistoryImport((state) => ({...state, importing: true, error: ''}));
+        try {
+            const r = await apiFetch(`${API_BASE}/account/import-history`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({entries: candidates.map(historyEntryToImportEntry)}),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+            const importedEntries = Array.isArray(data.imported)
+                ? data.imported.filter((job) => job.result).map(jobToHistoryEntry)
+                : [];
+            if (Array.isArray(data.imported) && data.imported.length) {
+                writeCachedAccountJobs(user?.id, mergeCachedJobs(data.imported, readCachedAccountJobs(user?.id)));
+            }
+            const merged = mergeImportCandidates(importedEntries, history);
+            persistHistory(merged.slice(0, 100));
+            addProcessedImportKeys(user?.id, candidates.flatMap(localHistoryIdentityKeys));
+            setLocalHistoryImport({
+                checking: false,
+                importing: false,
+                candidates: [],
+                importedCount: data.imported_count || importedEntries.length,
+                skippedCount: data.skipped_count || 0,
+                error: '',
+            });
+        } catch(err) {
+            setLocalHistoryImport((state) => ({
+                ...state,
+                importing: false,
+                error: err.message || 'Import failed',
+            }));
+        }
+    };
+
+    const stats = {
+        totalMinutes: Math.round(history.reduce((s,h) => s + (h.durationMin||0), 0)),
+        notesGenerated: history.filter(h => h.status==='completed').length,
+    };
+
+    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig,localHistoryImport,importLocalHistory}}>{children}</AppCtx.Provider>;
+};
+export const useApp = () => useContext(AppCtx);
+
+export { fmtTime, autoSizeTextarea, composeTranscriptText, normalizeTranscriptSegments, pickTranscriptSegments, pickTranscriptBaselineSegments, buildTranscriptEditRecords, fmtElapsed, fmtFileSize, totalFileSizeMb, fmtBytes, fmtDateTime, friendlyTaskError, fmtSttRelative, sttStatusLabel, sttProgressFraction, isSttProgressUnmeasured, jobProgressLabel, timeAgo } from '../lib/format.js';
+
+export { MD_TABLE_ALIGN_RE, splitMdTableRow, isPipeTableRow, looksLikeMdTable, looksLikeLoosePipeTable, renderTableHtml, simpleMd } from '../lib/markdown.js';
+
+export { _dl, _baseName, _fmtSrtTime, _fmtVttTime, dlTranscriptTxt, dlTranscriptSrt, dlTranscriptVtt, dlBilingualTranscriptSrt, dlBilingualTranscriptVtt, dlSummaryTxt, dlSummaryMd, dlSummaryWord, dlSummaryPdf, dlSummaryImage } from '../lib/download.js';
+
+export const DropdownMenu = ({trigger, items, align='right'}) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+        const handler = (e) => { if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+    return (
+        <div className="relative" ref={ref}>
+            <div onClick={()=>setOpen(!open)}>{trigger}</div>
+            {open && (
+                <div className={`absolute top-full mt-1 ${align==='right'?'right-0':'left-0'} z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[180px] animate-[fadeIn_0.15s_ease-out]`}>
+                    {items.map((it,i) => it.divider ? (
+                        <div key={i} className="border-t border-slate-100 my-1"/>
+                    ) : (
+                        <button key={i} onClick={()=>{setOpen(false); it.onClick?.();}} disabled={it.disabled} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-on-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            {it.icon && <span className="material-symbols-outlined text-base text-slate-400">{it.icon}</span>}
+                            <span className="flex-1">{it.label}</span>
+                            {it.badge && <span className="text-[10px] text-slate-400 font-medium">{it.badge}</span>}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+/* ═══════════════ hooks ═══════════════ */
+export const useApi = () => {
+    const appendAiOptions = (fd, options={}) => {
+        if(options.aiProvider) fd.append("ai_provider", options.aiProvider);
+        if(options.aiModel) fd.append("ai_model", options.aiModel);
+        if(options.systemPrompt) fd.append("system_prompt", options.systemPrompt);
+        if(options.noteMode) fd.append("note_mode", options.noteMode);
+        if(options.promptPreset) fd.append("prompt_preset", options.promptPreset);
+        if(options.promptPresetLabel) fd.append("prompt_preset_label", options.promptPresetLabel);
+    };
+    const appendProcessOptions = (fd, options={}) => {
+        if(options.exportToLark) {
+            fd.append("export_to_lark","true");
+            fd.append("lark_via_cli", options.larkViaCli ? "true" : "false");
+        }
+        if(options.title) fd.append("title", options.title);
+        if(options.folderToken) fd.append("folder_token", options.folderToken); // kept for future use
+        if(options.skipSummary) fd.append("skip_summary", "true");
+        appendAiOptions(fd, options);
+        if(options.sttProvider) fd.append("stt_provider", options.sttProvider);
+        if(options.sttModel) fd.append("stt_model", options.sttModel);
+        if(options.sttSpeed) fd.append("stt_speed", options.sttSpeed);
+        if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
+        if(options.speakerDiarization) fd.append("speaker_diarization", "true");
+    };
+    const readSseResult = async (r, onProgress) => {
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '', result = null;
+        while(true){
+            const {value,done} = await reader.read();
+            if(done) break;
+            buf += decoder.decode(value,{stream:true});
+            const parts = buf.split('\n\n');
+            buf = parts.pop() || '';
+            for(const part of parts){
+                const dl = part.split('\n').find(l=>l.startsWith('data: '));
+                if(!dl) continue;
+                try{
+                    const data = JSON.parse(dl.slice(6));
+                    if(data.stage==='done'){ result=data.result; onProgress?.({stage:'done',progress:100,result:data.result}); }
+                    else if(data.stage==='transcript_ready'){ onProgress?.({stage:'transcript_ready',progress:data.progress||60,result:data.result}); }
+                    else if(data.stage==='error'){ throw new Error(data.error||'Processing failed'); }
+                    else { onProgress?.(data); }
+                }catch(pe){ if(pe.message && !pe.message.startsWith('Unexpected')) throw pe; }
+            }
+        }
+        if(!result) throw new Error('No result received from server');
+        return result;
+    };
+    const processVideoSSE = async (file, options={}, onProgress, signal) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        if(options.taskId) fd.append("task_id", options.taskId);
+        if(options.sourceLastModifiedMs) fd.append("source_last_modified_ms", String(options.sourceLastModifiedMs));
+        appendProcessOptions(fd, options);
+        const headers = localExecutionHeaders(options);
+        const r = await apiFetch(`${API_BASE}/process`,{method:"POST",body:fd,headers,signal});
+        if(!r.ok){
+            const e = await r.json().catch(()=>({}));
+            const err = new Error(apiErrorMessage(e, `HTTP ${r.status}`));
+            err.status = r.status;
+            err.payload = e;
+            throw err;
+        }
+        return await readSseResult(r, onProgress);
+    };
+    const enqueueProcessFiles = async (files, options={}, signal) => {
+        const fd = new FormData();
+        Array.from(files || []).forEach((file) => fd.append("files", file));
+        appendProcessOptions(fd, options);
+        const r = await apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, signal});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const guestHeaders = (token) => token ? {'X-FluentFlow-Guest-Token': token} : {};
+    const getGuestTrialStatus = async (taskId=null, token=getGuestTrialToken()) => {
+        const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : '';
+        const r = await apiFetch(`${API_BASE}/guest-trial/status${qs}`, {headers: guestHeaders(token)});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const processGuestTrialFile = async (file, options={}, signal) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        appendAiOptions(fd, options);
+        if(options.noteMode) fd.append("note_mode", options.noteMode);
+        if(options.sttProvider) fd.append("stt_provider", options.sttProvider);
+        if(options.sttModel) fd.append("stt_model", options.sttModel);
+        if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
+        if(options.speakerDiarization) fd.append("speaker_diarization", "true");
+        const r = await apiFetch(`${API_BASE}/guest-trial/process`, {method:"POST", body:fd, signal});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const getGuestTrialJob = async (taskId, token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}`, {headers: guestHeaders(token)});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const subscribeGuestTrialJobEvents = async (taskId, token, onProgress, signal) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/events`, {headers: guestHeaders(token), signal});
+        if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+        return await readSseResult(r, onProgress);
+    };
+    const cancelGuestTrialJob = async (taskId, token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/cancel`, {method:"POST", headers: guestHeaders(token)});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const downloadGuestTrialArtifact = async (taskId, kind, filename, token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`, {headers: guestHeaders(token)});
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        _dl(blob, filename || `${kind}.txt`);
+    };
+    const fetchGuestTrialArtifactFile = async (taskId, kind, filename='artifact', token=getGuestTrialToken()) => {
+        const r = await apiFetch(`${API_BASE}/guest-trial/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`, {headers: guestHeaders(token)});
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        return new File([blob], filename || kind, {type: blob.type || 'application/octet-stream'});
+    };
+    const createVideoSourceJob = async (input, options={}, signal) => {
+        const payloadOptions = {};
+        if(options.exportToLark) {
+            payloadOptions.export_to_lark = "true";
+            payloadOptions.lark_via_cli = options.larkViaCli ? "true" : "false";
+        }
+        if(options.title) payloadOptions.title = options.title;
+        if(options.skipSummary) payloadOptions.skip_summary = "true";
+        if(options.aiProvider) payloadOptions.ai_provider = options.aiProvider;
+        if(options.aiModel) payloadOptions.ai_model = options.aiModel;
+        if(options.systemPrompt) payloadOptions.system_prompt = options.systemPrompt;
+        if(options.noteMode) payloadOptions.note_mode = options.noteMode;
+        if(options.promptPreset) payloadOptions.prompt_preset = options.promptPreset;
+        if(options.promptPresetLabel) payloadOptions.prompt_preset_label = options.promptPresetLabel;
+        if(options.sttProvider) payloadOptions.stt_provider = options.sttProvider;
+        if(options.sttModel) payloadOptions.stt_model = options.sttModel;
+        if(options.sttSpeed) payloadOptions.stt_speed = options.sttSpeed;
+        if(options.sttLanguage) payloadOptions.stt_language = options.sttLanguage;
+        if(options.speakerDiarization) payloadOptions.speaker_diarization = "true";
+        const r = await apiFetch(`${API_BASE}/video-sources/jobs`, {
+            method:"POST",
+            headers: {"Content-Type":"application/json", ...localExecutionHeaders(options)},
+            body: JSON.stringify({input, options: payloadOptions}),
+            signal,
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const subscribeJobEvents = async (taskId, onProgress, signal, options={}) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/events`, {headers: localExecutionHeaders(options), signal});
+        if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+        return await readSseResult(r, onProgress);
+    };
+    const summarizeTranscriptFile = async (file, options={}, signal) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        if(options.taskId) fd.append("task_id", options.taskId);
+        if(options.skipSummary) fd.append("skip_summary", "true");
+        appendAiOptions(fd, options);
+        const r = await apiFetch(`${API_BASE}/summarize-transcript-file`, {method:"POST", body:fd, signal});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const recordEvent = async (payload) => {
+        try {
+            await apiFetch(`${API_BASE}/events`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload || {}),
+            });
+        } catch(_) {}
+    };
+    const getJob = async (taskId, options={}) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`, {headers: localExecutionHeaders(options)});
+        if(!r.ok) throw new Error('Job not found');
+        return await r.json();
+    };
+    const cancelJob = async (taskId, options={}) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/cancel`, {
+            method:"POST",
+            headers: localExecutionHeaders(options),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const deleteJob = async (taskId, options={}) => {
+        const headers = localExecutionHeaders(options);
+        let r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`, {method:"DELETE", headers});
+        if (r.status === 405) {
+            r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/delete`, {method:"POST", headers});
+        }
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) {
+            const err = new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+            err.status = r.status;
+            err.payload = data;
+            throw err;
+        }
+        return data;
+    };
+    const fetchJobSourceFile = async (taskId, filename='source') => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/source`);
+        if(!r.ok) throw new Error('Source file not found');
+        const blob = await r.blob();
+        return new File([blob], filename || 'source', {type: blob.type || 'application/octet-stream'});
+    };
+    const fetchJobArtifactFile = async (taskId, kind, filename='artifact', options={}) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`, {
+            headers: localExecutionHeaders(options),
+        });
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        return new File([blob], filename || kind, {type: blob.type || 'application/octet-stream'});
+    };
+    const uploadJobPlaybackAudio = async (taskId, file) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/playback-audio`, {
+            method: "POST",
+            headers: localExecutionHeaders({sttProvider: 'local'}),
+            body: fd,
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const getJobs = async (limit=100, options={}) => {
+        const r = await apiFetch(`${API_BASE}/jobs?limit=${encodeURIComponent(limit)}`, {
+            headers: localExecutionHeaders(options),
+        });
+        if(!r.ok) throw new Error('Jobs unavailable');
+        const data = await r.json();
+        return Array.isArray(data?.jobs) ? data.jobs : [];
+    };
+    const getAccountQuota = async () => {
+        const r = await apiFetch(`${API_BASE}/account/quota`);
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const getAdminUsers = async (limit=100) => {
+        const r = await apiFetch(`${API_BASE}/admin/users?limit=${encodeURIComponent(limit)}`);
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return Array.isArray(data?.users) ? data.users : [];
+    };
+    const adjustUserBalance = async (userId, payload={}) => {
+        const r = await apiFetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}/balance-adjustments`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify(payload || {}),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const downloadJobArtifact = async (taskId, kind, filename) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(kind)}`);
+        if(!r.ok) throw new Error('Artifact not found');
+        const blob = await r.blob();
+        _dl(blob, filename || `${kind}.txt`);
+    };
+    const saveTranscriptEdit = async (taskId, payload={}) => {
+        const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/transcript`, {
+            method: "PATCH",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        return data;
+    };
+    const getCredentialsStatus = async () => {
+        const r = await apiFetch(`${API_BASE}/credentials/status`);
+        if(!r.ok) throw new Error('Credential status unavailable');
+        return await r.json();
+    };
+    const getSpeakerDiarizationStatus = async () => {
+        const r = await apiFetch(`${API_BASE}/speaker-diarization/status`);
+        if(!r.ok) throw new Error('Speaker diarization status unavailable');
+        return await r.json();
+    };
+    const saveCredentials = async (payload) => {
+        const r = await apiFetch(`${API_BASE}/credentials`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify(payload || {}),
+        });
+        if(!r.ok) throw new Error('Credential save failed');
+        return await r.json();
+    };
+    const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, downloadGuestTrialArtifact, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
+};
+
+export const useSettings = () => {
+    const loadSettings = () => {
+        try{
+            const raw = JSON.parse(localStorage.getItem("fluentflow_settings")||"{}");
+            const clean = sanitizeSettings(raw);
+            if (JSON.stringify(raw) !== JSON.stringify(clean)) {
+                localStorage.setItem("fluentflow_settings", JSON.stringify(clean));
+            }
+            return clean;
+        } catch(_){return {};}
+    };
+    const saveSettings = (s) => localStorage.setItem("fluentflow_settings", JSON.stringify(sanitizeSettings(s)));
+    return {loadSettings, saveSettings};
+};

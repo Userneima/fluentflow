@@ -1,0 +1,3033 @@
+"""FluentFlow shared server helpers, globals, and configuration.
+
+This module contains all helper functions, shared state, and configuration
+that route modules depend on. It is imported by backend.routers.* modules.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+from http.cookies import SimpleCookie
+import importlib.metadata
+import json
+import logging
+import math
+import mimetypes
+import os
+import platform
+import queue as thread_queue
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+import wave
+import sys
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, AsyncGenerator, Optional
+import urllib.error
+import urllib.request
+
+import httpx
+from fastapi import Request, Response, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
+
+EVENT_SCHEMA_VERSION = "1.3"
+APP_VERSION = "local"
+INTERNAL_QUEUE_TOKEN = os.environ.get("FLUENTFLOW_INTERNAL_QUEUE_TOKEN") or uuid.uuid4().hex
+GUEST_TRIAL_TOKEN_HEADER = "x-fluentflow-guest-token"
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _source_storage_dir() -> Path:
+    override = os.environ.get("FLUENTFLOW_SOURCE_DIR")
+    return Path(override).expanduser() if override else _project_root() / "data" / "sources"
+
+
+def _video_source_storage_dir() -> Path:
+    override = os.environ.get("FLUENTFLOW_VIDEO_SOURCE_DIR")
+    return Path(override).expanduser() if override else _project_root() / "视频文件"
+
+
+def _edited_transcript_dir() -> Path:
+    override = os.environ.get("FLUENTFLOW_EDITED_TRANSCRIPT_DIR")
+    return Path(override).expanduser() if override else _project_root() / "data" / "edited_transcripts"
+
+
+def _artifact_storage_dir() -> Path:
+    override = os.environ.get("FLUENTFLOW_ARTIFACT_DIR")
+    return Path(override).expanduser() if override else _project_root() / "data" / "artifacts"
+
+
+def _transcript_edit_records_dir() -> Path:
+    override = os.environ.get("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR")
+    return Path(override).expanduser() if override else _project_root() / "data" / "transcript_edit_records"
+
+
+from backend.core.job_event_hub import JobEventHub, _sse
+
+JOB_EVENTS = JobEventHub()
+
+
+def _configured_access_tokens() -> tuple[str, ...]:
+    raw = os.environ.get("FLUENTFLOW_ACCESS_TOKENS") or os.environ.get("FLUENTFLOW_ACCESS_TOKEN") or ""
+    return tuple(token.strip() for token in raw.split(",") if token.strip())
+
+
+def _access_control_enabled() -> bool:
+    return bool(_configured_access_tokens())
+
+
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _account_auth_enabled() -> bool:
+    mode = (os.environ.get("FLUENTFLOW_AUTH_MODE") or "").strip().lower()
+    return mode in {"account", "accounts"} or _env_truthy("FLUENTFLOW_ACCOUNT_AUTH")
+
+
+def _account_signups_enabled() -> bool:
+    return _env_truthy("FLUENTFLOW_ALLOW_SIGNUPS")
+
+
+def _cookie_secure_enabled() -> bool:
+    return _env_truthy("FLUENTFLOW_COOKIE_SECURE")
+
+
+def _public_mode_enabled() -> bool:
+    return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
+
+
+def _guest_trial_enabled() -> bool:
+    raw = os.environ.get("FLUENTFLOW_GUEST_TRIAL_ENABLED")
+    if raw is None:
+        return True
+    return _env_truthy("FLUENTFLOW_GUEST_TRIAL_ENABLED")
+
+
+def _guest_file_limit_mb() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_GUEST_FILE_LIMIT_MB", "150")), 1.0)
+    except ValueError:
+        return 150.0
+
+
+def _guest_duration_limit_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_GUEST_DURATION_LIMIT_SECONDS", "900")), 1.0)
+    except ValueError:
+        return 900.0
+
+
+def _guest_active_processing_slots() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_GUEST_ACTIVE_PROCESSING_SLOTS", "1")), 1)
+    except ValueError:
+        return 1
+
+
+def _guest_waiting_queue_limit() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_GUEST_WAITING_QUEUE_LIMIT", "5")), 0)
+    except ValueError:
+        return 5
+
+
+def _guest_daily_trials_per_ip() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_GUEST_DAILY_TRIALS_PER_IP", "2")), 0)
+    except ValueError:
+        return 2
+
+
+def _guest_result_retention_hours() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_GUEST_RESULT_RETENTION_HOURS", "24")), 1.0)
+    except ValueError:
+        return 24.0
+
+
+def _guest_wait_estimate_per_task_minutes() -> tuple[int, int]:
+    raw = (os.environ.get("FLUENTFLOW_GUEST_WAIT_ESTIMATE_PER_TASK_MINUTES") or "8-12").strip()
+    try:
+        if "-" in raw:
+            lo, hi = raw.split("-", 1)
+            low = max(int(float(lo)), 1)
+            high = max(int(float(hi)), low)
+            return low, high
+        value = max(int(float(raw)), 1)
+        return value, value
+    except ValueError:
+        return 8, 12
+
+
+def _cloud_workspace_url() -> str:
+    return (os.environ.get("FLUENTFLOW_CLOUD_WORKSPACE_URL") or "").strip().rstrip("/")
+
+
+def _cloud_workspace_enabled() -> bool:
+    return bool(_cloud_workspace_url())
+
+
+LOCAL_CLOUD_WORKSPACE_PATHS = {
+    "/health",
+    "/runtime-config",
+    "/credentials/status",
+    "/speaker-diarization/status",
+    "/local-history/candidates",
+}
+
+LOCAL_STATUS_PUBLIC_PATHS = {
+    "/credentials/status",
+    "/speaker-diarization/status",
+}
+
+LOCAL_REQUEST_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
+
+
+def _request_is_localhost(request: Request) -> bool:
+    client_host = ((request.client.host if request.client else "") or "").strip().lower()
+    url_host = (request.url.hostname or "").strip().lower()
+    return client_host in LOCAL_REQUEST_HOSTS or url_host in LOCAL_REQUEST_HOSTS
+
+
+def _request_prefers_local_execution(request: Request) -> bool:
+    return (request.headers.get("x-fluentflow-execution-target") or "").strip().lower() == "local"
+
+
+def _request_is_local_execution(request: Request) -> bool:
+    if not (_request_prefers_local_execution(request) and _request_is_localhost(request)):
+        return False
+    path = request.url.path
+    return (
+        path == "/process"
+        or path == "/video-sources/jobs"
+        or path == "/jobs"
+        or path.startswith("/jobs/")
+    )
+
+
+def _should_proxy_cloud_workspace(request: Request) -> bool:
+    if not _cloud_workspace_enabled():
+        return False
+    path = request.url.path
+    if path == "/" or path.startswith("/assets/"):
+        return False
+    if path in LOCAL_CLOUD_WORKSPACE_PATHS:
+        return False
+    if _request_is_local_execution(request):
+        return False
+    first_segment = (path.lstrip("/").split("/", 1)[0] or "")
+    return path in {"/auth/status", "/auth/login", "/auth/register", "/auth/logout"} or first_segment in API_ROUTE_PREFIXES
+
+
+def _request_is_internal_queue(request: Request) -> bool:
+    supplied = request.headers.get("x-fluentflow-internal-queue-token") or ""
+    return bool(supplied and hmac.compare_digest(supplied, INTERNAL_QUEUE_TOKEN))
+
+
+def _proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
+    blocked = {
+        "connection",
+        "content-encoding",
+        "content-length",
+        "set-cookie",
+        "transfer-encoding",
+        "www-authenticate",
+    }
+    return {key: value for key, value in headers.items() if key.lower() not in blocked}
+
+
+def _apply_remote_session_cookie(response: Response, request: Request, remote_headers: httpx.Headers) -> None:
+    path = request.url.path
+    if path == "/auth/logout":
+        response.delete_cookie(SESSION_COOKIE_NAME, samesite="lax")
+        response.delete_cookie("fluentflow_access_token", samesite="lax")
+        return
+    if path not in {"/auth/login", "/auth/register"}:
+        return
+    for header in remote_headers.get_list("set-cookie"):
+        cookie = SimpleCookie()
+        try:
+            cookie.load(header)
+        except Exception:
+            continue
+        morsel = cookie.get(SESSION_COOKIE_NAME)
+        if not morsel:
+            continue
+        max_age_text = morsel.get("max-age")
+        try:
+            max_age = int(max_age_text) if max_age_text else _session_days() * 24 * 60 * 60
+        except ValueError:
+            max_age = _session_days() * 24 * 60 * 60
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=morsel.value,
+            max_age=max_age,
+            httponly=True,
+            secure=_cookie_secure_enabled(),
+            samesite="lax",
+        )
+        break
+
+
+async def _proxy_cloud_workspace_request(request: Request) -> StreamingResponse:
+    base_url = _cloud_workspace_url()
+    target = f"{base_url}{request.url.path}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+
+    blocked_headers = {
+        "connection",
+        "content-length",
+        "cookie",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in blocked_headers}
+    session_token = _request_account_session_token(request)
+    if session_token:
+        headers["X-FluentFlow-Session"] = session_token
+
+    async def body_iter() -> AsyncGenerator[bytes, None]:
+        async for chunk in request.stream():
+            if chunk:
+                yield chunk
+
+    client = httpx.AsyncClient(timeout=None, follow_redirects=False)
+    stream = client.stream(request.method, target, headers=headers, content=body_iter())
+    try:
+        remote = await stream.__aenter__()
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
+
+    async def response_iter() -> AsyncGenerator[bytes, None]:
+        try:
+            async for chunk in remote.aiter_raw():
+                if chunk:
+                    yield chunk
+        finally:
+            await stream.__aexit__(None, None, None)
+            await client.aclose()
+
+    response = StreamingResponse(
+        response_iter(),
+        status_code=remote.status_code,
+        headers=_proxy_response_headers(remote.headers),
+    )
+    _apply_remote_session_cookie(response, request, remote.headers)
+    return response
+
+
+def _request_access_token(request: Request) -> str:
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    header_token = request.headers.get("x-fluentflow-access-token") or ""
+    if header_token.strip():
+        return header_token.strip()
+    return (request.cookies.get("fluentflow_access_token") or "").strip()
+
+
+def _request_has_access(request: Request) -> bool:
+    tokens = _configured_access_tokens()
+    if not tokens:
+        return True
+    supplied = _request_access_token(request)
+    return bool(supplied and any(hmac.compare_digest(supplied, token) for token in tokens))
+
+
+def _normalize_client_id(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    safe = "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_"})
+    return safe[:96] or None
+
+
+def _request_client_id(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    return _normalize_client_id(
+        request.headers.get("x-fluentflow-client-id")
+        or request.cookies.get("fluentflow_client_id")
+    )
+
+
+def _request_client_scope(request: Request | None) -> str:
+    if request is not None and _request_is_local_execution(request):
+        return _request_client_id(request) or "anonymous"
+    if request is not None and _account_auth_enabled():
+        user = _request_account_user(request)
+        if user and user.get("id"):
+            return f"user:{user['id']}"
+    return _request_client_id(request) or "anonymous"
+
+
+def _is_public_request(request: Request) -> bool:
+    if request.method.upper() == "OPTIONS":
+        return True
+    path = request.url.path
+    if request.method.upper() == "GET" and path in LOCAL_STATUS_PUBLIC_PATHS and _request_is_localhost(request):
+        return True
+    if path.startswith("/guest-trial"):
+        return True
+    if path in {"/", "/health", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"}:
+        return True
+    if path.startswith("/assets/"):
+        return True
+    first_segment = (path.lstrip("/").split("/", 1)[0] or "")
+    return first_segment not in API_ROUTE_PREFIXES
+
+
+async def beta_access_middleware(request: Request, call_next):
+    if _should_proxy_cloud_workspace(request):
+        return await _proxy_cloud_workspace_request(request)
+    if _request_is_internal_queue(request):
+        return await call_next(request)
+    if _request_is_local_execution(request):
+        return await call_next(request)
+    if _account_auth_enabled():
+        if _is_public_request(request):
+            return await call_next(request)
+        user = _request_account_user(request)
+        if user:
+            request.state.account_user = user
+            return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": "FluentFlow account login is required.",
+                "auth_mode": "accounts",
+                "account_required": True,
+            },
+        )
+    if not _access_control_enabled() or _is_public_request(request) or _request_has_access(request):
+        return await call_next(request)
+    return JSONResponse(
+        status_code=401,
+        content={
+            "detail": "FluentFlow beta access code is required.",
+            "access_required": True,
+        },
+    )
+
+try:
+    from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
+    from backend.core.local_stt import transcribe_audio, get_or_load_model
+    from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
+    from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
+    from backend.core.ai_summarizer import summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
+    from backend.core.lark_exporter import export_markdown_to_lark
+    from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
+    from backend.core.note_title import resolve_lark_doc_title
+    from backend.core.note_planner import plan_note_task
+    from backend.core.transcript_parser import parse_transcript_file
+    from backend.core.transcript_cleaner import clean_repeated_transcript
+    from backend.core.event_logger import log_event
+    from backend.core.job_lifecycle import (
+        job_has_transcript_result,
+        result_for_summary_failure,
+        result_for_summary_success,
+        result_for_transcript_only,
+    )
+    from backend.core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+    from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
+    from backend.core.account_store import (
+        authenticate_user,
+        count_users,
+        create_session,
+        create_user,
+        get_user_by_id,
+        get_user_by_session_token,
+        list_users,
+        revoke_session,
+    )
+    from backend.core.quota_store import (
+        InsufficientBalanceError,
+        account_quota_summary,
+        add_admin_adjustment,
+        finalize_task_charge,
+        grant_starter_balance,
+        release_reservation,
+        reserve_units,
+    )
+    from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
+    from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
+except ImportError:
+    from core.audio_handler import extract_compressed_mp3, extract_stt_wav
+    from core.local_stt import transcribe_audio, get_or_load_model
+    from core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
+    from core.stt_process import drain_queue, start_transcription_process, terminate_process
+    from core.ai_summarizer import summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
+    from core.lark_exporter import export_markdown_to_lark
+    from core.lark_cli_exporter import export_markdown_via_lark_cli
+    from core.note_title import resolve_lark_doc_title
+    from core.note_planner import plan_note_task
+    from core.transcript_parser import parse_transcript_file
+    from core.transcript_cleaner import clean_repeated_transcript
+    from core.event_logger import log_event
+    from core.job_lifecycle import (
+        job_has_transcript_result,
+        result_for_summary_failure,
+        result_for_summary_success,
+        result_for_transcript_only,
+    )
+    from core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+    from core.local_config import credential_status, resolve_secret, save_sensitive_settings
+    from core.account_store import (
+        authenticate_user,
+        count_users,
+        create_session,
+        create_user,
+        get_user_by_id,
+        get_user_by_session_token,
+        list_users,
+        revoke_session,
+    )
+    from core.quota_store import (
+        InsufficientBalanceError,
+        account_quota_summary,
+        add_admin_adjustment,
+        finalize_task_charge,
+        grant_starter_balance,
+        release_reservation,
+        reserve_units,
+    )
+    from core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
+    from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
+
+
+SESSION_COOKIE_NAME = "fluentflow_session"
+
+
+def _session_days() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_SESSION_DAYS", "30")), 1)
+    except ValueError:
+        return 30
+
+
+def _request_account_session_token(request: Request) -> str:
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    header_token = (request.headers.get("x-fluentflow-session") or "").strip()
+    if header_token:
+        return header_token
+    return (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+
+
+def _public_account_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not user:
+        return None
+    return {
+        "id": user.get("id"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "created_at": user.get("created_at"),
+        "last_login_at": user.get("last_login_at"),
+    }
+
+
+def _account_quota_payload(user: dict[str, Any] | None) -> dict[str, Any]:
+    if not user or not user.get("id"):
+        return {"balance_units": 0, "recent_transactions": [], "unlimited": False, "quota_exempt": False}
+    summary = account_quota_summary(str(user["id"]))
+    is_admin = user.get("role") == "admin"
+    summary["unlimited"] = bool(is_admin)
+    summary["quota_exempt"] = bool(is_admin)
+    return summary
+
+
+def _starter_balance_units() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_STARTER_BALANCE_UNITS", "100")), 0)
+    except ValueError:
+        return 100
+
+
+def _public_account_payload(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    public = _public_account_user(user)
+    if not public:
+        return None
+    try:
+        public["quota"] = _account_quota_payload(user)
+    except Exception as exc:
+        logger.warning("Failed to load account quota summary for %s: %s", public.get("id"), exc)
+        public["quota"] = {"balance_units": 0, "recent_transactions": [], "unlimited": False, "quota_exempt": False}
+    return public
+
+
+def _grant_starter_balance_if_needed(user: dict[str, Any] | None) -> None:
+    if not user or not user.get("id"):
+        return
+    units = _starter_balance_units()
+    if units <= 0:
+        return
+    try:
+        grant_starter_balance(str(user["id"]), units=units)
+    except Exception as exc:
+        logger.warning("Failed to grant starter balance to %s: %s", user.get("id"), exc)
+
+
+def _account_id_from_client_scope(client_id: str | None) -> str | None:
+    text = (client_id or "").strip()
+    if text and text.startswith("user:"):
+        return text.split(":", 1)[1] or None
+    return None
+
+
+def _normalize_client_scope(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if text.startswith("user:") and text.split(":", 1)[1]:
+        return text
+    return _normalize_client_id(text)
+
+
+def _quota_account_for_client(client_id: str | None) -> dict[str, Any] | None:
+    account_id = _account_id_from_client_scope(client_id)
+    if not account_id:
+        return None
+    try:
+        user = get_user_by_id(account_id)
+    except Exception:
+        return None
+    if not user or user.get("role") == "admin":
+        return None
+    return user
+
+
+def _quota_number(name: str, default: float) -> float:
+    try:
+        return max(float(os.environ.get(name, str(default))), 0.0)
+    except ValueError:
+        return default
+
+
+def _estimate_processing_units(
+    *,
+    duration_seconds: float | None = None,
+    transcript_text: str | None = None,
+    summary_text: str | None = None,
+    skip_summary: bool = False,
+    estimate_only: bool = False,
+) -> dict[str, Any]:
+    duration_minutes = max(float(duration_seconds or 0), 0.0) / 60.0
+    transcription_rate = _quota_number("FLUENTFLOW_TRANSCRIPTION_UNITS_PER_MINUTE", 1.0)
+    transcription_units = int(math.ceil(duration_minutes * transcription_rate)) if duration_minutes > 0 else 0
+
+    transcript_len = len(transcript_text or "")
+    summary_len = len(summary_text or "")
+    ai_units = 0
+    if not skip_summary:
+        if transcript_len > 0 or summary_len > 0:
+            chars_per_unit = max(_quota_number("FLUENTFLOW_AI_CHARS_PER_UNIT", 4000.0), 1.0)
+            weighted_chars = transcript_len + summary_len * 2
+            ai_units = int(math.ceil(weighted_chars / chars_per_unit))
+        elif estimate_only and duration_minutes > 0:
+            ai_units = int(math.ceil(duration_minutes * _quota_number("FLUENTFLOW_AI_ESTIMATE_UNITS_PER_MINUTE", 0.5)))
+
+    default_units = int(_quota_number("FLUENTFLOW_DEFAULT_TASK_ESTIMATE_UNITS", 20.0))
+    total_units = transcription_units + ai_units
+    if estimate_only and total_units <= 0:
+        total_units = default_units
+    elif duration_minutes > 0 or transcript_len > 0:
+        total_units = max(total_units, 1)
+
+    return {
+        "total_units": max(int(total_units), 0),
+        "transcription_units": max(int(transcription_units), 0),
+        "ai_note_units": max(int(ai_units), 0),
+        "duration_seconds": round(float(duration_seconds or 0), 3) if duration_seconds else None,
+        "transcript_chars": transcript_len,
+        "summary_chars": summary_len,
+        "rate_card_version": "quota-v0",
+        "estimate_only": bool(estimate_only),
+        "skip_summary": bool(skip_summary),
+    }
+
+
+def _reserve_task_quota(
+    *,
+    client_id: str | None,
+    task_id: str,
+    estimate: dict[str, Any],
+    reason: str = "Task processing reservation",
+) -> dict[str, Any] | None:
+    user = _quota_account_for_client(client_id)
+    if not user:
+        return None
+    units = int(estimate.get("total_units") or 0)
+    if units <= 0:
+        return None
+    try:
+        tx = reserve_units(
+            str(user["id"]),
+            task_id=task_id,
+            units=units,
+            reason=reason,
+            metadata={"estimate": estimate},
+        )
+    except InsufficientBalanceError as exc:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": "当前账号处理额度不足，请充值或联系维护者增加额度。",
+                "required_units": exc.required_units,
+                "balance_units": exc.balance_units,
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "account_id": user["id"],
+        "reserved_units": units,
+        "transaction": tx,
+        "estimate": estimate,
+    }
+
+
+def _release_task_quota(
+    *,
+    client_id: str | None,
+    task_id: str,
+    reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    user = _quota_account_for_client(client_id)
+    if not user:
+        return
+    try:
+        release_reservation(str(user["id"]), task_id=task_id, reason=reason, metadata=metadata)
+    except Exception as exc:
+        logger.warning("Failed to release quota reservation for %s: %s", task_id, exc)
+
+
+def _finalize_task_quota(
+    *,
+    client_id: str | None,
+    task_id: str,
+    final_usage: dict[str, Any],
+    reason: str = "Finalize task charge",
+) -> dict[str, Any] | None:
+    user = _quota_account_for_client(client_id)
+    if not user:
+        return None
+    try:
+        tx = finalize_task_charge(
+            str(user["id"]),
+            task_id=task_id,
+            final_units=int(final_usage.get("total_units") or 0),
+            reason=reason,
+            metadata={"final_usage": final_usage},
+        )
+        return {
+            "account_id": user["id"],
+            "charged_units": int(final_usage.get("total_units") or 0),
+            "transaction": tx,
+            "final_usage": final_usage,
+            "balance": account_quota_summary(str(user["id"])),
+        }
+    except Exception as exc:
+        logger.warning("Failed to finalize quota charge for %s: %s", task_id, exc)
+        return None
+
+
+def _request_account_user(request: Request) -> dict[str, Any] | None:
+    cached = getattr(request.state, "account_user", None)
+    if cached:
+        return cached
+    token = _request_account_session_token(request)
+    user = get_user_by_session_token(token)
+    if user:
+        request.state.account_user = user
+    return user
+
+
+def _require_account_user(request: Request) -> dict[str, Any]:
+    user = _request_account_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="FluentFlow account login is required.")
+    return user
+
+
+def _require_admin_user(request: Request) -> dict[str, Any]:
+    user = _require_account_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin permission is required.")
+    return user
+
+
+def _account_registration_allowed() -> bool:
+    return _account_signups_enabled() or count_users() == 0
+
+
+def _validate_account_email(email: str) -> str:
+    normalized = (email or "").strip().lower()
+    if len(normalized) > 254 or "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+        raise HTTPException(status_code=400, detail="请输入有效邮箱")
+    return normalized
+
+
+def _validate_account_password(password: str) -> str:
+    text = password or ""
+    if len(text) < 8:
+        raise HTTPException(status_code=400, detail="密码至少需要 8 位")
+    if len(text) > 256:
+        raise HTTPException(status_code=400, detail="密码过长")
+    return text
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    max_age = _session_days() * 24 * 60 * 60
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=_cookie_secure_enabled(),
+        samesite="lax",
+    )
+
+
+def _truthy_form(val: Optional[str]) -> bool:
+    return bool(val and val.strip().lower() in ("true", "1", "yes", "on"))
+
+
+def _event_from_sse_chunk(chunk: str) -> dict[str, Any] | None:
+    for line in chunk.splitlines():
+        if line.startswith("data: "):
+            try:
+                payload = json.loads(line[6:])
+            except json.JSONDecodeError:
+                return None
+            return payload if isinstance(payload, dict) else None
+    return None
+
+
+ALLOWED_SUFFIXES = {
+    ".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v",
+    ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus",
+}
+
+TRANSCRIPT_SUFFIXES = {".srt", ".vtt", ".txt", ".md"}
+AUDIO_SUFFIXES = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus"}
+VIDEO_SUFFIXES = ALLOWED_SUFFIXES - AUDIO_SUFFIXES
+
+
+def _max_upload_mb() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_MAX_UPLOAD_MB", "2048")), 1.0)
+    except ValueError:
+        return 2048.0
+
+
+def _max_queue_files() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_MAX_QUEUE_FILES", "5")), 1)
+    except ValueError:
+        return 5
+
+
+def _max_active_jobs_per_client() -> int:
+    raw = os.environ.get("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT")
+    if raw is None:
+        return 2 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 2 if _public_mode_enabled() else 0
+
+
+def _max_active_jobs_global() -> int:
+    raw = os.environ.get("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL")
+    if raw is None:
+        return 6 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 6 if _public_mode_enabled() else 0
+
+
+def _daily_job_limit_per_client() -> int:
+    raw = os.environ.get("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT")
+    if raw is None:
+        return 10 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 10 if _public_mode_enabled() else 0
+
+
+def _daily_job_limit_global() -> int:
+    raw = os.environ.get("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL")
+    if raw is None:
+        return 80 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 80 if _public_mode_enabled() else 0
+
+
+def _daily_upload_mb_per_client() -> float:
+    raw = os.environ.get("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT")
+    if raw is None:
+        return 4096.0 if _public_mode_enabled() else 0.0
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return 4096.0 if _public_mode_enabled() else 0.0
+
+
+def _daily_upload_mb_global() -> float:
+    raw = os.environ.get("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL")
+    if raw is None:
+        return 32768.0 if _public_mode_enabled() else 0.0
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return 32768.0 if _public_mode_enabled() else 0.0
+
+
+def _submission_rate_limit_per_ip() -> int:
+    raw = os.environ.get("FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP")
+    if raw is None:
+        return 12 if _public_mode_enabled() else 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 12 if _public_mode_enabled() else 0
+
+
+def _submission_rate_limit_window_seconds() -> float:
+    raw = os.environ.get("FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS")
+    if raw is None:
+        return 60.0
+    try:
+        return max(float(raw), 1.0)
+    except ValueError:
+        return 60.0
+
+
+def _max_media_duration_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS", "14400")), 0.0)
+    except ValueError:
+        return 14400.0
+
+
+def _runtime_limits() -> dict[str, Any]:
+    return _runtime_limits_for_request()
+
+
+def _runtime_limits_for_request(request: Request | None = None) -> dict[str, Any]:
+    duration_limit = _max_media_duration_seconds()
+    return {
+        "max_upload_mb": _max_upload_mb(),
+        "max_queue_files": _max_queue_files(),
+        "max_active_jobs_per_client": _max_active_jobs_per_client() or None,
+        "max_active_jobs_global": _max_active_jobs_global() or None,
+        "daily_job_limit_per_client": _daily_job_limit_per_client() or None,
+        "daily_job_limit_global": _daily_job_limit_global() or None,
+        "daily_upload_mb_per_client": _daily_upload_mb_per_client() or None,
+        "daily_upload_mb_global": _daily_upload_mb_global() or None,
+        "submission_rate_limit_per_ip": _submission_rate_limit_per_ip() or None,
+        "submission_rate_limit_window_seconds": _submission_rate_limit_window_seconds(),
+        "max_media_duration_seconds": duration_limit if duration_limit > 0 else None,
+        "access_control_enabled": _access_control_enabled(),
+        "account_auth_enabled": _account_auth_enabled(),
+        "public_mode": _public_mode_enabled(),
+        "allowed_stt_providers": list(_allowed_stt_providers(request)),
+        "default_stt_provider": _default_stt_provider(request),
+        "guest_trial": _guest_trial_config(),
+    }
+
+
+def _guest_trial_config() -> dict[str, Any]:
+    low, high = _guest_wait_estimate_per_task_minutes()
+    return {
+        "enabled": _guest_trial_enabled(),
+        "file_limit_mb": _guest_file_limit_mb(),
+        "duration_limit_seconds": _guest_duration_limit_seconds(),
+        "active_processing_slots": _guest_active_processing_slots(),
+        "waiting_queue_limit": _guest_waiting_queue_limit(),
+        "daily_trials_per_ip": _guest_daily_trials_per_ip(),
+        "result_retention_hours": _guest_result_retention_hours(),
+        "wait_estimate_per_task_minutes": [low, high],
+    }
+
+
+def _duration_limit_error(
+    duration_seconds: float,
+    filename: str | None = None,
+    limit_override_seconds: float | None = None,
+) -> str | None:
+    limit = _max_media_duration_seconds()
+    if limit_override_seconds and limit_override_seconds > 0:
+        limit = min(limit, limit_override_seconds) if limit > 0 else limit_override_seconds
+    if limit <= 0 or duration_seconds <= limit:
+        return None
+    name = f"「{filename}」" if filename else "当前媒体"
+    return (
+        f"{name}时长过长：约 {duration_seconds / 60:.1f} 分钟，"
+        f"当前限制为 {limit / 60:.1f} 分钟。"
+    )
+
+
+def _new_task_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _source_type_for_suffix(suffix: str) -> str:
+    if suffix in TRANSCRIPT_SUFFIXES:
+        return "transcript_file"
+    if suffix in AUDIO_SUFFIXES:
+        return "audio"
+    if suffix in VIDEO_SUFFIXES:
+        return "video"
+    return "unknown"
+
+
+def _file_size_mb(byte_count: int | None) -> float | None:
+    if byte_count is None:
+        return None
+    return round(byte_count / (1024 * 1024), 3)
+
+
+def _upload_size_mb(upload: UploadFile) -> float | None:
+    file_obj = getattr(upload, "file", None)
+    if file_obj is None:
+        return None
+    try:
+        pos = file_obj.tell()
+        file_obj.seek(0, os.SEEK_END)
+        size = file_obj.tell()
+        file_obj.seek(pos, os.SEEK_SET)
+        return _file_size_mb(size)
+    except Exception:
+        return None
+
+
+def _friendly_error_message(error: Any) -> str:
+    """Convert infrastructure errors into user-facing Chinese copy."""
+
+    raw = str(error or "").strip()
+    if not raw:
+        return "处理失败，但没有返回具体原因。请重试一次。"
+    lowered = raw.lower()
+
+    if "cloud transcription backend configuration is incomplete" in lowered:
+        return "云端转录暂不可用：后端 Azure Speech 配置不完整。请联系产品维护者检查 Speech endpoint 和 key。"
+    if "cloud transcription storage is not configured" in lowered:
+        return "云端转录暂不可用：后端 Blob/SAS 存储配置缺失。请联系产品维护者检查 Azure 存储设置。"
+    if "only \"standard\" subscriptions" in lowered or 'only \\"standard\\" subscriptions' in lowered or "invalidsubscription" in lowered:
+        return "云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。"
+    if "invalidlocale" in lowered or "specified locale is not supported" in lowered:
+        return "云端转录提交失败：当前音频语言不被 Azure 支持。请切换为中文/英文，或改用本地转录。"
+    if "invalidmodel" in lowered or "specified model is not supported" in lowered:
+        return "云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端 Batch 默认模型或改用本地转录。"
+    if "diarization is currently not supported" in lowered:
+        return "云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。"
+    if "eof occurred in violation of protocol" in lowered or "broken pipe" in lowered:
+        return "云端上传中断：通常是网络或 Azure 边缘服务断开连接。请重试；如果文件很大，优先使用 Azure Batch 或减小音频体积。"
+    if "azure blob upload failed" in lowered:
+        return "云端上传到 Blob 失败。请检查 SAS URL 是否仍有效、是否允许写入，以及网络是否稳定。"
+    if "queued processing request failed" in lowered:
+        return "后台任务调用转录接口失败。请重试；如果连续出现，请重启后端服务并检查上传大小限制。"
+    if "no position encodings are defined" in lowered:
+        return "本地说话人区分模型无法处理当前音频长度。请关闭说话人区分，或切换云端转录。"
+    if "downloaded video is too large" in lowered or "file is too large" in lowered:
+        return "文件超过当前上传限制。请压缩视频、拆分文件，或调高后端上传大小限制。"
+    if "unsupported transcript file type" in lowered:
+        return "不支持这个字幕/转录文件格式。请上传 SRT、VTT、TXT 或 Markdown 文件。"
+    if "unsupported file type" in lowered:
+        return "不支持这个文件格式。请上传视频或音频文件。"
+    if "no file uploaded" in lowered:
+        return "没有收到上传文件。请重新选择文件后再试。"
+    if "queued source file is missing" in lowered:
+        return "后台任务找不到原始文件。文件可能已被清理，请重新上传。"
+    if "暂时无法自动解析这个视频链接" in raw:
+        return "暂时无法自动解析这个视频链接。请换一个分享链接，或直接上传视频文件。"
+    if "没有识别到视频链接" in raw:
+        return "没有识别到视频链接。请粘贴完整的分享文本或视频 URL。"
+    if "视频下载失败" in raw or "视频文件过大" in raw:
+        return raw
+    return raw
+
+
+def _active_job_count(client_id: str | None, exclude_task_id: str | None = None) -> int:
+    return sum(
+        1
+        for job in list_jobs(limit=200, client_id=client_id)
+        if job.get("status") in {"queued", "running"} and job.get("task_id") != exclude_task_id
+    )
+
+
+def _global_active_job_count(exclude_task_id: str | None = None) -> int:
+    return sum(
+        1
+        for job in list_jobs(limit=200)
+        if job.get("status") in {"queued", "running"} and job.get("task_id") != exclude_task_id
+    )
+
+
+def _enforce_active_job_limit(
+    client_id: str | None,
+    incoming: int = 1,
+    exclude_task_id: str | None = None,
+) -> None:
+    limit = _max_active_jobs_per_client()
+    if limit <= 0:
+        return
+    active = _active_job_count(client_id, exclude_task_id=exclude_task_id)
+    if active + max(incoming, 1) > limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"当前仍有 {active} 个后台任务未完成。"
+                f"封闭测试阶段每个设备最多同时运行 {limit} 个任务，请稍后再提交。"
+            ),
+        )
+
+
+def _enforce_global_active_job_limit(
+    incoming: int = 1,
+    exclude_task_id: str | None = None,
+) -> None:
+    limit = _max_active_jobs_global()
+    if limit <= 0:
+        return
+    active = _global_active_job_count(exclude_task_id=exclude_task_id)
+    if active + max(incoming, 1) > limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"当前服务器已有 {active} 个后台任务未完成。"
+                f"公开试用阶段全站最多同时运行 {limit} 个任务，请稍后再提交。"
+            ),
+        )
+
+
+def _job_created_today(job: dict[str, Any]) -> bool:
+    raw = job.get("created_at") or job.get("updated_at")
+    if not raw:
+        return False
+    try:
+        created = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created.astimezone().date() == datetime.now(timezone.utc).astimezone().date()
+
+
+def _job_is_imported_history(job: dict[str, Any]) -> bool:
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    return bool(
+        metadata.get("imported_by_account_id")
+        or metadata.get("source_type") == "imported_local_history"
+        or result.get("imported_from_local_history")
+        or job.get("source_type") == "imported_local_history"
+    )
+
+
+def _job_counts_toward_daily_submission(job: dict[str, Any]) -> bool:
+    return _job_created_today(job) and not _job_is_imported_history(job)
+
+
+def _client_scope_is_admin(client_id: str | None) -> bool:
+    account_id = _account_id_from_client_scope(client_id)
+    if not account_id:
+        return False
+    try:
+        user = get_user_by_id(account_id)
+    except Exception:
+        return False
+    return bool(user and user.get("role") == "admin")
+
+
+def _daily_usage_for_client(
+    client_id: str | None,
+    exclude_task_id: str | None = None,
+) -> dict[str, float]:
+    jobs = [
+        job for job in list_jobs(limit=200, client_id=client_id)
+        if job.get("task_id") != exclude_task_id and _job_counts_toward_daily_submission(job)
+    ]
+    upload_mb = 0.0
+    for job in jobs:
+        try:
+            upload_mb += float(job.get("source_file_size_mb") or 0)
+        except (TypeError, ValueError):
+            continue
+    return {"jobs": float(len(jobs)), "upload_mb": round(upload_mb, 3)}
+
+
+def _daily_usage_global(exclude_task_id: str | None = None) -> dict[str, float]:
+    jobs = [
+        job for job in list_jobs(limit=200)
+        if job.get("task_id") != exclude_task_id and _job_counts_toward_daily_submission(job)
+    ]
+    upload_mb = 0.0
+    for job in jobs:
+        try:
+            upload_mb += float(job.get("source_file_size_mb") or 0)
+        except (TypeError, ValueError):
+            continue
+    return {"jobs": float(len(jobs)), "upload_mb": round(upload_mb, 3)}
+
+
+def _enforce_daily_quota(
+    client_id: str | None,
+    *,
+    incoming_jobs: int = 1,
+    incoming_upload_mb: float | None = None,
+    exclude_task_id: str | None = None,
+) -> None:
+    if _client_scope_is_admin(client_id):
+        return
+    job_limit = _daily_job_limit_per_client()
+    upload_limit = _daily_upload_mb_per_client()
+    if job_limit <= 0 and upload_limit <= 0:
+        return
+    usage = _daily_usage_for_client(client_id, exclude_task_id=exclude_task_id)
+    next_jobs = int(usage["jobs"]) + max(int(incoming_jobs or 0), 0)
+    next_upload_mb = usage["upload_mb"] + max(float(incoming_upload_mb or 0), 0.0)
+    if job_limit > 0 and next_jobs > job_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天这个设备已经提交 {int(usage['jobs'])} 个任务。"
+                f"当前每日上限为 {job_limit} 个任务，请明天再试或联系维护者调高额度。"
+            ),
+        )
+    if upload_limit > 0 and next_upload_mb > upload_limit:
+        remaining = max(upload_limit - usage["upload_mb"], 0.0)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天这个设备已使用约 {usage['upload_mb']:.1f} MB 上传额度。"
+                f"当前每日上限为 {upload_limit:g} MB，剩余额度约 {remaining:.1f} MB。"
+            ),
+        )
+
+
+def _enforce_global_daily_quota(
+    *,
+    client_id: str | None = None,
+    incoming_jobs: int = 1,
+    incoming_upload_mb: float | None = None,
+    exclude_task_id: str | None = None,
+) -> None:
+    if _client_scope_is_admin(client_id):
+        return
+    job_limit = _daily_job_limit_global()
+    upload_limit = _daily_upload_mb_global()
+    if job_limit <= 0 and upload_limit <= 0:
+        return
+    usage = _daily_usage_global(exclude_task_id=exclude_task_id)
+    next_jobs = int(usage["jobs"]) + max(int(incoming_jobs or 0), 0)
+    next_upload_mb = usage["upload_mb"] + max(float(incoming_upload_mb or 0), 0.0)
+    if job_limit > 0 and next_jobs > job_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天全站已经提交 {int(usage['jobs'])} 个任务。"
+                f"公开试用阶段每日全站上限为 {job_limit} 个任务，请明天再试。"
+            ),
+        )
+    if upload_limit > 0 and next_upload_mb > upload_limit:
+        remaining = max(upload_limit - usage["upload_mb"], 0.0)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天全站已使用约 {usage['upload_mb']:.1f} MB 上传额度。"
+                f"当前每日全站上限为 {upload_limit:g} MB，剩余额度约 {remaining:.1f} MB。"
+            ),
+        )
+
+
+_SUBMISSION_RATE_EVENTS: dict[str, list[float]] = {}
+_SUBMISSION_RATE_LOCK = threading.Lock()
+
+
+def _request_ip_key(request: Request) -> str:
+    if _env_truthy("FLUENTFLOW_TRUSTED_PROXY"):
+        forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+        if forwarded:
+            return forwarded[:128]
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None)
+    return str(host or "unknown")[:128]
+
+
+def _enforce_submission_rate_limit(request: Request, incoming: int = 1) -> None:
+    limit = _submission_rate_limit_per_ip()
+    if limit <= 0:
+        return
+    window_seconds = _submission_rate_limit_window_seconds()
+    now = time.time()
+    cutoff = now - window_seconds
+    ip_key = _request_ip_key(request)
+    with _SUBMISSION_RATE_LOCK:
+        events = [stamp for stamp in _SUBMISSION_RATE_EVENTS.get(ip_key, []) if stamp >= cutoff]
+        if len(events) + max(int(incoming or 1), 1) > limit:
+            _SUBMISSION_RATE_EVENTS[ip_key] = events
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"提交过于频繁。公开试用阶段同一网络在 {int(window_seconds)} 秒内"
+                    f"最多提交 {limit} 个任务，请稍后再试。"
+                ),
+            )
+        events.extend([now] * max(int(incoming or 1), 1))
+        _SUBMISSION_RATE_EVENTS[ip_key] = events
+
+
+def _path_size_mb(path: Path | str) -> float | None:
+    try:
+        return _file_size_mb(Path(path).stat().st_size)
+    except OSError:
+        return None
+
+
+def _source_fingerprint(content: bytes, filename: str | None = None) -> dict[str, Any]:
+    """Return a content fingerprint for comparing reruns without storing content."""
+    return {
+        "algorithm": "sha256",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "source_filename": filename,
+        "source_size_bytes": len(content),
+    }
+
+
+def _source_fingerprint_for_path(path: Path | str, filename: str | None = None) -> dict[str, Any]:
+    hasher = hashlib.sha256()
+    size = 0
+    with Path(path).open("rb") as fh:
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            hasher.update(chunk)
+    return {
+        "algorithm": "sha256",
+        "sha256": hasher.hexdigest(),
+        "source_filename": filename,
+        "source_size_bytes": size,
+    }
+
+
+def _persist_source_file(task_id: str, suffix: str, content: bytes) -> Path:
+    target_dir = _source_storage_dir() / task_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"source{suffix or '.bin'}"
+    target.write_bytes(content)
+    return target
+
+
+def _new_guest_trial_token() -> str:
+    return uuid.uuid4().hex
+
+
+def _guest_client_id(token: str) -> str:
+    return f"guest_{_normalize_client_id(token) or _new_guest_trial_token()}"
+
+
+def _request_guest_token(request: Request) -> str:
+    return (request.headers.get(GUEST_TRIAL_TOKEN_HEADER) or "").strip()
+
+
+def _is_guest_trial_job(job: dict[str, Any] | None) -> bool:
+    metadata = job.get("metadata") if job else None
+    return bool(isinstance(metadata, dict) and isinstance(metadata.get("guest_trial"), dict))
+
+
+def _guest_metadata(job: dict[str, Any] | None) -> dict[str, Any]:
+    metadata = job.get("metadata") if job else None
+    guest = metadata.get("guest_trial") if isinstance(metadata, dict) else None
+    return guest if isinstance(guest, dict) else {}
+
+
+def _guest_trial_jobs(statuses: set[str] | None = None) -> list[dict[str, Any]]:
+    jobs = [job for job in list_jobs(limit=200) if _is_guest_trial_job(job)]
+    if statuses is not None:
+        jobs = [job for job in jobs if str(job.get("status") or "") in statuses]
+    return sorted(jobs, key=lambda item: str(item.get("created_at") or item.get("updated_at") or ""))
+
+
+def _guest_active_jobs() -> list[dict[str, Any]]:
+    return _guest_trial_jobs({"queued", "running"})
+
+
+def _guest_wait_estimate(people_ahead: int) -> dict[str, int]:
+    low, high = _guest_wait_estimate_per_task_minutes()
+    ahead = max(int(people_ahead or 0), 0)
+    return {"min_minutes": ahead * low, "max_minutes": ahead * high}
+
+
+def _guest_queue_snapshot(task_id: str | None = None) -> dict[str, Any]:
+    active = _guest_active_jobs()
+    total_capacity = _guest_active_processing_slots() + _guest_waiting_queue_limit()
+    position = None
+    people_ahead = len(active)
+    if task_id:
+        for index, job in enumerate(active):
+            if job.get("task_id") == task_id:
+                position = index + 1
+                people_ahead = index
+                break
+    return {
+        "active_count": len(active),
+        "capacity": total_capacity,
+        "active_processing_slots": _guest_active_processing_slots(),
+        "waiting_queue_limit": _guest_waiting_queue_limit(),
+        "queue_full": len(active) >= total_capacity,
+        "position": position,
+        "people_ahead": people_ahead,
+        "estimated_wait": _guest_wait_estimate(people_ahead),
+    }
+
+
+def _guest_trial_status_payload(job: dict[str, Any] | None = None) -> dict[str, Any]:
+    result = dict(job.get("result") or {}) if job else None
+    return {
+        "enabled": _guest_trial_enabled(),
+        "config": _guest_trial_config(),
+        "queue": _guest_queue_snapshot(job.get("task_id") if job else None),
+        "job": job,
+        "result": result,
+    }
+
+
+def _enforce_guest_trial_enabled() -> None:
+    if not _guest_trial_enabled():
+        raise HTTPException(status_code=403, detail="访客试用暂未开放。")
+
+
+def _enforce_guest_queue_capacity() -> None:
+    snapshot = _guest_queue_snapshot()
+    if snapshot["queue_full"]:
+        raise HTTPException(
+            status_code=429,
+            detail="当前试用人数较多。为了保证生成质量，访客队列暂时已满，请稍后再试。",
+        )
+
+
+def _guest_daily_usage_for_ip(ip_key: str) -> int:
+    count = 0
+    for job in _guest_trial_jobs():
+        guest = _guest_metadata(job)
+        if guest.get("ip_key") != ip_key:
+            continue
+        if _job_created_today(job):
+            count += 1
+    return count
+
+
+def _enforce_guest_daily_ip_limit(request: Request) -> None:
+    limit = _guest_daily_trials_per_ip()
+    if limit <= 0:
+        return
+    ip_key = _request_ip_key(request)
+    used = _guest_daily_usage_for_ip(ip_key)
+    if used >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"今天这个网络已使用 {used} 次访客试用额度。当前每日上限为 {limit} 次，请明天再试。",
+        )
+
+
+def _guest_job_for_request(request: Request, task_id: str) -> dict[str, Any]:
+    token = _request_guest_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing guest trial token")
+    job = get_job(task_id, client_id=_guest_client_id(token))
+    if not job or _guest_metadata(job).get("token") != token:
+        raise HTTPException(status_code=404, detail="Guest trial job not found")
+    return job
+
+
+def _copy_source_file(task_id: str, suffix: str, source_path: Path | str) -> Path:
+    target_dir = _source_storage_dir() / task_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"source{suffix or '.mp4'}"
+    tmp = target_dir / f".source.{uuid.uuid4().hex}.tmp"
+    shutil.copyfile(str(source_path), tmp)
+    tmp.replace(target)
+    return target
+
+
+def _find_source_file(task_id: str) -> Path | None:
+    if not task_id:
+        return None
+    target_dir = _source_storage_dir() / task_id
+    if not target_dir.is_dir():
+        return None
+    candidates = sorted(path for path in target_dir.glob("source.*") if path.is_file())
+    return candidates[0] if candidates else None
+
+
+def _remove_tree(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+        return True
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _cleanup_task_source_files(task_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    removed: list[str] = []
+    source_dir = _source_storage_dir() / task_id
+    if _remove_tree(source_dir):
+        removed.append(str(source_dir))
+
+    video_source = (metadata or {}).get("video_source")
+    if isinstance(video_source, dict):
+        for key in ("file_path", "metadata_path"):
+            raw_path = str(video_source.get(key) or "").strip()
+            if not raw_path:
+                continue
+            path = Path(raw_path).expanduser()
+            if _remove_tree(path):
+                removed.append(str(path))
+    return {
+        "source_retention_status": "deleted" if removed else "not_found",
+        "source_retention_removed_paths": removed,
+        "source_retention_cleaned_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _cleanup_task_all_files(task_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    cleanup = _cleanup_task_source_files(task_id, metadata)
+    removed = list(cleanup.get("source_retention_removed_paths") or [])
+    for path in (
+        _artifact_storage_dir() / task_id,
+    ):
+        if _remove_tree(path):
+            removed.append(str(path))
+    task_suffix = _safe_filename_stem(task_id or "task")[:12]
+    for folder, pattern in (
+        (_edited_transcript_dir(), f"*__{task_suffix}_edited.txt"),
+        (_transcript_edit_records_dir(), f"*__{task_suffix}_edit_records.json"),
+    ):
+        if folder.is_dir():
+            for path in folder.glob(pattern):
+                if _remove_tree(path):
+                    removed.append(str(path))
+    cleanup["source_retention_removed_paths"] = removed
+    cleanup["history_retention_status"] = "deleted" if removed else "not_found"
+    return cleanup
+
+
+def _history_retention_per_client() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT", "20")), 0)
+    except ValueError:
+        return 20
+
+
+def _artifact_retention_days() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_ARTIFACT_RETENTION_DAYS", "30")), 0)
+    except ValueError:
+        return 30
+
+
+def _parse_job_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        text = str(value).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
+    if not client_id:
+        return {"pruned_count": 0, "task_ids": []}
+    keep_count = _history_retention_per_client()
+    retention_days = _artifact_retention_days()
+    if keep_count <= 0 and retention_days <= 0:
+        return {"pruned_count": 0, "task_ids": []}
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=retention_days)
+        if retention_days > 0
+        else None
+    )
+    jobs = list_jobs_for_retention(client_id=client_id)
+    pruned_task_ids: list[str] = []
+    for index, job in enumerate(jobs):
+        task_id = str(job.get("task_id") or "")
+        if not task_id or job.get("status") not in {"completed", "failed", "cancelled"}:
+            continue
+        too_many = keep_count > 0 and index >= keep_count
+        updated_at = _parse_job_time(job.get("updated_at") or job.get("created_at"))
+        too_old = cutoff is not None and updated_at is not None and updated_at < cutoff
+        if too_many or too_old:
+            _cleanup_task_all_files(task_id, job.get("metadata"))
+            pruned_task_ids.append(task_id)
+
+    if pruned_task_ids:
+        delete_jobs(pruned_task_ids, client_id=client_id)
+    return {"pruned_count": len(pruned_task_ids), "task_ids": pruned_task_ids}
+
+
+def _import_text(value: Any, max_chars: int) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if len(text) > max_chars:
+        raise HTTPException(status_code=413, detail="Imported history entry is too large.")
+    return text
+
+
+def _import_segments(value: Any, max_segments: int = 5000) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    clean: list[dict[str, Any]] = []
+    for item in value[:max_segments]:
+        if not isinstance(item, dict):
+            continue
+        segment: dict[str, Any] = {}
+        for key in ("start", "end"):
+            try:
+                segment[key] = float(item[key])
+            except Exception:
+                pass
+        text = str(item.get("text") or "").strip()
+        if text:
+            segment["text"] = text[:5000]
+        if segment:
+            clean.append(segment)
+    return clean
+
+
+def _import_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _normalize_import_entry(entry: dict[str, Any], max_chars: int) -> dict[str, Any] | None:
+    raw_result = entry.get("result") if isinstance(entry.get("result"), dict) else {}
+    original_task_id = str(
+        raw_result.get("task_id") or entry.get("task_id") or entry.get("taskId") or ""
+    ).strip()
+    filename = str(
+        raw_result.get("filename")
+        or raw_result.get("source_filename")
+        or entry.get("name")
+        or entry.get("source_filename")
+        or "Imported transcript"
+    ).strip()[:240]
+    transcript_text = _import_text(
+        raw_result.get("transcript_text")
+        or raw_result.get("cleaned_transcript_text")
+        or entry.get("transcriptText")
+        or "",
+        max_chars,
+    )
+    summary_markdown = _import_text(
+        raw_result.get("summary_markdown") or entry.get("summary") or "",
+        max_chars,
+    )
+    segments = _import_segments(raw_result.get("segments") or entry.get("segments"))
+    if not transcript_text and segments:
+        transcript_text = "\n".join(str(seg.get("text") or "") for seg in segments if seg.get("text"))[:max_chars]
+    if not transcript_text and not summary_markdown:
+        return None
+
+    source_fingerprint = str(
+        raw_result.get("source_fingerprint") or entry.get("sourceFingerprint") or ""
+    ).strip()[:128] or None
+    audio_duration = _import_number(raw_result.get("audio_duration_seconds") or entry.get("audioDurationSec"))
+    stt_elapsed = _import_number(raw_result.get("stt_elapsed_seconds") or entry.get("sttElapsedSec"))
+    timestamp_raw = entry.get("timestamp") or raw_result.get("timestamp")
+    try:
+        imported_timestamp = int(float(timestamp_raw)) if timestamp_raw else None
+    except Exception:
+        imported_timestamp = None
+
+    result: dict[str, Any] = {
+        "status": "completed",
+        "filename": filename,
+        "source": raw_result.get("source") or entry.get("source") or "imported_local_history",
+        "transcript_text": transcript_text,
+        "segments": segments,
+        "summary_markdown": summary_markdown,
+        "summary_skipped": bool(raw_result.get("summary_skipped") or entry.get("summarySkipped")),
+        "summary_status": raw_result.get("summary_status") or entry.get("summaryStatus") or ("completed" if summary_markdown else "skipped"),
+        "summary_error": raw_result.get("summary_error") or entry.get("summaryError") or None,
+        "audio_duration_seconds": audio_duration or 0,
+        "stt_elapsed_seconds": stt_elapsed or 0,
+        "stt_provider": raw_result.get("stt_provider") or entry.get("sttProvider"),
+        "stt_provider_label": raw_result.get("stt_provider_label") or entry.get("sttProviderLabel"),
+        "stt_model": raw_result.get("stt_model") or entry.get("sttModel"),
+        "stt_speed": raw_result.get("stt_speed") or entry.get("sttSpeed"),
+        "stt_language": raw_result.get("stt_language") or entry.get("sttLanguage"),
+        "detected_language": raw_result.get("detected_language") or entry.get("detectedLanguage"),
+        "source_fingerprint": source_fingerprint,
+        "source_file_available": False,
+        "playback_audio_available": False,
+        "imported_from_local_history": True,
+        "original_task_id": original_task_id or None,
+    }
+    if raw_result.get("transcript_edited") or entry.get("transcriptEdited"):
+        result["transcript_edited"] = True
+        result["transcript_edited_at"] = raw_result.get("transcript_edited_at") or entry.get("transcriptEditedAt")
+        result["transcript_edit_records"] = raw_result.get("transcript_edit_records") or entry.get("transcriptEditRecords") or []
+    return {
+        "original_task_id": original_task_id or None,
+        "source_fingerprint": source_fingerprint,
+        "filename": filename,
+        "imported_timestamp": imported_timestamp,
+        "source": result["source"],
+        "result": {k: v for k, v in result.items() if v is not None},
+        "source_file_size_mb": _import_number(entry.get("source_file_size_mb") or entry.get("sourceFileSizeMb")),
+    }
+
+
+def _existing_import_keys(client_id: str) -> set[str]:
+    keys: set[str] = set()
+    for job in list_jobs_for_retention(client_id=client_id):
+        task_id = str(job.get("task_id") or "")
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        for value in (
+            task_id,
+            metadata.get("original_task_id"),
+            metadata.get("source_fingerprint"),
+            result.get("original_task_id"),
+            result.get("source_fingerprint"),
+        ):
+            if value:
+                keys.add(str(value))
+    return keys
+
+
+def _import_task_id(account_id: str, entry: dict[str, Any]) -> str:
+    source = "|".join(
+        str(value or "")
+        for value in (
+            account_id,
+            entry.get("original_task_id"),
+            entry.get("source_fingerprint"),
+            entry.get("filename"),
+            entry.get("imported_timestamp"),
+        )
+    )
+    return f"imported_{hashlib.sha256(source.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _local_history_export_allowed(request: Request) -> bool:
+    if not _cloud_workspace_enabled():
+        return False
+    client_host = (request.client.host if request.client else "") or ""
+    url_host = request.url.hostname or ""
+    allowed = {"127.0.0.1", "localhost", "::1", "testclient"}
+    return client_host in allowed or url_host in allowed
+
+
+def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
+    next_result = dict(result)
+    artifacts = dict(next_result.get("artifacts") or {})
+    if artifacts.get("playback_audio"):
+        next_result["playback_audio_available"] = True
+    cleanup = _cleanup_task_source_files(task_id, metadata)
+    next_result["source_file_available"] = False
+    next_result.update({
+        key: value
+        for key, value in cleanup.items()
+        if key != "source_retention_removed_paths"
+    })
+    return next_result
+
+
+def _safe_filename_stem(value: str | None, fallback: str = "transcript") -> str:
+    raw_stem = Path(value or fallback).stem or fallback
+    safe_stem = "".join(
+        ch if ch.isalnum() or ch in {" ", "-", "_", "."} else "_"
+        for ch in raw_stem
+    ).strip(" ._")
+    return (safe_stem or fallback)[:96]
+
+
+def _format_backup_timestamp(seconds: Any) -> str:
+    try:
+        total = max(0, int(float(seconds)))
+    except (TypeError, ValueError):
+        total = 0
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _format_edited_transcript_backup(transcript: str, segments: list[dict[str, Any]]) -> str:
+    usable_segments = [
+        segment for segment in segments
+        if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+    ]
+    if not usable_segments:
+        return transcript.rstrip() + "\n"
+    lines = [
+        f"[{_format_backup_timestamp(segment.get('start'))}] {str(segment.get('text') or '').strip()}"
+        for segment in usable_segments
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _artifact_url(task_id: str, kind: str) -> str:
+    return f"/jobs/{task_id}/artifacts/{kind}"
+
+
+def _artifact_filename(result: dict[str, Any], suffix: str) -> str:
+    stem = _safe_filename_stem(result.get("filename") or result.get("source_filename"), fallback="transcript")
+    return f"{stem}{suffix}"
+
+
+def _format_subtitle_timestamp(seconds: Any, *, separator: str) -> str:
+    try:
+        value = max(0.0, float(seconds))
+    except (TypeError, ValueError):
+        value = 0.0
+    total = int(value)
+    millis = int(round((value - total) * 1000))
+    if millis >= 1000:
+        total += 1
+        millis -= 1000
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}{separator}{millis:03d}"
+
+
+def _format_srt(segments: list[dict[str, Any]]) -> str:
+    blocks: list[str] = []
+    for index, segment in enumerate(segments, start=1):
+        text = str(segment.get("text") or "").strip()
+        if not text:
+            continue
+        start = _format_subtitle_timestamp(segment.get("start"), separator=",")
+        end = _format_subtitle_timestamp(segment.get("end"), separator=",")
+        blocks.append(f"{index}\n{start} --> {end}\n{text}\n")
+    return "\n".join(blocks).rstrip() + ("\n" if blocks else "")
+
+
+def _format_vtt(segments: list[dict[str, Any]]) -> str:
+    blocks = ["WEBVTT\n"]
+    for segment in segments:
+        text = str(segment.get("text") or "").strip()
+        if not text:
+            continue
+        start = _format_subtitle_timestamp(segment.get("start"), separator=".")
+        end = _format_subtitle_timestamp(segment.get("end"), separator=".")
+        blocks.append(f"{start} --> {end}\n{text}\n")
+    return "\n".join(blocks).rstrip() + "\n"
+
+
+def _bilingual_segments(
+    source_segments: list[dict[str, Any]],
+    translated_segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not source_segments or not translated_segments:
+        return []
+    output: list[dict[str, Any]] = []
+    for source, translated in zip(source_segments, translated_segments):
+        source_text = str(source.get("text") or "").strip()
+        zh_text = str(translated.get("text") or translated.get("text_zh") or "").strip()
+        if not source_text or not zh_text:
+            continue
+        segment: dict[str, Any] = {
+            "start": source.get("start"),
+            "end": source.get("end"),
+            "text": f"{source_text}\n{zh_text}",
+        }
+        if source.get("speaker"):
+            segment["speaker"] = source.get("speaker")
+        output.append(segment)
+    return output
+
+
+def _write_text_artifact(task_id: str, kind: str, filename: str, content: str) -> dict[str, Any]:
+    target_dir = _artifact_storage_dir() / task_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / filename
+    tmp = target_dir / f".{filename}.{uuid.uuid4().hex}.tmp"
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return {
+        "kind": kind,
+        "filename": filename,
+        "url": _artifact_url(task_id, kind),
+        "size_bytes": path.stat().st_size,
+        "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _write_file_artifact(task_id: str, kind: str, filename: str, source_path: Path | str) -> dict[str, Any]:
+    target_dir = _artifact_storage_dir() / task_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / filename
+    tmp = target_dir / f".{filename}.{uuid.uuid4().hex}.tmp"
+    try:
+        shutil.copyfile(str(source_path), tmp)
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return {
+        "kind": kind,
+        "filename": filename,
+        "url": _artifact_url(task_id, kind),
+        "size_bytes": path.stat().st_size,
+        "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _artifact_filename_for_uploaded_media(filename: str | None, fallback: str = "source_audio") -> str:
+    raw = Path(filename or "").name
+    suffix = Path(raw).suffix.lower()
+    if suffix not in {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus", ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}:
+        suffix = ".bin"
+    return f"{_safe_filename_stem(raw, fallback=fallback)}{suffix}"
+
+
+def _attach_playback_audio_artifact(
+    task_id: str,
+    result: dict[str, Any],
+    audio_path: Path | str,
+    source_filename: str | None = None,
+) -> dict[str, Any]:
+    path = Path(audio_path)
+    if not path.is_file():
+        return result
+    artifact_filename = (
+        _artifact_filename_for_uploaded_media(source_filename)
+        if source_filename
+        else _artifact_filename(result, "_audio.mp3")
+    )
+    try:
+        artifact = _write_file_artifact(
+            task_id,
+            "playback_audio",
+            artifact_filename,
+            path,
+        )
+    except Exception as exc:
+        logger.warning("Playback audio artifact write failed for %s: %s", task_id, exc)
+        return result
+    next_result = dict(result)
+    artifacts = dict(next_result.get("artifacts") or {})
+    artifacts["playback_audio"] = artifact
+    next_result["artifacts"] = artifacts
+    next_result["playback_audio_available"] = True
+    next_result["playback_audio_storage"] = "local"
+    return next_result
+
+
+def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    artifacts: dict[str, dict[str, Any]] = {}
+    transcript = str(result.get("transcript_text") or "").strip()
+    segments = _sanitize_edit_segments(result.get("segments"))
+    if transcript:
+        artifacts["transcript_txt"] = _write_text_artifact(
+            task_id,
+            "transcript_txt",
+            _artifact_filename(result, ".txt"),
+            transcript.rstrip() + "\n",
+        )
+    if segments:
+        artifacts["transcript_srt"] = _write_text_artifact(
+            task_id,
+            "transcript_srt",
+            _artifact_filename(result, ".srt"),
+            _format_srt(segments),
+        )
+        artifacts["transcript_vtt"] = _write_text_artifact(
+            task_id,
+            "transcript_vtt",
+            _artifact_filename(result, ".vtt"),
+            _format_vtt(segments),
+        )
+        translated_segments = _sanitize_edit_segments(result.get("translated_segments_zh"))
+        bilingual = _bilingual_segments(segments, translated_segments)
+        if bilingual:
+            artifacts["transcript_bilingual_srt"] = _write_text_artifact(
+                task_id,
+                "transcript_bilingual_srt",
+                _artifact_filename(result, "_bilingual_zh.srt"),
+                _format_srt(bilingual),
+            )
+            artifacts["transcript_bilingual_vtt"] = _write_text_artifact(
+                task_id,
+                "transcript_bilingual_vtt",
+                _artifact_filename(result, "_bilingual_zh.vtt"),
+                _format_vtt(bilingual),
+            )
+    summary = str(result.get("summary_markdown") or "").strip()
+    if summary:
+        artifacts["summary_md"] = _write_text_artifact(
+            task_id,
+            "summary_md",
+            _artifact_filename(result, "_summary.md"),
+            summary.rstrip() + "\n",
+        )
+    return artifacts
+
+
+def _attach_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    try:
+        artifacts = _write_result_artifacts(task_id, result)
+    except Exception as exc:
+        logger.warning("Result artifact write failed for %s: %s", task_id, exc)
+        return result
+    if not artifacts:
+        return result
+    next_result = dict(result)
+    next_result["artifacts"] = {**dict(result.get("artifacts") or {}), **artifacts}
+    return next_result
+
+
+def _write_edited_transcript_backup(task_id: str, result: dict[str, Any]) -> Path:
+    stem = _safe_filename_stem(result.get("filename") or result.get("source_filename"), fallback=task_id or "transcript")
+    task_suffix = _safe_filename_stem(task_id or "task")[:12]
+    target_dir = _edited_transcript_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{stem}__{task_suffix}_edited.txt"
+    tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    content = _format_edited_transcript_backup(
+        str(result.get("transcript_text") or ""),
+        _sanitize_edit_segments(result.get("segments")),
+    )
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return target
+
+
+def _sanitize_edit_records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    records: list[dict[str, Any]] = []
+    allowed_keys = {
+        "index",
+        "start",
+        "end",
+        "before",
+        "after",
+        "previous_before",
+        "next_before",
+        "previous_after",
+        "next_after",
+        "created_at",
+    }
+    for item in value[:500]:
+        if not isinstance(item, dict):
+            continue
+        record: dict[str, Any] = {}
+        for key in allowed_keys:
+            if key not in item:
+                continue
+            raw = item.get(key)
+            if key in {"index"}:
+                try:
+                    record[key] = int(raw)
+                except (TypeError, ValueError):
+                    record[key] = 0
+            elif key in {"start", "end"}:
+                try:
+                    record[key] = float(raw)
+                except (TypeError, ValueError):
+                    record[key] = 0.0
+            else:
+                record[key] = str(raw or "")[:4000]
+        if str(record.get("before") or "").strip() != str(record.get("after") or "").strip():
+            records.append(record)
+    return records
+
+
+def _write_transcript_edit_records_backup(task_id: str, result: dict[str, Any], records: list[dict[str, Any]]) -> Path:
+    stem = _safe_filename_stem(result.get("filename") or result.get("source_filename"), fallback=task_id or "transcript")
+    task_suffix = _safe_filename_stem(task_id or "task")[:12]
+    target_dir = _transcript_edit_records_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{stem}__{task_suffix}_edit_records.json"
+    tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    payload = {
+        "task_id": task_id,
+        "source_filename": result.get("filename") or result.get("source_filename"),
+        "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "record_count": len(records),
+        "records": records,
+    }
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return target
+
+
+def _wav_duration_seconds(path: Path | str) -> float | None:
+    try:
+        with wave.open(str(path), "rb") as wav:
+            frame_rate = wav.getframerate()
+            if frame_rate <= 0:
+                return None
+            return wav.getnframes() / frame_rate
+    except Exception:
+        return None
+
+
+def _media_duration_seconds(path: Path | str) -> float | None:
+    wav_duration = _wav_duration_seconds(path)
+    if wav_duration is not None:
+        return wav_duration
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        value = float((result.stdout or "").strip())
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _text_len(value: str | None) -> int:
+    return len(value or "")
+
+
+def _sanitize_edit_segments(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    segments: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "")
+        segment: dict[str, Any] = {"text": text}
+        for key in ("start", "end"):
+            try:
+                segment[key] = float(item.get(key) or 0)
+            except (TypeError, ValueError):
+                segment[key] = 0.0
+        if item.get("speaker"):
+            segment["speaker"] = str(item.get("speaker"))
+        segments.append(segment)
+    return segments
+
+
+def _metadata(**values: Any) -> dict[str, Any]:
+    return {
+        "event_schema_version": EVENT_SCHEMA_VERSION,
+        "app_version": APP_VERSION,
+        **{k: v for k, v in values.items() if v is not None},
+    }
+
+
+def _job_metadata_for_update(task_id: str, client_id: str | None, **values: Any) -> dict[str, Any]:
+    existing = get_job(task_id, client_id=client_id) if task_id else None
+    current = existing.get("metadata") if existing else None
+    base = current if isinstance(current, dict) else {}
+    return {**base, **_metadata(**values)}
+
+
+def _package_version(package_name: str) -> str | None:
+    try:
+        return importlib.metadata.version(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+@lru_cache(maxsize=1)
+def _ffmpeg_version() -> str | None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None
+    try:
+        completed = subprocess.run(
+            [ffmpeg, "-version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return None
+    first_line = (completed.stdout or completed.stderr or "").splitlines()
+    return first_line[0][:160] if first_line else None
+
+
+@lru_cache(maxsize=1)
+def _runtime_context_metadata() -> dict[str, Any]:
+    return _metadata(
+        runtime_os=platform.system(),
+        runtime_machine=platform.machine(),
+        runtime_cpu_count=os.cpu_count(),
+        python_version=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        faster_whisper_version=_package_version("faster-whisper"),
+        ctranslate2_version=_package_version("ctranslate2"),
+        ffmpeg_version=_ffmpeg_version(),
+    )
+
+
+def _stt_realtime_factor(stt_elapsed_seconds: float | None, duration_seconds: float | None) -> float | None:
+    if not stt_elapsed_seconds or not duration_seconds or duration_seconds <= 0:
+        return None
+    return max(round(stt_elapsed_seconds / duration_seconds, 4), 0.0001)
+
+
+def _canonical_stt_provider(value: str | None) -> str:
+    provider = (value or "").strip().lower().replace("-", "_")
+    if provider in {"azure", "azure_batch", "azure_blob", "azure_speech_batch", "azure_fast", "azure_speech"}:
+        return "azure_batch"
+    if provider in {"local", "faster_whisper", "faster-whisper", "whisper"}:
+        return "local"
+    return "local"
+
+
+def _request_can_use_local_stt(request: Request | None = None) -> bool:
+    if not _public_mode_enabled():
+        return True
+    if request is None:
+        return False
+    if _request_is_internal_queue(request):
+        return True
+    url_host = (request.url.hostname or "").strip().lower()
+    return url_host in {"127.0.0.1", "localhost", "::1", "testclient"}
+
+
+def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
+    raw = os.environ.get("FLUENTFLOW_ALLOWED_STT_PROVIDERS")
+    if raw is None or not raw.strip():
+        return ("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",)
+    providers: list[str] = []
+    for item in raw.split(","):
+        provider = _canonical_stt_provider(item)
+        if provider in {"azure_batch", "local"} and provider not in providers:
+            providers.append(provider)
+    if _public_mode_enabled() and not _request_can_use_local_stt(request):
+        providers = [provider for provider in providers if provider != "local"]
+    return tuple(providers) or (("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",))
+
+
+def _default_stt_provider(request: Request | None = None) -> str:
+    requested = _canonical_stt_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "azure_batch")
+    allowed = _allowed_stt_providers(request)
+    return requested if requested in allowed else allowed[0]
+
+
+def _normalize_stt_provider(value: str | None, request: Request | None = None) -> str:
+    provider = _canonical_stt_provider(value) if value else _default_stt_provider(request)
+    allowed = _allowed_stt_providers(request)
+    return provider if provider in allowed else _default_stt_provider(request)
+
+
+def _stt_provider_label(provider: str) -> str:
+    if provider == "azure_batch":
+        return "Cloud Transcription"
+    return "faster-whisper"
+
+
+def _lark_export_target(lark_via_cli: Optional[str]) -> str:
+    return "lark_cli" if _truthy_form(lark_via_cli) else "lark_openapi"
+
+
+def _pipeline_mode(source_type: str | None) -> str | None:
+    if source_type == "transcript_file":
+        return "transcript_file"
+    if source_type in {"audio", "video"}:
+        return "audio_video"
+    return None
+
+
+def _elapsed_since(started_at: float) -> float:
+    return round(time.perf_counter() - started_at, 3)
+
+
+def _log_task_completed(
+    *,
+    task_id: str,
+    started_at: float,
+    final_status: str,
+    source_type: str | None = None,
+    source_filename: str | None = None,
+    source_duration_seconds: float | None = None,
+    source_file_size_mb: float | None = None,
+    transcript_length: int | None = None,
+    summary_length: int | None = None,
+    summary_status: str | None = None,
+    lark_requested: bool | None = None,
+    lark_success: bool | None = None,
+    stt_provider: str | None = None,
+    completion_reason: str | None = None,
+) -> None:
+    total_duration = _elapsed_since(started_at)
+    log_event(
+        task_id=task_id,
+        event_name="task_completed",
+        source_type=source_type,
+        source_filename=source_filename,
+        source_duration_seconds=source_duration_seconds,
+        source_file_size_mb=source_file_size_mb,
+        transcript_length=transcript_length,
+        summary_length=summary_length,
+        stage="done" if final_status == "completed" else final_status,
+        duration_seconds=total_duration,
+        success=final_status == "completed",
+        metadata=_metadata(
+            **_runtime_context_metadata(),
+            final_status=final_status,
+            total_duration_seconds=total_duration,
+            summary_status=summary_status,
+            lark_requested=lark_requested,
+            lark_success=lark_success,
+            stt_provider=stt_provider,
+            stt_provider_label=_stt_provider_label(stt_provider) if stt_provider else None,
+            source_type=source_type,
+            pipeline_mode=_pipeline_mode(source_type),
+            completion_reason=completion_reason,
+        ),
+    )
+
+
+CLIENT_EVENT_NAMES = {
+    "summary_downloaded",
+    "transcript_downloaded",
+    "task_cancelled",
+}
+
+
+def _ai_kwargs(
+    *,
+    deepseek_api_key: Optional[str],
+    openai_api_key: Optional[str],
+    ai_provider: Optional[str],
+    ai_model: Optional[str],
+    system_prompt: Optional[str],
+    note_mode: Optional[str] = None,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    provider_name = (ai_provider or "").strip()
+    resolved_openai_key = resolve_secret(openai_api_key, "openai_api_key")
+    resolved_deepseek_key = resolve_secret(deepseek_api_key, "deepseek_api_key")
+    if not provider_name and resolved_openai_key:
+        provider_name = "openai"
+    if provider_name:
+        kwargs["provider"] = provider_name
+    if resolved_deepseek_key:
+        k = resolved_deepseek_key
+        kwargs["api_key"] = k
+    if resolved_openai_key and provider_name.lower() == "openai":
+        k = resolved_openai_key
+        kwargs["api_key"] = k
+    if (m := (ai_model or "").strip()):
+        kwargs["model"] = m
+    if (sp := (system_prompt or "").strip()):
+        kwargs["system_prompt"] = sp
+    if (nm := (note_mode or "").strip()):
+        kwargs["note_mode"] = nm
+    return kwargs
+
+
+def _cleanup_payload(cleanup_result: Any) -> dict[str, Any]:
+    return {
+        "applied_count": cleanup_result.applied_count,
+        "removed_segment_count": cleanup_result.removed_segment_count,
+        "raw_length": cleanup_result.raw_length,
+        "cleaned_length": cleanup_result.cleaned_length,
+        "issues": [asdict(item) for item in cleanup_result.issues[:20]],
+        "issue_count": len(cleanup_result.issues),
+    }
+
+
+_TRANSCRIPTION_QUEUE: thread_queue.Queue[dict[str, Any]] = thread_queue.Queue()
+_QUEUE_THREAD: threading.Thread | None = None
+_QUEUE_LOCK = threading.Lock()
+_QUEUED_TASK_IDS: set[str] = set()
+_QUEUE_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _queue_timeout_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_QUEUE_PROCESS_TIMEOUT_SECONDS", "3600")), 60.0)
+    except ValueError:
+        return 3600.0
+
+
+def _stale_job_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_STALE_JOB_SECONDS", "7200")), 60.0)
+    except ValueError:
+        return 7200.0
+
+
+def _queue_base_url_from_request(request: Request | None = None) -> str:
+    configured = (os.environ.get("FLUENTFLOW_SELF_BASE_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    if request is not None:
+        return str(request.base_url).rstrip("/")
+    return "http://127.0.0.1:8000"
+
+
+def _publish_job_event_from_thread(task_id: str, event: dict[str, Any]) -> None:
+    loop = _QUEUE_EVENT_LOOP
+    if not loop or loop.is_closed():
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(JOB_EVENTS.publish(task_id, event), loop)
+    except Exception:
+        logger.debug("Queue event publish failed for %s", task_id, exc_info=True)
+
+
+def _multipart_process_body(
+    *,
+    fields: dict[str, Any],
+    file_path: Path,
+    filename: str,
+) -> tuple[bytes, str]:
+    boundary = f"----FluentFlowQueue{uuid.uuid4().hex}"
+    chunks: list[bytes] = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        text = str(value)
+        if text == "":
+            continue
+        chunks.extend([
+            f"--{boundary}\r\n".encode("utf-8"),
+            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"),
+            text.encode("utf-8"),
+            b"\r\n",
+        ])
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    chunks.extend([
+        f"--{boundary}\r\n".encode("utf-8"),
+        f'Content-Disposition: form-data; name="file"; filename="{Path(filename).name}"\r\n'.encode("utf-8"),
+        f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+        file_path.read_bytes(),
+        b"\r\n",
+        f"--{boundary}--\r\n".encode("utf-8"),
+    ])
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+def _enqueue_transcription_job(item: dict[str, Any]) -> None:
+    task_id = str(item.get("task_id") or "")
+    if not task_id:
+        return
+    with _QUEUE_LOCK:
+        if task_id in _QUEUED_TASK_IDS:
+            return
+        _QUEUED_TASK_IDS.add(task_id)
+        _TRANSCRIPTION_QUEUE.put(dict(item))
+        _ensure_queue_worker_started_locked()
+
+
+def _queue_status_snapshot() -> dict[str, Any]:
+    with _QUEUE_LOCK:
+        queued_task_ids = sorted(_QUEUED_TASK_IDS)
+    return {
+        "worker_alive": bool(_QUEUE_THREAD and _QUEUE_THREAD.is_alive()),
+        "queue_depth": int(_TRANSCRIPTION_QUEUE.qsize()),
+        "tracked_task_count": len(queued_task_ids),
+        "tracked_task_ids": queued_task_ids[:20],
+    }
+
+
+def _ensure_queue_worker_started_locked() -> None:
+    global _QUEUE_THREAD
+    if _QUEUE_THREAD and _QUEUE_THREAD.is_alive():
+        return
+    _QUEUE_THREAD = threading.Thread(
+        target=_queue_worker_loop,
+        name="fluentflow-transcription-queue",
+        daemon=True,
+    )
+    _QUEUE_THREAD.start()
+
+
+def _queue_worker_loop() -> None:
+    while True:
+        item = _TRANSCRIPTION_QUEUE.get()
+        task_id = str(item.get("task_id") or "")
+        try:
+            _run_queued_transcription(item)
+        except Exception as exc:
+            logger.exception("Queued transcription failed for %s", task_id)
+            if task_id:
+                _release_task_quota(
+                    client_id=_normalize_client_scope(str(item.get("client_id") or "")),
+                    task_id=task_id,
+                    reason="Queued processing failed before completion",
+                    metadata={"route": "/queue/process", "stage": "queued", "raw_error": str(exc)},
+                )
+                friendly_error = _friendly_error_message(exc)
+                upsert_job(
+                    task_id=task_id,
+                    status="failed",
+                    client_id=_normalize_client_id(str(item.get("client_id") or "")),
+                    stage="queued",
+                    progress=0,
+                    error_reason=friendly_error,
+                )
+                _publish_job_event_from_thread(
+                    task_id,
+                    {"stage": "error", "progress": 0, "error": friendly_error},
+                )
+        finally:
+            if task_id:
+                with _QUEUE_LOCK:
+                    _QUEUED_TASK_IDS.discard(task_id)
+            _TRANSCRIPTION_QUEUE.task_done()
+
+
+def _run_queued_transcription(item: dict[str, Any]) -> None:
+    task_id = str(item.get("task_id") or "")
+    source_path = Path(str(item.get("source_path") or ""))
+    filename = str(item.get("filename") or source_path.name or "source")
+    base_url = str(item.get("base_url") or _queue_base_url_from_request()).rstrip("/")
+    options = dict(item.get("options") or {})
+    client_id = _normalize_client_scope(str(item.get("client_id") or ""))
+    if not task_id:
+        raise RuntimeError("Queued task is missing task_id")
+    if not source_path.is_file():
+        raise RuntimeError("Queued source file is missing")
+
+    job = get_job(task_id)
+    if job and job.get("status") in {"completed", "failed", "cancelled"}:
+        return
+
+    fields = {
+        **options,
+        "task_id": task_id,
+        "title": options.get("title") or Path(filename).stem,
+    }
+    body, content_type = _multipart_process_body(fields=fields, file_path=source_path, filename=filename)
+    headers = {
+        "Content-Type": content_type,
+        "Content-Length": str(len(body)),
+        "Accept": "text/event-stream",
+    }
+    if str(options.get("stt_provider") or "").strip().lower() == "local":
+        headers["X-FluentFlow-Execution-Target"] = "local"
+    if client_id:
+        headers["X-FluentFlow-Client-Id"] = client_id
+    headers["X-FluentFlow-Internal-Queue-Token"] = INTERNAL_QUEUE_TOKEN
+    tokens = _configured_access_tokens()
+    if tokens:
+        headers["X-FluentFlow-Access-Token"] = tokens[0]
+    request = urllib.request.Request(
+        f"{base_url}/process",
+        data=body,
+        method="POST",
+        headers=headers,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_queue_timeout_seconds()) as response:
+            while response.read(64 * 1024):
+                pass
+    except urllib.error.HTTPError as exc:
+        message = exc.read().decode("utf-8", errors="replace")[:800]
+        raise RuntimeError(f"Queued processing request failed: HTTP {exc.code} {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Queued processing request failed: {exc.reason}") from exc
+
+
+def _queue_options_from_form(
+    *,
+    export_to_lark: Optional[str],
+    lark_via_cli: Optional[str],
+    title: Optional[str],
+    folder_token: Optional[str],
+    deepseek_api_key: Optional[str],
+    openai_api_key: Optional[str],
+    ai_provider: Optional[str],
+    ai_model: Optional[str],
+    note_mode: Optional[str],
+    skip_summary: Optional[str],
+    stt_model: Optional[str],
+    stt_speed: Optional[str],
+    stt_language: Optional[str],
+    stt_provider: Optional[str],
+    azure_speech_key: Optional[str],
+    azure_speech_endpoint: Optional[str],
+    azure_blob_container_sas_url: Optional[str],
+    speaker_diarization: Optional[str],
+    lark_app_id: Optional[str],
+    lark_app_secret: Optional[str],
+    system_prompt: Optional[str],
+    prompt_preset: Optional[str] = None,
+    prompt_preset_label: Optional[str] = None,
+) -> dict[str, str]:
+    raw: dict[str, Optional[str]] = {
+        "export_to_lark": export_to_lark,
+        "lark_via_cli": lark_via_cli,
+        "title": title,
+        "folder_token": folder_token,
+        "ai_provider": ai_provider,
+        "ai_model": ai_model,
+        "note_mode": note_mode,
+        "skip_summary": skip_summary,
+        "stt_model": stt_model,
+        "stt_speed": stt_speed,
+        "stt_language": stt_language,
+        "stt_provider": stt_provider,
+        "azure_speech_endpoint": azure_speech_endpoint,
+        "speaker_diarization": speaker_diarization,
+        "system_prompt": system_prompt,
+        "prompt_preset": prompt_preset,
+        "prompt_preset_label": prompt_preset_label,
+    }
+    return {key: value.strip() for key, value in raw.items() if isinstance(value, str) and value.strip()}
+
+
+def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str]:
+    allowed = {
+        "export_to_lark",
+        "lark_via_cli",
+        "title",
+        "folder_token",
+        "ai_provider",
+        "ai_model",
+        "note_mode",
+        "skip_summary",
+        "stt_model",
+        "stt_speed",
+        "stt_language",
+        "stt_provider",
+        "azure_speech_endpoint",
+        "speaker_diarization",
+        "system_prompt",
+        "prompt_preset",
+        "prompt_preset_label",
+        "duration_limit_seconds",
+    }
+    result: dict[str, str] = {}
+    for key, value in (payload or {}).items():
+        if key not in allowed or value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            result[key] = text
+    return result
+
+
+def _public_video_source_metadata(saved: SavedVideoSource) -> dict[str, Any]:
+    return {
+        "provider": saved.provider,
+        "source_url": saved.source_url,
+        "video_id": saved.video_id,
+        "title": saved.title,
+        "filename": saved.filename,
+        "file_path": saved.file_path,
+        "file_url": saved.file_url,
+        "metadata_path": saved.metadata_path,
+        "size_bytes": saved.size_bytes,
+        "downloaded_at": saved.downloaded_at,
+    }
+
+
+def _video_source_progress_value(progress: VideoSourceProgress) -> float:
+    if progress.stage == "resolving":
+        return float(progress.percent or 8)
+    if progress.stage == "downloading":
+        pct = progress.percent if progress.percent is not None else 0
+        return 10 + max(0, min(100, float(pct))) * 0.45
+    if progress.stage == "saving":
+        return 58
+    return 0
+
+
+def _run_video_source_job(item: dict[str, Any]) -> None:
+    task_id = str(item.get("task_id") or "")
+    input_text = str(item.get("input") or "")
+    title = str(item.get("title") or "").strip() or None
+    options = dict(item.get("options") or {})
+    base_url = str(item.get("base_url") or _queue_base_url_from_request())
+    client_id = _normalize_client_scope(str(item.get("client_id") or ""))
+    if not task_id:
+        return
+
+    def on_progress(progress: VideoSourceProgress) -> None:
+        upsert_job(
+            task_id=task_id,
+            status="running",
+            client_id=client_id,
+            stage=progress.stage,
+            progress=_video_source_progress_value(progress),
+            summary_status=progress.message,
+            metadata=_metadata(
+                route="/video-sources/jobs",
+                queue_options=options,
+                video_source_progress={
+                    "message": progress.message,
+                    "loaded_bytes": progress.loaded_bytes,
+                    "total_bytes": progress.total_bytes,
+                },
+            ),
+        )
+
+    try:
+        saved = download_video_source(
+            input_text,
+            title=title,
+            video_dir=_video_source_storage_dir(),
+            on_progress=on_progress,
+        )
+        saved_size_mb = _file_size_mb(saved.size_bytes)
+        max_upload_mb = _max_upload_mb()
+        if saved_size_mb is not None and saved_size_mb > max_upload_mb:
+            raise RuntimeError(
+                f"Downloaded video is too large: {saved_size_mb} MB. Limit is {max_upload_mb:g} MB."
+            )
+        _enforce_daily_quota(
+            client_id,
+            incoming_jobs=1,
+            incoming_upload_mb=saved_size_mb,
+            exclude_task_id=task_id,
+        )
+        _enforce_global_daily_quota(
+            client_id=client_id,
+            incoming_jobs=1,
+            incoming_upload_mb=saved_size_mb,
+            exclude_task_id=task_id,
+        )
+        source_path = Path(saved.file_path)
+        target_path = _copy_source_file(task_id, ".mp4", source_path)
+        source_fingerprint = _source_fingerprint_for_path(target_path, saved.filename)
+        source_file_size_mb = _path_size_mb(target_path)
+        duration_estimate_sec = _media_duration_seconds(target_path)
+        quota_estimate = _estimate_processing_units(
+            duration_seconds=duration_estimate_sec,
+            skip_summary=_truthy_form(options.get("skip_summary")),
+            estimate_only=True,
+        )
+        metadata = _metadata(
+            route="/video-sources/jobs",
+            queue_options=options,
+            source_path=str(target_path),
+            source_fingerprint=source_fingerprint,
+            video_source=_public_video_source_metadata(saved),
+        )
+        quota_reservation = _reserve_task_quota(
+            client_id=client_id,
+            task_id=task_id,
+            estimate=quota_estimate,
+            reason="Video source task processing reservation",
+        )
+        if quota_reservation:
+            metadata["quota"] = quota_reservation
+        log_event(
+            task_id=task_id,
+            event_name="video_source_downloaded",
+            source_type="video",
+            source_filename=saved.filename,
+            source_file_size_mb=source_file_size_mb,
+            stage="queued",
+            success=True,
+            metadata=metadata,
+        )
+        upsert_job(
+            task_id=task_id,
+            status="queued",
+            client_id=client_id,
+            stage="queued",
+            progress=0,
+            source_type="video",
+            source_filename=saved.filename,
+            source_file_size_mb=source_file_size_mb,
+            metadata=metadata,
+        )
+        enqueue_item = {
+            "task_id": task_id,
+            "source_path": str(target_path),
+            "filename": saved.filename,
+            "options": options,
+            "base_url": base_url,
+        }
+        if client_id:
+            enqueue_item["client_id"] = client_id
+        _enqueue_transcription_job(enqueue_item)
+    except Exception as exc:
+        logger.exception("Video source job failed for %s", task_id)
+        friendly_error = _friendly_error_message(exc)
+        _release_task_quota(
+            client_id=client_id,
+            task_id=task_id,
+            reason="Video source job failed",
+            metadata={"route": "/video-sources/jobs", "raw_error": str(exc)},
+        )
+        upsert_job(
+            task_id=task_id,
+            status="failed",
+            client_id=client_id,
+            stage="failed",
+            progress=100,
+            source_type="video_link",
+            source_filename=title or (input_text[:80] if input_text else "video link"),
+            error_reason=friendly_error,
+            metadata=_metadata(
+                route="/video-sources/jobs",
+                queue_options=options,
+                raw_error=str(exc),
+            ),
+        )
+
+
+def _start_video_source_job(item: dict[str, Any]) -> None:
+    threading.Thread(
+        target=_run_video_source_job,
+        args=(dict(item),),
+        name=f"fluentflow-video-source-{item.get('task_id') or 'job'}",
+        daemon=True,
+    ).start()
+
+
+def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
+    recovered = 0
+    failed = 0
+    for job in list_jobs(limit=200):
+        status = job.get("status")
+        raw_metadata = job.get("metadata") or {}
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+        if status not in {"queued", "running"}:
+            continue
+        task_id = str(job.get("task_id") or "")
+        source_path = Path(str(metadata.get("source_path") or ""))
+        if not task_id:
+            continue
+        if not metadata.get("queue_options") or not metadata.get("source_path") or not source_path.is_file():
+            upsert_job(
+                task_id=task_id,
+                status="failed",
+                client_id=job.get("client_id"),
+                stage="recovery",
+                progress=0,
+                error_reason="服务重启后无法恢复任务：原始文件已不存在，请重新上传。",
+                metadata={
+                    **metadata,
+                    "recovery_status": "failed_missing_source",
+                    "recovered_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+                },
+            )
+            failed += 1
+            continue
+        upsert_job(
+            task_id=task_id,
+            status="queued",
+            client_id=job.get("client_id"),
+            stage="queued",
+            progress=0,
+            metadata={
+                **metadata,
+                "recovery_status": "requeued_after_startup",
+                "recovered_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            },
+        )
+        _enqueue_transcription_job({
+            "task_id": task_id,
+            "source_path": str(source_path),
+            "filename": job.get("source_filename") or source_path.name,
+            "options": metadata.get("queue_options") or {},
+            "base_url": base_url or _queue_base_url_from_request(),
+            "client_id": job.get("client_id"),
+        })
+        recovered += 1
+    if recovered or failed:
+        logger.info("Startup queue recovery finished: recovered=%s failed=%s", recovered, failed)
+
+
+async def _startup_resume_queue() -> None:
+    global _QUEUE_EVENT_LOOP
+    _QUEUE_EVENT_LOOP = asyncio.get_running_loop()
+    _resume_queued_transcription_jobs()
+
+
+def _directory_usage(path: Path) -> dict[str, Any]:
+    try:
+        usage = shutil.disk_usage(path if path.exists() else path.parent)
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "total_mb": round(usage.total / (1024 * 1024), 1),
+            "used_mb": round(usage.used / (1024 * 1024), 1),
+            "free_mb": round(usage.free / (1024 * 1024), 1),
+            "used_percent": round((usage.used / usage.total) * 100, 1) if usage.total else None,
+        }
+    except Exception as exc:
+        return {"path": str(path), "exists": path.exists(), "error": str(exc)}
+
+
+def _job_monitor_snapshot() -> dict[str, Any]:
+    jobs = list_jobs(limit=200)
+    counts: dict[str, int] = {}
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(seconds=_stale_job_seconds())
+    stale_jobs: list[dict[str, Any]] = []
+    for job in jobs:
+        status = str(job.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+        if status not in {"queued", "running"}:
+            continue
+        updated_at = _parse_job_time(job.get("updated_at") or job.get("created_at"))
+        if updated_at is not None and updated_at < stale_cutoff:
+            stale_jobs.append({
+                "task_id": job.get("task_id"),
+                "status": status,
+                "stage": job.get("stage"),
+                "updated_at": job.get("updated_at"),
+                "source_filename": job.get("source_filename"),
+            })
+    return {
+        "recent_count": len(jobs),
+        "status_counts": counts,
+        "active_count": counts.get("queued", 0) + counts.get("running", 0),
+        "stale_after_seconds": _stale_job_seconds(),
+        "stale_count": len(stale_jobs),
+        "stale_jobs": stale_jobs[:20],
+    }
+
+
+def _ops_status_payload() -> dict[str, Any]:
+    credentials = credential_status()
+    queue_snapshot = _queue_status_snapshot()
+    job_snapshot = _job_monitor_snapshot()
+    storage = {
+        "sources": _directory_usage(_source_storage_dir()),
+        "artifacts": _directory_usage(_artifact_storage_dir()),
+        "edited_transcripts": _directory_usage(_edited_transcript_dir()),
+        "transcript_edit_records": _directory_usage(_transcript_edit_records_dir()),
+        "video_sources": _directory_usage(_video_source_storage_dir()),
+    }
+    warnings: list[str] = []
+    failures: list[str] = []
+    if job_snapshot["stale_count"]:
+        warnings.append(f"{job_snapshot['stale_count']} 个任务长时间未更新")
+    for name, item in storage.items():
+        used_percent = item.get("used_percent")
+        if isinstance(used_percent, (int, float)):
+            if used_percent >= 95:
+                failures.append(f"{name} 所在磁盘使用率 {used_percent}%")
+            elif used_percent >= 85:
+                warnings.append(f"{name} 所在磁盘使用率 {used_percent}%")
+    if _public_mode_enabled():
+        for key, label in (
+            ("azure_speech_endpoint_configured", "Azure Speech endpoint"),
+            ("azure_speech_key_configured", "Azure Speech key"),
+            ("azure_blob_container_sas_url_configured", "Azure Blob SAS"),
+        ):
+            if not credentials.get(key):
+                failures.append(f"缺少 {label}")
+        if not (credentials.get("deepseek_api_key_configured") or credentials.get("openai_api_key_configured")):
+            failures.append("缺少摘要模型 Key")
+    user_count: int | None = None
+    if _account_auth_enabled():
+        try:
+            user_count = count_users()
+        except Exception as exc:
+            failures.append(f"账号数据库不可读：{exc}")
+    status = "fail" if failures else ("warn" if warnings else "ok")
+    return {
+        "status": status,
+        "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "app_version": APP_VERSION,
+        "public_mode": _public_mode_enabled(),
+        "account_auth_enabled": _account_auth_enabled(),
+        "user_count": user_count,
+        "queue": queue_snapshot,
+        "jobs": job_snapshot,
+        "storage": storage,
+        "credentials": credentials,
+        "warnings": warnings,
+        "failures": failures,
+    }
+
+
+# ── SPA / Frontend paths ───────────────────────────────────────
+FRONTEND_ROOT: Path = Path(__file__).resolve().parents[2] / "frontend"
+FRONTEND_DIST_DIR: Path = FRONTEND_ROOT / "dist"
+FRONTEND_DIR: Path = FRONTEND_DIST_DIR if (FRONTEND_DIST_DIR / "index.html").exists() else FRONTEND_ROOT
+FRONTEND_INDEX: Path = FRONTEND_DIR / "index.html"
+API_ROUTE_PREFIXES: set[str] = {
+    "account",
+    "admin",
+    "auth",
+    "credentials",
+    "events",
+    "export-lark",
+    "guest-trial",
+    "health",
+    "hotword-libraries",
+    "jobs",
+    "ops",
+    "process",
+    "queue",
+    "regenerate-summary",
+    "runtime-config",
+    "speaker-diarization",
+    "summarize-transcript-file",
+    "video-sources",
+}

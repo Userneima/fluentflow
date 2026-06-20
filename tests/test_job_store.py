@@ -63,6 +63,42 @@ def test_update_job_result_preserves_job_metadata(tmp_path: Path) -> None:
     assert updated["result"]["transcript_edited"] is True
 
 
+def test_cancelled_job_cannot_be_revived_by_late_progress_update(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="task-cancelled",
+        status="running",
+        stage="stt",
+        progress=40,
+        source_filename="demo.mp4",
+        db_path=db,
+    )
+    upsert_job(
+        task_id="task-cancelled",
+        status="cancelled",
+        stage="stt",
+        progress=40,
+        error_reason="user_cancelled",
+        db_path=db,
+    )
+    upsert_job(
+        task_id="task-cancelled",
+        status="running",
+        stage="summary",
+        progress=90,
+        error_reason=None,
+        db_path=db,
+    )
+
+    job = get_job("task-cancelled", db_path=db)
+    assert job is not None
+    assert job["status"] == "cancelled"
+    assert job["stage"] == "stt"
+    assert job["progress"] == 40
+    assert job["error_reason"] == "user_cancelled"
+
+
 def test_job_store_filters_by_client_id(tmp_path: Path) -> None:
     db = tmp_path / "jobs.sqlite"
 

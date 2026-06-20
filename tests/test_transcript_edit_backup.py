@@ -6,6 +6,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import backend.main as main
+import backend.core.server_helpers as _H
 
 
 def test_edited_transcript_backup_overwrites_timestamped_text(tmp_path: Path) -> None:
@@ -46,10 +47,10 @@ def test_update_transcript_returns_backup_path(monkeypatch, tmp_path: Path) -> N
             "result": result,
         }
 
-    monkeypatch.setattr(main, "get_job", fake_get_job)
-    monkeypatch.setattr(main, "update_job_result", fake_update_job_result)
-    monkeypatch.setattr(main, "_edited_transcript_dir", lambda: tmp_path)
-    monkeypatch.setattr(main, "_transcript_edit_records_dir", lambda: tmp_path)
+    monkeypatch.setattr(_H, "get_job", fake_get_job)
+    monkeypatch.setattr(_H, "update_job_result", fake_update_job_result)
+    monkeypatch.setattr(_H, "_edited_transcript_dir", lambda: tmp_path)
+    monkeypatch.setattr(_H, "_transcript_edit_records_dir", lambda: tmp_path)
 
     response = TestClient(main.app).patch(
         "/jobs/task-route/transcript",

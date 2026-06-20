@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import backend.main as main
 from backend.core.note_planner import NoteTaskPlan, plan_note_task
+import backend.core.server_helpers as _H
 
 
 def test_plan_note_task_sanitizes_llm_json() -> None:
@@ -47,8 +48,8 @@ def test_plan_note_task_endpoint_returns_plan(monkeypatch) -> None:
         planner_model="deepseek-reasoner",
     )
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(main, "plan_note_task", lambda **_kwargs: fake_plan)
-    monkeypatch.setattr(main, "log_event", lambda **kwargs: events.append(kwargs))
+    monkeypatch.setattr(_H, "plan_note_task", lambda **_kwargs: fake_plan)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: events.append(kwargs))
 
     with TestClient(main.app) as client:
         response = client.post(

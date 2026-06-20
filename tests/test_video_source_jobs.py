@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 import backend.main as main
 from backend.core.video_source import SavedVideoSource
+import backend.core.server_helpers as _H
 
 
 def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkeypatch) -> None:
@@ -26,12 +28,12 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
         size_bytes=source_file.stat().st_size,
         downloaded_at="2026-06-06T00:00:00+08:00",
     )
-    monkeypatch.setattr(main, "download_video_source", lambda *args, **kwargs: saved)
-    monkeypatch.setattr(main, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "download_video_source", lambda *args, **kwargs: saved)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
     enqueued: list[dict] = []
     jobs: list[dict] = []
-    monkeypatch.setattr(main, "_enqueue_transcription_job", lambda item: enqueued.append(item))
-    monkeypatch.setattr(main, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
 
     main._run_video_source_job({
         "task_id": "task-link",
@@ -56,11 +58,11 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
 
 
 def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
-    monkeypatch.setattr(main, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "log_event", lambda **kwargs: None)
-    monkeypatch.setattr(main, "upsert_job", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: None)
     started: list[dict] = []
-    monkeypatch.setattr(main, "_start_video_source_job", lambda item: started.append(item))
+    monkeypatch.setattr(_H, "_start_video_source_job", lambda item: started.append(item))
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -78,3 +80,39 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
     assert response.status_code == 200
     assert started
     assert started[0]["options"] == {"stt_provider": "azure_batch"}
+
+
+def test_local_queued_transcription_keeps_process_request_local(tmp_path, monkeypatch) -> None:
+    source_file = tmp_path / "source.mp4"
+    source_file.write_bytes(b"video")
+    captured: list[dict] = []
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _size):
+            return b""
+
+    def fake_request(url, data=None, method=None, headers=None):
+        request = SimpleNamespace(url=url, data=data, method=method, headers=headers or {})
+        captured.append(request.__dict__)
+        return request
+
+    monkeypatch.setattr(_H, "get_job", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main.urllib.request, "Request", fake_request)
+    monkeypatch.setattr(main.urllib.request, "urlopen", lambda *args, **kwargs: DummyResponse())
+
+    main._run_queued_transcription({
+        "task_id": "task-local",
+        "source_path": str(source_file),
+        "filename": source_file.name,
+        "options": {"stt_provider": "local"},
+        "base_url": "http://127.0.0.1:8000",
+    })
+
+    assert captured
+    assert captured[0]["headers"]["X-FluentFlow-Execution-Target"] == "local"
