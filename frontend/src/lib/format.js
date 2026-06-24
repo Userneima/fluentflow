@@ -1,7 +1,12 @@
 export const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
-export const stripGeneratedFilenamePrefix = (name) => String(name || '').replace(/^(?:[a-f0-9]{12,}|[0-9]{10,})[-_]+/i, '');
+export const stripGeneratedFilenamePrefix = (name) => String(name || '').replace(/^[0-9]{10,24}[-_]+/, '');
+export const displayTitleForUser = (value, fallback='') => {
+    const clean = stripGeneratedFilenamePrefix(fileNameStem(value)).trim();
+    if (clean) return clean;
+    return stripGeneratedFilenamePrefix(fileNameStem(fallback)).trim();
+};
 export const compactDisplayFilename = (name, maxChars=42) => {
-    const value = stripGeneratedFilenamePrefix(name).trim() || String(name || '').trim();
+    const value = displayTitleForUser(name, name) || String(name || '').trim();
     const chars = Array.from(value);
     if (chars.length <= maxChars) return value;
     const extMatch = value.match(/(\.[^./\s]{1,8})$/);

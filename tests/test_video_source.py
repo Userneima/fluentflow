@@ -50,6 +50,28 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
     saved = video_source.download_video_source("https://v.douyinvod.com/play/?video_id=demo123", video_dir=tmp_path)
 
     assert saved.filename == "demo123-测试视频.mp4"
+    assert saved.raw_title == "测试视频"
+    assert saved.display_title == "测试视频"
+    assert saved.title == "测试视频"
     assert Path(saved.file_path).is_file()
     assert Path(saved.metadata_path).is_file()
     assert (tmp_path / "视频链接相关信息.md").read_text(encoding="utf-8").strip()
+
+
+def test_download_video_source_splits_raw_and_display_title(tmp_path, monkeypatch) -> None:
+    resolved = video_source.ResolvedVideo(
+        provider="direct",
+        source_url="https://v.douyinvod.com/play/?video_id=7651613998131006774&mime_type=video_mp4",
+        download_url="https://v.douyinvod.com/play/?video_id=7651613998131006774&mime_type=video_mp4",
+        video_id="7651613998131006774",
+        title="7651613998131006774-四大核心Skill架构与配置指南详解",
+    )
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "download_file", lambda url, file_path, on_progress=None: file_path.write_bytes(b"video") or 5)
+
+    saved = video_source.download_video_source("https://v.douyin.com/demo/", video_dir=tmp_path)
+
+    assert saved.raw_title == "7651613998131006774-四大核心Skill架构与配置指南详解"
+    assert saved.display_title == "四大核心Skill架构与配置指南详解"
+    assert saved.title == "四大核心Skill架构与配置指南详解"
+    assert saved.filename == "7651613998131006774-四大核心Skill架构与配置指南详解.mp4"

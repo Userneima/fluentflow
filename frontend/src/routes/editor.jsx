@@ -47,12 +47,16 @@ import {
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobToHistoryEntry,
+    localExecutionHeaders,
     noteModeLabel,
     normalizeSttModel,
     normalizeSttProvider,
     pickTranscriptBaselineSegments,
     pickTranscriptSegments,
+    normalizeTranscriptSegments,
     resultToHistoryEntry,
+    resultDisplayTitle,
+    shouldUseLocalSingleUserClientId,
     simpleMd,
     timeAgo,
     useApi,
@@ -62,6 +66,14 @@ import {
     useSettings,
 } from '../app/shared.jsx';
 import PromptTemplateDialog from '../components/PromptTemplateDialog.jsx';
+
+const jobOptionsForResult = (result) => (
+    normalizeSttProvider(result?.stt_provider) === 'local'
+    || result?.playback_audio_storage === 'local'
+    || result?.source_file_storage === 'local'
+        ? {sttProvider: 'local'}
+        : {}
+);
 
 const Editor = () => {
     const {t, lang} = useI18n();
@@ -78,10 +90,11 @@ const Editor = () => {
         addLarkExport,
         runtimeConfig,
     } = useApp();
-    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
+    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, translateJobSegments, getCredentialsStatus} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
+    const [translatingTranscript, setTranslatingTranscript] = useState(false);
     const [retranscribing, setRetranscribing] = useState(false);
     const [downloading, setDownloading] = useState(null);
     const [toast, setToast] = useState(null);
@@ -160,14 +173,21 @@ const Editor = () => {
     const [mediaPlaying, setMediaPlaying] = useState(false);
     const [followPlayback, setFollowPlayback] = useState(true);
     const [transcriptSaveStatus, setTranscriptSaveStatus] = useState('idle');
+    const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
     const mediaRef = useRef(null);
     const mediaInputRef = useRef(null);
     const transcriptScrollRef = useRef(null);
     const segmentRefs = useRef({});
+    const resultJobOptions = useMemo(() => jobOptionsForResult(result), [
+        result?.stt_provider,
+        result?.playback_audio_storage,
+        result?.source_file_storage,
+    ]);
 
     useEffect(() => {
         if (!result?.task_id || transcriptUnsaved) return;
+        if (isLocalHistoryResult(result)) return;
         const currentSegments = pickTranscriptSegments(result);
         const currentText = result.transcript_text || '';
         const needsHydration = currentSegments.length === 0 || currentText.length <= 260;
@@ -176,14 +196,16 @@ const Editor = () => {
         let cancelled = false;
         const jobRequest = isGuestResult
             ? getGuestTrialJob(result.task_id, getGuestTrialToken())
-            : getJob(result.task_id);
+            : getJob(result.task_id, resultJobOptions);
         jobRequest
             .then((job) => {
                 const full = job?.result;
                 if (cancelled || !full) return;
                 const fullSegments = pickTranscriptSegments(full);
                 const fullText = full.transcript_text || '';
-                if (fullSegments.length > currentSegments.length || fullText.length > currentText.length) {
+                const currentBilingualCount = normalizeTranscriptSegments(result?.bilingual_segments).length;
+                const fullBilingualCount = normalizeTranscriptSegments(full?.bilingual_segments).length;
+                if (fullSegments.length > currentSegments.length || fullText.length > currentText.length || fullBilingualCount > currentBilingualCount) {
                     const fullBaselineSegments = pickTranscriptBaselineSegments(full);
                     setLastResult(full);
                     setEditedSegments(fullSegments.map((seg) => ({...seg})));
@@ -199,7 +221,7 @@ const Editor = () => {
             })
             .catch(() => {});
         return () => { cancelled = true; };
-    }, [resultKey, transcriptUnsaved, isGuestResult]);
+    }, [resultKey, transcriptUnsaved, isGuestResult, resultJobOptions]);
 
     useEffect(() => {
         if (!result) {
@@ -283,12 +305,12 @@ const Editor = () => {
         if (result.task_id && playbackArtifact) {
             setMediaLoading(true);
             const fetchArtifact = isGuestResult ? fetchGuestTrialArtifactFile : fetchJobArtifactFile;
-            const artifactOptions = result.playback_audio_storage === 'local' ? {sttProvider: 'local'} : {};
+            const artifactOptions = resultJobOptions;
             fetchArtifact(result.task_id, 'playback_audio', playbackArtifact.filename || `${result.filename || 'source'}_audio.mp3`, artifactOptions)
                 .then((file) => { if (!cancelled) loadMediaFile(file); })
                 .catch((err) => {
                     if (!cancelled && result.source_file_available && !isGuestResult) {
-                        fetchJobSourceFile(result.task_id, result.filename || 'source')
+                        fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)
                             .then((file) => { if (!cancelled) loadMediaFile(file); })
                             .catch((sourceErr) => {
                                 if (!cancelled) {
@@ -307,7 +329,7 @@ const Editor = () => {
         }
         if (result.task_id && result.source_file_available && !isGuestResult) {
             setMediaLoading(true);
-            fetchJobSourceFile(result.task_id, result.filename || 'source')
+            fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)
                 .then((file) => { if (!cancelled) loadMediaFile(file); })
                 .catch((err) => {
                     if (!cancelled) {
@@ -317,7 +339,7 @@ const Editor = () => {
                 });
         }
         return () => { cancelled = true; };
-    }, [mediaSourceKey, isGuestResult]);
+    }, [mediaSourceKey, isGuestResult, resultJobOptions]);
 
     const segments = editedSegments;
     const transcript = editedTranscript || result?.transcript_text || '';
@@ -327,7 +349,18 @@ const Editor = () => {
     );
     const summary = result?.summary_markdown || '';
     const translatedSegmentsZh = Array.isArray(result?.translated_segments_zh) ? result.translated_segments_zh : [];
-    const hasBilingualTranscript = translatedSegmentsZh.length > 0;
+    const storedBilingualSegments = normalizeTranscriptSegments(result?.bilingual_segments)
+        .filter((seg) => String(seg.text_zh || '').trim());
+    const legacyBilingualSegments = translatedSegmentsZh.length > 0
+        ? segments.map((segment, index) => {
+            const textZh = String(translatedSegmentsZh[index]?.text || translatedSegmentsZh[index]?.text_zh || '').trim();
+            return textZh ? {...segment, text_zh: textZh, source_start_index: index, source_end_index: index} : null;
+        }).filter(Boolean)
+        : [];
+    const bilingualTranscriptSegments = storedBilingualSegments.length > 0 ? storedBilingualSegments : legacyBilingualSegments;
+    const hasBilingualTranscript = bilingualTranscriptSegments.length > 0;
+    const visibleTranscriptView = hasBilingualTranscript && transcriptView !== 'raw' ? 'bilingual' : 'raw';
+    const visibleTranscriptSegments = visibleTranscriptView === 'bilingual' ? bilingualTranscriptSegments : segments;
     const canUseStoredSource = !!result?.source_file_available && !!result?.task_id;
     const canUsePlaybackAudio = !!result?.artifacts?.playback_audio && !!result?.task_id;
     const canRetranscribeStoredMedia = !!lastSourceFile || canUseStoredSource || canUsePlaybackAudio;
@@ -390,14 +423,16 @@ const Editor = () => {
             value: String(result.note_mode_chunk_count),
         } : null,
     ].filter(Boolean);
-    const rawEditorTitle = result?.filename || t('edit.title');
+    const resultTitle = resultDisplayTitle(result, {name: t('edit.title')});
+    const resultDownloadName = result?.display_title || resultTitle || result?.filename;
+    const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
     const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
     const playbackDuration = mediaDuration || durSec || 0;
-    const activeSegmentIndex = segments.length > 0
+    const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
-            const found = segments.findIndex((seg, index) => {
+            const found = visibleTranscriptSegments.findIndex((seg, index) => {
             const start = Number(seg.start) || 0;
-            const nextStart = Number(segments[index + 1]?.start);
+            const nextStart = Number(visibleTranscriptSegments[index + 1]?.start);
             const end = Number(seg.end) || (Number.isFinite(nextStart) ? nextStart : start + 6);
             return mediaCurrentTime >= start && mediaCurrentTime < end;
             });
@@ -434,7 +469,7 @@ const Editor = () => {
                 transcript_text: transcript,
                 segments,
                 edit_records: editRecords,
-            })
+            }, resultJobOptions)
                 .then((data) => {
                     if (seq !== transcriptSaveSeqRef.current) return;
                     setTranscriptUnsaved(false);
@@ -454,7 +489,7 @@ const Editor = () => {
                 });
         }, 800);
         return () => clearTimeout(timer);
-    }, [result?.task_id, transcriptUnsaved, transcript, segments, editRecords, isGuestResult]);
+    }, [result?.task_id, transcriptUnsaved, transcript, segments, editRecords, isGuestResult, resultJobOptions]);
 
     const seekToSegment = (seg) => {
         const media = mediaRef.current;
@@ -589,13 +624,16 @@ const Editor = () => {
             const settings = loadSettings();
             const fd = new FormData();
             fd.append('markdown', result.summary_markdown||'');
-            fd.append('title', fileNameStem(result.filename));
+            fd.append('title', fileNameStem(resultDownloadName));
             fd.append('task_id', activeTaskId);
             if(result.source) fd.append('source_type', result.source);
             if(result.filename) fd.append('source_filename', result.filename);
             if(durSec > 0) fd.append('source_duration_seconds', String(durSec));
             fd.append('lark_via_cli', settings.larkViaCli ? 'true' : 'false');
-            const r = await apiFetch(`${API_BASE}/export-lark`, {method:'POST', body:fd});
+            const headers = shouldUseLocalSingleUserClientId()
+                ? localExecutionHeaders({localExecution: true})
+                : {};
+            const r = await apiFetch(`${API_BASE}/export-lark`, {method:'POST', headers, body:fd});
             const data = await r.json().catch(()=>({}));
             if(!r.ok) {
                 const d = data.detail;
@@ -605,7 +643,7 @@ const Editor = () => {
             const exportUrl = data.url || null;
             if(!exportUrl && !data.dry_run) throw new Error(data.msg || 'No document URL returned');
             setLarkUrl(exportUrl);
-            const dispTitle = data.doc_title || fileNameStem(result.filename) || "Export";
+            const dispTitle = data.doc_title || fileNameStem(resultDownloadName) || "Export";
             if(exportUrl) addLarkExport({url:exportUrl, title: dispTitle, timestamp:Date.now()});
             showToast(t('edit.exportDone'));
         } catch(err) { showToast(t('edit.exportFail')+': '+err.message, false); }
@@ -656,6 +694,54 @@ const Editor = () => {
             showToast(t('edit.regenDone'));
         } catch(err) { showToast(err.message, false); }
         finally { setRegenerating(false); }
+    };
+
+    const handleTranslateTranscript = async () => {
+        if(!result?.task_id || segments.length === 0 || translatingTranscript) return;
+        if(isGuestResult) {
+            showToast(lang === 'zh' ? '访客试用暂不支持生成中英对照。' : 'Guest trial cannot generate bilingual subtitles.', false);
+            return;
+        }
+        setTranslatingTranscript(true);
+        try {
+            if(transcriptUnsaved) {
+                const saveData = await saveTranscriptEdit(result.task_id, {
+                    transcript_text: transcript,
+                    segments,
+                    edit_records: editRecords,
+                }, resultJobOptions);
+                setTranscriptUnsaved(false);
+                setTranscriptDirty(true);
+                setTranscriptSaveStatus('saved');
+                if(saveData?.result) {
+                    setLastResult((prev) => (
+                        prev?.task_id === result.task_id ? {...prev, ...saveData.result} : prev
+                    ));
+                }
+            }
+            const settings = loadSettings();
+            const translationOptions = Object.keys(resultJobOptions).length
+                ? resultJobOptions
+                : {sttProvider: effectiveSttProvider(settings, runtimeConfig)};
+            const data = await translateJobSegments(result.task_id, {
+                segments,
+                aiProvider: settings.aiProvider || 'deepseek',
+                aiModel: settings.aiModel || null,
+            }, translationOptions);
+            if(data?.result) {
+                setLastResult((prev) => (
+                    prev?.task_id === result.task_id
+                        ? {...prev, ...data.result}
+                        : {...result, ...data.result}
+                ));
+            }
+            setTranscriptView('bilingual');
+            showToast(lang === 'zh' ? '中英对照已生成' : 'Bilingual subtitles added');
+        } catch(err) {
+            showToast((lang === 'zh' ? '生成中英对照失败：' : 'Bilingual generation failed: ') + (err?.message || ''), false);
+        } finally {
+            setTranslatingTranscript(false);
+        }
     };
 
     const runRetranscribe = async (file) => {
@@ -778,13 +864,13 @@ const Editor = () => {
                 result.task_id,
                 'playback_audio',
                 artifact.filename || `${result.filename || 'source'}_audio.mp3`,
-                result.playback_audio_storage === 'local' ? {sttProvider: 'local'} : {},
+                resultJobOptions,
             );
         };
         if(lastSourceFile) runRetranscribe(lastSourceFile);
         else if(result?.task_id && result?.source_file_available) {
             try {
-                const sourceFile = await fetchJobSourceFile(result.task_id, result.filename || 'source');
+                const sourceFile = await fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions);
                 runRetranscribe(sourceFile);
             } catch (err) {
                 if (result?.artifacts?.playback_audio) {
@@ -1134,7 +1220,50 @@ const Editor = () => {
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="flex shrink-0 items-center justify-end gap-2">
+                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                            {hasBilingualTranscript && segments.length > 0 && (
+                                                <div className="inline-flex h-9 overflow-hidden rounded-sm border ff-border-control bg-surface-container-lowest p-0.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={()=>setTranscriptView('bilingual')}
+                                                        className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                                                            visibleTranscriptView === 'bilingual'
+                                                                ? 'bg-primary text-on-primary'
+                                                                : 'text-on-surface-variant hover:bg-primary/5 hover:text-primary'
+                                                        }`}
+                                                    >
+                                                        {lang === 'zh' ? '中英对照' : 'Bilingual'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={()=>setTranscriptView('raw')}
+                                                        className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                                                            visibleTranscriptView === 'raw'
+                                                                ? 'bg-primary text-on-primary'
+                                                                : 'text-on-surface-variant hover:bg-primary/5 hover:text-primary'
+                                                        }`}
+                                                    >
+                                                        {lang === 'zh' ? '原始字幕' : 'Original'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={handleTranslateTranscript}
+                                                disabled={isGuestResult || translatingTranscript || !result?.task_id || segments.length === 0}
+                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-primary/20 bg-primary/5 px-3 text-xs font-bold text-primary transition hover:bg-primary/10 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-outline-variant disabled:bg-surface-container-low disabled:text-outline"
+                                            >
+                                                <span className={`material-symbols-outlined text-[17px] ${translatingTranscript ? 'animate-spin' : ''}`}>
+                                                    {translatingTranscript ? 'sync' : 'translate'}
+                                                </span>
+                                                <span>
+                                                    {translatingTranscript
+                                                        ? (lang === 'zh' ? '生成中' : 'Translating')
+                                                        : hasBilingualTranscript
+                                                            ? (lang === 'zh' ? '更新中英对照' : 'Refresh Bilingual')
+                                                            : (lang === 'zh' ? '生成中英对照' : 'Add Bilingual')}
+                                                </span>
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={()=>setEditRecordsOpen(true)}
@@ -1152,18 +1281,41 @@ const Editor = () => {
                                                     </button>
                                                 }
                                                 items={[
-                                                    {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,result.filename); recordDownload('transcript_downloaded','txt'); showToast(t('dl.success'));}},
-                                                    {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,result.filename); recordDownload('transcript_downloaded','srt'); showToast(t('dl.success'));}},
-                                                    {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,result.filename); recordDownload('transcript_downloaded','vtt'); showToast(t('dl.success'));}},
-                                                    {icon:'translate', label:t('dl.bilingualSrt'), badge:'双语 SRT', disabled:!hasBilingualTranscript, onClick:()=>{dlBilingualTranscriptSrt(segments,translatedSegmentsZh,result.filename); recordDownload('transcript_downloaded','bilingual_srt'); showToast(t('dl.success'));}},
-                                                    {icon:'translate', label:t('dl.bilingualVtt'), badge:'双语 VTT', disabled:!hasBilingualTranscript, onClick:()=>{dlBilingualTranscriptVtt(segments,translatedSegmentsZh,result.filename); recordDownload('transcript_downloaded','bilingual_vtt'); showToast(t('dl.success'));}},
+                                                    {icon:'description', label:t('dl.txt'), badge:'TXT', onClick:()=>{dlTranscriptTxt(transcript,resultDownloadName); recordDownload('transcript_downloaded','txt'); showToast(t('dl.success'));}},
+                                                    {icon:'subtitles', label:t('dl.srt'), badge:'SRT', disabled:segments.length===0, onClick:()=>{dlTranscriptSrt(segments,resultDownloadName); recordDownload('transcript_downloaded','srt'); showToast(t('dl.success'));}},
+                                                    {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,resultDownloadName); recordDownload('transcript_downloaded','vtt'); showToast(t('dl.success'));}},
+                                                    {icon:'translate', label:t('dl.bilingualSrt'), badge:'双语 SRT', disabled:!hasBilingualTranscript, onClick:()=>{dlBilingualTranscriptSrt(bilingualTranscriptSegments,null,resultDownloadName); recordDownload('transcript_downloaded','bilingual_srt'); showToast(t('dl.success'));}},
+                                                    {icon:'translate', label:t('dl.bilingualVtt'), badge:'双语 VTT', disabled:!hasBilingualTranscript, onClick:()=>{dlBilingualTranscriptVtt(bilingualTranscriptSegments,null,resultDownloadName); recordDownload('transcript_downloaded','bilingual_vtt'); showToast(t('dl.success'));}},
                                                 ]}
                                             />
                                         </div>
                                     </div>
                                 </div>
                         <div ref={transcriptScrollRef} className="flex-1 min-h-0 overflow-y-auto p-5 space-y-2 hide-scrollbar">
-                            {segments.length > 0 ? segments.map((seg,i) => (
+                            {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
+                                <div
+                                    key={`bilingual-${i}`}
+                                    ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
+                                    className={`flex gap-4 rounded-sm px-3 py-3 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-primary/10' : 'hover:bg-surface-container'}`}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={()=>seekToSegment(seg)}
+                                        className={`w-24 flex-shrink-0 pt-1 text-left font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-primary'}`}
+                                    >
+                                        <span className="block">{fmtTime(seg.start)}</span>
+                                        <span className="mt-0.5 block text-[10px] opacity-70">{fmtTime(seg.end)}</span>
+                                    </button>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
+                                            {seg.text}
+                                        </p>
+                                        <p className="mt-2 border-l-2 border-primary/25 pl-3 text-sm leading-relaxed text-on-surface-variant">
+                                            {seg.text_zh}
+                                        </p>
+                                    </div>
+                                </div>
+                            )) : segments.length > 0 ? segments.map((seg,i) => (
                                 <div
                                     key={i}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
@@ -1186,11 +1338,6 @@ const Editor = () => {
                                             rows={1}
                                             className="w-full resize-none overflow-hidden min-h-[2rem] bg-transparent border-none p-0 text-on-surface text-sm leading-relaxed focus:ring-0"
                                         />
-                                        {translatedSegmentsZh[i]?.text && (
-                                            <p className="mt-1 border-l-2 border-primary/20 pl-3 text-xs leading-relaxed text-on-surface-variant">
-                                                {translatedSegmentsZh[i].text}
-                                            </p>
-                                        )}
                                     </div>
                                         </div>
 	                            )) : (
@@ -1278,15 +1425,15 @@ const Editor = () => {
                                     </button>
                                     }
                                     items={[
-                                        {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,result.filename); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
-                                        {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,result.filename); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
+                                        {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,resultDownloadName); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
+                                        {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,resultDownloadName); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
                                         {divider:true},
                                         {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
                                             setDownloading('pdf');
-                                            try{ await dlSummaryPdf(summaryRef,result.filename); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                            try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
                                             finally{setDownloading(null);}
                                         }},
-                                        {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,result.filename); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
+                                        {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
                                     ]}
                                 />
                             </div>

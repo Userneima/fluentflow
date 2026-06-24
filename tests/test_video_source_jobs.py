@@ -20,6 +20,8 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
         source_url="https://v.douyinvod.com/play/?video_id=demo123",
         download_url="https://v.douyinvod.com/play/?video_id=demo123&mime_type=video_mp4",
         video_id="demo123",
+        raw_title="测试视频",
+        display_title="测试视频",
         title="测试视频",
         filename="demo123-测试视频.mp4",
         file_path=str(source_file),
@@ -46,6 +48,8 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
         "task_id": "task-link",
         "source_path": str(tmp_path / "sources" / "task-link" / "source.mp4"),
         "filename": "demo123-测试视频.mp4",
+        "raw_title": "测试视频",
+        "display_title": "测试视频",
         "options": {"stt_provider": "azure_batch", "skip_summary": "true"},
         "base_url": "http://testserver",
     }]
@@ -54,6 +58,9 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     assert final_job["stage"] == "queued"
     assert final_job["source_type"] == "video"
     assert final_job["metadata"]["video_source"]["provider"] == "direct"
+    assert final_job["metadata"]["display_title"] == "测试视频"
+    assert final_job["metadata"]["video_source"]["raw_title"] == "测试视频"
+    assert final_job["metadata"]["video_source"]["display_title"] == "测试视频"
     assert Path(final_job["metadata"]["source_path"]).read_bytes() == b"downloaded video"
 
 

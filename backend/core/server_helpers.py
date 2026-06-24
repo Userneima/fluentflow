@@ -38,6 +38,8 @@ import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from backend.core.title_display import display_title_for_user
+
 logger = logging.getLogger(__name__)
 
 EVENT_SCHEMA_VERSION = "1.3"
@@ -213,6 +215,7 @@ def _request_is_local_execution(request: Request) -> bool:
     path = request.url.path
     return (
         path == "/process"
+        or path == "/export-lark"
         or path == "/video-sources/jobs"
         or path == "/jobs"
         or path.startswith("/jobs/")
@@ -436,7 +439,7 @@ try:
     from backend.core.local_stt import transcribe_audio, get_or_load_model
     from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
     from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from backend.core.ai_summarizer import summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
+    from backend.core.ai_summarizer import generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
     from backend.core.lark_exporter import export_markdown_to_lark
     from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
     from backend.core.note_title import resolve_lark_doc_title
@@ -450,7 +453,7 @@ try:
         result_for_summary_success,
         result_for_transcript_only,
     )
-    from backend.core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+    from backend.core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, migrate_job_display_titles, update_job_result, upsert_job
     from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from backend.core.account_store import (
         authenticate_user,
@@ -478,7 +481,7 @@ except ImportError:
     from core.local_stt import transcribe_audio, get_or_load_model
     from core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
     from core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from core.ai_summarizer import summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
+    from core.ai_summarizer import generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
     from core.lark_exporter import export_markdown_to_lark
     from core.lark_cli_exporter import export_markdown_via_lark_cli
     from core.note_title import resolve_lark_doc_title
@@ -492,7 +495,7 @@ except ImportError:
         result_for_summary_success,
         result_for_transcript_only,
     )
-    from core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+    from core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, migrate_job_display_titles, update_job_result, upsert_job
     from core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from core.account_store import (
         authenticate_user,
@@ -1657,6 +1660,12 @@ def _normalize_import_entry(entry: dict[str, Any], max_chars: int) -> dict[str, 
         or entry.get("source_filename")
         or "Imported transcript"
     ).strip()[:240]
+    raw_title = str(raw_result.get("raw_title") or entry.get("rawTitle") or filename).strip()[:240]
+    display_title = str(
+        raw_result.get("display_title")
+        or entry.get("displayTitle")
+        or display_title_for_user(raw_title, filename)
+    ).strip()[:240]
     transcript_text = _import_text(
         raw_result.get("transcript_text")
         or raw_result.get("cleaned_transcript_text")
@@ -1688,6 +1697,8 @@ def _normalize_import_entry(entry: dict[str, Any], max_chars: int) -> dict[str, 
     result: dict[str, Any] = {
         "status": "completed",
         "filename": filename,
+        "raw_title": raw_title,
+        "display_title": display_title,
         "source": raw_result.get("source") or entry.get("source") or "imported_local_history",
         "transcript_text": transcript_text,
         "segments": segments,
@@ -1717,6 +1728,8 @@ def _normalize_import_entry(entry: dict[str, Any], max_chars: int) -> dict[str, 
         "original_task_id": original_task_id or None,
         "source_fingerprint": source_fingerprint,
         "filename": filename,
+        "raw_title": raw_title,
+        "display_title": display_title,
         "imported_timestamp": imported_timestamp,
         "source": result["source"],
         "result": {k: v for k, v in result.items() if v is not None},
@@ -1820,7 +1833,10 @@ def _artifact_url(task_id: str, kind: str) -> str:
 
 
 def _artifact_filename(result: dict[str, Any], suffix: str) -> str:
-    stem = _safe_filename_stem(result.get("filename") or result.get("source_filename"), fallback="transcript")
+    stem = _safe_filename_stem(
+        result.get("display_title") or result.get("filename") or result.get("source_filename"),
+        fallback="transcript",
+    )
     return f"{stem}{suffix}"
 
 
@@ -1884,6 +1900,31 @@ def _bilingual_segments(
             segment["speaker"] = source.get("speaker")
         output.append(segment)
     return output
+
+
+def _sanitize_bilingual_segments(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    segments: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        text_en = str(item.get("text") or item.get("text_en") or "").strip()
+        text_zh = str(item.get("text_zh") or item.get("zh") or "").strip()
+        if not text_en or not text_zh:
+            continue
+        segment: dict[str, Any] = {
+            "text": f"{text_en}\n{text_zh}",
+        }
+        for key in ("start", "end"):
+            try:
+                segment[key] = float(item.get(key) or 0)
+            except (TypeError, ValueError):
+                segment[key] = 0.0
+        if item.get("speaker"):
+            segment["speaker"] = str(item.get("speaker"))
+        segments.append(segment)
+    return segments
 
 
 def _write_text_artifact(task_id: str, kind: str, filename: str, content: str) -> dict[str, Any]:
@@ -1991,8 +2032,10 @@ def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, d
             _artifact_filename(result, ".vtt"),
             _format_vtt(segments),
         )
-        translated_segments = _sanitize_edit_segments(result.get("translated_segments_zh"))
-        bilingual = _bilingual_segments(segments, translated_segments)
+        bilingual = _sanitize_bilingual_segments(result.get("bilingual_segments"))
+        if not bilingual:
+            translated_segments = _sanitize_edit_segments(result.get("translated_segments_zh"))
+            bilingual = _bilingual_segments(segments, translated_segments)
         if bilingual:
             artifacts["transcript_bilingual_srt"] = _write_text_artifact(
                 task_id,
@@ -2031,7 +2074,10 @@ def _attach_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, 
 
 
 def _write_edited_transcript_backup(task_id: str, result: dict[str, Any]) -> Path:
-    stem = _safe_filename_stem(result.get("filename") or result.get("source_filename"), fallback=task_id or "transcript")
+    stem = _safe_filename_stem(
+        result.get("display_title") or result.get("filename") or result.get("source_filename"),
+        fallback=task_id or "transcript",
+    )
     task_suffix = _safe_filename_stem(task_id or "task")[:12]
     target_dir = _edited_transcript_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -2092,7 +2138,10 @@ def _sanitize_edit_records(value: Any) -> list[dict[str, Any]]:
 
 
 def _write_transcript_edit_records_backup(task_id: str, result: dict[str, Any], records: list[dict[str, Any]]) -> Path:
-    stem = _safe_filename_stem(result.get("filename") or result.get("source_filename"), fallback=task_id or "transcript")
+    stem = _safe_filename_stem(
+        result.get("display_title") or result.get("filename") or result.get("source_filename"),
+        fallback=task_id or "transcript",
+    )
     task_suffix = _safe_filename_stem(task_id or "task")[:12]
     target_dir = _transcript_edit_records_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -2564,7 +2613,9 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     fields = {
         **options,
         "task_id": task_id,
-        "title": options.get("title") or Path(filename).stem,
+        "title": options.get("title") or str(item.get("display_title") or "").strip() or display_title_for_user(filename, Path(filename).stem),
+        "raw_title": str(item.get("raw_title") or "").strip(),
+        "display_title": str(item.get("display_title") or "").strip(),
     }
     body, content_type = _multipart_process_body(fields=fields, file_path=source_path, filename=filename)
     headers = {
@@ -2681,6 +2732,8 @@ def _public_video_source_metadata(saved: SavedVideoSource) -> dict[str, Any]:
         "provider": saved.provider,
         "source_url": saved.source_url,
         "video_id": saved.video_id,
+        "raw_title": getattr(saved, "raw_title", None) or saved.title,
+        "display_title": getattr(saved, "display_title", None) or display_title_for_user(saved.title, saved.filename),
         "title": saved.title,
         "filename": saved.filename,
         "file_path": saved.file_path,
@@ -2771,6 +2824,8 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             queue_options=options,
             source_path=str(target_path),
             source_fingerprint=source_fingerprint,
+            raw_title=getattr(saved, "raw_title", None) or saved.title,
+            display_title=getattr(saved, "display_title", None) or display_title_for_user(saved.title, saved.filename),
             video_source=_public_video_source_metadata(saved),
         )
         quota_reservation = _reserve_task_quota(
@@ -2806,6 +2861,8 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             "task_id": task_id,
             "source_path": str(target_path),
             "filename": saved.filename,
+            "raw_title": getattr(saved, "raw_title", None) or saved.title,
+            "display_title": getattr(saved, "display_title", None) or display_title_for_user(saved.title, saved.filename),
             "options": options,
             "base_url": base_url,
         }
@@ -2904,6 +2961,9 @@ def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
 async def _startup_resume_queue() -> None:
     global _QUEUE_EVENT_LOOP
     _QUEUE_EVENT_LOOP = asyncio.get_running_loop()
+    migrated = migrate_job_display_titles()
+    if migrated:
+        logger.info("Backfilled display titles for %s existing jobs", migrated)
     _resume_queued_transcription_jobs()
 
 

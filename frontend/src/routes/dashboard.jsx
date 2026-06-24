@@ -32,6 +32,7 @@ import {
     isLocalHistoryResult,
     isSttProgressUnmeasured,
     historyEntryToResult,
+    jobDisplayTitle,
     jobToCurrentJob,
     jobToHistoryEntry,
     noteModeLabel,
@@ -40,6 +41,7 @@ import {
     pickTranscriptSegments,
     jobProgressLabel,
     resultToHistoryEntry,
+    resultDisplayTitle,
     setGuestTrialTaskId,
     setGuestTrialToken,
     sttProgressFraction,
@@ -70,6 +72,7 @@ const Dashboard = () => {
     const [now, setNow] = useState(Date.now());
     const [videoLinkInput, setVideoLinkInput] = useState('');
     const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
+    const [queueSubmitting, setQueueSubmitting] = useState(false);
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -142,14 +145,15 @@ const Dashboard = () => {
         }
         currentTaskRef.current = null;
         const fileName = result.filename || job?.source_filename || fallbackJob?.fileName;
-        setCurrentJob({taskId, fileName, stage:'done', progress:100});
+        const displayName = resultDisplayTitle(result, {name: fileName, rawFilename: fileName});
+        setCurrentJob({taskId, fileName: displayName || fileName, stage:'done', progress:100});
         setLastResult(result);
         setProcessingResult(result);
         const larkUrl = result.lark_response?.url || null;
         if(!fallbackJob?.guestTrial) {
-            addToHistory(resultToHistoryEntry(result, {taskId, name:fileName}));
+            addToHistory(resultToHistoryEntry(result, {taskId, name: displayName || fileName, rawFilename: fileName}));
         }
-        if(larkUrl) addLarkExport({url:larkUrl, title: result.lark_doc_title || fileNameStem(fileName), timestamp:Date.now()});
+        if(larkUrl) addLarkExport({url:larkUrl, title: result.lark_doc_title || fileNameStem(displayName || fileName), timestamp:Date.now()});
         setTimeout(() => {
             setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
         }, 3000);
@@ -218,7 +222,8 @@ const Dashboard = () => {
                         addToHistory({
                             id: Date.now(),
                             taskId: job.task_id || currentJob.taskId,
-                            name: job.source_filename || currentJob.fileName,
+                            name: jobDisplayTitle(job) || currentJob.fileName,
+                            rawFilename: job.source_filename || currentJob.fileName,
                             timestamp: Date.now(),
                             durationMin: 0,
                             status: 'failed',
@@ -336,8 +341,6 @@ const Dashboard = () => {
             return;
         }
                 setUploadError(null);
-                setProcessingResult(null);
-                setLastResult(null);
 
         const settings = loadSettings();
         const sttModel = normalizeSttModel(settings.sttModel);
@@ -345,6 +348,8 @@ const Dashboard = () => {
         if (!(await ensureCloudReady(sttProvider))) return;
 
         if(guestMode) {
+            setProcessingResult(null);
+            setLastResult(null);
             const file = selectedFiles[0];
             const guestConfig = guestTrial || runtimeConfig.guestTrial || {};
             const fileLimit = Number(guestConfig.file_limit_mb || 150);
@@ -419,6 +424,33 @@ const Dashboard = () => {
             }
             return;
         }
+
+        const hasActiveJob = !!currentJob && currentJob.stage !== 'done';
+        if(hasActiveJob) {
+            setLastSourceFile(null);
+            setQueueSubmitting(true);
+            try {
+                await enqueueProcessFiles(selectedFiles, {
+                    exportToLark: settings.exportToLark||false,
+                    larkViaCli: !!settings.larkViaCli,
+                    ...buildAiOptions(settings),
+                    skipSummary: !!settings.skipAiSummary,
+                    sttProvider,
+                    sttModel,
+                    sttSpeed: settings.sttSpeed||'balanced',
+                    sttLanguage: 'auto',
+                });
+                navigate('/tasks', {state:{queueSubmittedAt: Date.now()}});
+            } catch(err) {
+                setUploadError(friendlyTaskError(err.message || "Queue failed.", lang));
+            } finally {
+                setQueueSubmitting(false);
+            }
+            return;
+        }
+
+        setProcessingResult(null);
+        setLastResult(null);
 
         if(selectedFiles.length > 1) {
             setLastSourceFile(null);
@@ -631,20 +663,20 @@ const Dashboard = () => {
                     sourceType: "transcript_file",
                     fileSizeMb,
                 };
-                setCurrentJob({
-                    taskId,
-                    fileName:file.name,
-                    stage:'summary',
-                    progress:20,
-                    startedAt: Date.now(),
-                    sourceType: "transcript_file",
-                    fileSizeMb,
-	                    skipSummary: !!settings.skipAiSummary,
+	                setCurrentJob({
+	                    taskId,
+	                    fileName:file.name,
+	                    stage:'summary',
+	                    progress:20,
+	                    startedAt: Date.now(),
+	                    sourceType: "transcript_file",
+	                    fileSizeMb,
+	                    skipSummary: false,
 	                    exportToLark: false,
 	                    noteMode: settings.noteMode||'auto',
 	                });
-                try {
-                    const result = await summarizeTranscriptFile(file, {taskId, ...buildAiOptions(settings), skipSummary: !!settings.skipAiSummary}, ac.signal);
+	                try {
+	                    const result = await summarizeTranscriptFile(file, {taskId, ...buildAiOptions(settings), skipSummary: false}, ac.signal);
                     abortRef.current = null;
                     currentTaskRef.current = null;
                     setCurrentJob({fileName:file.name, stage:'done', progress:100});
@@ -669,6 +701,10 @@ const Dashboard = () => {
                 const files = Array.from(e.dataTransfer.files || []);
                 if(files.length === 0) return;
                 const file = files[0];
+        if(uploading && files.length === 1 && file && transcriptExts.test(file.name)){
+            setUploadError(lang === 'zh' ? '当前有转录任务时，只能继续添加音视频到后台队列。字幕/文本导入请等当前任务结束后再用。' : 'While a transcription is active, only audio/video files can be added to the background queue. Import transcript files after the active task finishes.');
+            return;
+        }
         if(files.length === 1 && file && transcriptExts.test(file.name) && subtitleInputRef.current){
             const dt = new DataTransfer(); dt.items.add(file);
             subtitleInputRef.current.files = dt.files;
@@ -787,6 +823,8 @@ const Dashboard = () => {
                     <div className="grid grid-cols-12 gap-8">
                         <div className="col-span-12 lg:col-span-9 group">
                     <div className={`relative h-[480px] rounded-sm overflow-hidden bg-slate-900 shadow-2xl transition-transform duration-500 ${uploading?'':'hover:scale-[1.01]'}`} onDrop={handleDrop} onDragOver={e=>e.preventDefault()}>
+                                <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
+                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
                                 <div className="absolute inset-0 opacity-40" aria-hidden="true">
                             <div className="w-full h-full bg-gradient-to-br from-slate-800 via-indigo-950/90 to-blue-900/70" style={{backgroundImage:'linear-gradient(135deg,#1e293b 0%,#312e81 35%,#1e3a5f 70%,#0f172a 100%)'}} />
                                 </div>
@@ -817,15 +855,23 @@ const Dashboard = () => {
                                                         : t('dash.waitingForTranscript')}
                                                 </p>
                                             </div>
-                                            {currentJob.resume && !currentJob.guestTrial ? (
-                                                <Link to="/tasks" className="text-blue-100 hover:text-white border border-blue-300/40 hover:bg-blue-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 flex-shrink-0 transition-colors">
-                                                    <span className="material-symbols-outlined text-sm">monitoring</span>{t('dash.viewTasks')}
-                                                </Link>
-                                            ) : (
-                                                <button onClick={handleCancel} className="text-red-300 hover:text-white border border-red-300/40 hover:bg-red-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 flex-shrink-0 transition-colors">
-                                                    <span className="material-symbols-outlined text-sm">cancel</span>{t('dash.cancel')}
-                                                </button>
-                                            )}
+                                            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                                                {!guestMode && (
+                                                    <button onClick={()=>fileInputRef.current?.click()} disabled={queueSubmitting} className="text-blue-100 hover:text-white border border-blue-300/40 hover:bg-blue-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                                        <span className={`material-symbols-outlined text-sm ${queueSubmitting?'animate-spin':''}`}>{queueSubmitting?'sync':'playlist_add'}</span>
+                                                        {queueSubmitting ? (lang==='zh'?'添加中…':'Adding…') : (lang==='zh'?'添加到队列':'Add to queue')}
+                                                    </button>
+                                                )}
+                                                {currentJob.resume && !currentJob.guestTrial ? (
+                                                    <Link to="/tasks" className="text-blue-100 hover:text-white border border-blue-300/40 hover:bg-blue-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 transition-colors">
+                                                        <span className="material-symbols-outlined text-sm">monitoring</span>{t('dash.viewTasks')}
+                                                    </Link>
+                                                ) : (
+                                                    <button onClick={handleCancel} className="text-red-300 hover:text-white border border-red-300/40 hover:bg-red-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 transition-colors">
+                                                        <span className="material-symbols-outlined text-sm">cancel</span>{t('dash.cancel')}
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                         <div>
                                             <div className="flex items-end justify-between gap-4 mb-2">
@@ -881,22 +927,23 @@ const Dashboard = () => {
                                         </div>
                                     </div>
                                     )}
-                                    {!uploading && (
-		                                    <div className="w-full max-w-[720px] mx-auto space-y-5">
-		                                        <div className="grid grid-cols-1 sm:grid-cols-[auto_auto] gap-3 w-full max-w-[560px]">
-		                                <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
-		                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
-		                                <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.92] text-slate-950 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-[0_16px_46px_-30px_rgba(255,255,255,0.8)] active:translate-y-px disabled:opacity-50 justify-center dark:bg-white/90 dark:hover:bg-white">
-		                                            <span className="material-symbols-outlined">upload_file</span>
-		                                    <span>{uploading ? t('dash.processing') : (guestMode ? (lang==='zh'?'开始访客试用':'Start guest trial') : t('dash.selectFile'))}</span>
-		                                </button>
-                                        {!guestMode && (
-		                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.07] text-white border border-white/15 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-white/[0.12] transition-colors active:translate-y-px disabled:opacity-50 justify-center">
-		                                    <span className="material-symbols-outlined">subtitles</span>
-		                                    <span>{t('dash.selectSubtitle')}</span>
-		                                </button>
-                                        )}
-		                                        </div>
+	                                    {!uploading && (
+			                                    <div className="w-full max-w-[720px] mx-auto space-y-5">
+			                                        <div className="grid grid-cols-1 sm:grid-cols-[auto_auto] gap-3 w-full max-w-[560px]">
+			                                            <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.92] text-slate-950 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-[0_16px_46px_-30px_rgba(255,255,255,0.8)] active:translate-y-px disabled:opacity-50 justify-center dark:bg-white/90 dark:hover:bg-white">
+			                                                <span className="material-symbols-outlined">upload_file</span>
+			                                                <span>{uploading ? t('dash.processing') : (guestMode ? (lang==='zh'?'开始访客试用':'Start guest trial') : t('dash.selectFile'))}</span>
+			                                            </button>
+	                                                    {!guestMode && (
+			                                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.07] text-white border border-white/15 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-white/[0.12] transition-colors active:translate-y-px disabled:opacity-50 justify-center">
+			                                                    <span className="material-symbols-outlined">subtitles</span>
+			                                                    <span className="flex flex-col items-start text-left leading-tight">
+                                                                    <span>{t('dash.selectSubtitle')}</span>
+                                                                    <span className="mt-1 text-[11px] font-semibold text-slate-300">SRT / VTT / TXT / MD</span>
+                                                                </span>
+			                                                </button>
+	                                                    )}
+			                                        </div>
 		                                <div className="text-slate-400 text-sm font-bold max-w-xl">{t('dash.dragHint')}</div>
 	                                {isAzureCloudProvider(selectedSttProvider) && (
 		                                    <div className="text-cyan-100/85 text-xs leading-relaxed max-w-xl bg-white/[0.08] border border-white/10 rounded-sm px-3 py-2">

@@ -26,7 +26,12 @@ export const dlTranscriptVtt = (segments, filename) => {
 const bilingualSegments = (segments, translatedSegments) => (
     (segments || []).map((segment, index) => {
         const text = String(segment?.text || '').trim();
-        const zh = String(translatedSegments?.[index]?.text || translatedSegments?.[index]?.text_zh || '').trim();
+        const zh = String(
+            segment?.text_zh
+            || translatedSegments?.[index]?.text
+            || translatedSegments?.[index]?.text_zh
+            || ''
+        ).trim();
         return {...segment, text: zh ? `${text}\n${zh}` : text};
     }).filter((segment) => String(segment.text || '').trim())
 );

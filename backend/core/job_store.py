@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.core.title_display import display_title_for_user
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -236,6 +238,78 @@ def update_job_result(
     return _row_to_dict(updated) if updated else None
 
 
+def migrate_job_display_titles(db_path: Path | str = DEFAULT_DB_PATH) -> int:
+    """Backfill raw/display title semantics for existing job rows."""
+    ensure_job_db(db_path)
+    changed = 0
+    with sqlite3.connect(Path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM jobs").fetchall()
+        for row in rows:
+            result = _json_loads(row["result_json"])
+            metadata = _json_loads(row["metadata_json"])
+            result_dict = result if isinstance(result, dict) else {}
+            metadata_dict = metadata if isinstance(metadata, dict) else {}
+            raw_video_source = metadata_dict.get("video_source")
+            video_source = raw_video_source if isinstance(raw_video_source, dict) else {}
+
+            raw_title = str(
+                metadata_dict.get("raw_title")
+                or video_source.get("raw_title")
+                or result_dict.get("raw_title")
+                or video_source.get("title")
+                or result_dict.get("filename")
+                or row["source_filename"]
+                or ""
+            ).strip()
+            display_title = str(
+                metadata_dict.get("display_title")
+                or video_source.get("display_title")
+                or result_dict.get("display_title")
+                or display_title_for_user(raw_title, row["source_filename"])
+            ).strip()
+            if not display_title:
+                continue
+
+            next_metadata = dict(metadata_dict)
+            next_result = dict(result_dict)
+            row_changed = False
+            if next_metadata.get("raw_title") != raw_title:
+                next_metadata["raw_title"] = raw_title
+                row_changed = True
+            if next_metadata.get("display_title") != display_title:
+                next_metadata["display_title"] = display_title
+                row_changed = True
+            if isinstance(raw_video_source, dict):
+                next_video_source = dict(video_source)
+                if next_video_source.get("raw_title") != raw_title:
+                    next_video_source["raw_title"] = raw_title
+                    row_changed = True
+                if next_video_source.get("display_title") != display_title:
+                    next_video_source["display_title"] = display_title
+                    row_changed = True
+                next_metadata["video_source"] = next_video_source
+            if next_result:
+                if next_result.get("raw_title") != raw_title:
+                    next_result["raw_title"] = raw_title
+                    row_changed = True
+                if next_result.get("display_title") != display_title:
+                    next_result["display_title"] = display_title
+                    row_changed = True
+            if not row_changed:
+                continue
+            conn.execute(
+                "UPDATE jobs SET result_json = ?, metadata_json = ? WHERE task_id = ?",
+                (
+                    _json_dumps(next_result) if result is not None else row["result_json"],
+                    _json_dumps(next_metadata),
+                    row["task_id"],
+                ),
+            )
+            changed += 1
+    return changed
+
+
 def delete_jobs(
     task_ids: list[str] | tuple[str, ...],
     db_path: Path | str = DEFAULT_DB_PATH,
@@ -285,6 +359,8 @@ def _result_summary(result: Any) -> dict[str, Any] | None:
         "task_id": result.get("task_id"),
         "status": result.get("status"),
         "filename": result.get("filename"),
+        "raw_title": result.get("raw_title"),
+        "display_title": result.get("display_title"),
         "audio_duration_seconds": result.get("audio_duration_seconds"),
         "stt_elapsed_seconds": result.get("stt_elapsed_seconds"),
         "stt_realtime_factor": result.get("stt_realtime_factor"),

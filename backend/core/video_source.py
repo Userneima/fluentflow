@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from backend.core.title_display import display_title_for_user
+
 SOURCE_INFO_FILE = "视频链接相关信息.md"
 DEFAULT_MAX_VIDEO_BYTES = 600 * 1024 * 1024
 URL_RE = re.compile(r"https?://[^\s，。！？、'\"“”‘’）)\]】]+", re.I)
@@ -49,6 +51,8 @@ class SavedVideoSource:
     source_url: str
     download_url: str
     video_id: str
+    raw_title: str
+    display_title: str
     title: str
     filename: str
     file_path: str
@@ -113,10 +117,12 @@ def video_id_from_url(url: str) -> str:
     return stable_id(url)
 
 
-def resolve_filename(video: ResolvedVideo, requested_title: str | None = None) -> tuple[str, str, str]:
+def resolve_filename(video: ResolvedVideo, requested_title: str | None = None) -> tuple[str, str, str, str]:
     video_id = sanitize_filename_part(video.video_id or video_id_from_url(video.source_url)) or stable_id(video.source_url)
-    title = sanitize_filename_part(requested_title or video.title or f"视频-{video_id}") or f"视频-{video_id}"
-    return video_id, title, f"{video_id}-{title}.mp4"
+    raw_title = sanitize_filename_part(requested_title or video.title or f"视频-{video_id}") or f"视频-{video_id}"
+    display_title = display_title_for_user(raw_title, raw_title) or raw_title
+    filename_title = sanitize_filename_part(display_title) or raw_title
+    return video_id, raw_title, display_title, f"{video_id}-{filename_title}.mp4"
 
 
 def decode_html(value: str) -> str:
@@ -369,7 +375,7 @@ def download_video_source(
     video_dir.mkdir(parents=True, exist_ok=True)
     on_progress and on_progress(VideoSourceProgress(stage="resolving", message="正在解析分享链接", percent=8))
     resolved = resolve_video(normalized)
-    video_id, resolved_title, filename = resolve_filename(resolved, title)
+    video_id, raw_title, display_title, filename = resolve_filename(resolved, title)
     file_path = video_dir / filename
     downloaded_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     try:
@@ -390,7 +396,9 @@ def download_video_source(
         "source_url": resolved.source_url,
         "download_url": resolved.download_url,
         "video_id": video_id,
-        "title": resolved_title,
+        "raw_title": raw_title,
+        "display_title": display_title,
+        "title": display_title,
         "filename": filename,
         "file_path": str(file_path),
         "file_url": f"/video-sources/files/{urllib.parse.quote(filename)}",
@@ -398,5 +406,5 @@ def download_video_source(
         "downloaded_at": downloaded_at,
     }
     metadata_path = write_json_metadata(file_path, metadata)
-    write_source_info(video_dir, resolved_title, resolved.source_url)
+    write_source_info(video_dir, display_title, resolved.source_url)
     return SavedVideoSource(ok=True, metadata_path=str(metadata_path), **metadata)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, AsyncGenerator, Optional
+import asyncio
 import json
 import uuid
 import urllib.parse
@@ -15,6 +16,14 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 import backend.core.server_helpers as H
 
 router = APIRouter()
+
+
+def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in ai_kwargs.items()
+        if key in {"api_key", "model", "provider"}
+    }
 
 
 @router.get("/local-history/candidates")
@@ -167,6 +176,112 @@ def update_job_transcript(request: Request, task_id: str, payload: dict[str, Any
     if not updated:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True, "job": updated, "result": updated.get("result")}
+
+
+@router.post("/jobs/{task_id}/translations/zh")
+async def generate_job_zh_translations(
+    request: Request,
+    task_id: str,
+    payload: Optional[dict[str, Any]] = Body(None),
+) -> dict[str, Any]:
+    payload = payload or {}
+    client_id = H._request_client_scope(request)
+    job = H.get_job(task_id, client_id=client_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = dict(job.get("result") or {})
+    source_segments = (
+        H._sanitize_edit_segments(payload.get("segments"))
+        or H._sanitize_edit_segments(result.get("segments"))
+        or H._sanitize_edit_segments(result.get("cleaned_segments"))
+        or H._sanitize_edit_segments(result.get("raw_segments"))
+    )
+    if not source_segments:
+        raise HTTPException(status_code=400, detail="No timestamped transcript segments to translate")
+
+    ai_kwargs = H._ai_kwargs(
+        deepseek_api_key=payload.get("deepseek_api_key") or payload.get("deepseekApiKey"),
+        openai_api_key=payload.get("openai_api_key") or payload.get("openaiApiKey"),
+        ai_provider=payload.get("ai_provider") or payload.get("aiProvider"),
+        ai_model=payload.get("ai_model") or payload.get("aiModel"),
+        system_prompt=None,
+    )
+    translation_kwargs = _translation_ai_kwargs(ai_kwargs)
+    try:
+        loop = asyncio.get_running_loop()
+        translation_result = await loop.run_in_executor(
+            None,
+            lambda: H.generate_bilingual_segments_zh(source_segments, **translation_kwargs),
+        )
+    except Exception as exc:
+        error_reason = H._friendly_error_message(exc)
+        H.logger.warning("Manual segment translation failed for %s: %s", task_id, exc)
+        result.update({
+            "task_id": result.get("task_id") or task_id,
+            "translation_status": "failed",
+            "translation_error": error_reason,
+        })
+        H.update_job_result(task_id, result, client_id=client_id)
+        raise HTTPException(status_code=502, detail=error_reason) from exc
+
+    bilingual_segments = translation_result.segments
+    if not bilingual_segments:
+        error_reason = "AI returned no usable bilingual subtitle segments"
+        result.update({
+            "task_id": result.get("task_id") or task_id,
+            "translation_status": "failed",
+            "translation_error": error_reason,
+        })
+        H.update_job_result(task_id, result, client_id=client_id)
+        raise HTTPException(status_code=502, detail=error_reason)
+    translated_segments = [
+        {
+            "start": segment.get("start"),
+            "end": segment.get("end"),
+            "text": segment.get("text_zh"),
+            "source_text": segment.get("text"),
+        }
+        for segment in bilingual_segments
+        if segment.get("text_zh")
+    ]
+
+    result.update({
+        "task_id": result.get("task_id") or task_id,
+        "segments": source_segments,
+        "bilingual_segments": bilingual_segments,
+        "translated_segments_zh": translated_segments,
+        "subtitle_mode": "bilingual_zh",
+        "translation_status": "completed",
+        "translation_error": None,
+    })
+    result = H._attach_result_artifacts(task_id, result)
+    updated = H.update_job_result(task_id, result, client_id=client_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    H.log_event(
+        task_id=task_id,
+        event_name="translation_completed",
+        source_type=job.get("source_type"),
+            source_filename=job.get("source_filename"),
+            stage="translation",
+            success=True,
+            metadata=H._metadata(
+                route="/jobs/{task_id}/translations/zh",
+                bilingual_segment_count=len(bilingual_segments),
+                translated_segment_count=len(translated_segments),
+                translation_chunk_count=translation_result.chunk_count,
+                trigger="editor",
+        ),
+    )
+    return {
+        "ok": True,
+        "job": updated,
+        "result": updated.get("result"),
+        "bilingual_segments": bilingual_segments,
+        "translated_segments_zh": translated_segments,
+    }
 
 
 

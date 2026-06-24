@@ -49,6 +49,8 @@ async def queue_process(
     export_to_lark: Optional[str] = Form(None),
     lark_via_cli: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
+    raw_title: Optional[str] = Form(None),
+    display_title: Optional[str] = Form(None),
     folder_token: Optional[str] = Form(None),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
@@ -216,6 +218,8 @@ async def process_video(
     export_to_lark: Optional[str] = Form(None),
     lark_via_cli: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
+    raw_title: Optional[str] = Form(None),
+    display_title: Optional[str] = Form(None),
     folder_token: Optional[str] = Form(None),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
@@ -258,6 +262,8 @@ async def process_video(
     H._enforce_active_job_limit(client_id, incoming=1, exclude_task_id=task_id_value)
     H._enforce_global_active_job_limit(incoming=1, exclude_task_id=task_id_value)
     source_filename = file.filename
+    raw_title_value = (raw_title or title or Path(source_filename).stem).strip()
+    display_title_value = (display_title or H.display_title_for_user(raw_title_value, source_filename)).strip()
     source_type = H._source_type_for_suffix(suffix)
     td = tempfile.mkdtemp()
     content = await file.read()
@@ -312,6 +318,8 @@ async def process_video(
         success=True,
         metadata=H._metadata(
             route="/process",
+            raw_title=raw_title_value,
+            display_title=display_title_value,
             source_fingerprint=source_fingerprint,
             source_last_modified_ms=source_last_modified_ms,
             quota=quota_reservation,
@@ -331,6 +339,8 @@ async def process_video(
             task_id_value,
             client_id,
             route="/process",
+            raw_title=raw_title_value,
+            display_title=display_title_value,
             source_fingerprint=source_fingerprint,
             source_last_modified_ms=source_last_modified_ms,
             quota=quota_reservation,
@@ -675,6 +685,8 @@ async def process_video(
             base_result: dict[str, Any] = {
                 "task_id": task_id_value,
                 "filename": file.filename,
+                "raw_title": raw_title_value,
+                "display_title": display_title_value,
                 "source_file_available": True,
             }
             cleanup_started_at = time.perf_counter()
@@ -803,6 +815,7 @@ async def process_video(
                         metadata=H._metadata(route="/process", failure_scope="optional_speaker_diarization"),
                     )
             source_language = _normalized_source_language(getattr(tr, "language", None)) or _normalized_source_language(language)
+            bilingual_segments: list[dict[str, Any]] = []
             translated_segments_zh: list[dict[str, Any]] = []
             translation_status = "not_applicable"
             translation_error: str | None = None
@@ -822,15 +835,25 @@ async def process_video(
                     ))
                     translation_result = await loop.run_in_executor(
                         None,
-                        lambda: H.translate_segments_to_zh(segments_payload, **translation_kwargs),
+                        lambda: H.generate_bilingual_segments_zh(segments_payload, **translation_kwargs),
                     )
-                    translated_segments_zh = translation_result.segments
-                    translation_status = "completed" if translated_segments_zh else "failed"
-                    if not translated_segments_zh:
-                        translation_error = "AI translation returned no usable segment translations"
+                    bilingual_segments = translation_result.segments
+                    translated_segments_zh = [
+                        {
+                            "start": segment.get("start"),
+                            "end": segment.get("end"),
+                            "text": segment.get("text_zh"),
+                            "source_text": segment.get("text"),
+                        }
+                        for segment in bilingual_segments
+                        if segment.get("text_zh")
+                    ]
+                    translation_status = "completed" if bilingual_segments else "failed"
+                    if not bilingual_segments:
+                        translation_error = "AI returned no usable bilingual subtitle segments"
                     H.log_event(
                         task_id=task_id_value,
-                        event_name="translation_completed" if translated_segments_zh else "translation_failed",
+                        event_name="translation_completed" if bilingual_segments else "translation_failed",
                         source_type=source_type,
                         source_filename=source_filename,
                         source_duration_seconds=round(duration_sec, 1),
@@ -838,11 +861,12 @@ async def process_video(
                         transcript_length=H._text_len(transcript_text),
                         stage="translation",
                         duration_seconds=round(time.perf_counter() - translation_started_at, 3),
-                        success=bool(translated_segments_zh),
+                        success=bool(bilingual_segments),
                         error_reason=translation_error,
                         metadata=H._metadata(
                             route="/process",
                             source_language=source_language,
+                            bilingual_segment_count=len(bilingual_segments),
                             translated_segment_count=len(translated_segments_zh),
                             translation_chunk_count=translation_result.chunk_count,
                         ),
@@ -868,6 +892,8 @@ async def process_video(
             base_result.update({
                 "task_id": task_id_value,
                 "filename": file.filename,
+                "raw_title": raw_title_value,
+                "display_title": display_title_value,
                 "transcript_text": transcript_text,
                 "raw_transcript_text": tr.text,
                 "cleaned_transcript_text": cleanup_result.cleaned_text,
@@ -884,6 +910,7 @@ async def process_video(
                 "detected_language": tr.language,
                 "source_language": source_language,
                 "subtitle_mode": "bilingual_zh" if translated_segments_zh else "source_only",
+                "bilingual_segments": bilingual_segments,
                 "translated_segments_zh": translated_segments_zh,
                 "translation_status": translation_status,
                 "translation_error": translation_error,
@@ -1134,8 +1161,8 @@ async def process_video(
                 stem = Path(file.filename or "media").stem
                 doc_title = H.resolve_lark_doc_title(
                     summary_md,
-                    filename_stem=stem,
-                    form_title=title,
+                    filename_stem=display_title_value or stem,
+                    form_title=title or display_title_value,
                 )
                 result["lark_doc_title"] = doc_title
                 lark_kwargs: dict[str, Any] = {}

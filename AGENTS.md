@@ -30,6 +30,25 @@ FluentFlow is Wang Yuchao's video/audio-to-transcript-and-Feishu-note tool. It i
 - Always run `git diff --check` before reporting completion.
 - For subjective visual polish, build/static checks are enough unless behavior, routing, auth, upload, payment, or data state changed.
 
+## Natural Language Skill Routing
+
+The user should not need to remember skill names. Infer the workflow from their goal and use the matching installed skill when available:
+
+- Broken behavior, repeated regressions, confusing errors, slow flows, or "check why this keeps failing": use `diagnosing-bugs`.
+- Requests to prevent the same bug from coming back, protect critical behavior, or fix with tests first: use `tdd`.
+- Messy code, module boundaries, large refactors, `app.jsx`-style splits, or maintainability concerns: use `codebase-design` or `improve-codebase-architecture`.
+- Unclear product direction, feature scope, or "think this through before building": use `grilling` or `grill-with-docs`.
+- Domain terms, workflow semantics, or decisions that future agents may misunderstand: use `domain-modeling`.
+- Review requests for current work, branches, or pull requests: use `review`.
+
+When these skills are not available in the current session, follow the same underlying discipline manually and say so briefly. Do not ask the user to name the skill unless they explicitly want that level of control.
+
+## Codex Link Analysis
+
+- When the user gives a Douyin/video link and asks Codex to transcribe or analyze it, use `scripts/codex_transcribe_link.py` first.
+- The script submits the link to the local FluentFlow backend, waits for completion, and writes a Codex-readable JSON result under ignored local data storage.
+- Prefer the script output transcript/segments over UI history when discussing the video, because it is the direct task result for the current request.
+
 ## Change Scope
 
 - Keep edits minimal and local. Do not refactor unrelated pages while fixing one UI surface.

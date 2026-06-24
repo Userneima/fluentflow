@@ -32,10 +32,13 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
 
     options = H._queue_options_from_mapping(payload.get("options") if isinstance(payload.get("options"), dict) else {})
     task_id_value = H._new_task_id()
-    display_name = title or input_text[:80]
+    raw_title = title or input_text[:80]
+    display_name = H.display_title_for_user(raw_title, raw_title)
     metadata = H._metadata(
         route="/video-sources/jobs",
         queue_options=options,
+        raw_title=raw_title,
+        display_title=display_name,
         video_source_input_preview=input_text[:200],
     )
     H.log_event(
@@ -73,6 +76,7 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
             "stage": "resolving",
             "source_type": "video_link",
             "source_filename": display_name,
+            "metadata": metadata,
         },
     }
 

@@ -79,6 +79,36 @@ def test_account_middleware_rejects_api_without_session(monkeypatch, tmp_path) -
     assert response.json()["account_required"] is True
 
 
+def test_local_lark_export_can_use_local_execution_header(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    exported: list[tuple[str, str]] = []
+
+    def fake_export(title: str, markdown: str) -> dict:
+        exported.append((title, markdown))
+        return {"ok": True, "url": "https://example.feishu.cn/docx/local"}
+
+    monkeypatch.setattr(_H, "export_markdown_via_lark_cli", fake_export)
+
+    with TestClient(main.app) as client:
+        blocked = client.post(
+            "/export-lark",
+            data={"markdown": "# Local note", "title": "Local note", "lark_via_cli": "true"},
+        )
+        allowed = client.post(
+            "/export-lark",
+            headers={
+                "X-FluentFlow-Execution-Target": "local",
+                "X-FluentFlow-Client-Id": "local-yuchao",
+            },
+            data={"markdown": "# Local note", "title": "Local note", "lark_via_cli": "true"},
+        )
+
+    assert blocked.status_code == 401
+    assert allowed.status_code == 200
+    assert allowed.json()["url"] == "https://example.feishu.cn/docx/local"
+    assert exported == [("Local note", "# Local note")]
+
+
 def test_account_login_sets_session_cookie(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
 

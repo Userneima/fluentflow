@@ -17,6 +17,7 @@ from backend.core.ai_summarizer import (
     _provider_base_url,
     _provider_default_model,
     _strip_prompt_leakage,
+    generate_bilingual_segments_zh,
     summarize_transcript_with_metadata,
     translate_segments_to_zh,
 )
@@ -160,6 +161,33 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertEqual(result.segments[0]["text"], "你好世界")
         self.assertEqual(result.segments[0]["source_text"], "Hello world")
         self.assertEqual(mock_chat.call_count, 1)
+
+    @patch("backend.core.ai_summarizer._get_client")
+    @patch("backend.core.ai_summarizer._chat")
+    def test_generate_bilingual_segments_zh_merges_adjacent_fragments(self, mock_chat, mock_get_client) -> None:
+        mock_get_client.return_value = object()
+        mock_chat.return_value = (
+            '[{"start_index":0,"end_index":1,'
+            '"text_en":"Stop prompting your AI and make it figure out what to do next.",'
+            '"text_zh":"停止不断提示你的 AI，而是让它自己判断下一步该做什么。"}]'
+        )
+
+        result = generate_bilingual_segments_zh(
+            [
+                {"start": 52.0, "end": 58.0, "text": "and the whole narrative is like stop"},
+                {"start": 58.0, "end": 65.0, "text": "prompting your AI and make it figure out what to do next"},
+            ],
+            api_key="test-key",
+        )
+
+        self.assertEqual(result.translated_count, 1)
+        self.assertEqual(result.chunk_count, 1)
+        self.assertEqual(result.segments[0]["start"], 52.0)
+        self.assertEqual(result.segments[0]["end"], 65.0)
+        self.assertEqual(result.segments[0]["source_start_index"], 0)
+        self.assertEqual(result.segments[0]["source_end_index"], 1)
+        self.assertIn("Stop prompting", result.segments[0]["text"])
+        self.assertIn("停止不断提示", result.segments[0]["text_zh"])
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")

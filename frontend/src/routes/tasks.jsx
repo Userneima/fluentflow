@@ -9,6 +9,7 @@ import {
     hasTranscriptResult,
     isSttProgressUnmeasured,
     jobToCurrentJob,
+    jobDisplayTitle,
     jobToHistoryEntry,
     readCachedAccountJobs,
     timeAgo,
@@ -19,30 +20,14 @@ import {
     writeCachedAccountJobs,
 } from '../app/shared.jsx';
 
-const isVideoSourceJob = (job) => (
-    job?.source_type === 'video_link'
-    || job?.metadata?.route === '/video-sources/jobs'
-    || !!job?.metadata?.video_source
-);
+const markCachedOnlyJob = (job) => job && typeof job === 'object'
+    ? {...job, __cacheOnly: true}
+    : job;
 
-const stripExtension = (value) => String(value || '').replace(/\.[a-z0-9]{2,6}$/i, '').trim();
-
-const stripGeneratedVideoPrefix = (value) => {
-    const text = stripExtension(value);
-    return text.replace(/^[a-z0-9_-]{6,80}[-_]+(?=.)/i, '').trim() || text;
-};
-
-const jobDisplayTitle = (job, lang) => {
-    const videoSource = job?.metadata?.video_source || {};
-    if (isVideoSourceJob(job)) {
-        const title = String(videoSource.title || '').trim();
-        if (title) return title;
-        const filename = videoSource.filename || job?.result?.filename || job?.source_filename;
-        const cleaned = stripGeneratedVideoPrefix(filename);
-        if (cleaned && cleaned !== job?.task_id) return cleaned;
-        return lang === 'zh' ? '视频链接任务' : 'Video link task';
-    }
-    return String(job?.source_filename || job?.result?.filename || '').trim() || (lang === 'zh' ? '未命名任务' : 'Untitled task');
+const markBackendJob = (job) => {
+    if (!job || typeof job !== 'object') return job;
+    const {__cacheOnly, ...backendJob} = job;
+    return {...backendJob, __cacheOnly: false};
 };
 
 const Tasks = () => {
@@ -53,7 +38,8 @@ const Tasks = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
-    const [jobs, setJobs] = useState(() => readCachedAccountJobs(cacheAccountId));
+    const readCachedOnlyJobs = useCallback(() => readCachedAccountJobs(cacheAccountId).map(markCachedOnlyJob), [cacheAccountId]);
+    const [jobs, setJobs] = useState(() => readCachedAccountJobs(cacheAccountId).map(markCachedOnlyJob));
     const [loading, setLoading] = useState(() => readCachedAccountJobs(cacheAccountId).length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
@@ -100,14 +86,15 @@ const Tasks = () => {
                 getJobs(100).catch(() => []),
                 getJobs(100, {sttProvider: 'local'}).catch(() => []),
             ]);
-            const byId = new Map(readCachedAccountJobs(cacheAccountId).map((job) => [job.task_id, job]).filter(([taskId]) => taskId));
+            const byId = new Map(readCachedOnlyJobs().map((job) => [job.task_id, job]).filter(([taskId]) => taskId));
             [...accountJobs, ...localJobs].forEach((job) => {
                 if (!job?.task_id) return;
                 const existing = byId.get(job.task_id);
                 if (existing?.status === 'cancelled' && job.status !== 'cancelled') return;
                 const existingTs = Date.parse(existing?.updated_at || existing?.created_at || '') || 0;
                 const nextTs = Date.parse(job.updated_at || job.created_at || '') || 0;
-                if (!existing || nextTs >= existingTs) byId.set(job.task_id, job);
+                if (!existing || nextTs >= existingTs) byId.set(job.task_id, markBackendJob(job));
+                else byId.set(job.task_id, markBackendJob(existing));
             });
             const next = Array.from(byId.values());
             writeCachedAccountJobs(cacheAccountId, next);
@@ -118,15 +105,15 @@ const Tasks = () => {
         } finally {
             setLoading(false);
         }
-    }, [cacheAccountId, lang]);
+    }, [cacheAccountId, lang, readCachedOnlyJobs]);
 
     useEffect(() => {
-        const cached = readCachedAccountJobs(cacheAccountId);
+        const cached = readCachedOnlyJobs();
         if (cached.length) {
             setJobs(cached);
             setLoading(false);
         }
-    }, [cacheAccountId]);
+    }, [readCachedOnlyJobs]);
 
     useEffect(() => {
         if(location.state?.queueSubmitError) {
@@ -156,22 +143,33 @@ const Tasks = () => {
             setCurrentJob(jobToCurrentJob(job));
             return;
         }
+        const openResult = (sourceJob, result) => {
+            setLastResult(result);
+            addToHistory(jobToHistoryEntry({...sourceJob, result}));
+            navigate('/editor');
+        };
+        if (job.__cacheOnly && job.result) {
+            openResult(job, job.result);
+            return;
+        }
         try {
             const fresh = await getJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
             const result = fresh?.result || job.result;
             if (result) {
-                setLastResult(result);
-                addToHistory(jobToHistoryEntry({...job, result}));
-                navigate('/editor');
+                openResult(job, result);
             }
         } catch (err) {
+            if (err.status === 404 && job.result) {
+                openResult(job, job.result);
+                return;
+            }
             setError(friendlyTaskError(err.message || String(err), lang));
         }
     };
 
     const downloadArtifact = async (job, kind) => {
         const artifact = job.result?.artifacts?.[kind];
-        await downloadJobArtifact(job.task_id, kind, artifact?.filename);
+        await downloadJobArtifact(job.task_id, kind, artifact?.filename, isLocalJob(job) ? {sttProvider: 'local'} : {});
     };
     const cancelLiveJob = async (job) => {
         if (!isLiveJob(job)) return;

@@ -186,6 +186,8 @@ def import_account_history(request: Request, payload: dict[str, Any] = Body(...)
             source_type="imported_local_history",
             original_task_id=normalized.get("original_task_id"),
             source_fingerprint=normalized.get("source_fingerprint"),
+            raw_title=normalized.get("raw_title"),
+            display_title=normalized.get("display_title"),
             imported_by_account_id=str(user["id"]),
             imported_timestamp=normalized.get("imported_timestamp"),
         )

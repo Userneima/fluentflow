@@ -3,7 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from backend.core.job_store import delete_jobs, ensure_job_db, get_job, list_jobs, list_jobs_for_retention, update_job_result, upsert_job
+from backend.core.job_store import (
+    delete_jobs,
+    ensure_job_db,
+    get_job,
+    list_jobs,
+    list_jobs_for_retention,
+    migrate_job_display_titles,
+    update_job_result,
+    upsert_job,
+)
 
 
 def test_job_store_persists_status_and_result(tmp_path: Path) -> None:
@@ -61,6 +70,59 @@ def test_update_job_result_preserves_job_metadata(tmp_path: Path) -> None:
     assert updated["source_filename"] == "demo.m4a"
     assert updated["result"]["transcript_text"] == "new"
     assert updated["result"]["transcript_edited"] is True
+
+
+def test_migrate_job_display_titles_backfills_legacy_video_jobs(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="task-legacy",
+        status="completed",
+        source_type="video",
+        source_filename="7651613998131006774-四大核心Skill架构与配置指南详解.mp4",
+        result={
+            "task_id": "task-legacy",
+            "filename": "7651613998131006774-四大核心Skill架构与配置指南详解.mp4",
+            "transcript_text": "text",
+        },
+        metadata={
+            "route": "/video-sources/jobs",
+            "video_source": {
+                "title": "7651613998131006774-四大核心Skill架构与配置指南详解",
+                "filename": "7651613998131006774-四大核心Skill架构与配置指南详解.mp4",
+            },
+        },
+        db_path=db,
+    )
+    before = get_job("task-legacy", db_path=db)
+
+    assert migrate_job_display_titles(db_path=db) == 1
+    job = get_job("task-legacy", db_path=db)
+
+    assert job is not None
+    assert before is not None
+    assert job["updated_at"] == before["updated_at"]
+    assert job["source_filename"] == "7651613998131006774-四大核心Skill架构与配置指南详解.mp4"
+    assert job["metadata"]["raw_title"] == "7651613998131006774-四大核心Skill架构与配置指南详解"
+    assert job["metadata"]["display_title"] == "四大核心Skill架构与配置指南详解"
+    assert job["metadata"]["video_source"]["display_title"] == "四大核心Skill架构与配置指南详解"
+    assert job["result"]["raw_title"] == "7651613998131006774-四大核心Skill架构与配置指南详解"
+    assert job["result"]["display_title"] == "四大核心Skill架构与配置指南详解"
+
+
+def test_migrate_job_display_titles_does_not_rewrite_existing_clean_title(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="task-clean",
+        status="completed",
+        source_filename="demo.mp4",
+        result={"task_id": "task-clean", "filename": "demo.mp4", "raw_title": "干净标题", "display_title": "干净标题"},
+        metadata={"display_title": "干净标题", "raw_title": "干净标题"},
+        db_path=db,
+    )
+
+    assert migrate_job_display_titles(db_path=db) == 0
 
 
 def test_cancelled_job_cannot_be_revived_by_late_progress_update(tmp_path: Path) -> None:

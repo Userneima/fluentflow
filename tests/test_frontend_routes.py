@@ -47,6 +47,95 @@ def test_processing_settings_no_longer_exposes_audio_language_control() -> None:
     assert "Audio Language" not in source
 
 
+def test_tasks_open_cached_result_without_backend_detail_request() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "__cacheOnly" in source
+    assert "if (job.__cacheOnly && job.result)" in source
+    assert "err.status === 404 && job.result" in source
+    assert "err.status = r.status" in shared
+    assert "const {__cacheOnly, ...persistedJob} = job" in shared
+
+
+def test_tasks_strip_generated_video_prefix_from_video_source_title() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
+
+    assert "jobDisplayTitle" in source
+    assert r"/^[0-9]{10,24}[-_]+/" in fmt
+    assert "metadata.display_title" in shared
+    assert "videoSource.display_title" in shared
+    assert "result.display_title" in shared
+    assert "displayTitleForUser(" in shared
+
+
+def test_history_entries_preserve_raw_filename_and_display_title() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "normalizeHistoryEntryTitles" in shared
+    assert "readBrowserHistoryEntries()" in shared
+    assert "displayTitle: displayTitle || rawTitle" in shared
+    assert "rawFilename" in shared
+    assert "filename: h.rawFilename || h.name" in shared
+    assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in shared
+
+
+def test_tasks_route_does_not_use_source_filename_as_display_title() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+
+    assert "const displayTitle = jobDisplayTitle(job, lang)" in source
+    assert "title={displayTitle}" in source
+    assert "{displayTitle}</h2>" in source
+    assert "const displayTitle = job?.source_filename" not in source
+    assert "<h2 className=\"text-sm font-headline font-extrabold text-on-surface truncate\" title={job.source_filename}" not in source
+
+
+def test_editor_lark_export_uses_local_execution_header_on_localhost() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "shouldUseLocalSingleUserClientId()" in source
+    assert "localExecutionHeaders({localExecution: true})" in source
+    assert "options.localExecution || normalizeSttProvider(options.sttProvider) === 'local'" in shared
+
+
+def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "const jobOptionsForResult = (result)" in source
+    assert "if (isLocalHistoryResult(result)) return;" in source
+    assert "getJob(result.task_id, resultJobOptions)" in source
+    assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
+    assert "saveTranscriptEdit(result.task_id, {" in source
+    assert "}, resultJobOptions)" in source
+    assert "const fetchJobSourceFile = async (taskId, filename='source', options={})" in shared
+    assert "const saveTranscriptEdit = async (taskId, payload={}, options={})" in shared
+
+
+def test_subtitle_import_is_a_note_generation_action() -> None:
+    source = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "导入字幕生成笔记" in shared
+    assert "skipSummary: false" in source
+    assert "summarizeTranscriptFile(file, {taskId, ...buildAiOptions(settings), skipSummary: false}" in source
+    assert "SRT / VTT / TXT / MD" in source
+
+
+def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    download = Path("frontend/src/lib/download.js").read_text(encoding="utf-8")
+
+    assert "中英对照" in source
+    assert "原始字幕" in source
+    assert "bilingualTranscriptSegments" in source
+    assert "visibleTranscriptView === 'bilingual'" in source
+    assert "segment?.text_zh" in download
+
+
 def test_failed_job_can_be_deleted(monkeypatch) -> None:
     deleted: list[tuple[list[str], str | None]] = []
     cleaned: list[str] = []

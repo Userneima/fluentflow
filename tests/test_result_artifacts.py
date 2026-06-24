@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -139,3 +140,73 @@ def test_upload_job_playback_audio_persists_artifact_with_original_suffix(tmp_pa
     assert (artifact_dir / "task_media" / artifact["filename"]).read_bytes() == b"audio-bytes"
     assert download.status_code == 200
     assert download.content == b"audio-bytes"
+
+
+def test_generate_job_zh_translations_persists_bilingual_artifacts(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "jobs.sqlite"
+    artifact_dir = tmp_path / "artifacts"
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(artifact_dir))
+    monkeypatch.delenv("FLUENTFLOW_ACCOUNT_AUTH", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", raising=False)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "get_job", lambda task_id, client_id=None: job_store.get_job(task_id, db_path=db_path, client_id=client_id))
+    monkeypatch.setattr(_H, "update_job_result", lambda task_id, result, client_id=None: job_store.update_job_result(task_id, result, db_path=db_path, client_id=client_id))
+    monkeypatch.setattr(
+        _H,
+        "generate_bilingual_segments_zh",
+        lambda segments, **_kwargs: SimpleNamespace(
+            segments=[
+                {
+                    "start": segments[0]["start"],
+                    "end": segments[1]["end"],
+                    "text": "Hello world. Second sentence.",
+                    "text_zh": "你好，世界。第二句。",
+                    "source_start_index": 0,
+                    "source_end_index": 1,
+                },
+            ],
+            translated_count=1,
+            chunk_count=1,
+        ),
+    )
+
+    job_store.upsert_job(
+        task_id="task_translate",
+        client_id="local-yuchao",
+        status="completed",
+        stage="done",
+        progress=100,
+        source_type="video",
+        source_filename="english.mp4",
+        result={
+            "task_id": "task_translate",
+            "filename": "english.mp4",
+            "transcript_text": "Hello world\nSecond sentence",
+            "segments": [
+                {"start": 0.0, "end": 1.25, "text": "Hello world"},
+                {"start": 1.25, "end": 3.5, "text": "Second sentence"},
+            ],
+            "translation_status": "failed",
+        },
+        db_path=db_path,
+    )
+
+    response = TestClient(main.app).post(
+        "/jobs/task_translate/translations/zh",
+        headers={"X-FluentFlow-Client-Id": "local-yuchao"},
+        json={"aiProvider": "deepseek"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["translation_status"] == "completed"
+    assert result["subtitle_mode"] == "bilingual_zh"
+    assert result["bilingual_segments"][0]["text"] == "Hello world. Second sentence."
+    assert result["translated_segments_zh"][0]["text"] == "你好，世界。第二句。"
+    artifacts = result["artifacts"]
+    assert "transcript_bilingual_srt" in artifacts
+    bilingual_srt = (
+        artifact_dir / "task_translate" / artifacts["transcript_bilingual_srt"]["filename"]
+    ).read_text(encoding="utf-8")
+    assert "Hello world. Second sentence.\n你好，世界。第二句。" in bilingual_srt
