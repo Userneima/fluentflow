@@ -148,6 +148,67 @@ _EVIDENCE_CONDENSE_SYSTEM: Final[str] = f"""你是 FluentFlow 的证据合并助
 输出仍然是 Markdown 证据清单，不要写成最终笔记。
 {_SOURCE_FAITHFULNESS_RULES}"""
 
+_CHAPTER_EVIDENCE_SYSTEM: Final[str] = f"""你是 FluentFlow 的长字幕证据抽取助手。
+输入是带有 segment_id 的转录片段 JSON 数组。请抽取可用于完整覆盖笔记的证据。
+
+输出严格 JSON 数组，不要输出 Markdown 或代码围栏。每项格式：
+{{
+  "evidence_id": "E001",
+  "source_segment_ids": ["S001"],
+  "type": "concept|argument|method|example|metric|action|detail",
+  "text": "证据内容，必须忠实于原文",
+  "importance": 1,
+  "keywords": ["关键词"],
+  "quote": "可选原文关键句"
+}}
+
+规则：
+- evidence_id 可以先用临时编号，程序会重排成稳定编号。
+- importance 使用 1-5；4-5 表示重要证据。
+- 保留具体例子、数字、限制条件和老师强调。
+- 不要为了整齐而编造分类或内容。
+{_SOURCE_FAITHFULNESS_RULES}"""
+
+_CHAPTER_OUTLINE_SYSTEM: Final[str] = """你是 FluentFlow 的章节规划助手。
+输入是一组证据的压缩视图。请把证据分配到 3-8 个自然章节中。
+
+输出严格 JSON 数组，不要输出 Markdown 或代码围栏。每项格式：
+{
+  "chapter_id": "CH01",
+  "title": "章节标题",
+  "purpose": "这一章解决什么问题",
+  "used_evidence_ids": ["E001", "E002"]
+}
+
+规则：
+- 每条重要证据应尽量分配到某个章节。
+- 章节顺序应符合材料讲述顺序。
+- 不要新增输入中不存在的主题。"""
+
+_CHAPTER_NOTE_SYSTEM: Final[str] = f"""你是 FluentFlow 的章节笔记写作助手。
+输入是某一章的标题、目的和证据清单。请只写这一章的 Markdown 内容。
+
+要求：
+- 用 `##` 作为本章标题。
+- 必须吸收本章内的重要概念、案例、数字、步骤和限制条件。
+- 只基于证据写作，不要补充外部知识。
+- 不要写整篇总结，不要重复其他章节。
+{_SOURCE_FAITHFULNESS_RULES}"""
+
+_CHAPTER_STYLE_SYSTEM: Final[str] = f"""你是 FluentFlow 的长文档编校助手。
+输入是按章节生成的 Markdown 草稿。请做轻量合并和统一风格，输出一份完整笔记。
+
+只能做：
+- 统一标题层级、编号和术语。
+- 去除明显重复。
+- 补自然过渡。
+
+不能做：
+- 大幅压缩章节。
+- 删除具体例子、数字、步骤和限制条件。
+- 新增原文没有的信息。
+{_SOURCE_FAITHFULNESS_RULES}"""
+
 _FINAL_WRAPPER: Final[str] = (
     "以下内容来自**同一门课程**转录文本的分段提炼（按时间顺序）。"
     "请**整理为一份完整**、可直接用于飞书云文档的 Markdown 笔记，"
@@ -228,6 +289,12 @@ class SummaryResult:
     chunk_count: int
     coverage_checked: bool = False
     coverage_revision_used: bool = False
+    segment_count: int | None = None
+    evidence_count: int | None = None
+    chapter_count: int | None = None
+    important_evidence_count: int | None = None
+    covered_important_evidence_count: int | None = None
+    coverage_missing_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -437,6 +504,24 @@ def _extract_json_array(text: str) -> list[Any]:
     return parsed
 
 
+def _extract_json_object(text: str) -> dict[str, Any]:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        parsed = json.loads(raw[start : end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("Response is not a JSON object")
+    return parsed
+
+
 def _normalize_note_mode(mode: str | None) -> str:
     value = (mode or os.environ.get("FLUENTFLOW_NOTE_MODE") or "auto").strip().lower()
     if value not in SUPPORTED_NOTE_MODES:
@@ -445,11 +530,234 @@ def _normalize_note_mode(mode: str | None) -> str:
 
 
 def _resolve_note_mode(mode: str, transcript_length: int) -> str:
-    if mode == "chapter_coverage":
-        return "high_fidelity"
     if mode != "auto":
         return mode
     return "direct" if transcript_length <= DIRECT_MODE_MAX_CHARS else "high_fidelity"
+
+
+def _chapter_segments(text: str, max_chars: int) -> list[dict[str, Any]]:
+    chunks = _chunk_text(text, max_chars, overlap=0)
+    return [
+        {"segment_id": f"S{idx + 1:03d}", "order": idx + 1, "text": chunk}
+        for idx, chunk in enumerate(chunks)
+    ]
+
+
+def _coerce_importance(value: Any) -> int:
+    try:
+        return min(max(int(value), 1), 5)
+    except (TypeError, ValueError):
+        return 3
+
+
+def _normalize_string_list(value: Any, *, limit: int = 12) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()][:limit]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()[:240]]
+    return []
+
+
+def _normalize_evidence_items(
+    raw_items: list[Any],
+    valid_segment_ids: set[str],
+    *,
+    start_index: int = 0,
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    allowed_types = {"concept", "argument", "method", "example", "metric", "action", "detail"}
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        segment_ids = [
+            segment_id
+            for segment_id in _normalize_string_list(item.get("source_segment_ids") or item.get("sourceSegmentIds"))
+            if segment_id in valid_segment_ids
+        ]
+        evidence_type = str(item.get("type") or "detail").strip()
+        if evidence_type not in allowed_types:
+            evidence_type = "detail"
+        evidence.append({
+            "evidence_id": f"E{start_index + len(evidence) + 1:03d}",
+            "source_segment_ids": segment_ids,
+            "type": evidence_type,
+            "text": text[:1200],
+            "importance": _coerce_importance(item.get("importance")),
+            "keywords": _normalize_string_list(item.get("keywords"), limit=8),
+            "quote": str(item.get("quote") or "").strip()[:500],
+        })
+    return evidence
+
+
+def _compact_evidence_view(evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "evidence_id": item["evidence_id"],
+            "order": idx + 1,
+            "type": item.get("type"),
+            "importance": item.get("importance"),
+            "text": item.get("text"),
+            "keywords": item.get("keywords") or [],
+        }
+        for idx, item in enumerate(evidence)
+    ]
+
+
+def _normalize_chapters(raw_items: list[Any], evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    valid_ids = {str(item.get("evidence_id")) for item in evidence}
+    chapters: list[dict[str, Any]] = []
+    assigned: set[str] = set()
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        used_ids = [
+            evidence_id
+            for evidence_id in _normalize_string_list(item.get("used_evidence_ids") or item.get("usedEvidenceIds"), limit=200)
+            if evidence_id in valid_ids
+        ]
+        if not used_ids:
+            continue
+        chapter_id = f"CH{len(chapters) + 1:02d}"
+        chapters.append({
+            "chapter_id": chapter_id,
+            "title": title[:80],
+            "purpose": str(item.get("purpose") or "").strip()[:240],
+            "used_evidence_ids": used_ids,
+        })
+        assigned.update(used_ids)
+
+    missing = [item["evidence_id"] for item in evidence if item["evidence_id"] not in assigned]
+    if chapters and missing:
+        chapters[-1]["used_evidence_ids"] = [*chapters[-1]["used_evidence_ids"], *missing]
+    if chapters:
+        return chapters
+
+    return [{
+        "chapter_id": "CH01",
+        "title": "完整覆盖笔记",
+        "purpose": "按原文顺序整理全部重要证据。",
+        "used_evidence_ids": [item["evidence_id"] for item in evidence],
+    }]
+
+
+def _evidence_markdown(items: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for item in items:
+        keywords = "、".join(item.get("keywords") or [])
+        source = ", ".join(item.get("source_segment_ids") or [])
+        parts = [
+            f"- {item['evidence_id']} | importance={item.get('importance')} | type={item.get('type')}",
+            f"  - 内容：{item.get('text')}",
+        ]
+        if keywords:
+            parts.append(f"  - 关键词：{keywords}")
+        if source:
+            parts.append(f"  - 来源片段：{source}")
+        if item.get("quote"):
+            parts.append(f"  - 原文：{item.get('quote')}")
+        lines.extend(parts)
+    return "\n".join(lines)
+
+
+def _run_chapter_coverage_mode(
+    client: OpenAI,
+    model: str,
+    prompt: str,
+    transcript_text: str,
+    *,
+    segment_chars: int,
+    max_final_input_chars: int,
+) -> SummaryResult:
+    segments = _chapter_segments(transcript_text, segment_chars)
+    valid_segment_ids = {segment["segment_id"] for segment in segments}
+    evidence: list[dict[str, Any]] = []
+    for batch in segments:
+        payload = json.dumps([batch], ensure_ascii=False)
+        raw_items = _extract_json_array(_chat(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1))
+        evidence.extend(_normalize_evidence_items(raw_items, valid_segment_ids, start_index=len(evidence)))
+
+    if not evidence:
+        raise ValueError("Chapter coverage evidence extraction returned no usable evidence")
+
+    outline_payload = json.dumps(_compact_evidence_view(evidence), ensure_ascii=False)
+    raw_chapters = _extract_json_array(_chat(client, model, _CHAPTER_OUTLINE_SYSTEM, outline_payload, temperature=0.1))
+    chapters = _normalize_chapters(raw_chapters, evidence)
+    evidence_by_id = {item["evidence_id"]: item for item in evidence}
+
+    chapter_notes: list[str] = []
+    covered_ids: set[str] = set()
+    for chapter in chapters:
+        chapter_evidence = [
+            evidence_by_id[evidence_id]
+            for evidence_id in chapter["used_evidence_ids"]
+            if evidence_id in evidence_by_id
+        ]
+        covered_ids.update(item["evidence_id"] for item in chapter_evidence)
+        user = json.dumps({
+            "chapter_id": chapter["chapter_id"],
+            "title": chapter["title"],
+            "purpose": chapter.get("purpose") or "",
+            "evidence": chapter_evidence,
+        }, ensure_ascii=False)
+        chapter_notes.append(_strip_prompt_leakage(_chat(client, model, _CHAPTER_NOTE_SYSTEM, user, temperature=0.2)))
+
+    draft = "\n\n".join(note for note in chapter_notes if note.strip())
+    final_note = _strip_prompt_leakage(_chat(client, model, _CHAPTER_STYLE_SYSTEM, draft, temperature=0.2))
+    if not final_note:
+        final_note = draft
+
+    important_ids = {item["evidence_id"] for item in evidence if int(item.get("importance") or 0) >= 4}
+    uncovered_important = sorted(important_ids - covered_ids)
+    coverage_payload = {
+        "total_evidence": len(evidence),
+        "important_evidence": len(important_ids),
+        "covered_important_evidence": len(important_ids) - len(uncovered_important),
+        "unused_important_evidence_ids": uncovered_important,
+    }
+    coverage_input = (
+        f"--- 覆盖矩阵 ---\n\n{json.dumps(coverage_payload, ensure_ascii=False, indent=2)}"
+        f"\n\n--- 证据清单 ---\n\n{_evidence_markdown(evidence)}"
+        f"\n\n--- 已生成笔记 ---\n\n{final_note}"
+    )
+    coverage_checked = len(coverage_input) <= max_final_input_chars
+    coverage_revision_used = False
+    missing_count = len(uncovered_important)
+    if coverage_checked:
+        coverage = _chat(client, model, _COVERAGE_SYSTEM, coverage_input, temperature=0.1).strip()
+        if coverage and coverage != "COVERED":
+            final_note = _strip_prompt_leakage(
+                _chat(
+                    client,
+                    model,
+                    prompt,
+                    _REVISION_WRAPPER.format(draft=final_note, coverage=coverage),
+                    temperature=0.2,
+                )
+            )
+            coverage_revision_used = True
+            missing_count = max(missing_count, 1)
+
+    return SummaryResult(
+        markdown=final_note,
+        requested_mode="chapter_coverage",
+        resolved_mode="chapter_coverage",
+        transcript_length=len(transcript_text),
+        chunk_count=len(segments),
+        coverage_checked=coverage_checked,
+        coverage_revision_used=coverage_revision_used,
+        segment_count=len(segments),
+        evidence_count=len(evidence),
+        chapter_count=len(chapters),
+        important_evidence_count=len(important_ids),
+        covered_important_evidence_count=len(important_ids) - len(uncovered_important),
+        coverage_missing_count=missing_count,
+    )
 
 
 def _condense_interim_drafts(
@@ -553,6 +861,16 @@ def summarize_transcript_with_metadata(
             resolved_mode=resolved_mode,
             transcript_length=transcript_length,
             chunk_count=1,
+        )
+
+    if resolved_mode == "chapter_coverage":
+        return _run_chapter_coverage_mode(
+            client,
+            m,
+            prompt,
+            transcript_text,
+            segment_chars=evidence_chunk_chars,
+            max_final_input_chars=max_final_input_chars,
         )
 
     chunks = _chunk_text(transcript_text, evidence_chunk_chars, evidence_overlap)

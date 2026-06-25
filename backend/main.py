@@ -6,57 +6,15 @@ from backend.core.server_helpers.
 
 from __future__ import annotations
 
-import urllib  # noqa: F401 — re-export for test compatibility
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.core.server_helpers import (
-    APP_VERSION,
-    EVENT_SCHEMA_VERSION,
-    FRONTEND_DIR,
-    FRONTEND_INDEX,
     FRONTEND_DIST_DIR,
-    FRONTEND_ROOT,
-    API_ROUTE_PREFIXES,
     beta_access_middleware,
     _startup_resume_queue,
-    # ── Re-exports for backward compatibility (tests, legacy imports) ──
-    GUEST_TRIAL_TOKEN_HEADER,
-    HTTPException,
-    JSONResponse,
-    JOB_EVENTS,
-    _SUBMISSION_RATE_EVENTS,
-    _allowed_stt_providers,
-    _duration_limit_error,
-    _enforce_active_job_limit,
-    _enforce_daily_quota,
-    _enforce_global_active_job_limit,
-    _enforce_global_daily_quota,
-    _enforce_guest_daily_ip_limit,
-    _enforce_history_retention,
-    _enforce_submission_rate_limit,
-    _friendly_error_message,
-    _is_public_request,
-    _job_metadata_for_update,
-    _normalize_stt_provider,
-    _ops_status_payload,
-    _request_client_scope,
-    _request_is_local_execution,
-    _resume_queued_transcription_jobs,
-    _run_queued_transcription,
-    _run_video_source_job,
-    _should_proxy_cloud_workspace,
-    _write_edited_transcript_backup,
-    get_job,
-    upsert_job,
-    delete_jobs,
-    list_jobs,
-    log_event,
-    update_job_result,
-    job_has_transcript_result,
-    list_job_summaries,
 )
 
 @asynccontextmanager

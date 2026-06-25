@@ -30,6 +30,32 @@ const markBackendJob = (job) => {
     return {...backendJob, __cacheOnly: false};
 };
 
+const taskNextStepText = (job, lang) => {
+    const result = job?.result || {};
+    const errorText = String(job?.error_reason || result.summary_error || '').toLowerCase();
+    const summaryFailed = job?.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
+    if (job?.status === 'cancelled') {
+        return lang === 'zh' ? '下一步：不用继续等，可以直接删除这条记录。' : 'Next: no need to wait. You can delete this record.';
+    }
+    if (summaryFailed && hasTranscriptResult(result)) {
+        return lang === 'zh' ? '下一步：打开结果，点击重新生成摘要；字幕不会丢。' : 'Next: open the result and regenerate the summary. The transcript is preserved.';
+    }
+    if (job?.status !== 'failed') return '';
+    if (errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
+        return lang === 'zh' ? '下一步：这个任务使用了当前版本已不支持的笔记模式，回到开始页重新提交即可。' : 'Next: this job used a note mode that is no longer supported. Submit it again from Dashboard.';
+    }
+    if (errorText.includes('quota') || errorText.includes('balance') || errorText.includes('额度') || errorText.includes('余额')) {
+        return lang === 'zh' ? '下一步：补足额度或降低本次处理成本后再提交。' : 'Next: add balance or lower this run’s cost before submitting again.';
+    }
+    if (errorText.includes('lark') || errorText.includes('feishu') || errorText.includes('飞书')) {
+        return lang === 'zh' ? '下一步：检查飞书导出路线和凭证后再重试。' : 'Next: check the Feishu export route and credentials, then retry.';
+    }
+    if (job?.source_type === 'video_link') {
+        return lang === 'zh' ? '下一步：删除失败记录，重新粘贴链接；如果仍失败，改用本地视频上传。' : 'Next: delete this failed record and paste the link again; upload the video file if it keeps failing.';
+    }
+    return lang === 'zh' ? '下一步：可以删除这条失败记录，然后从开始页重新提交。' : 'Next: delete this failed record, then submit it again from Dashboard.';
+};
+
 const Tasks = () => {
     const {t, lang} = useI18n();
     const {authMode, user} = useAuth();
@@ -372,6 +398,7 @@ const Tasks = () => {
                             const canOpen = hasTranscriptResult(result) || (!!result && job.status === 'completed');
                             const summaryFailed = job.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
                             const showDetail = isLiveJob(job) || job.status === 'failed' || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result));
+                            const nextStepText = taskNextStepText(job, lang);
                             const displayTitle = jobDisplayTitle(job, lang);
                             return (
                                 <article key={job.task_id} className="rounded-sm bg-surface-container-lowest border ff-border-muted shadow-sm p-4">
@@ -404,6 +431,11 @@ const Tasks = () => {
                                                         {job.status === 'failed' && !canOpen ? <span className="font-bold">{t('tasks.error')}： </span> : null}
                                                         {stageDetail(job)}
                                                     </p>
+                                                    {nextStepText && (
+                                                        <p className="rounded-sm border ff-border-control bg-surface-container-lowest px-3 py-2 text-xs font-semibold leading-relaxed text-on-surface-variant">
+                                                            {nextStepText}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

@@ -31,13 +31,18 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
-import urllib.error
-import urllib.request
 
 import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from backend.core.result_schema import (
+    canonical_display_segments,
+    canonical_raw_segments,
+    normalize_result_for_storage,
+    sanitize_display_segments,
+    sanitize_raw_segments,
+)
 from backend.core.title_display import display_title_for_user
 
 logger = logging.getLogger(__name__)
@@ -188,7 +193,6 @@ LOCAL_CLOUD_WORKSPACE_PATHS = {
     "/runtime-config",
     "/credentials/status",
     "/speaker-diarization/status",
-    "/local-history/candidates",
 }
 
 LOCAL_STATUS_PUBLIC_PATHS = {
@@ -453,7 +457,23 @@ try:
         result_for_summary_success,
         result_for_transcript_only,
     )
-    from backend.core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, migrate_job_display_titles, update_job_result, upsert_job
+    from backend.core.job_store import (
+        acquire_next_job_step,
+        cancel_job_steps,
+        complete_job_step,
+        delete_jobs,
+        enqueue_job_step,
+        fail_job_step,
+        get_job,
+        list_job_steps,
+        list_job_summaries,
+        list_jobs,
+        list_jobs_for_retention,
+        migrate_job_display_titles,
+        requeue_running_job_steps,
+        update_job_result,
+        upsert_job,
+    )
     from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from backend.core.account_store import (
         authenticate_user,
@@ -495,7 +515,23 @@ except ImportError:
         result_for_summary_success,
         result_for_transcript_only,
     )
-    from core.job_store import delete_jobs, get_job, list_job_summaries, list_jobs, list_jobs_for_retention, migrate_job_display_titles, update_job_result, upsert_job
+    from core.job_store import (
+        acquire_next_job_step,
+        cancel_job_steps,
+        complete_job_step,
+        delete_jobs,
+        enqueue_job_step,
+        fail_job_step,
+        get_job,
+        list_job_steps,
+        list_job_summaries,
+        list_jobs,
+        list_jobs_for_retention,
+        migrate_job_display_titles,
+        requeue_running_job_steps,
+        update_job_result,
+        upsert_job,
+    )
     from core.local_config import credential_status, resolve_secret, save_sensitive_settings
     from core.account_store import (
         authenticate_user,
@@ -1608,176 +1644,6 @@ def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
     return {"pruned_count": len(pruned_task_ids), "task_ids": pruned_task_ids}
 
 
-def _import_text(value: Any, max_chars: int) -> str:
-    if value is None:
-        return ""
-    text = str(value)
-    if len(text) > max_chars:
-        raise HTTPException(status_code=413, detail="Imported history entry is too large.")
-    return text
-
-
-def _import_segments(value: Any, max_segments: int = 5000) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    clean: list[dict[str, Any]] = []
-    for item in value[:max_segments]:
-        if not isinstance(item, dict):
-            continue
-        segment: dict[str, Any] = {}
-        for key in ("start", "end"):
-            try:
-                segment[key] = float(item[key])
-            except Exception:
-                pass
-        text = str(item.get("text") or "").strip()
-        if text:
-            segment["text"] = text[:5000]
-        if segment:
-            clean.append(segment)
-    return clean
-
-
-def _import_number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except Exception:
-        return None
-    if not math.isfinite(number):
-        return None
-    return number
-
-
-def _normalize_import_entry(entry: dict[str, Any], max_chars: int) -> dict[str, Any] | None:
-    raw_result = entry.get("result") if isinstance(entry.get("result"), dict) else {}
-    original_task_id = str(
-        raw_result.get("task_id") or entry.get("task_id") or entry.get("taskId") or ""
-    ).strip()
-    filename = str(
-        raw_result.get("filename")
-        or raw_result.get("source_filename")
-        or entry.get("name")
-        or entry.get("source_filename")
-        or "Imported transcript"
-    ).strip()[:240]
-    raw_title = str(raw_result.get("raw_title") or entry.get("rawTitle") or filename).strip()[:240]
-    display_title = str(
-        raw_result.get("display_title")
-        or entry.get("displayTitle")
-        or display_title_for_user(raw_title, filename)
-    ).strip()[:240]
-    transcript_text = _import_text(
-        raw_result.get("transcript_text")
-        or raw_result.get("cleaned_transcript_text")
-        or entry.get("transcriptText")
-        or "",
-        max_chars,
-    )
-    summary_markdown = _import_text(
-        raw_result.get("summary_markdown") or entry.get("summary") or "",
-        max_chars,
-    )
-    segments = _import_segments(raw_result.get("segments") or entry.get("segments"))
-    if not transcript_text and segments:
-        transcript_text = "\n".join(str(seg.get("text") or "") for seg in segments if seg.get("text"))[:max_chars]
-    if not transcript_text and not summary_markdown:
-        return None
-
-    source_fingerprint = str(
-        raw_result.get("source_fingerprint") or entry.get("sourceFingerprint") or ""
-    ).strip()[:128] or None
-    audio_duration = _import_number(raw_result.get("audio_duration_seconds") or entry.get("audioDurationSec"))
-    stt_elapsed = _import_number(raw_result.get("stt_elapsed_seconds") or entry.get("sttElapsedSec"))
-    timestamp_raw = entry.get("timestamp") or raw_result.get("timestamp")
-    try:
-        imported_timestamp = int(float(timestamp_raw)) if timestamp_raw else None
-    except Exception:
-        imported_timestamp = None
-
-    result: dict[str, Any] = {
-        "status": "completed",
-        "filename": filename,
-        "raw_title": raw_title,
-        "display_title": display_title,
-        "source": raw_result.get("source") or entry.get("source") or "imported_local_history",
-        "transcript_text": transcript_text,
-        "segments": segments,
-        "summary_markdown": summary_markdown,
-        "summary_skipped": bool(raw_result.get("summary_skipped") or entry.get("summarySkipped")),
-        "summary_status": raw_result.get("summary_status") or entry.get("summaryStatus") or ("completed" if summary_markdown else "skipped"),
-        "summary_error": raw_result.get("summary_error") or entry.get("summaryError") or None,
-        "audio_duration_seconds": audio_duration or 0,
-        "stt_elapsed_seconds": stt_elapsed or 0,
-        "stt_provider": raw_result.get("stt_provider") or entry.get("sttProvider"),
-        "stt_provider_label": raw_result.get("stt_provider_label") or entry.get("sttProviderLabel"),
-        "stt_model": raw_result.get("stt_model") or entry.get("sttModel"),
-        "stt_speed": raw_result.get("stt_speed") or entry.get("sttSpeed"),
-        "stt_language": raw_result.get("stt_language") or entry.get("sttLanguage"),
-        "detected_language": raw_result.get("detected_language") or entry.get("detectedLanguage"),
-        "source_fingerprint": source_fingerprint,
-        "source_file_available": False,
-        "playback_audio_available": False,
-        "imported_from_local_history": True,
-        "original_task_id": original_task_id or None,
-    }
-    if raw_result.get("transcript_edited") or entry.get("transcriptEdited"):
-        result["transcript_edited"] = True
-        result["transcript_edited_at"] = raw_result.get("transcript_edited_at") or entry.get("transcriptEditedAt")
-        result["transcript_edit_records"] = raw_result.get("transcript_edit_records") or entry.get("transcriptEditRecords") or []
-    return {
-        "original_task_id": original_task_id or None,
-        "source_fingerprint": source_fingerprint,
-        "filename": filename,
-        "raw_title": raw_title,
-        "display_title": display_title,
-        "imported_timestamp": imported_timestamp,
-        "source": result["source"],
-        "result": {k: v for k, v in result.items() if v is not None},
-        "source_file_size_mb": _import_number(entry.get("source_file_size_mb") or entry.get("sourceFileSizeMb")),
-    }
-
-
-def _existing_import_keys(client_id: str) -> set[str]:
-    keys: set[str] = set()
-    for job in list_jobs_for_retention(client_id=client_id):
-        task_id = str(job.get("task_id") or "")
-        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
-        result = job.get("result") if isinstance(job.get("result"), dict) else {}
-        for value in (
-            task_id,
-            metadata.get("original_task_id"),
-            metadata.get("source_fingerprint"),
-            result.get("original_task_id"),
-            result.get("source_fingerprint"),
-        ):
-            if value:
-                keys.add(str(value))
-    return keys
-
-
-def _import_task_id(account_id: str, entry: dict[str, Any]) -> str:
-    source = "|".join(
-        str(value or "")
-        for value in (
-            account_id,
-            entry.get("original_task_id"),
-            entry.get("source_fingerprint"),
-            entry.get("filename"),
-            entry.get("imported_timestamp"),
-        )
-    )
-    return f"imported_{hashlib.sha256(source.encode('utf-8')).hexdigest()[:24]}"
-
-
-def _local_history_export_allowed(request: Request) -> bool:
-    if not _cloud_workspace_enabled():
-        return False
-    client_host = (request.client.host if request.client else "") or ""
-    url_host = request.url.hostname or ""
-    allowed = {"127.0.0.1", "localhost", "::1", "testclient"}
-    return client_host in allowed or url_host in allowed
-
-
 def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
     next_result = dict(result)
     artifacts = dict(next_result.get("artifacts") or {})
@@ -1927,6 +1793,57 @@ def _sanitize_bilingual_segments(value: Any) -> list[dict[str, Any]]:
     return segments
 
 
+def _sanitize_display_segments(value: Any) -> list[dict[str, Any]]:
+    return sanitize_display_segments(value)
+
+
+def _canonical_raw_segments(result: dict[str, Any]) -> list[dict[str, Any]]:
+    return canonical_raw_segments(result)
+
+
+def _canonical_display_segments(result: dict[str, Any]) -> list[dict[str, Any]]:
+    return canonical_display_segments(result)
+
+
+def _with_canonical_result_segments(
+    result: dict[str, Any],
+    *,
+    raw_segments: list[dict[str, Any]] | None = None,
+    display_segments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    next_result = dict(result)
+    raw = _sanitize_edit_segments(raw_segments) if raw_segments is not None else _canonical_raw_segments(next_result)
+    if display_segments is not None:
+        display = _sanitize_display_segments(display_segments)
+    else:
+        display_probe = dict(next_result)
+        if raw and not display_probe.get("raw_segments"):
+            display_probe["raw_segments"] = raw
+        display = _canonical_display_segments(display_probe)
+    if raw:
+        next_result["raw_segments"] = raw
+    if display:
+        next_result["display_segments"] = display
+        if any(str(segment.get("text_zh") or "").strip() for segment in display):
+            next_result["subtitle_mode"] = "bilingual_zh"
+        elif not next_result.get("subtitle_mode"):
+            next_result["subtitle_mode"] = "source_only"
+    return normalize_result_for_storage(next_result) or next_result
+
+
+def _subtitle_segments_from_display(display_segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    subtitles: list[dict[str, Any]] = []
+    for segment in _sanitize_display_segments(display_segments):
+        text = str(segment.get("text") or "").strip()
+        text_zh = str(segment.get("text_zh") or "").strip()
+        if not text_zh:
+            continue
+        next_segment = dict(segment)
+        next_segment["text"] = "\n".join(part for part in (text, text_zh) if part)
+        subtitles.append(next_segment)
+    return subtitles
+
+
 def _write_text_artifact(task_id: str, kind: str, filename: str, content: str) -> dict[str, Any]:
     target_dir = _artifact_storage_dir() / task_id
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -2011,7 +1928,9 @@ def _attach_playback_audio_artifact(
 def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, dict[str, Any]]:
     artifacts: dict[str, dict[str, Any]] = {}
     transcript = str(result.get("transcript_text") or "").strip()
-    segments = _sanitize_edit_segments(result.get("segments"))
+    normalized_result = _with_canonical_result_segments(result)
+    raw_segments = _canonical_raw_segments(normalized_result)
+    display_segments = _canonical_display_segments(normalized_result)
     if transcript:
         artifacts["transcript_txt"] = _write_text_artifact(
             task_id,
@@ -2019,23 +1938,23 @@ def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, d
             _artifact_filename(result, ".txt"),
             transcript.rstrip() + "\n",
         )
-    if segments:
+    if raw_segments:
         artifacts["transcript_srt"] = _write_text_artifact(
             task_id,
             "transcript_srt",
             _artifact_filename(result, ".srt"),
-            _format_srt(segments),
+            _format_srt(raw_segments),
         )
         artifacts["transcript_vtt"] = _write_text_artifact(
             task_id,
             "transcript_vtt",
             _artifact_filename(result, ".vtt"),
-            _format_vtt(segments),
+            _format_vtt(raw_segments),
         )
-        bilingual = _sanitize_bilingual_segments(result.get("bilingual_segments"))
+        bilingual = _subtitle_segments_from_display(display_segments)
         if not bilingual:
             translated_segments = _sanitize_edit_segments(result.get("translated_segments_zh"))
-            bilingual = _bilingual_segments(segments, translated_segments)
+            bilingual = _bilingual_segments(raw_segments, translated_segments)
         if bilingual:
             artifacts["transcript_bilingual_srt"] = _write_text_artifact(
                 task_id,
@@ -2061,15 +1980,16 @@ def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, d
 
 
 def _attach_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    normalized_result = _with_canonical_result_segments(result)
     try:
-        artifacts = _write_result_artifacts(task_id, result)
+        artifacts = _write_result_artifacts(task_id, normalized_result)
     except Exception as exc:
         logger.warning("Result artifact write failed for %s: %s", task_id, exc)
         return result
     if not artifacts:
-        return result
-    next_result = dict(result)
-    next_result["artifacts"] = {**dict(result.get("artifacts") or {}), **artifacts}
+        return normalized_result
+    next_result = dict(normalized_result)
+    next_result["artifacts"] = {**dict(normalized_result.get("artifacts") or {}), **artifacts}
     return next_result
 
 
@@ -2085,7 +2005,7 @@ def _write_edited_transcript_backup(task_id: str, result: dict[str, Any]) -> Pat
     tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     content = _format_edited_transcript_backup(
         str(result.get("transcript_text") or ""),
-        _sanitize_edit_segments(result.get("segments")),
+        _canonical_raw_segments(result),
     )
     try:
         tmp.write_text(content, encoding="utf-8")
@@ -2209,23 +2129,7 @@ def _text_len(value: str | None) -> int:
 
 
 def _sanitize_edit_segments(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    segments: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("text") or "")
-        segment: dict[str, Any] = {"text": text}
-        for key in ("start", "end"):
-            try:
-                segment[key] = float(item.get(key) or 0)
-            except (TypeError, ValueError):
-                segment[key] = 0.0
-        if item.get("speaker"):
-            segment["speaker"] = str(item.get("speaker"))
-        segments.append(segment)
-    return segments
+    return sanitize_raw_segments(value)
 
 
 def _metadata(**values: Any) -> dict[str, Any]:
@@ -2340,7 +2244,12 @@ def _stt_provider_label(provider: str) -> str:
     return "faster-whisper"
 
 
-def _lark_export_target(lark_via_cli: Optional[str]) -> str:
+def _lark_export_target(lark_export_route: Optional[str] = None, lark_via_cli: Optional[str] = None) -> str:
+    route = (lark_export_route or "").strip().lower()
+    if route in {"local_cli", "lark_cli"}:
+        return "lark_cli"
+    if route in {"openapi", "lark_openapi"}:
+        return "lark_openapi"
     return "lark_cli" if _truthy_form(lark_via_cli) else "lark_openapi"
 
 
@@ -2441,6 +2350,159 @@ def _ai_kwargs(
     return kwargs
 
 
+PLANNER_NOTE_MODES = {"direct", "high_fidelity"}
+PLANNER_SAMPLE_CHARS = 3000
+
+
+def _requested_note_mode(note_mode: str | None) -> str:
+    value = (note_mode or os.environ.get("FLUENTFLOW_NOTE_MODE") or "auto").strip().lower()
+    return "direct" if value == "fast" else value
+
+
+def _language_hint_for_planning(text: str) -> str:
+    cjk = 0
+    latin = 0
+    for char in text:
+        code = ord(char)
+        if 0x4E00 <= code <= 0x9FFF:
+            cjk += 1
+        elif "a" <= char.lower() <= "z":
+            latin += 1
+    if cjk > latin:
+        return "zh"
+    if latin > cjk:
+        return "en_or_latin"
+    return "unknown"
+
+
+def _planning_transcript_preview(transcript_text: str, *, sample_chars: int = PLANNER_SAMPLE_CHARS) -> str:
+    transcript = (transcript_text or "").strip()
+    if not transcript:
+        return ""
+    sample_size = max(500, sample_chars)
+    total = len(transcript)
+    non_empty_lines = [line.strip() for line in transcript.splitlines() if line.strip()]
+    question_count = transcript.count("?") + transcript.count("？")
+    avg_line_chars = round(sum(len(line) for line in non_empty_lines) / len(non_empty_lines), 1) if non_empty_lines else total
+    stats = "\n".join([
+        "【材料统计】",
+        f"- total_chars: {total}",
+        f"- non_empty_lines: {len(non_empty_lines)}",
+        f"- avg_line_chars: {avg_line_chars}",
+        f"- question_marks: {question_count}",
+        f"- language_hint: {_language_hint_for_planning(transcript)}",
+    ])
+    if total <= sample_size * 2:
+        return f"{stats}\n\n【全文样本】\n{transcript[:sample_size * 2]}"
+    head = transcript[:sample_size]
+    mid_start = max(0, (total // 2) - (sample_size // 2))
+    middle = transcript[mid_start: mid_start + sample_size]
+    tail = transcript[-sample_size:]
+    return "\n\n".join([
+        stats,
+        f"【开头样本】\n{head}",
+        f"【中段样本】\n{middle}",
+        f"【结尾样本】\n{tail}",
+    ])
+
+
+def _plan_note_mode_for_summary(
+    kwargs: dict[str, Any],
+    transcript_text: str,
+    *,
+    task_id: str | None = None,
+    route: str | None = None,
+    filename: str | None = None,
+    duration_seconds: float | None = None,
+    current_prompt_preset: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    requested_mode = _requested_note_mode(kwargs.get("note_mode"))
+    if requested_mode != "auto":
+        return kwargs, {}
+
+    started_at = time.perf_counter()
+    transcript = transcript_text or ""
+    try:
+        plan = plan_note_task(
+            filename=filename,
+            transcript_preview=_planning_transcript_preview(transcript),
+            transcript_length=len(transcript),
+            duration_seconds=duration_seconds,
+            current_note_mode="auto",
+            current_prompt_preset=current_prompt_preset,
+            provider=kwargs.get("provider"),
+            model=kwargs.get("model"),
+            api_key=kwargs.get("api_key"),
+        )
+        planned_mode = (plan.recommended_note_mode or "").strip()
+        if planned_mode not in PLANNER_NOTE_MODES:
+            planned_mode = "high_fidelity"
+        planned_kwargs = {**kwargs, "note_mode": planned_mode}
+        metadata = {
+            "requested_note_mode": "auto",
+            "note_mode_plan_selected_mode": planned_mode,
+            "note_mode_plan_reason": plan.reason,
+            "note_mode_plan_confidence": plan.confidence,
+            "note_mode_plan_warnings": plan.warnings,
+            "note_mode_plan_provider": plan.planner_provider,
+            "note_mode_plan_model": plan.planner_model,
+            "note_mode_plan_fallback": False,
+        }
+        log_event(
+            task_id=task_id,
+            event_name="note_mode_planned",
+            source_filename=filename,
+            transcript_length=len(transcript),
+            stage="note_mode_plan",
+            duration_seconds=round(time.perf_counter() - started_at, 3),
+            success=True,
+            metadata=_metadata(
+                route=route,
+                selected_note_mode=planned_mode,
+                confidence=plan.confidence,
+                planner_provider=plan.planner_provider,
+                planner_model=plan.planner_model,
+            ),
+        )
+        return planned_kwargs, metadata
+    except Exception as exc:
+        friendly_error = _friendly_error_message(exc)
+        logger.warning("AI note mode planning failed, falling back to length rule: %s", exc)
+        log_event(
+            task_id=task_id,
+            event_name="note_mode_plan_failed",
+            source_filename=filename,
+            transcript_length=len(transcript),
+            stage="note_mode_plan",
+            duration_seconds=round(time.perf_counter() - started_at, 3),
+            success=False,
+            error_reason=friendly_error,
+            metadata=_metadata(route=route, raw_error=str(exc)),
+        )
+        return kwargs, {
+            "requested_note_mode": "auto",
+            "note_mode_plan_reason": "AI 规划失败，已按长度规则自动选择。",
+            "note_mode_plan_fallback": True,
+            "note_mode_plan_error": friendly_error,
+        }
+
+
+def _summary_result_metadata(summary_result: Any) -> dict[str, Any]:
+    return {
+        "resolved_note_mode": getattr(summary_result, "resolved_mode", None),
+        "note_mode_chunk_count": getattr(summary_result, "chunk_count", None),
+        "note_mode_transcript_length": getattr(summary_result, "transcript_length", None),
+        "coverage_checked": getattr(summary_result, "coverage_checked", None),
+        "coverage_revision_used": getattr(summary_result, "coverage_revision_used", None),
+        "note_mode_segment_count": getattr(summary_result, "segment_count", None),
+        "note_mode_evidence_count": getattr(summary_result, "evidence_count", None),
+        "note_mode_chapter_count": getattr(summary_result, "chapter_count", None),
+        "note_mode_important_evidence_count": getattr(summary_result, "important_evidence_count", None),
+        "note_mode_covered_important_evidence_count": getattr(summary_result, "covered_important_evidence_count", None),
+        "note_mode_coverage_missing_count": getattr(summary_result, "coverage_missing_count", None),
+    }
+
+
 def _cleanup_payload(cleanup_result: Any) -> dict[str, Any]:
     return {
         "applied_count": cleanup_result.applied_count,
@@ -2492,58 +2554,44 @@ def _publish_job_event_from_thread(task_id: str, event: dict[str, Any]) -> None:
         logger.debug("Queue event publish failed for %s", task_id, exc_info=True)
 
 
-def _multipart_process_body(
-    *,
-    fields: dict[str, Any],
-    file_path: Path,
-    filename: str,
-) -> tuple[bytes, str]:
-    boundary = f"----FluentFlowQueue{uuid.uuid4().hex}"
-    chunks: list[bytes] = []
-    for key, value in fields.items():
-        if value is None:
-            continue
-        text = str(value)
-        if text == "":
-            continue
-        chunks.extend([
-            f"--{boundary}\r\n".encode("utf-8"),
-            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"),
-            text.encode("utf-8"),
-            b"\r\n",
-        ])
-    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    chunks.extend([
-        f"--{boundary}\r\n".encode("utf-8"),
-        f'Content-Disposition: form-data; name="file"; filename="{Path(filename).name}"\r\n'.encode("utf-8"),
-        f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
-        file_path.read_bytes(),
-        b"\r\n",
-        f"--{boundary}--\r\n".encode("utf-8"),
-    ])
-    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
-
-
 def _enqueue_transcription_job(item: dict[str, Any]) -> None:
     task_id = str(item.get("task_id") or "")
     if not task_id:
         return
+    enqueue_job_step(
+        task_id=task_id,
+        step_type="transcription",
+        input=dict(item),
+        step_key=f"{task_id}:transcription",
+        priority=100,
+        max_attempts=1,
+    )
     with _QUEUE_LOCK:
-        if task_id in _QUEUED_TASK_IDS:
-            return
         _QUEUED_TASK_IDS.add(task_id)
-        _TRANSCRIPTION_QUEUE.put(dict(item))
+        _TRANSCRIPTION_QUEUE.put({"wake": "transcription", "task_id": task_id})
         _ensure_queue_worker_started_locked()
 
 
 def _queue_status_snapshot() -> dict[str, Any]:
     with _QUEUE_LOCK:
         queued_task_ids = sorted(_QUEUED_TASK_IDS)
+    queued_steps = list_job_steps(statuses=["queued"], limit=200)
+    running_steps = list_job_steps(statuses=["running"], limit=200)
     return {
         "worker_alive": bool(_QUEUE_THREAD and _QUEUE_THREAD.is_alive()),
-        "queue_depth": int(_TRANSCRIPTION_QUEUE.qsize()),
+        "queue_depth": len(queued_steps),
+        "running_step_count": len(running_steps),
         "tracked_task_count": len(queued_task_ids),
         "tracked_task_ids": queued_task_ids[:20],
+        "queued_step_count": len(queued_steps),
+        "queued_steps": [
+            {
+                "task_id": step.get("task_id"),
+                "step_type": step.get("step_type"),
+                "attempt_count": step.get("attempt_count"),
+            }
+            for step in queued_steps[:20]
+        ],
     }
 
 
@@ -2561,37 +2609,72 @@ def _ensure_queue_worker_started_locked() -> None:
 
 def _queue_worker_loop() -> None:
     while True:
-        item = _TRANSCRIPTION_QUEUE.get()
-        task_id = str(item.get("task_id") or "")
+        signal = _TRANSCRIPTION_QUEUE.get()
+        task_id = ""
         try:
-            _run_queued_transcription(item)
+            while True:
+                step = acquire_next_job_step(
+                    step_types=("video_source", "transcription"),
+                    lock_timeout_seconds=_queue_timeout_seconds(),
+                )
+                if not step:
+                    break
+                task_id = str(step.get("task_id") or "")
+                step_id = int(step.get("id") or 0)
+                try:
+                    _run_job_step(step)
+                    if step_id:
+                        complete_job_step(step_id)
+                except Exception as exc:
+                    logger.exception("Background step failed for %s/%s", task_id, step.get("step_type"))
+                    if step_id:
+                        fail_job_step(step_id, error_reason=_friendly_error_message(exc))
+                    _handle_step_failure(step, exc)
         except Exception as exc:
-            logger.exception("Queued transcription failed for %s", task_id)
-            if task_id:
-                _release_task_quota(
-                    client_id=_normalize_client_scope(str(item.get("client_id") or "")),
-                    task_id=task_id,
-                    reason="Queued processing failed before completion",
-                    metadata={"route": "/queue/process", "stage": "queued", "raw_error": str(exc)},
-                )
-                friendly_error = _friendly_error_message(exc)
-                upsert_job(
-                    task_id=task_id,
-                    status="failed",
-                    client_id=_normalize_client_id(str(item.get("client_id") or "")),
-                    stage="queued",
-                    progress=0,
-                    error_reason=friendly_error,
-                )
-                _publish_job_event_from_thread(
-                    task_id,
-                    {"stage": "error", "progress": 0, "error": friendly_error},
-                )
+            logger.exception("Background worker failed after signal %s", signal)
         finally:
-            if task_id:
-                with _QUEUE_LOCK:
-                    _QUEUED_TASK_IDS.discard(task_id)
+            with _QUEUE_LOCK:
+                _QUEUED_TASK_IDS.clear()
             _TRANSCRIPTION_QUEUE.task_done()
+
+
+def _run_job_step(step: dict[str, Any]) -> None:
+    step_type = str(step.get("step_type") or "")
+    item = dict(step.get("input") or {})
+    if step_type == "transcription":
+        _run_queued_transcription(item)
+        return
+    if step_type == "video_source":
+        _run_video_source_job(item)
+        return
+    raise RuntimeError(f"Unsupported background step type: {step_type}")
+
+
+def _handle_step_failure(step: dict[str, Any], exc: Exception) -> None:
+    task_id = str(step.get("task_id") or "")
+    item = dict(step.get("input") or {})
+    if not task_id:
+        return
+    friendly_error = _friendly_error_message(exc)
+    if str(step.get("step_type") or "") == "transcription":
+        _release_task_quota(
+            client_id=_normalize_client_scope(str(item.get("client_id") or "")),
+            task_id=task_id,
+            reason="Queued processing failed before completion",
+            metadata={"route": "/queue/process", "stage": "queued", "raw_error": str(exc)},
+        )
+    upsert_job(
+        task_id=task_id,
+        status="failed",
+        client_id=_normalize_client_id(str(item.get("client_id") or "")),
+        stage=str(step.get("step_type") or "queued"),
+        progress=0,
+        error_reason=friendly_error,
+    )
+    _publish_job_event_from_thread(
+        task_id,
+        {"stage": "error", "progress": 0, "error": friendly_error},
+    )
 
 
 def _run_queued_transcription(item: dict[str, Any]) -> None:
@@ -2617,12 +2700,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
         "raw_title": str(item.get("raw_title") or "").strip(),
         "display_title": str(item.get("display_title") or "").strip(),
     }
-    body, content_type = _multipart_process_body(fields=fields, file_path=source_path, filename=filename)
-    headers = {
-        "Content-Type": content_type,
-        "Content-Length": str(len(body)),
-        "Accept": "text/event-stream",
-    }
+    headers = {"Accept": "text/event-stream"}
     if str(options.get("stt_provider") or "").strip().lower() == "local":
         headers["X-FluentFlow-Execution-Target"] = "local"
     if client_id:
@@ -2631,26 +2709,24 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     tokens = _configured_access_tokens()
     if tokens:
         headers["X-FluentFlow-Access-Token"] = tokens[0]
-    request = urllib.request.Request(
-        f"{base_url}/process",
-        data=body,
-        method="POST",
-        headers=headers,
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=_queue_timeout_seconds()) as response:
-            while response.read(64 * 1024):
-                pass
-    except urllib.error.HTTPError as exc:
-        message = exc.read().decode("utf-8", errors="replace")[:800]
-        raise RuntimeError(f"Queued processing request failed: HTTP {exc.code} {message}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Queued processing request failed: {exc.reason}") from exc
+    data_fields = {k: str(v) for k, v in fields.items() if v is not None and str(v) != ""}
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    with httpx.Client(timeout=_queue_timeout_seconds()) as client:
+        with open(source_path, "rb") as f:
+            response = client.post(
+                f"{base_url}/process",
+                data=data_fields,
+                files={"file": (filename, f, content_type)},
+                headers=headers,
+            )
+        if response.is_error:
+            raise RuntimeError(f"Queued processing request failed: HTTP {response.status_code} {response.text[:800]}")
 
 
 def _queue_options_from_form(
     *,
     export_to_lark: Optional[str],
+    lark_export_route: Optional[str],
     lark_via_cli: Optional[str],
     title: Optional[str],
     folder_token: Optional[str],
@@ -2676,6 +2752,7 @@ def _queue_options_from_form(
 ) -> dict[str, str]:
     raw: dict[str, Optional[str]] = {
         "export_to_lark": export_to_lark,
+        "lark_export_route": lark_export_route,
         "lark_via_cli": lark_via_cli,
         "title": title,
         "folder_token": folder_token,
@@ -2699,6 +2776,7 @@ def _queue_options_from_form(
 def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str]:
     allowed = {
         "export_to_lark",
+        "lark_export_route",
         "lark_via_cli",
         "title",
         "folder_token",
@@ -2896,15 +2974,25 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
 
 
 def _start_video_source_job(item: dict[str, Any]) -> None:
-    threading.Thread(
-        target=_run_video_source_job,
-        args=(dict(item),),
-        name=f"fluentflow-video-source-{item.get('task_id') or 'job'}",
-        daemon=True,
-    ).start()
+    task_id = str(item.get("task_id") or "")
+    if not task_id:
+        return
+    enqueue_job_step(
+        task_id=task_id,
+        step_type="video_source",
+        input=dict(item),
+        step_key=f"{task_id}:video_source",
+        priority=50,
+        max_attempts=1,
+    )
+    with _QUEUE_LOCK:
+        _QUEUED_TASK_IDS.add(task_id)
+        _TRANSCRIPTION_QUEUE.put({"wake": "video_source", "task_id": task_id})
+        _ensure_queue_worker_started_locked()
 
 
 def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
+    requeued_steps = requeue_running_job_steps()
     recovered = 0
     failed = 0
     for job in list_jobs(limit=200):
@@ -2914,6 +3002,9 @@ def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
         if status not in {"queued", "running"}:
             continue
         task_id = str(job.get("task_id") or "")
+        if list_job_steps(task_id=task_id, statuses=["queued", "running"], limit=1):
+            recovered += 1
+            continue
         source_path = Path(str(metadata.get("source_path") or ""))
         if not task_id:
             continue
@@ -2954,8 +3045,16 @@ def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
             "client_id": job.get("client_id"),
         })
         recovered += 1
-    if recovered or failed:
-        logger.info("Startup queue recovery finished: recovered=%s failed=%s", recovered, failed)
+    if recovered or failed or requeued_steps:
+        with _QUEUE_LOCK:
+            _TRANSCRIPTION_QUEUE.put({"wake": "startup_recovery"})
+            _ensure_queue_worker_started_locked()
+        logger.info(
+            "Startup queue recovery finished: recovered=%s failed=%s requeued_steps=%s",
+            recovered,
+            failed,
+            requeued_steps,
+        )
 
 
 async def _startup_resume_queue() -> None:

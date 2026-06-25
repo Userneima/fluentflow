@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import backend.main as main
@@ -74,7 +75,7 @@ def test_guest_trial_process_creates_private_queued_job(monkeypatch, tmp_path: P
         payload = response.json()
         task_id = payload.get("task_id")
         token = payload.get("guest_token")
-        private_job = client.get(f"/guest-trial/jobs/{task_id}", headers={main.GUEST_TRIAL_TOKEN_HEADER: token})
+        private_job = client.get(f"/guest-trial/jobs/{task_id}", headers={_H.GUEST_TRIAL_TOKEN_HEADER: token})
         blocked_job = client.get(f"/guest-trial/jobs/{task_id}")
 
     assert response.status_code == 200
@@ -143,8 +144,8 @@ def test_guest_trial_daily_ip_limit_counts_only_today(monkeypatch) -> None:
     request = type("Request", (), {"headers": {}, "client": type("Client", (), {"host": "203.0.113.9"})()})()
 
     try:
-        main._enforce_guest_daily_ip_limit(request)
-    except main.HTTPException as exc:
+        _H._enforce_guest_daily_ip_limit(request)
+    except HTTPException as exc:
         assert exc.status_code == 429
         assert "每日上限" in exc.detail
     else:
@@ -175,11 +176,11 @@ def test_guest_trial_artifact_download_requires_matching_token(monkeypatch, tmp_
     with TestClient(main.app) as client:
         allowed = client.get(
             f"/guest-trial/jobs/{task_id}/artifacts/playback_audio",
-            headers={main.GUEST_TRIAL_TOKEN_HEADER: token},
+            headers={_H.GUEST_TRIAL_TOKEN_HEADER: token},
         )
         blocked = client.get(
             f"/guest-trial/jobs/{task_id}/artifacts/playback_audio",
-            headers={main.GUEST_TRIAL_TOKEN_HEADER: "wrong"},
+            headers={_H.GUEST_TRIAL_TOKEN_HEADER: "wrong"},
         )
 
     assert allowed.status_code == 200

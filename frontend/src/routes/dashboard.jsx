@@ -35,6 +35,7 @@ import {
     jobDisplayTitle,
     jobToCurrentJob,
     jobToHistoryEntry,
+    larkExportRouteFromSettings,
     noteModeLabel,
     normalizeSttModel,
     normalizeSttProvider,
@@ -58,7 +59,7 @@ import {
 const Dashboard = () => {
     const {t, lang} = useI18n();
     const {guestMode, guestTrial} = useAuth();
-    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig, localHistoryImport, importLocalHistory} = useApp();
+    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
@@ -432,6 +433,7 @@ const Dashboard = () => {
             try {
                 await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark||false,
+                    larkExportRoute: larkExportRouteFromSettings(settings),
                     larkViaCli: !!settings.larkViaCli,
                     ...buildAiOptions(settings),
                     skipSummary: !!settings.skipAiSummary,
@@ -470,6 +472,7 @@ const Dashboard = () => {
             try {
                 await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark||false,
+                    larkExportRoute: larkExportRouteFromSettings(settings),
                     larkViaCli: !!settings.larkViaCli,
                     ...buildAiOptions(settings),
                     skipSummary: !!settings.skipAiSummary,
@@ -527,6 +530,7 @@ const Dashboard = () => {
                 taskId,
                 sourceLastModifiedMs: file.lastModified||null,
                 exportToLark: settings.exportToLark||false,
+                larkExportRoute: larkExportRouteFromSettings(settings),
                 larkViaCli: !!settings.larkViaCli,
                 title: file.name.replace(/\.[^/.]+$/,""),
                 ...buildAiOptions(settings),
@@ -588,6 +592,7 @@ const Dashboard = () => {
                 try {
                     const data = await createVideoSourceJob(input, {
                         exportToLark: settings.exportToLark||false,
+                        larkExportRoute: larkExportRouteFromSettings(settings),
                         larkViaCli: !!settings.larkViaCli,
                         ...buildAiOptions(settings),
                         skipSummary: !!settings.skipAiSummary,
@@ -963,44 +968,6 @@ const Dashboard = () => {
                         </div>
 
                         <div className="col-span-12 lg:col-span-3 flex flex-col gap-5">
-                            {!guestMode && localHistoryImport?.candidates?.length > 0 && (
-                                <div className="rounded-sm border border-primary/25 bg-primary/10 p-4 text-sm text-on-surface shadow-sm">
-                                    <div className="flex items-start gap-3">
-                                        <span className="material-symbols-outlined text-primary">sync</span>
-                                        <div className="min-w-0 flex-1">
-                                            <h4 className="font-bold text-on-surface">{lang==='zh'?'发现本机历史':'Local history found'}</h4>
-                                            <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
-                                                {lang==='zh'
-                                                    ? `本机有 ${localHistoryImport.candidates.length} 条旧记录尚未进入当前账号。确认后会上传转录文本和摘要，用于多端同步。`
-                                                    : `${localHistoryImport.candidates.length} local records are not in this account yet. Import uploads transcripts and summaries for cross-device sync.`}
-                                            </p>
-                                            {localHistoryImport.error && (
-                                                <p className="mt-2 text-xs font-semibold text-red-600">{localHistoryImport.error}</p>
-                                            )}
-                                            <button
-                                                type="button"
-                                                onClick={importLocalHistory}
-                                                disabled={localHistoryImport.importing}
-                                                className="mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-sm bg-primary px-3 text-xs font-bold text-white transition hover:bg-primary/90 disabled:opacity-50"
-                                            >
-                                                <span className={`material-symbols-outlined text-[16px] ${localHistoryImport.importing ? 'animate-spin' : ''}`}>
-                                                    {localHistoryImport.importing ? 'sync' : 'cloud_upload'}
-                                                </span>
-                                                {localHistoryImport.importing
-                                                    ? (lang==='zh'?'正在导入':'Importing')
-                                                    : (lang==='zh'?'导入当前账号':'Import to account')}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            {!guestMode && localHistoryImport?.importedCount > 0 && (
-                                <div className="rounded-sm border border-green-500/20 bg-green-500/10 p-3 text-xs font-semibold text-green-700 dark:text-green-300">
-                                    {lang==='zh'
-                                        ? `已导入 ${localHistoryImport.importedCount} 条本机历史到当前账号。`
-                                        : `Imported ${localHistoryImport.importedCount} local records to this account.`}
-                                </div>
-                            )}
                             <div className="flex items-center justify-between px-2">
                         <h4 className="font-headline text-xl font-bold text-on-surface">{t('dash.recent')}</h4>
                         <Link to="/tasks" className="text-xs font-bold text-primary hover:underline">{t('dash.viewAll')}</Link>

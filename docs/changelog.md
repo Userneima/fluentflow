@@ -40,12 +40,20 @@
 - 后台任务页点开只存在于本地缓存的旧结果时，不再请求已经不存在的后端任务详情，避免出现 `/jobs/{id}` 404 后打不开记录。
 - 本地编辑器导出飞书时会明确走本机执行通道，避免账号登录门禁把 `/export-lark` 误拦截。
 - 编辑器打开本地转录任务或浏览器本地导入记录时，不再把任务详情、附件和字幕保存请求误送到云端代理，减少 `/jobs/{id}` 404 与 chunked encoding 控制台报错。
+- 主页不再提示“发现本机历史 / 导入当前账号”；历史记录以当前后端账号或设备任务为准，浏览器本地历史只作为最近展示缓存。
+- 处理设置里的飞书导出改为两条明确路线：飞书应用导出和本机身份导出；普通线上用户只看到飞书应用导出。
 - 编辑器 AI 摘要底部会显示本次笔记的生成模式、提示词模板；高保真笔记还会显示分块数量。
+- 编辑器和后台任务页新增原因标注：解释笔记模式、提示词模板、中英对照字幕和失败记录的下一步处理方式。
+- 笔记生成的“自动选择”接入真实 AI 规划：生成摘要前先判断使用直接上下文或高保真笔记，并保存规划原因；规划失败会自动降级到原来的长度规则。
+- 自动选择的 AI 规划不再只看转录开头，会同时读取材料统计、开头样本、中段样本和结尾样本，降低被开场寒暄误导的概率。
 - 转录语言默认改为自动识别；英文视频会保留英文原文转录，并在翻译成功时生成中英双语 SRT/VTT，摘要仍基于英文原文直接生成中文笔记。
 - 编辑器的转录面板新增“生成中英对照”，会先把英文原始时间片整理成更完整的阅读字幕，再生成中文对照；原始字幕仍可切回查看和编辑。
+- 转录结果的原始字幕和中英对照字幕改用稳定结果字段保存，旧任务仍可打开，新任务不会再依赖历史导出里的临时字段。
 - 开始处理页把字幕导入明确为“导入字幕生成笔记”，支持 SRT/VTT/TXT/MD，并且不再受“仅转录模式”影响。
 - 新增 `scripts/codex_transcribe_link.py`，让本机 Codex 可以提交抖音/视频链接到 FluentFlow，等待转录完成后导出包含字幕、翻译段落和摘要的 JSON。
 - 抖音/视频链接任务统一区分 `raw_title` / `display_title`：后台任务、最近历史、编辑器标题、Codex 导出和新生成的转录/摘要产物文件名都会优先显示去掉视频 ID 前缀后的标题。
+- 后台任务队列改为持久化任务步骤模型，上传、访客试用和视频链接任务会先写入可恢复的步骤记录，再由 worker 领取执行。
+- 笔记生成新增真实 `chapter_coverage` / “完整覆盖笔记”模式：先抽证据、规划章节、逐章生成，再做覆盖检查，适合超长或高价值材料。
 
 ### 维护者变化
 
@@ -53,9 +61,17 @@
 - 拆分后的路由页补齐从 `frontend/src/app/shared.jsx` 引入的共享 helper。
 - 新生成和重新生成摘要时会把提示词模板元数据写入任务结果，历史记录回放时可继续展示。
 - 任务结果新增 `source_language`、`subtitle_mode`、`translated_segments_zh` 和 `translation_status` 字段；双语字幕是附加产物，翻译失败不会让转录任务失败。
+- 任务结果长期字段收敛为 `raw_segments`（原始可编辑字幕）和 `display_segments`（阅读/导出字幕）；`segments`、`bilingual_segments`、`translated_segments_zh` 仅保留为旧数据兼容别名。
 - 新增 `/jobs/{task_id}/translations/zh`，复用现有分段翻译能力补写 `translated_segments_zh`。
 - 任务 metadata、视频来源 metadata、结果 JSON 和本地历史条目新增展示标题语义；`source_filename` 继续保留为机器用存储文件名。
 - 后端启动时会自动为旧 SQLite 任务补齐 `raw_title` / `display_title`，不修改 `source_filename` 和任务排序时间；前端读取浏览器本地历史时也会自动补齐标题字段。
+- 新增 SQLite `job_steps` 表，`jobs` 继续作为用户可见任务状态，`job_steps` 作为后台 worker 的真实执行队列。
+- 前端和后端都移除本机历史候选扫描与账号导入旧路线；`/account/import-history` 和 `/local-history/candidates` 不再提供兼容接口。
+- 飞书导出新增长期字段 `lark_export_route` / `larkExportRoute`，旧的 `lark_via_cli` / `larkViaCli` 继续作为兼容入口。
+- `summary_completed` / `summary_regenerated` metadata 新增章节覆盖模式的切片数、证据数、章节数和重要证据覆盖数。
+- `/plan-note-task` 不再输出 `chapter_coverage`，只允许 `direct` 和 `high_fidelity`；摘要结果新增 `note_mode_plan_*` 元数据用于解释自动选择原因和降级情况。
+- 任务结果新增 `result_schema_version = "2"`；新写入只保存长期字段 `raw_segments` / `display_segments`，旧的 `segments`、`bilingual_segments`、`translated_segments_zh`、`cleaned_segments` 只在读取老数据时转换。
+- 热词审阅旧能力长期下线：`/hotword-libraries` 继续作为 410 兼容端点，前端删除未使用的热词/审阅文案和设置项，主处理链路不再注入 hotwords。
 
 ### 注意事项
 
@@ -108,7 +124,7 @@
 
 ### 维护者变化
 
-- 云工作区代理不再转发 `/runtime-config`、`/health`、`/credentials/status`、`/speaker-diarization/status` 和 `/local-history/candidates`，这些接口按当前本机环境返回。
+- 云工作区代理不再转发 `/runtime-config`、`/health`、`/credentials/status` 和 `/speaker-diarization/status`，这些接口按当前本机环境返回。
 - 本地转录的单文件 `/process` 请求会带 `X-FluentFlow-Execution-Target: local` 并留在本机执行；未带该标记的云端转录请求仍走云端工作区。
 
 ### 注意事项

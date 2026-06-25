@@ -82,6 +82,43 @@ def test_history_entries_preserve_raw_filename_and_display_title() -> None:
     assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in shared
 
 
+def test_frontend_no_longer_prompts_for_local_history_import() -> None:
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "发现本机历史" not in dashboard
+    assert "Local history found" not in dashboard
+    assert "导入当前账号" not in dashboard
+    assert "localHistoryImport" not in dashboard
+    assert "importLocalHistory" not in dashboard
+    assert "/local-history/candidates" not in shared
+    assert "/account/import-history" not in shared
+    assert "fluentflow_processed_import_keys" not in shared
+
+
+def test_frontend_no_longer_exposes_hotword_review_ui_or_payload() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+
+    assert "work.hotword" not in shared
+    assert "work.reviewMode" not in shared
+    assert "work.reviewUseAi" not in shared
+    assert "edit.reviewButton" not in shared
+    assert "edit.reviewTitle" not in shared
+    assert "热词库" not in shared
+    assert "字幕审阅" not in shared
+    assert "Hotword library" not in shared
+    assert "Subtitle review" not in shared
+    assert "LEGACY_REMOVED_SETTING_KEYS" in shared
+    assert "hotwordLibrary" in shared
+    assert "reviewUseAi" in shared
+    combined_routes = "\n".join([dashboard, editor, processing])
+    assert "hotword" not in combined_routes.lower()
+    assert "reviewMode" not in combined_routes
+
+
 def test_tasks_route_does_not_use_source_filename_as_display_title() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 
@@ -97,8 +134,24 @@ def test_editor_lark_export_uses_local_execution_header_on_localhost() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
     assert "shouldUseLocalSingleUserClientId()" in source
-    assert "localExecutionHeaders({localExecution: true})" in source
-    assert "options.localExecution || normalizeSttProvider(options.sttProvider) === 'local'" in shared
+    assert "localExecutionHeaders({localExecution: true, larkExportRoute})" in source
+    assert "fd.append('lark_export_route', larkExportRoute)" in source
+    assert "isLocalLarkExportRoute(larkExportRoute)" in source
+    assert "options.localExecution" in shared
+    assert "isLocalLarkExportRoute(options.larkExportRoute)" in shared
+
+
+def test_processing_settings_uses_explicit_lark_export_routes() -> None:
+    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "larkExportRouteFromSettings(settings)" in source
+    assert "LARK_EXPORT_ROUTE_OPENAPI" in source
+    assert "LARK_EXPORT_ROUTE_LOCAL_CLI" in source
+    assert "set.larkExportRoute" in shared
+    assert "fd.append(\"lark_export_route\", larkRoute)" in shared
+    assert "payloadOptions.lark_export_route = larkRoute" in shared
+    assert "id=\"workLarkViaCli\"" not in source
 
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
@@ -127,13 +180,48 @@ def test_subtitle_import_is_a_note_generation_action() -> None:
 
 def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
     download = Path("frontend/src/lib/download.js").read_text(encoding="utf-8")
 
     assert "中英对照" in source
     assert "原始字幕" in source
+    assert "pickDisplayTranscriptSegments(result, segments)" in source
+    assert "displaySegments: pickDisplayTranscriptSegments(result" in shared
+    assert "export const pickDisplayTranscriptSegments" in fmt
     assert "bilingualTranscriptSegments" in source
     assert "visibleTranscriptView === 'bilingual'" in source
     assert "segment?.text_zh" in download
+
+
+def test_editor_explains_generation_reasons() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "noteModeReasonText" in source
+    assert "note_mode_plan_reason" in source
+    assert "chapter_coverage" in source
+    assert "note_mode_chapter_count" in source
+    assert "note_mode_evidence_count" in source
+    assert "note_mode_covered_important_evidence_count" in source
+    assert "promptPresetReasonText" in source
+    assert "subtitleReasonText" in source
+    assert "summaryFailureNextStep" in source
+    assert "summaryReasonItems.map" in source
+    assert "noteModePlanReason" in shared
+    assert "chapter_coverage" in shared
+    assert "完整覆盖笔记" in shared
+
+
+def test_tasks_show_actionable_next_step_for_failures() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+
+    assert "taskNextStepText" in source
+    assert "Unsupported note generation mode" in source or "unsupported note generation mode" in source
+    assert "下一步：" in source
+    assert "旧模式残留" not in source
+    assert "当前版本已不支持的笔记模式" in source
+    assert "{nextStepText}" in source
 
 
 def test_failed_job_can_be_deleted(monkeypatch) -> None:
@@ -254,8 +342,8 @@ def test_running_job_can_be_cancelled(monkeypatch) -> None:
     async def fake_publish(task_id: str, event: dict) -> None:
         published.append((task_id, event))
 
-    monkeypatch.setattr(main.JOB_EVENTS, "cancel", fake_cancel)
-    monkeypatch.setattr(main.JOB_EVENTS, "publish", fake_publish)
+    monkeypatch.setattr(_H.JOB_EVENTS, "cancel", fake_cancel)
+    monkeypatch.setattr(_H.JOB_EVENTS, "publish", fake_publish)
     monkeypatch.setattr(
         _H,
         "_release_task_quota",
@@ -296,7 +384,7 @@ def test_manual_lark_export_does_not_require_stored_job(monkeypatch) -> None:
             "task_id": "missing-local-history-task",
             "markdown": "# Demo\n\ncontent",
             "title": "Demo",
-            "lark_via_cli": "true",
+            "lark_export_route": "local_cli",
         },
     )
 
@@ -305,3 +393,4 @@ def test_manual_lark_export_does_not_require_stored_job(monkeypatch) -> None:
     assert response.json()["task_id"] == "missing-local-history-task"
     assert exported == [("Demo", "# Demo\n\ncontent")]
     assert [item["event_name"] for item in logged] == ["lark_export_started", "lark_export_completed"]
+    assert [item["export_target"] for item in logged] == ["lark_cli", "lark_cli"]

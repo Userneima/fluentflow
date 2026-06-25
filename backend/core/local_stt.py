@@ -20,7 +20,6 @@ _LOCAL_MODEL_DIR = Path.home() / ".cache" / "faster-whisper-models"
 _ZH_INITIAL_PROMPT = (
     "以下是普通话中文语音转录。请使用简体中文输出，保留必要的英文术语、数字和专有名词。"
 )
-_ZH_HOTWORDS = "简体中文 普通话 线下 创造营 产品经理 作业 同学 老师 课题"
 _MAX_INITIAL_PROMPT_CHARS = 300
 _MAX_HOTWORDS_CHARS = 240
 _SEGMENT_NORM_RE = re.compile(r"[\s，。！？、,.!?;；:：'\"“”‘’（）()【】\[\]《》<>-]+")
@@ -344,7 +343,6 @@ def _build_transcribe_defaults(
     prompt_parts: list[str] = []
     if language == "zh":
         prompt_parts.append(_ZH_INITIAL_PROMPT)
-        transcribe_defaults["hotwords"] = _ZH_HOTWORDS
     if initial_prompt:
         prompt_parts.append(initial_prompt.strip())
     if hotwords:

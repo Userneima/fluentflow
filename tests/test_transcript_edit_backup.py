@@ -20,9 +20,9 @@ def test_edited_transcript_backup_overwrites_timestamped_text(tmp_path: Path) ->
     }
 
     with patch.dict("os.environ", {"FLUENTFLOW_EDITED_TRANSCRIPT_DIR": str(tmp_path)}):
-        saved = main._write_edited_transcript_backup("task-abc123", result)
+        saved = _H._write_edited_transcript_backup("task-abc123", result)
         result["segments"][0]["text"] = "第一句已修改"
-        main._write_edited_transcript_backup("task-abc123", result)
+        _H._write_edited_transcript_backup("task-abc123", result)
 
     assert saved.parent == tmp_path
     assert saved.name == "录音__task-abc123_edited.txt"

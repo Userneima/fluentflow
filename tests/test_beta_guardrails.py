@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 import pytest
@@ -23,7 +23,7 @@ def test_auth_status_is_open_by_default(monkeypatch) -> None:
 
     assert response.status_code == 200
     request = Request({"type": "http", "method": "GET", "path": "/jobs", "headers": [], "server": ("testclient", 80)})
-    assert main._request_client_scope(request) == "anonymous"
+    assert _H._request_client_scope(request) == "anonymous"
     payload = response.json()
     assert payload["access_required"] is False
     assert payload["authenticated"] is True
@@ -78,10 +78,10 @@ def test_queue_file_limit_rejects_before_persistence(tmp_path, monkeypatch) -> N
 
 def test_duration_limit_error_can_be_disabled(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS", "60")
-    assert main._duration_limit_error(120, "demo.mp4") is not None
+    assert _H._duration_limit_error(120, "demo.mp4") is not None
 
     monkeypatch.setenv("FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS", "0")
-    assert main._duration_limit_error(120, "demo.mp4") is None
+    assert _H._duration_limit_error(120, "demo.mp4") is None
 
 
 def test_friendly_error_message_translates_common_azure_errors() -> None:
@@ -90,11 +90,11 @@ def test_friendly_error_message_translates_common_azure_errors() -> None:
         '"message": "Only \\"Standard\\" subscriptions for the region of the called service are valid." }'
     )
 
-    assert "Standard 订阅" in main._friendly_error_message(message)
+    assert "Standard 订阅" in _H._friendly_error_message(message)
 
 
 def test_friendly_error_message_keeps_video_link_failures_actionable() -> None:
-    assert "直接上传视频文件" in main._friendly_error_message("暂时无法自动解析这个视频链接，请上传视频文件")
+    assert "直接上传视频文件" in _H._friendly_error_message("暂时无法自动解析这个视频链接，请上传视频文件")
 
 
 def test_public_mode_defaults_to_cloud_transcription(monkeypatch) -> None:
@@ -102,8 +102,8 @@ def test_public_mode_defaults_to_cloud_transcription(monkeypatch) -> None:
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
     monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
 
-    assert main._allowed_stt_providers() == ("azure_batch",)
-    assert main._normalize_stt_provider("local") == "azure_batch"
+    assert _H._allowed_stt_providers() == ("azure_batch",)
+    assert _H._normalize_stt_provider("local") == "azure_batch"
 
 
 def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> None:
@@ -113,8 +113,8 @@ def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> No
     monkeypatch.setattr(_H, "_request_account_user", lambda request: {"id": "admin", "role": "admin"})
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("fluentflow.icu", 443)})
 
-    assert main._allowed_stt_providers(request) == ("azure_batch",)
-    assert main._normalize_stt_provider("local", request) == "azure_batch"
+    assert _H._allowed_stt_providers(request) == ("azure_batch",)
+    assert _H._normalize_stt_provider("local", request) == "azure_batch"
 
 
 def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch) -> None:
@@ -123,8 +123,8 @@ def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch)
     monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("127.0.0.1", 8000)})
 
-    assert main._allowed_stt_providers(request) == ("azure_batch", "local")
-    assert main._normalize_stt_provider("local", request) == "local"
+    assert _H._allowed_stt_providers(request) == ("azure_batch", "local")
+    assert _H._normalize_stt_provider("local", request) == "local"
 
 
 def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch) -> None:
@@ -180,14 +180,14 @@ def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch)
         "server": ("fluentflow.icu", 443),
     })
 
-    assert main._should_proxy_cloud_workspace(runtime_request) is False
-    assert main._should_proxy_cloud_workspace(local_process_request) is False
-    assert main._should_proxy_cloud_workspace(local_video_source_request) is False
-    assert main._should_proxy_cloud_workspace(local_job_events_request) is False
-    assert main._should_proxy_cloud_workspace(cloud_process_request) is True
-    assert main._request_is_local_execution(local_process_request) is True
-    assert main._request_is_local_execution(local_jobs_request) is True
-    assert main._request_is_local_execution(remote_local_process_request) is False
+    assert _H._should_proxy_cloud_workspace(runtime_request) is False
+    assert _H._should_proxy_cloud_workspace(local_process_request) is False
+    assert _H._should_proxy_cloud_workspace(local_video_source_request) is False
+    assert _H._should_proxy_cloud_workspace(local_job_events_request) is False
+    assert _H._should_proxy_cloud_workspace(cloud_process_request) is True
+    assert _H._request_is_local_execution(local_process_request) is True
+    assert _H._request_is_local_execution(local_jobs_request) is True
+    assert _H._request_is_local_execution(remote_local_process_request) is False
 
 
 def test_local_status_routes_are_public_only_on_localhost() -> None:
@@ -206,8 +206,8 @@ def test_local_status_routes_are_public_only_on_localhost() -> None:
         "server": ("fluentflow.icu", 443),
     })
 
-    assert main._is_public_request(local_request) is True
-    assert main._is_public_request(public_request) is False
+    assert _H._is_public_request(local_request) is True
+    assert _H._is_public_request(public_request) is False
 
 
 def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -> None:
@@ -225,39 +225,19 @@ def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -
     async def call_next(_request):
         return JSONResponse({"ok": True})
 
-    response = asyncio.run(main.beta_access_middleware(request, call_next))
+    response = asyncio.run(_H.beta_access_middleware(request, call_next))
 
     assert response.status_code == 200
-    assert main._request_client_scope(request) == "local-yuchao"
+    assert _H._request_client_scope(request) == "local-yuchao"
 
 
-def test_local_history_candidates_include_transcript_bearing_failed_jobs(monkeypatch) -> None:
+def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://fluentflow.icu")
-    monkeypatch.setattr(
-        _H,
-        "list_jobs",
-        lambda limit=100, **kwargs: [
-            {
-                "task_id": "summary-failed",
-                "status": "failed",
-                "result": {
-                    "task_id": "summary-failed",
-                    "filename": "demo.mp4",
-                    "transcript_text": "transcript is available",
-                    "summary_status": "failed",
-                    "summary_error": "summary failed",
-                },
-            },
-            {"task_id": "hard-failed", "status": "failed", "result": {}},
-        ],
-    )
 
     with TestClient(main.app) as client:
         response = client.get("/local-history/candidates?limit=20")
 
-    assert response.status_code == 200
-    jobs = response.json()["jobs"]
-    assert [job["task_id"] for job in jobs] == ["summary-failed"]
+    assert response.status_code == 404
 
 
 def test_public_cloud_filters_explicit_local_provider(monkeypatch) -> None:
@@ -265,7 +245,7 @@ def test_public_cloud_filters_explicit_local_provider(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,azure_batch")
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("fluentflow.icu", 443)})
 
-    assert main._allowed_stt_providers(request) == ("azure_batch",)
+    assert _H._allowed_stt_providers(request) == ("azure_batch",)
 
 
 def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
@@ -273,8 +253,8 @@ def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,azure_batch")
     monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "local")
 
-    assert main._allowed_stt_providers() == ("local", "azure_batch")
-    assert main._normalize_stt_provider(None) == "local"
+    assert _H._allowed_stt_providers() == ("local", "azure_batch")
+    assert _H._normalize_stt_provider(None) == "local"
 
 
 def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> None:
@@ -288,10 +268,10 @@ def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> N
         ],
     )
 
-    with pytest.raises(main.HTTPException):
-        main._enforce_active_job_limit("client-a", incoming=1)
+    with pytest.raises(HTTPException):
+        _H._enforce_active_job_limit("client-a", incoming=1)
 
-    main._enforce_active_job_limit("client-a", incoming=1, exclude_task_id="existing")
+    _H._enforce_active_job_limit("client-a", incoming=1, exclude_task_id="existing")
 
 
 def test_daily_job_quota_blocks_excess_submissions(monkeypatch) -> None:
@@ -309,8 +289,8 @@ def test_daily_job_quota_blocks_excess_submissions(monkeypatch) -> None:
         ],
     )
 
-    with pytest.raises(main.HTTPException) as exc:
-        main._enforce_daily_quota("client-a", incoming_jobs=1)
+    with pytest.raises(HTTPException) as exc:
+        _H._enforce_daily_quota("client-a", incoming_jobs=1)
 
     assert exc.value.status_code == 429
     assert "每日上限" in exc.value.detail
@@ -342,7 +322,7 @@ def test_daily_job_quota_ignores_imported_history(monkeypatch) -> None:
         ],
     )
 
-    main._enforce_daily_quota("user:account-1", incoming_jobs=1)
+    _H._enforce_daily_quota("user:account-1", incoming_jobs=1)
 
 
 def test_daily_quota_skips_admin_client_scope(monkeypatch) -> None:
@@ -365,8 +345,8 @@ def test_daily_quota_skips_admin_client_scope(monkeypatch) -> None:
         ],
     )
 
-    main._enforce_daily_quota("user:admin-1", incoming_jobs=1)
-    main._enforce_global_daily_quota(client_id="user:admin-1", incoming_jobs=1)
+    _H._enforce_daily_quota("user:admin-1", incoming_jobs=1)
+    _H._enforce_global_daily_quota(client_id="user:admin-1", incoming_jobs=1)
 
 
 def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
@@ -381,8 +361,8 @@ def test_daily_upload_quota_blocks_excess_upload_mb(monkeypatch) -> None:
         ],
     )
 
-    with pytest.raises(main.HTTPException) as exc:
-        main._enforce_daily_quota("client-a", incoming_upload_mb=30)
+    with pytest.raises(HTTPException) as exc:
+        _H._enforce_daily_quota("client-a", incoming_upload_mb=30)
 
     assert exc.value.status_code == 429
     assert "上传额度" in exc.value.detail
@@ -400,8 +380,8 @@ def test_global_active_job_limit_blocks_server_overload(monkeypatch) -> None:
         ],
     )
 
-    with pytest.raises(main.HTTPException) as exc:
-        main._enforce_global_active_job_limit(incoming=1)
+    with pytest.raises(HTTPException) as exc:
+        _H._enforce_global_active_job_limit(incoming=1)
 
     assert exc.value.status_code == 429
     assert "全站最多同时运行" in exc.value.detail
@@ -419,8 +399,8 @@ def test_global_daily_upload_quota_blocks_excess_usage(monkeypatch) -> None:
         ],
     )
 
-    with pytest.raises(main.HTTPException) as exc:
-        main._enforce_global_daily_quota(incoming_upload_mb=20)
+    with pytest.raises(HTTPException) as exc:
+        _H._enforce_global_daily_quota(incoming_upload_mb=20)
 
     assert exc.value.status_code == 429
     assert "全站已使用" in exc.value.detail
@@ -429,21 +409,21 @@ def test_global_daily_upload_quota_blocks_excess_usage(monkeypatch) -> None:
 def test_submission_rate_limit_blocks_repeated_requests(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP", "2")
     monkeypatch.setenv("FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS", "60")
-    main._SUBMISSION_RATE_EVENTS.clear()
+    _H._SUBMISSION_RATE_EVENTS.clear()
     request = SimpleNamespace(
         headers={},
         client=SimpleNamespace(host="203.0.113.10"),
     )
 
-    main._enforce_submission_rate_limit(request, incoming=1)
-    main._enforce_submission_rate_limit(request, incoming=1)
+    _H._enforce_submission_rate_limit(request, incoming=1)
+    _H._enforce_submission_rate_limit(request, incoming=1)
 
-    with pytest.raises(main.HTTPException) as exc:
-        main._enforce_submission_rate_limit(request, incoming=1)
+    with pytest.raises(HTTPException) as exc:
+        _H._enforce_submission_rate_limit(request, incoming=1)
 
     assert exc.value.status_code == 429
     assert "提交过于频繁" in exc.value.detail
-    main._SUBMISSION_RATE_EVENTS.clear()
+    _H._SUBMISSION_RATE_EVENTS.clear()
 
 
 def test_history_retention_prunes_oldest_completed_task_files(tmp_path, monkeypatch) -> None:
@@ -467,7 +447,7 @@ def test_history_retention_prunes_oldest_completed_task_files(tmp_path, monkeypa
     monkeypatch.setattr(_H, "list_jobs_for_retention", lambda client_id=None: jobs)
     monkeypatch.setattr(_H, "delete_jobs", lambda task_ids, client_id=None: deleted.extend(task_ids) or len(task_ids))
 
-    result = main._enforce_history_retention("client-a")
+    result = _H._enforce_history_retention("client-a")
 
     assert result["task_ids"] == ["prune"]
     assert deleted == ["prune"]
@@ -518,7 +498,7 @@ def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp
     monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: updates.append(kwargs))
     monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
 
-    main._resume_queued_transcription_jobs(base_url="http://127.0.0.1:8000")
+    _H._resume_queued_transcription_jobs(base_url="http://127.0.0.1:8000")
 
     assert [item["task_id"] for item in enqueued] == ["task-ok"]
     assert any(item["task_id"] == "task-ok" and item["status"] == "queued" for item in updates)
@@ -540,7 +520,7 @@ def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> Non
         },
     )
 
-    metadata = main._job_metadata_for_update(
+    metadata = _H._job_metadata_for_update(
         "task",
         "client-a",
         route="/process",
@@ -571,7 +551,7 @@ def test_ops_status_reports_stale_jobs_without_secret_values(tmp_path, monkeypat
         ],
     )
 
-    payload = main._ops_status_payload()
+    payload = _H._ops_status_payload()
 
     assert payload["status"] == "warn"
     assert payload["jobs"]["stale_count"] == 1

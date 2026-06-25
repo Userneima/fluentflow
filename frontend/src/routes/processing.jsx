@@ -21,12 +21,16 @@ import {
     fmtElapsed,
     fmtFileSize,
     friendlyTaskError,
+    isLocalLarkExportRoute,
     isAzureBatchConfigured,
     isAzureCloudProvider,
     isLocalHistoryResult,
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobToHistoryEntry,
+    larkExportRouteFromSettings,
+    LARK_EXPORT_ROUTE_LOCAL_CLI,
+    LARK_EXPORT_ROUTE_OPENAPI,
     NOTE_MODE_OPTIONS,
     noteModeLabel,
     normalizeAiModel,
@@ -123,6 +127,7 @@ const Processing = () => {
     const sttProvider = effectiveSttProvider(settings, runtimeConfig);
     const canChooseSttProvider = runtimeConfig.allowedSttProviders.length > 1;
     const showMaintainerSettings = runtimeConfig.showMaintainerSettings;
+    const larkExportRoute = larkExportRouteFromSettings(settings);
     const speakerDiarizationAvailable = sttProvider === 'azure_batch' || (sttProvider === 'local' && !!diarizationStatus?.available);
     const speakerDiarizationHint = sttProvider === 'azure_batch'
         ? (lang==='zh'?'云端转录支持可选说话人区分，效果取决于音频质量。':'Cloud transcription can optionally label speakers. Results depend on audio quality.')
@@ -366,16 +371,28 @@ const Processing = () => {
                                     label={t('set.autoExport')}
                                     icon="ios_share"
                                 />
-                                <ToggleRow
-                                    id="workLarkViaCli"
-                                    checked={settings.larkViaCli||false}
-                                    onChange={e=>updateSettingNow({larkViaCli:e.target.checked})}
-                                    label={t('set.larkViaCli')}
-                                    hint={t('set.larkViaCliHint')}
-                                    icon="terminal"
-                                />
+                                <div className="space-y-2">
+                                    <label className={fieldLabelClass}>{t('set.larkExportRoute')}</label>
+                                    <select
+                                        className={inputClass}
+                                        value={larkExportRoute}
+                                        onChange={e=>{
+                                            const route = e.target.value;
+                                            updateSettingNow({
+                                                larkExportRoute: route,
+                                                larkViaCli: isLocalLarkExportRoute(route),
+                                            });
+                                        }}
+                                    >
+                                        <option value={LARK_EXPORT_ROUTE_OPENAPI}>{t('set.larkRouteOpenapi')}</option>
+                                        {showMaintainerSettings && <option value={LARK_EXPORT_ROUTE_LOCAL_CLI}>{t('set.larkRouteLocalCli')}</option>}
+                                    </select>
+                                    <p className="text-[11px] text-on-surface-variant leading-snug">
+                                        {isLocalLarkExportRoute(larkExportRoute) ? t('set.larkRouteLocalCliHint') : t('set.larkRouteOpenapiHint')}
+                                    </p>
+                                </div>
                             </div>
-                            {showMaintainerSettings && !settings.larkViaCli && (
+                            {showMaintainerSettings && !isLocalLarkExportRoute(larkExportRoute) && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                                     <div className="space-y-2">
                                         <label className={fieldLabelClass}>App ID</label>
@@ -395,11 +412,9 @@ const Processing = () => {
                             )}
                             {!showMaintainerSettings && (
                                 <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
-                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">{settings.larkViaCli ? 'terminal' : 'cloud_done'}</span>
+                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">cloud_done</span>
                                     <p className="text-xs text-on-surface-variant leading-relaxed">
-                                        {settings.larkViaCli
-                                            ? (lang==='zh'?'将使用后端进程可调用的本机 lark-cli 和当前登录身份导出。':'Export will use the local lark-cli available to the backend process.')
-                                            : (lang==='zh'?'将使用后台统一配置的飞书 OpenAPI 凭证导出。':'Export will use the backend-configured Lark OpenAPI credentials.')}
+                                        {t('set.larkRouteOpenapiHint')}
                                     </p>
                                 </div>
                             )}

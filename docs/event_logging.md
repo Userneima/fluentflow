@@ -179,12 +179,18 @@ Azure Fast 默认使用 REST API `2025-10-15`；可通过 `FLUENTFLOW_AZURE_FAST
 
 | 字段 | 含义 |
 | --- | --- |
-| `requested_note_mode` | 用户或前端请求的模式：`auto`、`direct`、`high_fidelity`。 |
-| `resolved_note_mode` | 后端实际采用的模式。`auto` 会按转录长度自动解析为 `direct` 或 `high_fidelity`。 |
+| `requested_note_mode` | 用户或前端请求的模式：`auto`、`direct`、`high_fidelity`、`chapter_coverage`。 |
+| `resolved_note_mode` | 后端实际采用的模式。`auto` 会由策略 Agent 或长度兜底解析为具体模式。 |
 | `note_mode_chunk_count` | 本次摘要阶段使用的转录分段数；`direct` 通常为 `1`。 |
 | `note_mode_transcript_length` | 本次输入摘要阶段的转录文本长度。 |
 | `coverage_checked` | 高保真模式下是否执行了覆盖率检查。输入过长时可能跳过覆盖检查。 |
 | `coverage_revision_used` | 覆盖率检查发现遗漏后，是否执行了修订。 |
+| `note_mode_segment_count` | `chapter_coverage` 稳定切片数。 |
+| `note_mode_evidence_count` | `chapter_coverage` 抽取出的证据数。 |
+| `note_mode_chapter_count` | `chapter_coverage` 生成的章节数。 |
+| `note_mode_important_evidence_count` | `chapter_coverage` 中 importance >= 4 的证据数。 |
+| `note_mode_covered_important_evidence_count` | 程序章节分配已覆盖的重要证据数。 |
+| `note_mode_coverage_missing_count` | 覆盖检查发现或推断仍需补入的重要遗漏数量。 |
 
 当前自动阈值为：转录文本不超过约 `20,000` 字符时使用 `direct`；超过后使用 `high_fidelity`。这个阈值不是模型上下文极限，而是质量策略起点：先保守避免长课程被过度概括，后续用真实样本再调。
 
@@ -193,6 +199,7 @@ Azure Fast 默认使用 REST API `2025-10-15`；可通过 `FLUENTFLOW_AZURE_FAST
 - `auto`：默认推荐。用户不用判断长度，后端自动选择。
 - `direct`：整段转录一次发送给模型，速度更快，适合较短材料；用户强制选择时不代表一定不会超过模型上下文。
 - `high_fidelity`：先分段提取证据，再生成终稿，并在条件允许时做覆盖率检查；耗时更久，适合长课程和信息密度高的字幕。
+- `chapter_coverage`：先稳定切片、抽取证据、规划章节，再逐章生成和覆盖检查；最慢，适合超长或高价值材料。
 
 ## 任务终态 metadata
 
@@ -230,7 +237,7 @@ Azure Fast 默认使用 REST API `2025-10-15`；可通过 `FLUENTFLOW_AZURE_FAST
 - 端到端平均任务耗时：`task_completed.duration_seconds` 的均值。
 - 平均转写长度：`transcript_ready.transcript_length` 的均值。
 - 平均摘要长度：`summary_completed.summary_length` 的均值。
-- 直接/高保真模式分布：按 `summary_completed.metadata.resolved_note_mode` 聚合。
+- 笔记模式分布：按 `summary_completed.metadata.resolved_note_mode` 聚合。
 - 高保真覆盖修订率：`coverage_revision_used=true / coverage_checked=true`，只适合内部观察，不等同最终笔记质量。
 - 飞书导出成功率：`lark_export_completed(success=true) / lark_export_started`。
 - 自动/手动导出数量：按 `metadata.trigger` 聚合 `lark_export_started`。

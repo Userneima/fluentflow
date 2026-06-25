@@ -69,15 +69,51 @@ def test_attach_result_artifacts_writes_bilingual_subtitles(tmp_path, monkeypatc
     ).read_text(encoding="utf-8")
     assert "Hello world\n你好，世界" in bilingual_srt
     assert artifacts["transcript_bilingual_srt"]["filename"].endswith("_bilingual_zh.srt")
+    assert next_result["result_schema_version"] == "2"
+    assert next_result["raw_segments"][0]["text"] == "Hello world"
+    assert next_result["display_segments"][0]["text_zh"] == "你好，世界"
+    assert "segments" not in next_result
+    assert "translated_segments_zh" not in next_result
 
 
-def test_attach_result_artifacts_preserves_result_when_nothing_to_write(tmp_path, monkeypatch) -> None:
+def test_attach_result_artifacts_prefers_display_segments_for_bilingual_subtitles(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
+    result = {
+        "filename": "english-lesson.mp4",
+        "transcript_text": "Hello world",
+        "raw_segments": [
+            {"start": 0.0, "end": 1.25, "text": "Hello world"},
+        ],
+        "display_segments": [
+            {"start": 0.0, "end": 1.25, "text": "Hello world.", "text_zh": "你好，世界。"},
+        ],
+        "translated_segments_zh": [
+            {"start": 0.0, "end": 1.25, "text": "旧翻译"},
+        ],
+    }
+
+    next_result = _attach_result_artifacts("task_display_segments_test", result)
+
+    artifacts = next_result["artifacts"]
+    bilingual_srt = (
+        tmp_path / "task_display_segments_test" / artifacts["transcript_bilingual_srt"]["filename"]
+    ).read_text(encoding="utf-8")
+    source_srt = (
+        tmp_path / "task_display_segments_test" / artifacts["transcript_srt"]["filename"]
+    ).read_text(encoding="utf-8")
+    assert "Hello world.\n你好，世界。" in bilingual_srt
+    assert "旧翻译" not in bilingual_srt
+    assert "Hello world" in source_srt
+    assert "你好，世界。" not in source_srt
+
+
+def test_attach_result_artifacts_adds_schema_version_when_nothing_to_write(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
     result = {"filename": "empty.mp4"}
 
     next_result = _attach_result_artifacts("task_empty", result)
 
-    assert next_result == result
+    assert next_result == {**result, "result_schema_version": "2"}
     assert not (tmp_path / "task_empty").exists()
 
 
@@ -202,8 +238,12 @@ def test_generate_job_zh_translations_persists_bilingual_artifacts(tmp_path, mon
     result = response.json()["result"]
     assert result["translation_status"] == "completed"
     assert result["subtitle_mode"] == "bilingual_zh"
-    assert result["bilingual_segments"][0]["text"] == "Hello world. Second sentence."
-    assert result["translated_segments_zh"][0]["text"] == "你好，世界。第二句。"
+    assert result["result_schema_version"] == "2"
+    assert result["raw_segments"][0]["text"] == "Hello world"
+    assert result["display_segments"][0]["text_zh"] == "你好，世界。第二句。"
+    assert "segments" not in result
+    assert "bilingual_segments" not in result
+    assert "translated_segments_zh" not in result
     artifacts = result["artifacts"]
     assert "transcript_bilingual_srt" in artifacts
     bilingual_srt = (

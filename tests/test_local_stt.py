@@ -48,7 +48,18 @@ class TestLocalStt(unittest.TestCase):
         self.assertEqual(defaults["beam_size"], 3)
         self.assertEqual(defaults["best_of"], 3)
 
-    def test_transcribe_prompt_and_hotwords_are_bounded(self) -> None:
+    def test_chinese_transcribe_defaults_do_not_inject_hotwords(self) -> None:
+        defaults = _build_transcribe_defaults(
+            language="zh",
+            speed_profile="balanced",
+            hotwords=None,
+            initial_prompt=None,
+        )
+
+        self.assertNotIn("hotwords", defaults)
+        self.assertIn("以下是普通话中文语音转录", defaults["initial_prompt"])
+
+    def test_low_level_explicit_hotwords_are_bounded(self) -> None:
         defaults = _build_transcribe_defaults(
             language="zh",
             speed_profile="balanced",

@@ -7,10 +7,12 @@ import logging
 import os
 import sqlite3
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.core.result_schema import normalize_result_for_read, normalize_result_for_storage
 from backend.core.title_display import display_title_for_user
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,28 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE TABLE IF NOT EXISTS job_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    step_key TEXT NOT NULL UNIQUE,
+    step_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 100,
+    run_after_at TEXT,
+    locked_at TEXT,
+    lock_id TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 1,
+    input_json TEXT,
+    result_json TEXT,
+    error_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_job_steps_status_priority ON job_steps(status, priority, id);
+CREATE INDEX IF NOT EXISTS idx_job_steps_task ON job_steps(task_id, id);
 """
 
 
@@ -49,6 +73,10 @@ def _json_dumps(value: Any) -> str | None:
     if value is None:
         return None
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _result_json_dumps(result: dict[str, Any] | None) -> str | None:
+    return _json_dumps(normalize_result_for_storage(result))
 
 
 def _json_loads(value: str | None) -> Any:
@@ -130,7 +158,7 @@ def upsert_job(
                         source_file_size_mb,
                         summary_status,
                         error_reason,
-                        _json_dumps(result),
+                        _result_json_dumps(result),
                         _json_dumps(metadata),
                     ),
                 )
@@ -232,10 +260,286 @@ def update_job_result(
             return None
         conn.execute(
             "UPDATE jobs SET updated_at = ?, result_json = ? WHERE task_id = ?",
-            (now, _json_dumps(result), task_id),
+            (now, _result_json_dumps(result), task_id),
         )
         updated = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
     return _row_to_dict(updated) if updated else None
+
+
+def enqueue_job_step(
+    *,
+    task_id: str,
+    step_type: str,
+    input: dict[str, Any] | None = None,
+    step_key: str | None = None,
+    priority: int = 100,
+    max_attempts: int = 1,
+    run_after_at: str | None = None,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    task_id = str(task_id or "").strip()
+    step_type = str(step_type or "").strip()
+    if not task_id or not step_type:
+        return None
+    key = str(step_key or f"{task_id}:{step_type}").strip()
+    ensure_job_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(Path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            INSERT INTO job_steps (
+                task_id, step_key, step_type, status, priority, run_after_at,
+                attempt_count, max_attempts, input_json, created_at, updated_at
+            ) VALUES (?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?)
+            ON CONFLICT(step_key) DO UPDATE SET
+                updated_at=excluded.updated_at,
+                input_json=CASE
+                    WHEN job_steps.status IN ('queued', 'failed', 'cancelled') THEN excluded.input_json
+                    ELSE job_steps.input_json
+                END,
+                status=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN 'queued'
+                    ELSE job_steps.status
+                END,
+                priority=CASE
+                    WHEN job_steps.status IN ('queued', 'failed', 'cancelled') THEN excluded.priority
+                    ELSE job_steps.priority
+                END,
+                run_after_at=CASE
+                    WHEN job_steps.status IN ('queued', 'failed', 'cancelled') THEN excluded.run_after_at
+                    ELSE job_steps.run_after_at
+                END,
+                lock_id=NULL,
+                locked_at=NULL,
+                attempt_count=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN 0
+                    ELSE job_steps.attempt_count
+                END,
+                started_at=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN NULL
+                    ELSE job_steps.started_at
+                END,
+                finished_at=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN NULL
+                    ELSE job_steps.finished_at
+                END,
+                error_reason=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN NULL
+                    ELSE job_steps.error_reason
+                END
+            """,
+            (
+                task_id,
+                key,
+                step_type,
+                int(priority),
+                run_after_at,
+                max(1, int(max_attempts or 1)),
+                _json_dumps(input or {}),
+                now,
+                now,
+            ),
+        )
+        row = conn.execute("SELECT * FROM job_steps WHERE step_key = ?", (key,)).fetchone()
+    return _step_row_to_dict(row) if row else None
+
+
+def acquire_next_job_step(
+    *,
+    step_types: tuple[str, ...] | list[str] | None = None,
+    lock_timeout_seconds: float = 3600,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    ensure_job_db(db_path)
+    now = _now_iso()
+    lock_id = uuid.uuid4().hex
+    step_type_values = [str(value).strip() for value in (step_types or []) if str(value).strip()]
+    cutoff_ts = time.time() - max(float(lock_timeout_seconds or 3600), 60.0)
+    cutoff = datetime.fromtimestamp(cutoff_ts, timezone.utc).astimezone().isoformat(timespec="seconds")
+    with sqlite3.connect(Path(db_path), timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("BEGIN IMMEDIATE")
+        type_clause = ""
+        if step_type_values:
+            placeholders = ",".join("?" for _ in step_type_values)
+            type_clause = f" AND step_type IN ({placeholders})"
+        row = conn.execute(
+            f"""
+            SELECT * FROM job_steps
+            WHERE (
+                status = 'queued'
+                OR (status = 'running' AND locked_at IS NOT NULL AND locked_at < ?)
+            )
+            AND (run_after_at IS NULL OR run_after_at <= ?)
+            {type_clause}
+            ORDER BY priority ASC, id ASC
+            LIMIT 1
+            """,
+            [cutoff, now, *step_type_values],
+        ).fetchone()
+        if row is None:
+            conn.commit()
+            return None
+        conn.execute(
+            """
+            UPDATE job_steps
+            SET status='running',
+                locked_at=?,
+                lock_id=?,
+                attempt_count=attempt_count + 1,
+                updated_at=?,
+                started_at=COALESCE(started_at, ?),
+                error_reason=NULL
+            WHERE id=?
+            """,
+            (now, lock_id, now, now, row["id"]),
+        )
+        updated = conn.execute("SELECT * FROM job_steps WHERE id = ?", (row["id"],)).fetchone()
+        conn.commit()
+    return _step_row_to_dict(updated) if updated else None
+
+
+def complete_job_step(
+    step_id: int,
+    *,
+    result: dict[str, Any] | None = None,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    return _finish_job_step(step_id, status="completed", result=result, error_reason=None, db_path=db_path)
+
+
+def fail_job_step(
+    step_id: int,
+    *,
+    error_reason: str,
+    result: dict[str, Any] | None = None,
+    retry: bool = False,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    if retry:
+        ensure_job_db(db_path)
+        now = _now_iso()
+        with sqlite3.connect(Path(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM job_steps WHERE id = ?", (step_id,)).fetchone()
+            if row is None:
+                return None
+            can_retry = int(row["attempt_count"] or 0) < int(row["max_attempts"] or 1)
+            status = "queued" if can_retry else "failed"
+            conn.execute(
+                """
+                UPDATE job_steps
+                SET status=?, updated_at=?, finished_at=?,
+                    locked_at=NULL, lock_id=NULL, error_reason=?, result_json=?
+                WHERE id=?
+                """,
+                (
+                    status,
+                    now,
+                    None if can_retry else now,
+                    error_reason,
+                    _json_dumps(result),
+                    step_id,
+                ),
+            )
+            updated = conn.execute("SELECT * FROM job_steps WHERE id = ?", (step_id,)).fetchone()
+        return _step_row_to_dict(updated) if updated else None
+    return _finish_job_step(step_id, status="failed", result=result, error_reason=error_reason, db_path=db_path)
+
+
+def cancel_job_steps(
+    task_id: str,
+    *,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> int:
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return 0
+    ensure_job_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(Path(db_path)) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE job_steps
+            SET status='cancelled', updated_at=?, finished_at=?, locked_at=NULL, lock_id=NULL
+            WHERE task_id = ? AND status IN ('queued', 'running')
+            """,
+            (now, now, task_id),
+        )
+        return int(cursor.rowcount or 0)
+
+
+def list_job_steps(
+    *,
+    task_id: str | None = None,
+    statuses: tuple[str, ...] | list[str] | None = None,
+    limit: int = 100,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    ensure_job_db(db_path)
+    safe_limit = max(1, min(int(limit or 100), 500))
+    where: list[str] = []
+    params: list[Any] = []
+    if task_id:
+        where.append("task_id = ?")
+        params.append(str(task_id))
+    status_values = [str(value).strip() for value in (statuses or []) if str(value).strip()]
+    if status_values:
+        placeholders = ",".join("?" for _ in status_values)
+        where.append(f"status IN ({placeholders})")
+        params.extend(status_values)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    with sqlite3.connect(Path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"SELECT * FROM job_steps {where_sql} ORDER BY id ASC LIMIT ?",
+            [*params, safe_limit],
+        ).fetchall()
+    return [_step_row_to_dict(row) for row in rows]
+
+
+def requeue_running_job_steps(
+    *,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> int:
+    ensure_job_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(Path(db_path)) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE job_steps
+            SET status='queued', updated_at=?, locked_at=NULL, lock_id=NULL
+            WHERE status='running'
+            """,
+            (now,),
+        )
+        return int(cursor.rowcount or 0)
+
+
+def _finish_job_step(
+    step_id: int,
+    *,
+    status: str,
+    result: dict[str, Any] | None,
+    error_reason: str | None,
+    db_path: Path | str,
+) -> dict[str, Any] | None:
+    ensure_job_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(Path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            UPDATE job_steps
+            SET status=?, updated_at=?, finished_at=?, locked_at=NULL, lock_id=NULL,
+                result_json=?, error_reason=?
+            WHERE id=?
+            """,
+            (status, now, now, _json_dumps(result), error_reason, step_id),
+        )
+        row = conn.execute("SELECT * FROM job_steps WHERE id = ?", (step_id,)).fetchone()
+    return _step_row_to_dict(row) if row else None
 
 
 def migrate_job_display_titles(db_path: Path | str = DEFAULT_DB_PATH) -> int:
@@ -326,6 +630,11 @@ def delete_jobs(
         where += " AND client_id = ?"
         params.append(client_id)
     with sqlite3.connect(Path(db_path)) as conn:
+        rows = conn.execute(f"SELECT task_id FROM jobs WHERE {where}", params).fetchall()
+        allowed_ids = [str(row[0]) for row in rows]
+        if allowed_ids:
+            step_placeholders = ",".join("?" for _ in allowed_ids)
+            conn.execute(f"DELETE FROM job_steps WHERE task_id IN ({step_placeholders})", allowed_ids)
         cursor = conn.execute(f"DELETE FROM jobs WHERE {where}", params)
         return int(cursor.rowcount or 0)
 
@@ -344,12 +653,36 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "source_file_size_mb": row["source_file_size_mb"],
         "summary_status": row["summary_status"],
         "error_reason": row["error_reason"],
-        "result": _json_loads(row["result_json"]),
+        "result": normalize_result_for_read(_json_loads(row["result_json"])),
         "metadata": _json_loads(row["metadata_json"]),
     }
 
 
+def _step_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "task_id": row["task_id"],
+        "step_key": row["step_key"],
+        "step_type": row["step_type"],
+        "status": row["status"],
+        "priority": row["priority"],
+        "run_after_at": row["run_after_at"],
+        "locked_at": row["locked_at"],
+        "lock_id": row["lock_id"],
+        "attempt_count": row["attempt_count"],
+        "max_attempts": row["max_attempts"],
+        "input": _json_loads(row["input_json"]) or {},
+        "result": _json_loads(row["result_json"]),
+        "error_reason": row["error_reason"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+    }
+
+
 def _result_summary(result: Any) -> dict[str, Any] | None:
+    result = normalize_result_for_read(result)
     if not isinstance(result, dict):
         return None
     lark_response = result.get("lark_response") if isinstance(result.get("lark_response"), dict) else None
@@ -391,6 +724,20 @@ def _result_summary(result: Any) -> dict[str, Any] | None:
         "requested_note_mode": result.get("requested_note_mode"),
         "resolved_note_mode": result.get("resolved_note_mode"),
         "note_mode_chunk_count": result.get("note_mode_chunk_count"),
+        "note_mode_segment_count": result.get("note_mode_segment_count"),
+        "note_mode_evidence_count": result.get("note_mode_evidence_count"),
+        "note_mode_chapter_count": result.get("note_mode_chapter_count"),
+        "note_mode_important_evidence_count": result.get("note_mode_important_evidence_count"),
+        "note_mode_covered_important_evidence_count": result.get("note_mode_covered_important_evidence_count"),
+        "note_mode_coverage_missing_count": result.get("note_mode_coverage_missing_count"),
+        "note_mode_plan_reason": result.get("note_mode_plan_reason"),
+        "note_mode_plan_confidence": result.get("note_mode_plan_confidence"),
+        "note_mode_plan_warnings": result.get("note_mode_plan_warnings"),
+        "note_mode_plan_provider": result.get("note_mode_plan_provider"),
+        "note_mode_plan_model": result.get("note_mode_plan_model"),
+        "note_mode_plan_fallback": result.get("note_mode_plan_fallback"),
+        "note_mode_plan_error": result.get("note_mode_plan_error"),
+        "note_mode_plan_selected_mode": result.get("note_mode_plan_selected_mode"),
         "prompt_preset": result.get("prompt_preset"),
         "prompt_preset_label": result.get("prompt_preset_label"),
         "imported_from_local_history": result.get("imported_from_local_history"),

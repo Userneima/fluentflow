@@ -44,16 +44,18 @@ import {
     isAzureCloudProvider,
     isAzureSpeechConfigured,
     isLocalHistoryResult,
+    isLocalLarkExportRoute,
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobToHistoryEntry,
+    larkExportRouteFromSettings,
     localExecutionHeaders,
     noteModeLabel,
+    pickDisplayTranscriptSegments,
     normalizeSttModel,
     normalizeSttProvider,
     pickTranscriptBaselineSegments,
     pickTranscriptSegments,
-    normalizeTranscriptSegments,
     resultToHistoryEntry,
     resultDisplayTitle,
     shouldUseLocalSingleUserClientId,
@@ -74,6 +76,68 @@ const jobOptionsForResult = (result) => (
         ? {sttProvider: 'local'}
         : {}
 );
+
+const noteModeReasonText = (result, lang) => {
+    const plannedReason = String(result?.note_mode_plan_reason || '').trim();
+    if (plannedReason) {
+        return plannedReason;
+    }
+    const requested = String(result?.requested_note_mode || '').trim();
+    const resolved = String(result?.resolved_note_mode || requested || '').trim();
+    if (!resolved) return '';
+    const wasAuto = !requested || requested === 'auto';
+    if (resolved === 'chapter_coverage') {
+        return wasAuto
+            ? (lang === 'zh' ? '材料较长或信息密度高，系统改用章节覆盖流程，先抽证据再按章节生成。' : 'The material is long or dense, so FluentFlow used chapter coverage: evidence first, then chapter writing.')
+            : (lang === 'zh' ? '来自本次处理设置：先抽取证据、规划章节，再检查重要遗漏。' : 'Chosen in this run: extract evidence, plan chapters, then check important omissions.');
+    }
+    if (resolved === 'high_fidelity') {
+        return wasAuto
+            ? (lang === 'zh' ? '材料偏长，系统改用分块整理，重点是减少遗漏。' : 'The material is long, so the system used chunked coverage to reduce omissions.')
+            : (lang === 'zh' ? '来自本次处理设置，优先完整覆盖，速度会慢一些。' : 'Chosen in this run. It prioritizes coverage and may take longer.');
+    }
+    if (resolved === 'direct') {
+        return wasAuto
+            ? (lang === 'zh' ? '材料长度适中，系统直接生成，速度更快。' : 'The material is short enough for direct generation, which is faster.')
+            : (lang === 'zh' ? '来自本次处理设置，适合较短或结构清楚的材料。' : 'Chosen in this run. It fits shorter or clearly structured material.');
+    }
+    return lang === 'zh' ? '按本次处理设置生成。' : 'Generated from this run’s settings.';
+};
+
+const promptPresetReasonText = (result, lang) => {
+    const preset = String(result?.prompt_preset || '').trim();
+    const label = String(result?.prompt_preset_label || '').trim();
+    if (!preset && !label) return '';
+    if (preset === 'default') {
+        return lang === 'zh' ? '使用默认课程笔记结构，保证输出格式稳定。' : 'Uses the default course-note structure for stable output.';
+    }
+    return lang === 'zh'
+        ? '来自处理设置，用来决定笔记结构、重点和限制。'
+        : 'Comes from Processing settings and controls note structure, focus, and constraints.';
+};
+
+const subtitleReasonText = (result, hasBilingualTranscript, lang) => {
+    const sourceLanguage = String(result?.source_language || result?.detected_language || '').toLowerCase();
+    if (hasBilingualTranscript || result?.subtitle_mode === 'bilingual_zh') {
+        return lang === 'zh'
+            ? '英文原文已保留，并附加中文对照，方便校对和做笔记。'
+            : 'The English source is preserved with Chinese alongside it for review and note-taking.';
+    }
+    if (sourceLanguage.startsWith('en')) {
+        return lang === 'zh'
+            ? '当前只有英文原文字幕，需要中文时可生成中英对照。'
+            : 'Only the English source subtitles are present. Add bilingual subtitles when Chinese is needed.';
+    }
+    return '';
+};
+
+const summaryFailureNextStep = (result, lang) => {
+    if (!(result?.summary_status === 'failed' || result?.summary_error)) return '';
+    const error = friendlyTaskError(result?.summary_error, lang);
+    return lang === 'zh'
+        ? `原因：${error} 下一步：点击“重新生成”；如果还失败，先更换提示词或缩短材料。`
+        : `Reason: ${error} Next: click Regenerate; if it still fails, change the prompt or shorten the material.`;
+};
 
 const Editor = () => {
     const {t, lang} = useI18n();
@@ -203,9 +267,9 @@ const Editor = () => {
                 if (cancelled || !full) return;
                 const fullSegments = pickTranscriptSegments(full);
                 const fullText = full.transcript_text || '';
-                const currentBilingualCount = normalizeTranscriptSegments(result?.bilingual_segments).length;
-                const fullBilingualCount = normalizeTranscriptSegments(full?.bilingual_segments).length;
-                if (fullSegments.length > currentSegments.length || fullText.length > currentText.length || fullBilingualCount > currentBilingualCount) {
+                const currentDisplayCount = pickDisplayTranscriptSegments(result, currentSegments).length;
+                const fullDisplayCount = pickDisplayTranscriptSegments(full, fullSegments).length;
+                if (fullSegments.length > currentSegments.length || fullText.length > currentText.length || fullDisplayCount > currentDisplayCount) {
                     const fullBaselineSegments = pickTranscriptBaselineSegments(full);
                     setLastResult(full);
                     setEditedSegments(fullSegments.map((seg) => ({...seg})));
@@ -348,16 +412,9 @@ const Editor = () => {
         [baselineSegments, segments, result?.transcript_edit_records]
     );
     const summary = result?.summary_markdown || '';
-    const translatedSegmentsZh = Array.isArray(result?.translated_segments_zh) ? result.translated_segments_zh : [];
-    const storedBilingualSegments = normalizeTranscriptSegments(result?.bilingual_segments)
+    const displayTranscriptSegments = pickDisplayTranscriptSegments(result, segments);
+    const bilingualTranscriptSegments = displayTranscriptSegments
         .filter((seg) => String(seg.text_zh || '').trim());
-    const legacyBilingualSegments = translatedSegmentsZh.length > 0
-        ? segments.map((segment, index) => {
-            const textZh = String(translatedSegmentsZh[index]?.text || translatedSegmentsZh[index]?.text_zh || '').trim();
-            return textZh ? {...segment, text_zh: textZh, source_start_index: index, source_end_index: index} : null;
-        }).filter(Boolean)
-        : [];
-    const bilingualTranscriptSegments = storedBilingualSegments.length > 0 ? storedBilingualSegments : legacyBilingualSegments;
     const hasBilingualTranscript = bilingualTranscriptSegments.length > 0;
     const visibleTranscriptView = hasBilingualTranscript && transcriptView !== 'raw' ? 'bilingual' : 'raw';
     const visibleTranscriptSegments = visibleTranscriptView === 'bilingual' ? bilingualTranscriptSegments : segments;
@@ -422,7 +479,35 @@ const Editor = () => {
             label: lang === 'zh' ? '分块数' : 'Chunks',
             value: String(result.note_mode_chunk_count),
         } : null,
+        result?.note_mode_chapter_count ? {
+            label: lang === 'zh' ? '章节数' : 'Chapters',
+            value: String(result.note_mode_chapter_count),
+        } : null,
+        result?.note_mode_evidence_count ? {
+            label: lang === 'zh' ? '证据数' : 'Evidence',
+            value: String(result.note_mode_evidence_count),
+        } : null,
+        result?.note_mode_important_evidence_count ? {
+            label: lang === 'zh' ? '重要证据覆盖' : 'Important coverage',
+            value: `${result.note_mode_covered_important_evidence_count ?? 0}/${result.note_mode_important_evidence_count}`,
+        } : null,
     ].filter(Boolean);
+    const summaryReasonItems = [
+        {
+            label: lang === 'zh' ? '模式原因' : 'Mode reason',
+            value: noteModeReasonText(result, lang),
+        },
+        {
+            label: lang === 'zh' ? '提示词原因' : 'Prompt reason',
+            value: promptPresetReasonText(result, lang),
+        },
+        {
+            label: lang === 'zh' ? '字幕原因' : 'Subtitle reason',
+            value: subtitleReasonText(result, hasBilingualTranscript, lang),
+        },
+    ].filter((item) => item.value);
+    const transcriptReason = subtitleReasonText(result, hasBilingualTranscript, lang);
+    const summaryFailureHint = summaryFailureNextStep(result, lang);
     const resultTitle = resultDisplayTitle(result, {name: t('edit.title')});
     const resultDownloadName = result?.display_title || resultTitle || result?.filename;
     const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
@@ -629,10 +714,12 @@ const Editor = () => {
             if(result.source) fd.append('source_type', result.source);
             if(result.filename) fd.append('source_filename', result.filename);
             if(durSec > 0) fd.append('source_duration_seconds', String(durSec));
-            fd.append('lark_via_cli', settings.larkViaCli ? 'true' : 'false');
+            const larkExportRoute = larkExportRouteFromSettings(settings);
+            fd.append('lark_export_route', larkExportRoute);
+            fd.append('lark_via_cli', isLocalLarkExportRoute(larkExportRoute) ? 'true' : 'false');
             const headers = shouldUseLocalSingleUserClientId()
-                ? localExecutionHeaders({localExecution: true})
-                : {};
+                ? localExecutionHeaders({localExecution: true, larkExportRoute})
+                : localExecutionHeaders({larkExportRoute});
             const r = await apiFetch(`${API_BASE}/export-lark`, {method:'POST', headers, body:fd});
             const data = await r.json().catch(()=>({}));
             if(!r.ok) {
@@ -688,6 +775,12 @@ const Editor = () => {
 			                requested_note_mode: data.requested_note_mode||settings.noteMode||'auto',
 			                resolved_note_mode: data.resolved_note_mode||null,
 			                note_mode_chunk_count: data.note_mode_chunk_count||null,
+			                note_mode_segment_count: data.note_mode_segment_count||null,
+			                note_mode_evidence_count: data.note_mode_evidence_count||null,
+			                note_mode_chapter_count: data.note_mode_chapter_count||null,
+			                note_mode_important_evidence_count: data.note_mode_important_evidence_count||null,
+			                note_mode_covered_important_evidence_count: data.note_mode_covered_important_evidence_count||null,
+			                note_mode_coverage_missing_count: data.note_mode_coverage_missing_count||null,
 			                prompt_preset: data.prompt_preset || settings.promptPreset || DEFAULT_PROMPT_PRESET,
 			                prompt_preset_label: data.prompt_preset_label || presetDisplayLabel(settings.promptPreset || DEFAULT_PROMPT_PRESET, settings, lang),
 			            });
@@ -808,6 +901,7 @@ const Editor = () => {
                 taskId,
                 sourceLastModifiedMs: file.lastModified||null,
                 exportToLark: settings.exportToLark||false,
+                larkExportRoute: larkExportRouteFromSettings(settings),
                 larkViaCli: !!settings.larkViaCli,
                 title: file.name.replace(/\.[^/.]+$/,""),
                 ...buildAiOptions(settings),
@@ -1219,6 +1313,11 @@ const Editor = () => {
                                                     )}
                                                 </div>
                                             )}
+                                            {transcriptReason && (
+                                                <p className="mt-1 max-w-[56ch] pl-7 text-[11px] font-semibold leading-relaxed text-on-surface-variant">
+                                                    {transcriptReason}
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                             {hasBilingualTranscript && segments.length > 0 && (
@@ -1444,13 +1543,21 @@ const Editor = () => {
 	                            ) : result.summary_skipped ? (
 	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summarySkipped')}</p>
 	                            ) : result.summary_status === 'failed' || result.summary_error ? (
-	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summaryFailed')}</p>
+	                                <div className="space-y-2 text-sm text-on-surface-variant">
+	                                    <p className="italic">{t('edit.summaryFailed')}</p>
+	                                    {summaryFailureHint && (
+	                                        <p className="rounded-sm border border-error/20 bg-error-container px-3 py-2 text-xs font-semibold leading-relaxed text-on-error-container">
+	                                            {summaryFailureHint}
+	                                        </p>
+	                                    )}
+	                                </div>
 	                            ) : (
 	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summaryPending')}</p>
 	                            )}
                                 </div>
                                 <div className="border-t border-tertiary/20 bg-tertiary-fixed px-4 py-3">
-                                    <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                                         <div className="flex items-center gap-2">
                                             <span className="material-symbols-outlined text-tertiary text-sm" style={{fontVariationSettings:"'FILL' 1"}}>verified</span>
                                             <span className="text-[10px] font-bold text-on-tertiary-fixed-variant uppercase tracking-widest">{t('edit.confidence')}</span>
@@ -1463,6 +1570,17 @@ const Editor = () => {
                                                 </span>
                                             ))}
                                         </div>
+                                        </div>
+                                        {summaryReasonItems.length > 0 && (
+                                            <div className="grid gap-1.5 md:grid-cols-3">
+                                                {summaryReasonItems.map((item) => (
+                                                    <p key={item.label} className="rounded-sm border border-tertiary/15 bg-surface-container-lowest/60 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-on-surface-variant">
+                                                        <span className="mr-1 text-outline">{item.label}</span>
+                                                        <span>{item.value}</span>
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </section>

@@ -42,7 +42,6 @@ def _transcribe_worker(
             "device": options.get("device") or "auto",
             "cpu_threads": int(options.get("cpu_threads") or 0),
             "num_workers": int(options.get("num_workers") or 1),
-            "hotwords": options.get("hotwords") or None,
             "initial_prompt": options.get("initial_prompt") or None,
             "on_progress": on_progress,
             "on_status": on_status,
@@ -82,7 +81,6 @@ def start_transcription_process(
     cpu_threads: int = 0,
     num_workers: int = 1,
     chunk_seconds: float = 0,
-    hotwords: str | None = None,
     initial_prompt: str | None = None,
 ) -> tuple[BaseProcess, mp.Queue]:
     """Start STT in a subprocess and return ``(process, queue)``."""
@@ -102,7 +100,6 @@ def start_transcription_process(
                 "cpu_threads": cpu_threads,
                 "num_workers": num_workers,
                 "chunk_seconds": chunk_seconds,
-                "hotwords": hotwords,
                 "initial_prompt": initial_prompt,
             },
         ),

@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sqlite3
 
 from backend.core.job_store import (
+    acquire_next_job_step,
+    cancel_job_steps,
+    complete_job_step,
     delete_jobs,
+    enqueue_job_step,
     ensure_job_db,
     get_job,
+    list_job_steps,
     list_jobs,
     list_jobs_for_retention,
     migrate_job_display_titles,
+    requeue_running_job_steps,
     update_job_result,
     upsert_job,
 )
@@ -70,6 +77,108 @@ def test_update_job_result_preserves_job_metadata(tmp_path: Path) -> None:
     assert updated["source_filename"] == "demo.m4a"
     assert updated["result"]["transcript_text"] == "new"
     assert updated["result"]["transcript_edited"] is True
+
+
+def test_job_store_writes_current_result_schema_without_legacy_segment_aliases(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="task-schema",
+        status="completed",
+        result={
+            "task_id": "task-schema",
+            "transcript_text": "Hello",
+            "segments": [{"start": 0, "end": 1, "text": "Hello"}],
+            "translated_segments_zh": [{"start": 0, "end": 1, "text": "你好"}],
+        },
+        db_path=db,
+    )
+
+    job = get_job("task-schema", db_path=db)
+    with sqlite3.connect(db) as conn:
+        raw = conn.execute("SELECT result_json FROM jobs WHERE task_id = ?", ("task-schema",)).fetchone()[0]
+    stored = json.loads(raw)
+
+    assert job is not None
+    assert stored["result_schema_version"] == "2"
+    assert stored["raw_segments"][0]["text"] == "Hello"
+    assert stored["display_segments"][0]["text_zh"] == "你好"
+    assert "segments" not in stored
+    assert "bilingual_segments" not in stored
+    assert "translated_segments_zh" not in stored
+    assert "cleaned_segments" not in stored
+    assert job["result"] == stored
+
+
+def test_job_store_reads_legacy_result_as_current_schema_without_rewriting_db(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+    ensure_job_db(db)
+    legacy_result = {
+        "task_id": "task-legacy-schema",
+        "transcript_text": "Hello",
+        "segments": [{"start": 0, "end": 1, "text": "Hello"}],
+        "translated_segments_zh": [{"start": 0, "end": 1, "text": "你好"}],
+    }
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                task_id, created_at, updated_at, status, result_json
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            ("task-legacy-schema", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "completed", json.dumps(legacy_result)),
+        )
+
+    job = get_job("task-legacy-schema", db_path=db)
+    with sqlite3.connect(db) as conn:
+        raw = conn.execute("SELECT result_json FROM jobs WHERE task_id = ?", ("task-legacy-schema",)).fetchone()[0]
+
+    assert job is not None
+    assert job["result"]["result_schema_version"] == "2"
+    assert job["result"]["result_schema_migrated_from"] == "legacy"
+    assert job["result"]["raw_segments"][0]["text"] == "Hello"
+    assert job["result"]["display_segments"][0]["text_zh"] == "你好"
+    assert "segments" not in job["result"]
+    assert json.loads(raw) == legacy_result
+
+
+def test_job_steps_are_persistent_claimable_and_completable(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    step = enqueue_job_step(
+        task_id="task-step",
+        step_type="transcription",
+        input={"source_path": "/tmp/source.mp4"},
+        db_path=db,
+    )
+    claimed = acquire_next_job_step(db_path=db)
+
+    assert step is not None
+    assert claimed is not None
+    assert claimed["task_id"] == "task-step"
+    assert claimed["step_type"] == "transcription"
+    assert claimed["status"] == "running"
+    assert claimed["attempt_count"] == 1
+    assert claimed["input"]["source_path"] == "/tmp/source.mp4"
+
+    completed = complete_job_step(claimed["id"], result={"ok": True}, db_path=db)
+
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["result"] == {"ok": True}
+    assert acquire_next_job_step(db_path=db) is None
+
+
+def test_running_job_steps_requeue_and_cancel_by_task(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+    enqueue_job_step(task_id="task-recover", step_type="transcription", input={}, db_path=db)
+    claimed = acquire_next_job_step(db_path=db)
+
+    assert claimed is not None
+    assert requeue_running_job_steps(db_path=db) == 1
+    assert list_job_steps(task_id="task-recover", statuses=["queued"], db_path=db)
+    assert cancel_job_steps("task-recover", db_path=db) == 1
+    assert list_job_steps(task_id="task-recover", statuses=["cancelled"], db_path=db)
 
 
 def test_migrate_job_display_titles_backfills_legacy_video_jobs(tmp_path: Path) -> None:

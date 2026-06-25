@@ -178,6 +178,7 @@ async def cancel_guest_trial_job(request: Request, task_id: str) -> dict[str, An
     if job.get("status") not in {"queued", "running"}:
         return {"ok": True, "status": job.get("status")}
     await H.JOB_EVENTS.cancel(task_id)
+    H.cancel_job_steps(task_id)
     H.upsert_job(
         task_id=task_id,
         status="cancelled",

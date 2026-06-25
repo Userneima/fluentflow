@@ -51,6 +51,7 @@ async def record_client_event(request: Request, payload: dict[str, Any] = Body(.
     )
     if event_name == "task_cancelled":
         await H.JOB_EVENTS.cancel(task_id_value)
+        H.cancel_job_steps(task_id_value)
         H.log_event(
             task_id=task_id_value,
             event_name="task_completed",

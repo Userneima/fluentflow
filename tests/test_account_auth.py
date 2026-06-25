@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from fastapi.responses import JSONResponse
 
 import backend.main as main
 from backend.core import job_store
@@ -162,7 +163,7 @@ def test_cloud_workspace_proxy_bypasses_local_account_gate(monkeypatch, tmp_path
     monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "http://cloud.example")
 
     async def fake_proxy(request):
-        return main.JSONResponse({"proxied": request.url.path})
+        return JSONResponse({"proxied": request.url.path})
 
     monkeypatch.setattr(_H, "_proxy_cloud_workspace_request", fake_proxy)
 
@@ -287,40 +288,12 @@ def test_transcript_file_summary_charges_account_ai_units(monkeypatch, tmp_path)
     assert quota.json()["balance_units"] == 99
 
 
-def test_account_import_history_creates_account_job_and_dedupes(monkeypatch, tmp_path) -> None:
+def test_account_import_history_endpoint_is_removed(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
-    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
-    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path / "artifacts"))
-
-    entry = {
-        "taskId": "local-task-1",
-        "name": "Local lesson.mp4",
-        "timestamp": 1_718_000_000_000,
-        "source": "local_desktop",
-        "sourceFingerprint": "fingerprint-1",
-        "transcriptText": "hello from local history",
-        "segments": [{"start": 0, "end": 1.2, "text": "hello from local history"}],
-        "summary": "## Summary\nLocal note",
-        "audioDurationSec": 72,
-        "sttElapsedSec": 8,
-        "sttProvider": "azure_batch",
-    }
 
     with TestClient(main.app) as client:
-        unauthenticated = client.post("/account/import-history", json={"entries": [entry]})
         register = client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
-        first = client.post("/account/import-history", json={"entries": [entry]})
-        second = client.post("/account/import-history", json={"entries": [entry]})
-        jobs = client.get("/jobs")
+        response = client.post("/account/import-history", json={"entries": []})
 
-    assert unauthenticated.status_code == 401
     assert register.status_code == 200
-    assert first.status_code == 200
-    assert first.json()["imported_count"] == 1
-    assert first.json()["imported"][0]["client_id"] == f"user:{register.json()['user']['id']}"
-    assert first.json()["imported"][0]["result"]["transcript_text"] == "hello from local history"
-    assert second.status_code == 200
-    assert second.json()["imported_count"] == 0
-    assert second.json()["skipped"][0]["reason"] == "duplicate"
-    assert jobs.status_code == 200
-    assert len(jobs.json()["jobs"]) == 1
+    assert response.status_code == 404

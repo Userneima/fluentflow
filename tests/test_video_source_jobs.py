@@ -37,7 +37,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
     monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
 
-    main._run_video_source_job({
+    _H._run_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
         "options": {"stt_provider": "azure_batch", "skip_summary": "true"},
@@ -89,31 +89,49 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
     assert started[0]["options"] == {"stt_provider": "azure_batch"}
 
 
+def test_start_video_source_job_writes_persistent_step(monkeypatch) -> None:
+    steps: list[dict] = []
+    signals: list[dict] = []
+
+    monkeypatch.setattr(_H, "enqueue_job_step", lambda **kwargs: steps.append(kwargs) or {"id": 1})
+    monkeypatch.setattr(_H, "_ensure_queue_worker_started_locked", lambda: None)
+    monkeypatch.setattr(_H._TRANSCRIPTION_QUEUE, "put", lambda item: signals.append(item))
+
+    _H._start_video_source_job({
+        "task_id": "task-link",
+        "input": "https://v.douyin.com/demo/",
+        "options": {"stt_provider": "azure_batch"},
+    })
+
+    assert steps[0]["task_id"] == "task-link"
+    assert steps[0]["step_type"] == "video_source"
+    assert steps[0]["step_key"] == "task-link:video_source"
+    assert signals == [{"wake": "video_source", "task_id": "task-link"}]
+
+
 def test_local_queued_transcription_keeps_process_request_local(tmp_path, monkeypatch) -> None:
     source_file = tmp_path / "source.mp4"
     source_file.write_bytes(b"video")
     captured: list[dict] = []
 
     class DummyResponse:
+        is_error = False
+
+    class DummyClient:
         def __enter__(self):
             return self
 
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def read(self, _size):
-            return b""
-
-    def fake_request(url, data=None, method=None, headers=None):
-        request = SimpleNamespace(url=url, data=data, method=method, headers=headers or {})
-        captured.append(request.__dict__)
-        return request
+        def post(self, url, **kwargs):
+            captured.append({"url": url, **kwargs})
+            return DummyResponse()
 
     monkeypatch.setattr(_H, "get_job", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main.urllib.request, "Request", fake_request)
-    monkeypatch.setattr(main.urllib.request, "urlopen", lambda *args, **kwargs: DummyResponse())
+    monkeypatch.setattr(_H.httpx, "Client", lambda **kwargs: DummyClient())
 
-    main._run_queued_transcription({
+    _H._run_queued_transcription({
         "task_id": "task-local",
         "source_path": str(source_file),
         "filename": source_file.name,

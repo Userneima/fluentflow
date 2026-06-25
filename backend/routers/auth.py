@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator, Optional
-import json
-import uuid
-import urllib.parse
-from datetime import datetime, timezone
-from pathlib import Path
+from typing import Any
 import hmac
-import os
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import APIRouter, Body, HTTPException, Request, Response
 
 import backend.core.server_helpers as H
 
@@ -134,86 +127,6 @@ def account_quota(request: Request) -> dict[str, Any]:
     return H._account_quota_payload(user)
 
 
-
-@router.post("/account/import-history")
-def import_account_history(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    user = H._require_account_user(request)
-    client_id = H._request_client_scope(request)
-    entries = payload.get("entries")
-    if not isinstance(entries, list):
-        raise HTTPException(status_code=400, detail="entries must be a list")
-
-    max_entries = max(1, min(int(os.environ.get("FLUENTFLOW_IMPORT_HISTORY_MAX_ENTRIES", "100")), 300))
-    max_chars = max(1000, int(os.environ.get("FLUENTFLOW_IMPORT_HISTORY_MAX_CHARS", "1000000")))
-    existing_keys = H._existing_import_keys(client_id)
-    imported: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-
-    for raw_entry in entries[:max_entries]:
-        if not isinstance(raw_entry, dict):
-            skipped.append({"reason": "invalid_entry"})
-            continue
-        normalized = H._normalize_import_entry(raw_entry, max_chars=max_chars)
-        if not normalized:
-            skipped.append({"reason": "empty_result"})
-            continue
-        dedupe_keys = {
-            str(value)
-            for value in (normalized.get("original_task_id"), normalized.get("source_fingerprint"))
-            if value
-        }
-        if dedupe_keys & existing_keys:
-            skipped.append({
-                "reason": "duplicate",
-                "original_task_id": normalized.get("original_task_id"),
-                "filename": normalized.get("filename"),
-            })
-            continue
-
-        task_id_value = H._import_task_id(str(user["id"]), normalized)
-        if task_id_value in existing_keys or H.get_job(task_id_value, client_id=client_id):
-            skipped.append({
-                "reason": "duplicate",
-                "original_task_id": normalized.get("original_task_id"),
-                "filename": normalized.get("filename"),
-            })
-            continue
-
-        result = dict(normalized["result"])
-        result["task_id"] = task_id_value
-        result = H._attach_result_artifacts(task_id_value, result)
-        metadata = H._metadata(
-            source_type="imported_local_history",
-            original_task_id=normalized.get("original_task_id"),
-            source_fingerprint=normalized.get("source_fingerprint"),
-            raw_title=normalized.get("raw_title"),
-            display_title=normalized.get("display_title"),
-            imported_by_account_id=str(user["id"]),
-            imported_timestamp=normalized.get("imported_timestamp"),
-        )
-        H.upsert_job(
-            task_id=task_id_value,
-            status="completed",
-            client_id=client_id,
-            stage="done",
-            progress=100,
-            source_type=str(normalized.get("source") or "imported_local_history"),
-            source_filename=str(normalized.get("filename") or "Imported transcript"),
-            source_file_size_mb=normalized.get("source_file_size_mb"),
-            summary_status=result.get("summary_status") or "completed",
-            result=result,
-            metadata=metadata,
-        )
-        job = H.get_job(task_id_value, client_id=client_id)
-        if job:
-            imported.append(job)
-        existing_keys.add(task_id_value)
-        existing_keys.update(dedupe_keys)
-
-    return {
-        "ok": True,
-        "imported_count": len(imported),
-        "skipped_count": len(skipped),
-        "imported": imported,
-        "skipped": skipped,
-    }
+@router.post("/account/import-history", include_in_schema=False)
+def removed_account_import_history() -> None:
+    raise HTTPException(status_code=404, detail="Local history import has been removed")

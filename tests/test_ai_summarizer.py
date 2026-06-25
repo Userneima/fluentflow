@@ -102,12 +102,18 @@ class TestAiSummarizer(unittest.TestCase):
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")
-    def test_chapter_coverage_falls_back_to_high_fidelity_until_supported(self, mock_chat, mock_get_client) -> None:
+    def test_chapter_coverage_runs_dedicated_chapter_flow(self, mock_chat, mock_get_client) -> None:
         mock_get_client.return_value = object()
 
         def fake_chat(_client, _model, system, _user, **_kwargs):
-            if "课程证据提取助手" in system:
-                return "evidence item"
+            if "长字幕证据抽取助手" in system:
+                return '[{"source_segment_ids":[],"type":"argument","text":"重要观点","importance":5,"keywords":["观点"]}]'
+            if "章节规划助手" in system:
+                return '[{"title":"核心观点","purpose":"整理主要观点","used_evidence_ids":["E001"]}]'
+            if "章节笔记写作助手" in system:
+                return "## 核心观点\n\n- 重要观点"
+            if "长文档编校助手" in system:
+                return "final chapter note"
             if "笔记覆盖率审查助手" in system:
                 return "COVERED"
             return "final note"
@@ -119,10 +125,13 @@ class TestAiSummarizer(unittest.TestCase):
             note_mode="chapter_coverage",
         )
 
-        self.assertEqual(result.markdown, "final note")
+        self.assertEqual(result.markdown, "final chapter note")
         self.assertEqual(result.requested_mode, "chapter_coverage")
-        self.assertEqual(result.resolved_mode, "high_fidelity")
+        self.assertEqual(result.resolved_mode, "chapter_coverage")
         self.assertGreater(result.chunk_count, 1)
+        self.assertGreater(result.evidence_count or 0, 0)
+        self.assertEqual(result.chapter_count, 1)
+        self.assertEqual(result.important_evidence_count, result.covered_important_evidence_count)
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")

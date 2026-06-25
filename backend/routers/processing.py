@@ -47,6 +47,7 @@ async def queue_process(
     request: Request,
     files: list[UploadFile] = File(...),
     export_to_lark: Optional[str] = Form(None),
+    lark_export_route: Optional[str] = Form(None),
     lark_via_cli: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
     raw_title: Optional[str] = Form(None),
@@ -108,6 +109,7 @@ async def queue_process(
 
     base_options = H._queue_options_from_form(
         export_to_lark=export_to_lark,
+        lark_export_route=lark_export_route,
         lark_via_cli=lark_via_cli,
         title=title if len(files) == 1 else None,
         folder_token=folder_token,
@@ -216,6 +218,7 @@ async def process_video(
     request: Request,
     file: UploadFile = File(...),
     export_to_lark: Optional[str] = Form(None),
+    lark_export_route: Optional[str] = Form(None),
     lark_via_cli: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
     raw_title: Optional[str] = Form(None),
@@ -816,7 +819,6 @@ async def process_video(
                     )
             source_language = _normalized_source_language(getattr(tr, "language", None)) or _normalized_source_language(language)
             bilingual_segments: list[dict[str, Any]] = []
-            translated_segments_zh: list[dict[str, Any]] = []
             translation_status = "not_applicable"
             translation_error: str | None = None
             if _is_english_source(source_language) and segments_payload:
@@ -838,16 +840,6 @@ async def process_video(
                         lambda: H.generate_bilingual_segments_zh(segments_payload, **translation_kwargs),
                     )
                     bilingual_segments = translation_result.segments
-                    translated_segments_zh = [
-                        {
-                            "start": segment.get("start"),
-                            "end": segment.get("end"),
-                            "text": segment.get("text_zh"),
-                            "source_text": segment.get("text"),
-                        }
-                        for segment in bilingual_segments
-                        if segment.get("text_zh")
-                    ]
                     translation_status = "completed" if bilingual_segments else "failed"
                     if not bilingual_segments:
                         translation_error = "AI returned no usable bilingual subtitle segments"
@@ -867,7 +859,7 @@ async def process_video(
                             route="/process",
                             source_language=source_language,
                             bilingual_segment_count=len(bilingual_segments),
-                            translated_segment_count=len(translated_segments_zh),
+                            translated_segment_count=len([segment for segment in bilingual_segments if segment.get("text_zh")]),
                             translation_chunk_count=translation_result.chunk_count,
                         ),
                     )
@@ -909,16 +901,14 @@ async def process_video(
                 "stt_language": language,
                 "detected_language": tr.language,
                 "source_language": source_language,
-                "subtitle_mode": "bilingual_zh" if translated_segments_zh else "source_only",
-                "bilingual_segments": bilingual_segments,
-                "translated_segments_zh": translated_segments_zh,
+                "subtitle_mode": "bilingual_zh" if bilingual_segments else "source_only",
                 "translation_status": translation_status,
                 "translation_error": translation_error,
                 "source_fingerprint": source_fingerprint,
-                "segments": segments_payload,
+                "display_segments": bilingual_segments or segments_payload,
+                "raw_segments": segments_payload,
                 "speaker_diarization": speaker_payload,
-                "cleaned_segments": list(cleanup_result.cleaned_segments),
-                "raw_segments": raw_segments_payload,
+                "stt_raw_segments": raw_segments_payload,
                 "transcript_cleanup": H._cleanup_payload(cleanup_result),
                 "status": "transcript_ready",
                 "source": source_type,
@@ -1023,6 +1013,7 @@ async def process_video(
 
             summary_error: str | None = None
             summary_result = None
+            note_mode_plan: dict[str, Any] = {}
             summary_started_at = time.perf_counter()
             try:
                 kwargs = H._ai_kwargs(
@@ -1032,6 +1023,15 @@ async def process_video(
                     ai_model=ai_model,
                     system_prompt=system_prompt,
                     note_mode=note_mode,
+                )
+                kwargs, note_mode_plan = H._plan_note_mode_for_summary(
+                    kwargs,
+                    transcript_text,
+                    task_id=task_id_value,
+                    route="/process",
+                    filename=source_filename,
+                    duration_seconds=duration_sec,
+                    current_prompt_preset=prompt_preset,
                 )
                 summary_result = await loop.run_in_executor(
                     None,
@@ -1057,12 +1057,9 @@ async def process_video(
                         route="/process",
                         ai_provider=(ai_provider or "").strip() or None,
                         ai_model=(ai_model or "").strip() or None,
-                        requested_note_mode=summary_result.requested_mode,
-                        resolved_note_mode=summary_result.resolved_mode,
-                        note_mode_chunk_count=summary_result.chunk_count,
-                        note_mode_transcript_length=summary_result.transcript_length,
-                        coverage_checked=summary_result.coverage_checked,
-                        coverage_revision_used=summary_result.coverage_revision_used,
+                        requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
+                        **H._summary_result_metadata(summary_result),
+                        **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
                     ),
                 )
             except Exception as exc:
@@ -1087,11 +1084,13 @@ async def process_video(
                         route="/process",
                         ai_provider=(ai_provider or "").strip() or None,
                         ai_model=(ai_model or "").strip() or None,
-                        requested_note_mode=(note_mode or "").strip() or None,
+                        requested_note_mode=note_mode_plan.get("requested_note_mode") or (note_mode or "").strip() or None,
                         raw_error=str(exc),
+                        **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
                     ),
                 )
                 result = H.result_for_summary_failure(base_result, summary_error)
+                result.update({key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")})
                 quota_final = H._finalize_task_quota(
                     client_id=client_id,
                     task_id=task_id_value,
@@ -1147,9 +1146,23 @@ async def process_video(
             result = H.result_for_summary_success(
                 base_result,
                 summary_md,
-                requested_note_mode=summary_result.requested_mode if summary_result is not None else None,
+                requested_note_mode=note_mode_plan.get("requested_note_mode") or (summary_result.requested_mode if summary_result is not None else None),
                 resolved_note_mode=summary_result.resolved_mode if summary_result is not None else None,
                 note_mode_chunk_count=summary_result.chunk_count if summary_result is not None else None,
+                note_mode_segment_count=getattr(summary_result, "segment_count", None) if summary_result is not None else None,
+                note_mode_evidence_count=getattr(summary_result, "evidence_count", None) if summary_result is not None else None,
+                note_mode_chapter_count=getattr(summary_result, "chapter_count", None) if summary_result is not None else None,
+                note_mode_important_evidence_count=getattr(summary_result, "important_evidence_count", None) if summary_result is not None else None,
+                note_mode_covered_important_evidence_count=getattr(summary_result, "covered_important_evidence_count", None) if summary_result is not None else None,
+                note_mode_coverage_missing_count=getattr(summary_result, "coverage_missing_count", None) if summary_result is not None else None,
+                note_mode_plan_reason=note_mode_plan.get("note_mode_plan_reason"),
+                note_mode_plan_confidence=note_mode_plan.get("note_mode_plan_confidence"),
+                note_mode_plan_warnings=note_mode_plan.get("note_mode_plan_warnings"),
+                note_mode_plan_provider=note_mode_plan.get("note_mode_plan_provider"),
+                note_mode_plan_model=note_mode_plan.get("note_mode_plan_model"),
+                note_mode_plan_fallback=note_mode_plan.get("note_mode_plan_fallback"),
+                note_mode_plan_error=note_mode_plan.get("note_mode_plan_error"),
+                note_mode_plan_selected_mode=note_mode_plan.get("note_mode_plan_selected_mode"),
                 prompt_preset=(prompt_preset or "").strip() or None,
                 prompt_preset_label=(prompt_preset_label or "").strip() or None,
             )
@@ -1172,7 +1185,7 @@ async def process_video(
                     lark_kwargs["app_secret"] = lark_secret
                 if folder_token:
                     lark_kwargs["folder_token"] = folder_token
-                export_target = H._lark_export_target(lark_via_cli)
+                export_target = H._lark_export_target(lark_export_route, lark_via_cli)
                 H.log_event(
                     task_id=task_id_value,
                     event_name="lark_export_started",
@@ -1188,7 +1201,7 @@ async def process_video(
                 )
                 export_started_at = time.perf_counter()
                 try:
-                    if H._truthy_form(lark_via_cli):
+                    if export_target == "lark_cli":
                         resp = await loop.run_in_executor(
                             None,
                             lambda: H.export_markdown_via_lark_cli(doc_title, summary_md),
@@ -1428,6 +1441,7 @@ async def export_lark(
     request: Request,
     markdown: str = Form(...),
     title: Optional[str] = Form(None),
+    lark_export_route: Optional[str] = Form(None),
     lark_via_cli: Optional[str] = Form(None),
     lark_app_id: Optional[str] = Form(None),
     lark_app_secret: Optional[str] = Form(None),
@@ -1456,7 +1470,7 @@ async def export_lark(
         filename_stem="",
         form_title=title,
     )
-    export_target = H._lark_export_target(lark_via_cli)
+    export_target = H._lark_export_target(lark_export_route, lark_via_cli)
     H.log_event(
         task_id=task_id_value,
         event_name="lark_export_started",
@@ -1470,7 +1484,7 @@ async def export_lark(
     )
     started_at = time.perf_counter()
     try:
-        if H._truthy_form(lark_via_cli):
+        if export_target == "lark_cli":
             resp = await loop.run_in_executor(
                 None, lambda: H.export_markdown_via_lark_cli(resolved, markdown)
             )
@@ -1560,6 +1574,15 @@ async def regenerate_summary(
         system_prompt=system_prompt,
         note_mode=note_mode,
     )
+    kwargs, note_mode_plan = H._plan_note_mode_for_summary(
+        kwargs,
+        transcript,
+        task_id=task_id_value,
+        route="/regenerate-summary",
+        filename=source_filename,
+        duration_seconds=source_duration_seconds,
+        current_prompt_preset=prompt_preset,
+    )
     started_at = time.perf_counter()
     try:
         summary_result = await loop.run_in_executor(
@@ -1581,20 +1604,24 @@ async def regenerate_summary(
                 route="/regenerate-summary",
                 ai_provider=(ai_provider or "").strip() or None,
                 ai_model=(ai_model or "").strip() or None,
-                requested_note_mode=summary_result.requested_mode,
-                resolved_note_mode=summary_result.resolved_mode,
-                note_mode_chunk_count=summary_result.chunk_count,
-                note_mode_transcript_length=summary_result.transcript_length,
-                coverage_checked=summary_result.coverage_checked,
-                coverage_revision_used=summary_result.coverage_revision_used,
+                requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
+                **H._summary_result_metadata(summary_result),
+                **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             ),
         )
         payload = {
             "summary_markdown": md,
             "task_id": task_id_value,
-            "requested_note_mode": summary_result.requested_mode,
+            "requested_note_mode": note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
             "resolved_note_mode": summary_result.resolved_mode,
             "note_mode_chunk_count": summary_result.chunk_count,
+            "note_mode_segment_count": getattr(summary_result, "segment_count", None),
+            "note_mode_evidence_count": getattr(summary_result, "evidence_count", None),
+            "note_mode_chapter_count": getattr(summary_result, "chapter_count", None),
+            "note_mode_important_evidence_count": getattr(summary_result, "important_evidence_count", None),
+            "note_mode_covered_important_evidence_count": getattr(summary_result, "covered_important_evidence_count", None),
+            "note_mode_coverage_missing_count": getattr(summary_result, "coverage_missing_count", None),
+            **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             "prompt_preset": (prompt_preset or "").strip() or None,
             "prompt_preset_label": (prompt_preset_label or "").strip() or None,
         }
@@ -1918,9 +1945,9 @@ async def summarize_transcript_file(
         "transcript_text_preview": transcript_text[:200],
         "summary_markdown": "",
         "audio_duration_seconds": round(parsed.duration, 1),
-        "segments": segments_payload,
-        "cleaned_segments": list(cleanup_result.cleaned_segments) if parsed.segments else [],
-        "raw_segments": raw_segments_payload,
+        "display_segments": segments_payload,
+        "raw_segments": segments_payload,
+        "stt_raw_segments": raw_segments_payload,
         "transcript_cleanup": H._cleanup_payload(cleanup_result),
         "status": "transcript_ready",
         "source": "transcript_file",
@@ -2001,6 +2028,15 @@ async def summarize_transcript_file(
         system_prompt=system_prompt,
         note_mode=note_mode,
     )
+    kwargs, note_mode_plan = H._plan_note_mode_for_summary(
+        kwargs,
+        transcript_text,
+        task_id=task_id_value,
+        route="/summarize-transcript-file",
+        filename=source_filename,
+        duration_seconds=parsed.duration,
+        current_prompt_preset=prompt_preset,
+    )
     started_at = time.perf_counter()
     try:
         summary_result = await loop.run_in_executor(
@@ -2025,12 +2061,9 @@ async def summarize_transcript_file(
                 route="/summarize-transcript-file",
                 ai_provider=(ai_provider or "").strip() or None,
                 ai_model=(ai_model or "").strip() or None,
-                requested_note_mode=summary_result.requested_mode,
-                resolved_note_mode=summary_result.resolved_mode,
-                note_mode_chunk_count=summary_result.chunk_count,
-                note_mode_transcript_length=summary_result.transcript_length,
-                coverage_checked=summary_result.coverage_checked,
-                coverage_revision_used=summary_result.coverage_revision_used,
+                requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
+                **H._summary_result_metadata(summary_result),
+                **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             ),
         )
     except Exception as exc:
@@ -2064,6 +2097,7 @@ async def summarize_transcript_file(
             completion_reason="summary_failed",
         )
         failed_result = H.result_for_summary_failure(base_result, friendly_error)
+        failed_result.update({key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")})
         quota_final = H._finalize_task_quota(
             client_id=client_id,
             task_id=task_id_value,
@@ -2087,9 +2121,23 @@ async def summarize_transcript_file(
     result = H.result_for_summary_success(
         base_result,
         summary_md,
-        requested_note_mode=summary_result.requested_mode,
+        requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
         resolved_note_mode=summary_result.resolved_mode,
         note_mode_chunk_count=summary_result.chunk_count,
+        note_mode_segment_count=getattr(summary_result, "segment_count", None),
+        note_mode_evidence_count=getattr(summary_result, "evidence_count", None),
+        note_mode_chapter_count=getattr(summary_result, "chapter_count", None),
+        note_mode_important_evidence_count=getattr(summary_result, "important_evidence_count", None),
+        note_mode_covered_important_evidence_count=getattr(summary_result, "covered_important_evidence_count", None),
+        note_mode_coverage_missing_count=getattr(summary_result, "coverage_missing_count", None),
+        note_mode_plan_reason=note_mode_plan.get("note_mode_plan_reason"),
+        note_mode_plan_confidence=note_mode_plan.get("note_mode_plan_confidence"),
+        note_mode_plan_warnings=note_mode_plan.get("note_mode_plan_warnings"),
+        note_mode_plan_provider=note_mode_plan.get("note_mode_plan_provider"),
+        note_mode_plan_model=note_mode_plan.get("note_mode_plan_model"),
+        note_mode_plan_fallback=note_mode_plan.get("note_mode_plan_fallback"),
+        note_mode_plan_error=note_mode_plan.get("note_mode_plan_error"),
+        note_mode_plan_selected_mode=note_mode_plan.get("note_mode_plan_selected_mode"),
         prompt_preset=(prompt_preset or "").strip() or None,
         prompt_preset_label=(prompt_preset_label or "").strip() or None,
     )

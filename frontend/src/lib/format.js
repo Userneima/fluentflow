@@ -34,19 +34,45 @@ export const normalizeTranscriptSegments = (value) => (
             .map((seg) => ({...seg, text: String(seg.text || '')}))
         : []
 );
+export const normalizeDisplaySegments = (value) => (
+    Array.isArray(value)
+        ? value
+            .filter((seg) => seg && typeof seg === 'object' && (String(seg.text || '').trim() || String(seg.text_zh || seg.zh || '').trim()))
+            .map((seg) => ({
+                ...seg,
+                text: String(seg.text || seg.text_en || ''),
+                ...(String(seg.text_zh || seg.zh || '').trim() ? {text_zh: String(seg.text_zh || seg.zh || '')} : {}),
+            }))
+        : []
+);
 export const pickTranscriptSegments = (source={}) => {
-    for (const key of ['segments', 'cleaned_segments', 'raw_segments']) {
+    for (const key of ['raw_segments', 'segments', 'cleaned_segments']) {
         const segments = normalizeTranscriptSegments(source?.[key]);
         if (segments.length > 0) return segments;
     }
     return [];
 };
 export const pickTranscriptBaselineSegments = (source={}) => {
-    for (const key of ['cleaned_segments', 'raw_segments', 'segments']) {
+    for (const key of ['raw_segments', 'segments', 'cleaned_segments']) {
         const segments = normalizeTranscriptSegments(source?.[key]);
         if (segments.length > 0) return segments;
     }
     return [];
+};
+export const pickDisplayTranscriptSegments = (source={}, rawSegments=[]) => {
+    for (const key of ['display_segments', 'bilingual_segments']) {
+        const segments = normalizeDisplaySegments(source?.[key]);
+        if (segments.length > 0) return segments;
+    }
+    const translated = normalizeDisplaySegments(source?.translated_segments_zh);
+    const raw = Array.isArray(rawSegments) && rawSegments.length > 0 ? rawSegments : pickTranscriptSegments(source);
+    if (raw.length > 0 && translated.length > 0) {
+        return raw.map((segment, index) => {
+            const textZh = String(translated[index]?.text_zh || translated[index]?.text || '').trim();
+            return textZh ? {...segment, text_zh: textZh} : {...segment};
+        }).filter((segment) => String(segment.text || '').trim() || String(segment.text_zh || '').trim());
+    }
+    return normalizeDisplaySegments(raw);
 };
 export const buildTranscriptEditRecords = (beforeSegments=[], afterSegments=[], source={}) => {
     if (!Array.isArray(beforeSegments) || !Array.isArray(afterSegments) || beforeSegments.length === 0) return source?.transcript_edit_records || [];

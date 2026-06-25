@@ -26,19 +26,9 @@ def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.get("/local-history/candidates")
-def local_history_candidates(request: Request, limit: int = 100) -> dict[str, Any]:
-    if not H._local_history_export_allowed(request):
-        return {"jobs": [], "count": 0, "available": False}
-    safe_limit = max(1, min(int(limit or 100), 200))
-    candidates = [
-        job
-        for job in H.list_jobs(limit=safe_limit)
-        if isinstance(job.get("result"), dict)
-        and (job.get("status") == "completed" or H.job_has_transcript_result(job))
-    ]
-    return {"jobs": candidates, "count": len(candidates), "available": True}
-
+@router.get("/local-history/candidates", include_in_schema=False)
+def removed_local_history_candidates() -> None:
+    raise HTTPException(status_code=404, detail="Local history import has been removed")
 
 
 @router.get("/jobs/{task_id}")
@@ -60,8 +50,10 @@ async def cancel_job_detail(request: Request, task_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=f"Job is already {job.get('status')}")
 
     cancelled_running_task = await H.JOB_EVENTS.cancel(task_id)
+    cancelled_steps = H.cancel_job_steps(task_id)
     with H._QUEUE_LOCK:
         queued_before_cancel = task_id in H._QUEUED_TASK_IDS
+        H._QUEUED_TASK_IDS.discard(task_id)
 
     H._release_task_quota(
         client_id=client_id,
@@ -101,6 +93,7 @@ async def cancel_job_detail(request: Request, task_id: str) -> dict[str, Any]:
         "task_id": task_id,
         "status": "cancelled",
         "cancelled_running_task": cancelled_running_task,
+        "cancelled_steps": cancelled_steps,
         "queued_before_cancel": queued_before_cancel,
     }
 
@@ -149,11 +142,18 @@ def update_job_transcript(request: Request, task_id: str, payload: dict[str, Any
     segments = H._sanitize_edit_segments(payload.get("segments"))
     edit_records = H._sanitize_edit_records(payload.get("edit_records"))
     edited_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    had_translation = any(
+        str(segment.get("text_zh") or "").strip()
+        for segment in H._canonical_display_segments(result)
+    ) or bool(result.get("bilingual_segments") or result.get("translated_segments_zh"))
     result.update({
         "task_id": result.get("task_id") or task_id,
         "transcript_text": transcript,
         "transcript_text_preview": transcript[:200],
-        "segments": segments,
+        "raw_segments": segments,
+        "display_segments": segments,
+        "subtitle_mode": "source_only",
+        "translation_status": "stale" if had_translation else result.get("translation_status"),
         "transcript_edit_records": edit_records,
         "transcript_edit_record_count": len(edit_records),
         "transcript_edited": True,
@@ -193,9 +193,7 @@ async def generate_job_zh_translations(
     result = dict(job.get("result") or {})
     source_segments = (
         H._sanitize_edit_segments(payload.get("segments"))
-        or H._sanitize_edit_segments(result.get("segments"))
-        or H._sanitize_edit_segments(result.get("cleaned_segments"))
-        or H._sanitize_edit_segments(result.get("raw_segments"))
+        or H._canonical_raw_segments(result)
     )
     if not source_segments:
         raise HTTPException(status_code=400, detail="No timestamped transcript segments to translate")
@@ -235,22 +233,12 @@ async def generate_job_zh_translations(
         })
         H.update_job_result(task_id, result, client_id=client_id)
         raise HTTPException(status_code=502, detail=error_reason)
-    translated_segments = [
-        {
-            "start": segment.get("start"),
-            "end": segment.get("end"),
-            "text": segment.get("text_zh"),
-            "source_text": segment.get("text"),
-        }
-        for segment in bilingual_segments
-        if segment.get("text_zh")
-    ]
+    translated_segment_count = len([segment for segment in bilingual_segments if segment.get("text_zh")])
 
     result.update({
         "task_id": result.get("task_id") or task_id,
-        "segments": source_segments,
-        "bilingual_segments": bilingual_segments,
-        "translated_segments_zh": translated_segments,
+        "raw_segments": source_segments,
+        "display_segments": bilingual_segments,
         "subtitle_mode": "bilingual_zh",
         "translation_status": "completed",
         "translation_error": None,
@@ -270,7 +258,7 @@ async def generate_job_zh_translations(
             metadata=H._metadata(
                 route="/jobs/{task_id}/translations/zh",
                 bilingual_segment_count=len(bilingual_segments),
-                translated_segment_count=len(translated_segments),
+                translated_segment_count=translated_segment_count,
                 translation_chunk_count=translation_result.chunk_count,
                 trigger="editor",
         ),
@@ -279,8 +267,7 @@ async def generate_job_zh_translations(
         "ok": True,
         "job": updated,
         "result": updated.get("result"),
-        "bilingual_segments": bilingual_segments,
-        "translated_segments_zh": translated_segments,
+        "display_segments": bilingual_segments,
     }
 
 
