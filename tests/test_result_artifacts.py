@@ -148,7 +148,7 @@ def test_upload_job_playback_audio_persists_artifact_with_original_suffix(tmp_pa
 
     job_store.upsert_job(
         task_id="task_media",
-        client_id="local-yuchao",
+        client_id="local-client",
         status="completed",
         stage="done",
         progress=100,
@@ -161,12 +161,12 @@ def test_upload_job_playback_audio_persists_artifact_with_original_suffix(tmp_pa
     with TestClient(main.app) as client:
         response = client.post(
             "/jobs/task_media/playback-audio",
-            headers={"X-FluentFlow-Client-Id": "local-yuchao"},
+            headers={"X-FluentFlow-Client-Id": "local-client"},
             files={"file": ("picked.m4a", b"audio-bytes", "audio/mp4")},
         )
         download = client.get(
             "/jobs/task_media/artifacts/playback_audio",
-            headers={"X-FluentFlow-Client-Id": "local-yuchao"},
+            headers={"X-FluentFlow-Client-Id": "local-client"},
         )
 
     assert response.status_code == 200
@@ -209,7 +209,7 @@ def test_generate_job_zh_translations_persists_bilingual_artifacts(tmp_path, mon
 
     job_store.upsert_job(
         task_id="task_translate",
-        client_id="local-yuchao",
+        client_id="local-client",
         status="completed",
         stage="done",
         progress=100,
@@ -230,7 +230,7 @@ def test_generate_job_zh_translations_persists_bilingual_artifacts(tmp_path, mon
 
     response = TestClient(main.app).post(
         "/jobs/task_translate/translations/zh",
-        headers={"X-FluentFlow-Client-Id": "local-yuchao"},
+        headers={"X-FluentFlow-Client-Id": "local-client"},
         json={"aiProvider": "deepseek"},
     )
 

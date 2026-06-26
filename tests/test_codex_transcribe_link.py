@@ -49,7 +49,7 @@ def test_build_codex_result_keeps_transcript_summary_and_artifact_paths(monkeypa
     payload = script.build_codex_result(
         job,
         api_base="http://127.0.0.1:8000/",
-        client_id="local-yuchao",
+        client_id="local-client",
         stt_provider="local",
     )
 
@@ -71,7 +71,7 @@ def test_build_codex_result_strips_generated_video_prefix_from_title() -> None:
     payload = script.build_codex_result(
         job,
         api_base="http://127.0.0.1:8000",
-        client_id="local-yuchao",
+        client_id="local-client",
         stt_provider="local",
     )
 
@@ -99,7 +99,7 @@ def test_create_video_job_marks_local_execution_header(monkeypatch) -> None:
     job = script.create_video_job(
         "https://v.douyin.com/demo/",
         api_base="http://127.0.0.1:8000",
-        client_id="local-yuchao",
+        client_id="local-client",
         access_token=None,
         stt_provider="local",
         skip_summary=False,

@@ -1,10 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO="/Users/yuchao/Documents/GitHub/fluentflow"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="${FLUENTFLOW_REPO:-$(cd "${SCRIPT_DIR}/../../../../.." && pwd)}"
 API_PORT=8000
 APP_URL="http://127.0.0.1:${API_PORT}/"
-CLOUD_WORKSPACE_URL="https://fluentflow.icu"
+CLOUD_WORKSPACE_URL="${FLUENTFLOW_CLOUD_WORKSPACE_URL:-}"
 LOG_DIR="${REPO}/logs"
 LOG_FILE="${LOG_DIR}/uvicorn.log"
 
@@ -50,6 +51,10 @@ fi
 
 VENV_PY="${REPO}/venv/bin/python"
 [[ -x "$VENV_PY" ]] || VENV_PY="${REPO}/.venv/bin/python"
+CLOUD_ENV=""
+if [[ -n "$CLOUD_WORKSPACE_URL" ]]; then
+	CLOUD_ENV="FLUENTFLOW_CLOUD_WORKSPACE_URL='${CLOUD_WORKSPACE_URL}'"
+fi
 
 mkdir -p "$LOG_DIR"
 {
@@ -60,7 +65,7 @@ mkdir -p "$LOG_DIR"
 # tee 同时写日志与终端，避免旧版 | head 导致管道关闭拖死 uvicorn。
 osascript <<EOF
 tell application "Terminal"
-	do script "cd '${REPO}' && if [ -f .env ]; then set -a; source .env; set +a; fi; FLUENTFLOW_CLOUD_WORKSPACE_URL='${CLOUD_WORKSPACE_URL}' '${VENV_PY}' -m uvicorn backend.main:app --host 127.0.0.1 --port ${API_PORT} 2>&1 | tee -a '${LOG_FILE}'"
+	do script "cd '${REPO}' && if [ -f .env ]; then set -a; source .env; set +a; fi; ${CLOUD_ENV} '${VENV_PY}' -m uvicorn backend.main:app --host 127.0.0.1 --port ${API_PORT} 2>&1 | tee -a '${LOG_FILE}'"
 	delay 1.5
 	try
 		set miniaturized of front window to true

@@ -111,7 +111,7 @@ def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> No
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
     monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
     monkeypatch.setattr(_H, "_request_account_user", lambda request: {"id": "admin", "role": "admin"})
-    request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("fluentflow.icu", 443)})
+    request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("cloud.example.com", 443)})
 
     assert _H._allowed_stt_providers(request) == ("azure_batch",)
     assert _H._normalize_stt_provider("local", request) == "azure_batch"
@@ -128,7 +128,7 @@ def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch)
 
 
 def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://fluentflow.icu")
+    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
 
     runtime_request = Request({
         "type": "http",
@@ -177,7 +177,7 @@ def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch)
         "method": "POST",
         "path": "/process",
         "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("fluentflow.icu", 443),
+        "server": ("cloud.example.com", 443),
     })
 
     assert _H._should_proxy_cloud_workspace(runtime_request) is False
@@ -203,7 +203,7 @@ def test_local_status_routes_are_public_only_on_localhost() -> None:
         "method": "GET",
         "path": "/credentials/status",
         "headers": [],
-        "server": ("fluentflow.icu", 443),
+        "server": ("cloud.example.com", 443),
     })
 
     assert _H._is_public_request(local_request) is True
@@ -218,7 +218,7 @@ def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -
         "type": "http",
         "method": "POST",
         "path": "/process",
-        "headers": [(b"x-fluentflow-execution-target", b"local"), (b"x-fluentflow-client-id", b"local-yuchao")],
+        "headers": [(b"x-fluentflow-execution-target", b"local"), (b"x-fluentflow-client-id", b"local-client")],
         "server": ("127.0.0.1", 8000),
     })
 
@@ -228,11 +228,11 @@ def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -
     response = asyncio.run(_H.beta_access_middleware(request, call_next))
 
     assert response.status_code == 200
-    assert _H._request_client_scope(request) == "local-yuchao"
+    assert _H._request_client_scope(request) == "local-client"
 
 
 def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://fluentflow.icu")
+    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
 
     with TestClient(main.app) as client:
         response = client.get("/local-history/candidates?limit=20")
@@ -243,7 +243,7 @@ def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
 def test_public_cloud_filters_explicit_local_provider(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
     monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,azure_batch")
-    request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("fluentflow.icu", 443)})
+    request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("cloud.example.com", 443)})
 
     assert _H._allowed_stt_providers(request) == ("azure_batch",)
 

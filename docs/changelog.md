@@ -40,6 +40,9 @@
 - 后台任务页点开只存在于本地缓存的旧结果时，不再请求已经不存在的后端任务详情，避免出现 `/jobs/{id}` 404 后打不开记录。
 - 本地编辑器导出飞书时会明确走本机执行通道，避免账号登录门禁把 `/export-lark` 误拦截。
 - 编辑器打开本地转录任务或浏览器本地导入记录时，不再把任务详情、附件和字幕保存请求误送到云端代理，减少 `/jobs/{id}` 404 与 chunked encoding 控制台报错。
+- 编辑器重新生成笔记会沿用本机任务通道，避免本地转录完成后因为任务归属查不到而无法产出笔记。
+- 编辑器和后台任务页会统一诊断“为什么没有笔记”，区分仅转录、转录缺失、额度不足、登录状态、任务归属不一致、空笔记和不支持的笔记模式，并给出下一步建议。
+- 新增 `/agent/v1` Agent 数据链路：支持提交链接/转录文本任务、等待任务、获取稳定任务包、读取诊断、重新生成笔记和导出飞书。
 - 主页不再提示“发现本机历史 / 导入当前账号”；历史记录以当前后端账号或设备任务为准，浏览器本地历史只作为最近展示缓存。
 - 处理设置里的飞书导出改为两条明确路线：飞书应用导出和本机身份导出；普通线上用户只看到飞书应用导出。
 - 编辑器 AI 摘要底部会显示本次笔记的生成模式、提示词模板；高保真笔记还会显示分块数量。
@@ -59,6 +62,12 @@
 
 - `/assets/*` 静态资源在 SPA 兜底路由之前挂载，并新增测试防止 JS 资源再次被 `index.html` 吞掉。
 - 拆分后的路由页补齐从 `frontend/src/app/shared.jsx` 引入的共享 helper。
+- 本地运行产物默认迁移到系统应用数据目录；新增 `backend.core.runtime_paths` 统一管理路径，并提供 `scripts/migrate_runtime_storage.py` 显式迁移旧 repo 内数据。
+- `scripts/codex_transcribe_link.py` 优先读取 `/agent/v1/tasks/{task_id}/package`，旧后端返回 404 时才回退到原来的 `job.result` 拼装逻辑。
+- 本地/云端执行通道判断拆到后端 `request_scope` 和前端 `localExecution` 模块，页面与路由继续保持原有调用方式，但后续新增本地/Agent 能力不再需要复制 path/header 规则。
+- 前端新增 `apiClient` 与 `taskState` 模块，统一本地/云端请求头合并和任务状态口径；`cached_only` 成为正式前端任务状态，旧 `__cacheOnly` 仅作为历史兼容输入。
+- 新增 `docs/result_schema.md` 和前端 `resultSchema` normalizer，把 Result Payload、Job Payload 与 Agent Task Package 的读取口径收敛到同一份数据契约。
+- 任务结果新增 `processing_plan`，Agent Task Package 会暴露自动处理路线、材料判断依据、工具步骤和从 `note_mode_plan_*` 折叠来的笔记策略。
 - 新生成和重新生成摘要时会把提示词模板元数据写入任务结果，历史记录回放时可继续展示。
 - 任务结果新增 `source_language`、`subtitle_mode`、`translated_segments_zh` 和 `translation_status` 字段；双语字幕是附加产物，翻译失败不会让转录任务失败。
 - 任务结果长期字段收敛为 `raw_segments`（原始可编辑字幕）和 `display_segments`（阅读/导出字幕）；`segments`、`bilingual_segments`、`translated_segments_zh` 仅保留为旧数据兼容别名。
@@ -198,7 +207,7 @@
 
 ### 维护者变化
 
-- 修复本地桌面历史迁移后的账号归属：旧 `local-yuchao` 历史和孤儿账号历史统一绑定到当前本地唯一账号。
+- 修复本地桌面历史迁移后的账号归属：旧 `local-client` 历史和孤儿账号历史统一绑定到当前本地唯一账号。
 - 本地调试时停用云端工作区代理后，需要重启后端进程，避免旧进程继续把 `/jobs` 代理到云端导致 chunked 响应中断。
 - 本地历史导入候选接口在不可用时返回空列表，`/favicon.ico` 返回 204，避免浏览器控制台出现无意义 404。
 
@@ -217,11 +226,11 @@
 
 - 登录后如果检测到本机旧历史，会在开始页提示导入到当前账号。
 - 导入需要用户手动确认；确认后会上传转录文本和摘要，导入完成后最近活动从云端账号历史显示。
-- 本地桌面快捷方式默认把账号、任务、上传、历史和额度 API 转发到 `https://fluentflow.icu`，后续桌面和网页使用同一份云端工作区。
+- 本地桌面快捷方式默认把账号、任务、上传、历史和额度 API 转发到 `https://cloud.example.com`，后续桌面和网页使用同一份云端工作区。
 
 ### 维护者变化
 
-- 新增 `docs/local_cloud_sync_plan.md`，明确桌面本地前端、云端 API、旧历史导入和隐私边界。
+- 新增本地私有同步方案记录，明确桌面本地前端、云端 API、旧历史导入和隐私边界。
 - 后端新增 `POST /account/import-history`，用于把确认导入的本机历史写入当前登录账号。
 - 后端新增 local-only `GET /local-history/candidates`，仅用于桌面云工作区读取本机 SQLite 候选历史。
 - 导入后的历史作为 completed account job 保存，并生成可下载文本/摘要 artifacts。
@@ -263,7 +272,7 @@
 
 ### 维护者变化
 
-- 新增 `docs/server_deploy_workflow.md`，把“上传服务器 / 部署到服务器 / 上线”的标准执行流程固化为文档。
+- 新增本地私有部署流程记录，把服务器上线流程固化为维护文档。
 - `AGENTS.md` 新增服务器部署触发规则：当用户使用约定触发词时，Codex 应先读取部署流程文档，然后自动完成本地验证、相关文件提交、推送 GitHub、服务器部署脚本执行和健康检查。
 - 明确 Routine 部署不使用 `nano` 或手动服务器改文件，GitHub 继续作为代码事实来源。
 

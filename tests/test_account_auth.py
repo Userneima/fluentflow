@@ -99,7 +99,7 @@ def test_local_lark_export_can_use_local_execution_header(monkeypatch, tmp_path)
             "/export-lark",
             headers={
                 "X-FluentFlow-Execution-Target": "local",
-                "X-FluentFlow-Client-Id": "local-yuchao",
+                "X-FluentFlow-Client-Id": "local-client",
             },
             data={"markdown": "# Local note", "title": "Local note", "lark_via_cli": "true"},
         )

@@ -18,6 +18,7 @@ build/
 logs/
 exports/
 reports/
+docs/private/
 
 # Local media / large assets (videos, extracted audio, etc.)
 data/*
@@ -25,3 +26,4 @@ data/*
 backend/data/*
 !backend/data/.gitkeep
 视频文件/
+backend/视频文件/

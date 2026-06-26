@@ -113,8 +113,8 @@ LARK_APP_SECRET=...
 
 # Account mode
 FLUENTFLOW_AUTH_MODE=accounts
-FLUENTFLOW_ACCOUNT_DB_PATH=data/fluentflow_accounts.sqlite
-FLUENTFLOW_JOB_DB_PATH=data/fluentflow_jobs.sqlite
+# Optional. Defaults to ~/Library/Application Support/FluentFlow on macOS.
+FLUENTFLOW_DATA_DIR=/path/to/fluentflow-data
 ```
 
 本机 `lark-cli` 导出可通过应用设置开启；后端进程需要能在 PATH 中调用 `lark-cli`。
@@ -131,7 +131,7 @@ scripts/                 备份、恢复、评估、构建辅助脚本
 deploy/                  服务器部署模板
 docs/                    产品、架构、运维、回归和设计文档
 tests/                   后端和关键行为测试
-data/                    本地运行数据目录
+data/                    旧版本地运行数据目录；新默认在系统应用数据目录
 ```
 
 ## 常用命令
@@ -167,7 +167,6 @@ bash deploy/deploy_server.sh
 详细步骤见：
 
 - `deploy/README.md`
-- `docs/server_deploy_workflow.md`
 - `docs/operations_runbook.md`
 
 ## 进一步了解

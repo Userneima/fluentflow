@@ -15,7 +15,7 @@ from typing import Any
 
 
 DEFAULT_API_BASE = "http://127.0.0.1:8000"
-DEFAULT_CLIENT_ID = "local-yuchao"
+DEFAULT_CLIENT_ID = os.environ.get("FLUENTFLOW_CLIENT_ID", "local-client")
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_VIDEO_PREFIX_RE = re.compile(r"^\d{10,24}[-_]+(?=.)")

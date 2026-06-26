@@ -74,7 +74,7 @@ const Tasks = () => {
     const isLiveJob = (job) => job.status === 'queued' || job.status === 'running';
     const isCancelledJob = (job) => job.status === 'cancelled';
     const isDeletableJob = (job) => !isLiveJob(job);
-    const isLocalJob = (job) => job.client_id === 'local-yuchao' || job.metadata?.stt_provider === 'local';
+    const isLocalJob = (job) => String(job.client_id || '').startsWith('local-') || job.metadata?.stt_provider === 'local';
     const [taskFilter, setTaskFilter] = useState('all');
     const stats = useMemo(() => ({
         live: jobs.filter(isLiveJob).length,
