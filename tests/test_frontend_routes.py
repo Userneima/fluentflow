@@ -251,6 +251,11 @@ def test_processing_page_is_agent_workflow_surface() -> None:
     assert "执行路线" in source
     assert "Agent 判断" in source
     assert "使用依据" in source
+    assert "processing_plan" in source
+    assert "note_strategy" in source
+    assert "planSteps" in source
+    assert "planEvidence" in source
+    assert "计划依据" in source
     assert "高级详情" in source
     assert 'to="/settings"' in source
     assert "ml-[var(--sidebar-offset)]" in source

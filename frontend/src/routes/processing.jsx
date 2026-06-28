@@ -62,6 +62,44 @@ const routeLabel = (provider, lang) => {
     return isCloudSttProvider(provider) ? (lang === 'zh' ? '云端转录' : 'Cloud STT') : (lang === 'zh' ? '按设置决定' : 'From Settings');
 };
 
+const executionScopeLabel = (scope, lang) => {
+    if (scope === 'cloud') return lang === 'zh' ? '云端执行' : 'Cloud execution';
+    if (scope === 'local') return lang === 'zh' ? '本机执行' : 'Local execution';
+    return lang === 'zh' ? '执行位置待确认' : 'Execution scope unknown';
+};
+
+const materialTypeLabel = (type, lang) => {
+    const isZh = lang === 'zh';
+    const labels = {
+        course_transcript_file: isZh ? '课程字幕文件' : 'Course transcript file',
+        course_material: isZh ? '课程材料' : 'Course material',
+        lecture_material: isZh ? '讲座材料' : 'Lecture material',
+        course_video_pending_content: isZh ? '待转录课程视频' : 'Course video pending transcript',
+        lecture_video_pending_content: isZh ? '待转录讲座视频' : 'Lecture video pending transcript',
+    };
+    return labels[type] || type || (isZh ? '待判断' : 'Pending');
+};
+
+const planStepIcon = (id, tool) => {
+    const value = `${id || ''} ${tool || ''}`.toLowerCase();
+    if (value.includes('ingest')) return 'upload_file';
+    if (value.includes('transcribe') || value.includes('stt') || value.includes('whisper')) return 'mic_external_on';
+    if (value.includes('subtitle')) return 'closed_caption';
+    if (value.includes('note') || value.includes('summary')) return 'subject';
+    if (value.includes('export')) return 'ios_share';
+    return 'route';
+};
+
+const planStepRank = (id) => {
+    const value = String(id || '').toLowerCase();
+    if (value.includes('ingest')) return 0;
+    if (value.includes('transcribe')) return 3;
+    if (value.includes('subtitle') || value.includes('prepare')) return 4;
+    if (value.includes('note') || value.includes('summary')) return 5;
+    if (value.includes('export')) return 6;
+    return 4;
+};
+
 const statusClass = (status) => {
     if (status === 'done') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200';
     if (status === 'current') return 'border-[#111111] bg-[#111111] text-white dark:border-white dark:bg-white dark:text-[#111111]';
@@ -104,13 +142,20 @@ const Processing = () => {
     const latestHistory = useMemo(() => history.find((item) => item.status === 'completed') || history[0] || null, [history]);
     const fallbackResult = useMemo(() => latestHistory ? historyEntryToResult(latestHistory) : null, [latestHistory]);
     const result = lastResult || fallbackResult || null;
+    const processingPlan = result?.processing_plan || null;
+    const planMaterial = processingPlan?.material || {};
+    const planExecution = processingPlan?.execution || {};
+    const planNoteStrategy = processingPlan?.note_strategy || {};
+    const planEvidence = Array.isArray(planMaterial.evidence) ? planMaterial.evidence.filter(Boolean) : [];
+    const planRiskNotes = Array.isArray(processingPlan?.risk_notes) ? processingPlan.risk_notes.filter(Boolean) : [];
+    const planSteps = Array.isArray(processingPlan?.steps) ? processingPlan.steps : [];
     const active = currentJob && currentJob.stage !== 'done' ? currentJob : null;
     const title = active?.fileName || result?.display_title || result?.filename || latestHistory?.displayTitle || latestHistory?.name || (isZh ? '等待任务' : 'Waiting for task');
     const stage = active?.stage || (result ? 'done' : 'queued');
     const stageRank = STAGE_ORDER[stage] ?? 0;
     const provider = active?.sttProvider || result?.stt_provider || effectiveSttProvider(settings, runtimeConfig);
     const sourceLanguage = result?.source_language || result?.detected_language || settings.sttLanguage || 'auto';
-    const noteMode = result?.resolved_note_mode || result?.note_mode_plan_selected_mode || result?.requested_note_mode || settings.noteMode || 'auto';
+    const noteMode = planNoteStrategy.resolved_mode || result?.resolved_note_mode || result?.note_mode_plan_selected_mode || result?.requested_note_mode || settings.noteMode || 'auto';
     const segmentCount = Array.isArray(result?.display_segments)
         ? result.display_segments.length
         : Array.isArray(result?.raw_segments)
@@ -121,14 +166,14 @@ const Processing = () => {
     const transcriptChars = result?.transcript_text ? result.transcript_text.length : null;
     const durationSeconds = result?.audio_duration_seconds || active?.durationSeconds || latestHistory?.audioDurationSec || null;
     const progress = Math.max(0, Math.min(100, Number(active?.progress) || (result ? 100 : 0)));
-    const noteReason = result?.note_mode_plan_reason
+    const noteReason = planNoteStrategy.reason || result?.note_mode_plan_reason
         || (settings.noteMode && settings.noteMode !== 'auto'
             ? (isZh ? '来自设置页的长期偏好。' : 'From the long-term preference in Settings.')
             : (isZh ? '自动模式会根据转录长度和内容结构选择直接生成或高保真笔记。' : 'Auto mode chooses direct or high-fidelity notes from transcript length and structure.'));
     const promptLabel = result?.prompt_preset_label || result?.prompt_preset_name || settings.promptPreset || (isZh ? '默认模板' : 'Default template');
     const summaryFailed = result?.summary_status === 'failed' || result?.summary_error;
 
-    const steps = [
+    const fallbackSteps = [
         {
             key: 'receive',
             rank: 0,
@@ -180,6 +225,15 @@ const Processing = () => {
                 : (isZh ? '结果保存后可在编辑器继续校对、下载或手动导出。' : 'After saving, continue reviewing, downloading, or exporting from the editor.'),
         },
     ];
+    const steps = planSteps.length
+        ? planSteps.map((step) => ({
+            key: step.id || step.label || step.tool,
+            rank: planStepRank(step.id),
+            icon: planStepIcon(step.id, step.tool),
+            title: step.label || step.id || (isZh ? '处理步骤' : 'Processing step'),
+            desc: step.reason || step.tool || (isZh ? '来自本次 Processing Plan。' : 'From this Processing Plan.'),
+        }))
+        : fallbackSteps;
 
     const stepStatus = (step) => {
         if (summaryFailed && step.key === 'note') return 'failed';
@@ -192,6 +246,9 @@ const Processing = () => {
     const evidence = [
         {label: isZh ? '材料标题' : 'Title', value: title},
         {label: isZh ? '转录路线' : 'Route', value: routeLabel(provider, lang)},
+        {label: isZh ? '执行范围' : 'Execution scope', value: planExecution.scope ? executionScopeLabel(planExecution.scope, lang) : null},
+        {label: isZh ? '材料类型' : 'Material type', value: materialTypeLabel(planMaterial.type, lang)},
+        {label: isZh ? '判断置信度' : 'Confidence', value: planMaterial.confidence || null},
         {label: isZh ? '音频语言' : 'Language', value: languageLabel(sourceLanguage, lang)},
         {label: isZh ? '时长' : 'Duration', value: durationSeconds ? fmtElapsed(durationSeconds) : null},
         {label: isZh ? '转录长度' : 'Transcript length', value: transcriptChars ? `${transcriptChars.toLocaleString()} ${isZh ? '字' : 'chars'}` : null},
@@ -315,6 +372,7 @@ const Processing = () => {
                             />
                             <div className="space-y-3">
                                 <Metric label={isZh ? '转录路线' : 'Transcription route'} value={routeLabel(provider, lang)}/>
+                                <Metric label={isZh ? '执行工具' : 'Execution tool'} value={planExecution.transcription_tool || null}/>
                                 <Metric label={isZh ? '笔记策略' : 'Note strategy'} value={noteModeLabel(noteMode, lang)}/>
                                 <div className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
                                     <p className="text-[11px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '策略原因' : 'Strategy reason'}</p>
@@ -328,6 +386,14 @@ const Processing = () => {
                                             : (isZh ? '中文材料按原文转录和整理，不额外制造双语字幕。' : 'Chinese material is transcribed and organized as source-language subtitles.')}
                                     </p>
                                 </div>
+                                {planRiskNotes.length > 0 && (
+                                    <div className="rounded-[14px] bg-[#fff7ed] px-4 py-3 text-[#9a3412] dark:bg-orange-400/10 dark:text-orange-100">
+                                        <p className="text-[11px] font-bold opacity-70">{isZh ? '风险提示' : 'Risk notes'}</p>
+                                        <ul className="mt-1 space-y-1 text-[13px] font-semibold leading-5">
+                                            {planRiskNotes.map((item) => <li key={item}>- {item}</li>)}
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         </Card>
 
@@ -340,6 +406,18 @@ const Processing = () => {
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
                                 {evidence.map((item) => <Metric key={item.label} label={item.label} value={item.value}/>)}
                             </div>
+                            {planEvidence.length > 0 && (
+                                <div className="mt-3 rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
+                                    <p className="text-[11px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '计划依据' : 'Plan evidence'}</p>
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {planEvidence.map((item) => (
+                                            <span key={item} className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-bold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                                {item}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </Card>
 
                         <Card>
@@ -367,6 +445,8 @@ const Processing = () => {
                         </summary>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <Metric label="Task ID" value={active?.taskId || result?.task_id}/>
+                            <Metric label="Plan version" value={processingPlan?.processing_plan_version}/>
+                            <Metric label="Planning stage" value={processingPlan?.planning_stage}/>
                             <Metric label="Provider" value={provider}/>
                             <Metric label="Model" value={result?.stt_model || active?.sttModel || settings.sttModel}/>
                             <Metric label="Prompt" value={promptLabel}/>
