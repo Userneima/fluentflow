@@ -266,6 +266,15 @@ def test_processing_page_is_agent_workflow_surface() -> None:
     assert "updateSettingNow" not in source
 
 
+def test_settings_copy_separates_preferences_from_agent_strategy() -> None:
+    source = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
+
+    assert "长期偏好、凭证和模板维护" in source
+    assert "模板偏好" in source
+    assert "Agent 会根据内容自动选用最匹配的" not in source
+    assert "Agent auto-selects the best match" not in source
+
+
 def test_tasks_show_actionable_next_step_for_failures() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 

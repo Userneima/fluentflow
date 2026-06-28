@@ -212,7 +212,7 @@ const Settings = () => {
             <main className="mx-auto h-dvh max-w-[900px] overflow-y-auto px-8 py-7 hide-scrollbar">
                 <header className="mb-7">
                     <h1 className="text-2xl font-extrabold tracking-tight text-[#111111] dark:text-white font-headline">{t('set.title')}</h1>
-                    <p className="mt-1 text-sm font-medium text-[#777] dark:text-white/55">{lang==='zh'?'运行凭证和提示词模板。处理策略已交 Agent 自动判断，无需手工选择。':'Credentials and prompt templates. Processing strategy is now determined by the Agent automatically.'}</p>
+                    <p className="mt-1 text-sm font-medium text-[#777] dark:text-white/55">{lang==='zh'?'这里保留长期偏好、凭证和模板维护；每次任务的处理策略由 Agent 判断。':'Long-term preferences, credentials, and templates live here. Per-task processing strategy is handled by the Agent.'}</p>
                 </header>
 
                 <div className="space-y-6">
@@ -433,7 +433,7 @@ const Settings = () => {
                             </span>
                             <div>
                                 <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{t('set.promptTitle')}</h2>
-                                <p className="text-xs text-[#8a8a8a] dark:text-white/40">{lang==='zh'?`${templateCount} 个可用模板。Agent 会根据内容自动选用最匹配的。`:`${templateCount} templates available. Agent auto-selects the best match.`}</p>
+                                <p className="text-xs text-[#8a8a8a] dark:text-white/40">{lang==='zh'?`${templateCount} 个可用模板。这里维护模板偏好，Agent 负责决定本次处理方式。`:`${templateCount} templates available. Maintain template preferences here; the Agent decides the per-task route.`}</p>
                             </div>
                         </div>
 
