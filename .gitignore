@@ -20,6 +20,12 @@ exports/
 reports/
 docs/private/
 
+# Local agent / assistant workspace files
+.agents/
+.claude/
+.superpowers/
+CONTEXT.md
+
 # Local media / large assets (videos, extracted audio, etc.)
 data/*
 !data/.gitkeep

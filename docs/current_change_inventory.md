@@ -2,9 +2,9 @@
 
 Last updated: 2026-06-28
 
-This document is the integration map for the current dirty worktree. It groups
-changes by product intent, not by which agent made them. Use it before staging,
-committing, deploying, or asking another agent to continue work.
+This document is the integration map for the current multi-agent worktree. It
+groups changes by product intent, not by which agent made them. Use it before
+staging, committing, deploying, or asking another agent to continue work.
 
 ## Working Rule
 
@@ -16,7 +16,7 @@ back. Do not merge all dirty files as one "misc fixes" commit.
 
 ## Group A: Release And Version Management
 
-Status: ready to commit after final review.
+Status: committed in `39b272e` (`Add release version management`).
 
 Purpose:
 
@@ -71,8 +71,9 @@ Notes:
 
 ## Group B: ElevenLabs As Default Cloud STT
 
-Status: candidate for current release, but needs an end-to-end smoke test with
-real cloud credentials before commit.
+Status: committed in `ca5a174` (`Make ElevenLabs the default cloud transcription route`).
+
+Deployment still needs an end-to-end smoke test with real cloud credentials.
 
 Purpose:
 
@@ -139,7 +140,10 @@ Risks:
 
 ## Group C: Agent Workflow UI And Information Architecture
 
-Status: hold until user confirms the UI direction. Do not silently commit.
+Status: first navigation/copy slice committed in `b8f54ec` (`Expose agent workflow navigation`).
+
+Further UI or information-architecture changes still require discussion before
+editing.
 
 Purpose:
 
@@ -181,7 +185,7 @@ Risks:
 
 ## Group D: Task Recovery And Stale Job Cleanup
 
-Status: candidate for current release, but should be separated from UI naming.
+Status: committed in `633e0ab` (`Handle stale dashboard jobs`).
 
 Purpose:
 
@@ -212,7 +216,8 @@ Notes:
 
 ## Group E: Documentation Long-Term Cleanup
 
-Status: needs review before commit.
+Status: reviewed. Deleted planning docs were restored because they are not fully
+superseded.
 
 Purpose:
 
@@ -221,7 +226,7 @@ Purpose:
 - Keep public docs aligned with the current ElevenLabs + Agent workflow product
   direction.
 
-Deleted files:
+Reviewed files:
 
 - `docs/long_transcript_coverage_notes_plan.md`
 - `docs/note_mode_evaluation_plan.md`
@@ -240,15 +245,16 @@ Before commit:
   file. If it is local agent memory, keep it untracked and add an ignore rule in
   a separate housekeeping commit.
 
-Risk:
+Decision:
 
-- Deleting planning docs can erase rationale that is still useful for future
-  product decisions. Prefer moving important rationale into a focused product
-  doc before deletion.
+- Keep both documents until threshold evaluation, artifact persistence, and
+  coverage-matrix work are either landed or moved into a newer focused product
+  document.
+- Treat `CONTEXT.md` as local agent memory and keep it ignored.
 
 ## Group F: Local Agent And Tooling Files
 
-Status: do not commit to the public repo by default.
+Status: local-only. Ignored by project `.gitignore`.
 
 Files:
 
@@ -267,24 +273,24 @@ Decision:
   keep private unless the project intentionally vendors this skill.
 - `.superpowers/` should be inspected before any commit decision.
 
-Recommended next action:
+Current ignore coverage:
 
 ```bash
-git status --short
-git check-ignore .claude/settings.local.json .claude/launch.json .agents/skills/vercel-ui-skills/SKILL.md .superpowers 2>/dev/null || true
+.agents/
+.claude/
+.superpowers/
+CONTEXT.md
 ```
-
-If they are meant to stay local, add ignore rules in a dedicated housekeeping
-commit after confirming with the user.
 
 ## Recommended Integration Order
 
-1. Commit Group A first.
-2. Commit Group D if the 404/stale-task behavior is still needed and tests pass.
-3. Commit Group B after a real ElevenLabs smoke test.
-4. Pause Group C until the user confirms the UI direction.
-5. Review Group E doc deletions after product docs are confirmed complete.
-6. Keep Group F untracked or ignore it; do not mix it with product code.
+1. Group A is committed.
+2. Group D is committed.
+3. Group B is committed, but production deployment still needs real ElevenLabs
+   smoke testing.
+4. Group C has only the confirmed first slice; pause before deeper UI changes.
+5. Group E doc deletions were rejected for now; keep the rationale docs.
+6. Group F is ignored as local-only workspace state.
 
 ## Versioning Decision
 
