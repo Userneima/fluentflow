@@ -14,7 +14,7 @@ import {
 import SvgIcon from '../components/SvgIcon.jsx';
 import {
     API_BASE,
-    azureSpeechMissingMessage,
+    cloudSttMissingMessage,
     compactDisplayFilename,
     createTaskId,
     effectiveSttProvider,
@@ -41,9 +41,8 @@ import {
     getGuestTrialTaskId,
     getGuestTrialToken,
     historyEntryToResult,
-    isAzureBatchConfigured,
-    isAzureCloudProvider,
-    isAzureSpeechConfigured,
+    isCloudSttConfigured,
+    isCloudSttProvider,
     isLocalHistoryResult,
     isLocalLarkExportRoute,
     isSttProgressUnmeasured,
@@ -435,7 +434,7 @@ const Editor = () => {
     const durSec = result?.audio_duration_seconds || 0;
     const sttElapsedSec = result?.stt_elapsed_seconds || 0;
     const sttRealtimeFactor = result?.stt_realtime_factor || (durSec > 0 && sttElapsedSec > 0 ? sttElapsedSec / durSec : null);
-    const sttProfile = result?.stt_model ? [isAzureCloudProvider(result.stt_provider) ? 'Azure' : 'local', result.stt_model, result.stt_speed, result.stt_language].filter(Boolean).join(' / ') : '';
+    const sttProfile = result?.stt_model ? [isCloudSttProvider(result.stt_provider) ? (result.stt_provider_label || 'Cloud STT') : 'local', result.stt_model, result.stt_speed, result.stt_language].filter(Boolean).join(' / ') : '';
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
     const resolvedNoteMode = result?.resolved_note_mode || result?.requested_note_mode || null;
     const noteModeText = resolvedNoteMode ? noteModeLabel(resolvedNoteMode, lang) : null;
@@ -848,26 +847,24 @@ const Editor = () => {
         const settings = loadSettings();
         const sttModel = normalizeSttModel(settings.sttModel);
         const sttProvider = effectiveSttProvider(settings, runtimeConfig);
-        if (isAzureCloudProvider(sttProvider)) {
+        if (isCloudSttProvider(sttProvider)) {
             try {
                 const status = await getCredentialsStatus();
-                const configured = sttProvider === 'azure_batch'
-                    ? isAzureBatchConfigured(status)
-                    : isAzureSpeechConfigured(status);
+                const configured = isCloudSttConfigured(sttProvider, status);
                 if (!configured) {
-                    showToast(azureSpeechMissingMessage(lang), false);
+                    showToast(cloudSttMissingMessage(lang), false);
                     return;
                 }
             } catch (_) {
-                showToast(azureSpeechMissingMessage(lang), false);
+                showToast(cloudSttMissingMessage(lang), false);
                 return;
             }
         }
         const retranscribeErrorMessage = (err) => {
             if (err?.status === 401 || err?.payload?.account_required) {
-                if (isAzureCloudProvider(sttProvider)) {
+                if (isCloudSttProvider(sttProvider)) {
                     return lang === 'zh'
-                        ? '当前选择的是云端转录，需要先登录或重新登录账号。想用本机转录，请到「处理设置」把转录路线切到「本地转录」。'
+                        ? '当前选择的是云端转录，需要先登录或重新登录账号。想用本机转录，请到「设置」调整转录路线。'
                         : 'Cloud transcription requires an active account login. To use this Mac instead, switch the transcription route to Local in Processing settings.';
                 }
                 return lang === 'zh'
@@ -922,7 +919,7 @@ const Editor = () => {
 		                    sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
 		                    sttStatus: ev.stt_status ?? prev.sttStatus,
 		                    sttProvider: ev.stt_provider ?? prev.sttProvider,
-		                    azureBatchAudioSizeMb: ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+		                    azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
 		                } : null);
                 if(ev.stage === 'transcript_ready' && ev.result) setLastResult(ev.result);
             });

@@ -1286,7 +1286,7 @@ Users should understand that uploaded media is processed by cloud services.
 Minimum product copy:
 
 ```text
-上传内容会用于生成字幕和笔记。当前云端转录由 Azure Speech 处理，摘要由配置的 AI 模型处理。任务完成后，原始上传文件会按保留策略清理。
+上传内容会用于生成字幕和笔记。当前云端转录由 ElevenLabs Scribe 处理，摘要由配置的 AI 模型处理。任务完成后，原始上传文件会按保留策略清理。
 ```
 
 This should be placed near account onboarding or upload settings, not as a scary legal wall.

@@ -13,7 +13,6 @@ import {
 } from '../lib/promptPresets.js';
 import SvgIcon from '../components/SvgIcon.jsx';
 import {
-    azureSpeechMissingMessage,
     compactDisplayFilename,
     createTaskId,
     DEFAULT_DEEPSEEK_MODEL,
@@ -23,8 +22,7 @@ import {
     fmtFileSize,
     friendlyTaskError,
     isLocalLarkExportRoute,
-    isAzureBatchConfigured,
-    isAzureCloudProvider,
+    isCloudSttProvider,
     isLocalHistoryResult,
     isSttProgressUnmeasured,
     jobToCurrentJob,
@@ -129,8 +127,8 @@ const Processing = () => {
     const canChooseSttProvider = runtimeConfig.allowedSttProviders.length > 1;
     const showMaintainerSettings = runtimeConfig.showMaintainerSettings;
     const larkExportRoute = larkExportRouteFromSettings(settings);
-    const speakerDiarizationAvailable = sttProvider === 'azure_batch' || (sttProvider === 'local' && !!diarizationStatus?.available);
-    const speakerDiarizationHint = sttProvider === 'azure_batch'
+    const speakerDiarizationAvailable = isCloudSttProvider(sttProvider) || (sttProvider === 'local' && !!diarizationStatus?.available);
+    const speakerDiarizationHint = isCloudSttProvider(sttProvider)
         ? (lang==='zh'?'云端转录支持可选说话人区分，效果取决于音频质量。':'Cloud transcription can optionally label speakers. Results depend on audio quality.')
         : diarizationStatus?.available
         ? (lang==='zh'?'使用 pyannote 为字幕段标记 SPEAKER。':'Use pyannote to label transcript segments.')
@@ -204,6 +202,7 @@ const Processing = () => {
                                     <div className="space-y-2">
                                         <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
                                         <select className={inputClass} value={sttProvider} onChange={e=>updateSettingNow({sttProvider:e.target.value})}>
+                                            {runtimeConfig.allowedSttProviders.includes('elevenlabs_scribe') && <option value="elevenlabs_scribe">{t('set.providerCloud')}</option>}
                                             {runtimeConfig.allowedSttProviders.includes('azure_batch') && <option value="azure_batch">{t('set.providerAzureBatch')}</option>}
                                             {runtimeConfig.allowedSttProviders.includes('local') && <option value="local">{t('set.providerLocal')}</option>}
                                         </select>
@@ -212,7 +211,7 @@ const Processing = () => {
                                     <div className="space-y-2">
                                         <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
                                         <div className={`${inputClass} flex items-center justify-between bg-surface-container-low`}>
-                                            <span>{sttProvider === 'azure_batch' ? t('set.providerAzureBatch') : t('set.providerLocal')}</span>
+                                            <span>{isCloudSttProvider(sttProvider) ? t('set.providerCloud') : t('set.providerLocal')}</span>
                                             <SvgIcon name="lock" className="text-base text-primary"/>
                                         </div>
                                     </div>
@@ -237,7 +236,7 @@ const Processing = () => {
                                 </div>
                                 )}
                             </div>
-                            {isAzureCloudProvider(sttProvider) && (
+                            {isCloudSttProvider(sttProvider) && (
                                 <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
                                     <SvgIcon name="cloud_done" className="text-primary text-lg mt-0.5"/>
                                     <p className="text-xs text-on-surface-variant leading-relaxed">

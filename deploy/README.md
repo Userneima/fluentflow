@@ -56,9 +56,7 @@ sudo chown fluentflow:fluentflow /etc/fluentflow/fluentflow.env
 
 必须替换：
 
-- `AZURE_SPEECH_ENDPOINT`
-- `AZURE_SPEECH_KEY`
-- `AZURE_BLOB_CONTAINER_SAS_URL`
+- `ELEVENLABS_API_KEY`
 - `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`
 - 如果需要飞书导出，再配置 `LARK_APP_ID` / `LARK_APP_SECRET`
 
@@ -210,7 +208,7 @@ journalctl -u nginx -n 100 --no-pager
 
 1. 打开站点，输入访问口令。
 2. 上传一个 1-3 分钟的小视频，确认能生成转录和笔记。
-3. 上传一个更接近真实体量的视频，确认 Azure Batch 能完成。
+3. 上传一个更接近真实体量的视频，确认 ElevenLabs 云端转录能完成。
 4. 如果开启飞书导出，确认任务页能显示飞书文档入口。
 5. 跑一次清理脚本 dry-run：
 

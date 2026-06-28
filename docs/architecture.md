@@ -2,7 +2,7 @@
 
 本文档用来帮助维护者理解 FluentFlow 的系统结构。它不是完整源码说明，而是回答：
 
-- 前端、后端、SQLite、本地文件、Azure、LLM、飞书之间怎么协作？
+- 前端、后端、SQLite、本地文件、ElevenLabs、本地 STT、LLM、飞书之间怎么协作？
 - 一个任务从上传到结果页经历哪些阶段？
 - 哪些数据持久化，哪些只是运行时状态？
 - 哪些地方是未来公开试用最容易出问题的边界？
@@ -19,7 +19,7 @@ flowchart TB
   API --> Files["本地文件目录<br/>sources / artifacts / edited_transcripts"]
   API --> FFmpeg["FFmpeg 音频预处理"]
   FFmpeg --> LocalSTT["本地 faster-whisper 子进程"]
-  FFmpeg --> Azure["Azure Batch + Blob/SAS"]
+  FFmpeg --> ElevenLabs["ElevenLabs Scribe"]
   API --> LLM["DeepSeek / OpenAI 兼容 API"]
   API --> Lark["飞书 OpenAPI / lark-cli"]
   API --> SSE["SSE 进度流"]
@@ -118,7 +118,7 @@ sequenceDiagram
   A->>E: source_imported
   A->>F: extract/compress audio
   A->>E: audio_extracted
-  A->>S: local faster-whisper or Azure Batch
+  A->>S: ElevenLabs Scribe or local faster-whisper
   S-->>A: segments + transcript
   A->>E: stt_completed
   A->>A: cleanup + paragraph rebuild
@@ -178,16 +178,23 @@ sequenceDiagram
 - `backend/core/audio_handler.py`
 - `backend/core/stt_process.py`
 
-### Azure Batch
+### ElevenLabs Scribe
 
 特点：
 
 - 适合云服务器公开试用和长音频。
 - 后端先用 FFmpeg 压缩成 MP3。
-- 上传到 Azure Blob container SAS。
-- 调用 Azure Speech Batch API 提交转录任务。
-- 轮询状态，成功后下载结果。
+- 调用 ElevenLabs Speech-to-Text API。
+- 统一转换为 FluentFlow 的 segments、transcript 和 metadata。
 - 云端不返回细粒度音频百分比，因此产品只展示真实阶段。
+
+相关模块：
+
+- `backend/core/elevenlabs_stt.py`
+
+### Legacy Azure Batch
+
+Azure Batch 代码保留为 legacy 兼容和历史任务诊断路径，不再作为公开产品默认云端 STT。
 
 相关模块：
 
@@ -239,7 +246,8 @@ FluentFlow 使用两类进度：
 
 | 服务 | 用途 | 风险 |
 | --- | --- | --- |
-| Azure Speech + Blob | 云端长音频转录 | 配置复杂、SAS 过期、排队等待、网络失败 |
+| ElevenLabs Scribe | 默认云端转录 | API Key、账户额度、网络失败、文件体量限制 |
+| Azure Speech + Blob | Legacy 云端转录 | 配置复杂、SAS 过期、排队等待、网络失败 |
 | DeepSeek / OpenAI | 生成结构化摘要 | 长文本漏点、模型失败、成本 |
 | 飞书 OpenAPI | 创建云文档 | 权限、App 凭证、父文档/知识库权限 |
 | lark-cli | 使用本机身份创建文档 | 登录态、PATH、权限 |
@@ -272,7 +280,7 @@ FluentFlow 使用两类进度：
 - SQLite 适合小规模试用，不适合高并发 SaaS。
 - 单机文件目录适合 Beta，不适合长期大规模存储。
 - 本地设备级隔离不是账号系统。
-- Azure Batch 等待状态无法提供真实音频百分比。
+- 云端 STT 等待状态无法提供本地逐段推理百分比。
 - 没有完整质量反馈 UI，不能计算笔记可用率和用户评分。
 - 没有支付、套餐、组织权限和完整合规体系。
 

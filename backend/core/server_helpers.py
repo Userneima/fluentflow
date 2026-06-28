@@ -2205,7 +2205,7 @@ def _stt_realtime_factor(stt_elapsed_seconds: float | None, duration_seconds: fl
 
 def _canonical_stt_provider(value: str | None) -> str:
     provider = (value or "").strip().lower().replace("-", "_")
-    if provider in {"elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2"}:
+    if provider in {"cloud", "cloud_stt", "elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2"}:
         return "elevenlabs_scribe"
     if provider in {"azure", "azure_batch", "azure_blob", "azure_speech_batch", "azure_fast", "azure_speech"}:
         return "azure_batch"

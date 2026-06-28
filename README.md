@@ -11,7 +11,7 @@ FluentFlow 是一个面向长视频、课堂录音、讲座录音、会议录音
 - 本地音视频上传，支持多文件后台队列。
 - SRT、VTT、TXT、MD 字幕或文本导入。
 - 抖音分享文本或视频链接解析。
-- 本地 `faster-whisper` 或 Azure Batch 云转录。
+- ElevenLabs Scribe 云转录；本地 `faster-whisper` 保留为开发、私有部署和应急路径。
 - FFmpeg 音频预处理。
 - 字幕时间码清理、段落重组、重复幻觉清洗。
 - DeepSeek / OpenAI 兼容接口生成结构化笔记。
@@ -24,7 +24,7 @@ FluentFlow 是一个面向长视频、课堂录音、讲座录音、会议录音
 
 - Backend: FastAPI + SQLite
 - Frontend: React + Vite + Tailwind CSS
-- STT: faster-whisper / Azure Batch Transcription
+- STT: ElevenLabs Scribe / faster-whisper
 - AI Summary: DeepSeek / OpenAI compatible API
 - Export: Feishu OpenAPI / local `lark-cli`
 - Runtime media processing: FFmpeg
@@ -102,10 +102,8 @@ Vite 默认跑在 `127.0.0.1:5185`，前端会把 API 指向本地 `8000` 后端
 DEEPSEEK_API_KEY=...
 OPENAI_API_KEY=...
 
-# Azure Batch transcription
-AZURE_SPEECH_ENDPOINT=...
-AZURE_SPEECH_KEY=...
-AZURE_BLOB_CONTAINER_SAS_URL=...
+# Cloud transcription
+ELEVENLABS_API_KEY=...
 
 # Feishu / Lark OpenAPI export
 LARK_APP_ID=...

@@ -46,7 +46,7 @@ FluentFlow 是一个面向长视频、课堂录音、讲座录音和已有字幕
 flowchart LR
   A["导入音视频 / 字幕 / 链接"] --> B{"来源类型"}
   B -->|音视频| C["FFmpeg 提取/压缩音频"]
-  C --> D["本地 faster-whisper 或 Azure Batch 转录"]
+  C --> D["ElevenLabs Scribe 云转录或本地 faster-whisper"]
   B -->|SRT/TXT/MD| E["解析字幕/文本"]
   D --> F["转录清洗与段落重组"]
   E --> F
@@ -68,12 +68,12 @@ flowchart LR
 
 ### 转录
 
+- ElevenLabs Scribe 云转录。
 - 本地 faster-whisper。
-- Azure Batch 云转录。
 - FFmpeg 音频预处理。
 - 本地 STT 子进程可取消。
-- Azure Batch 阶段展示真实等待状态，不伪造百分比。
-- 说话人区分按 provider 分流：本地使用 pyannote，Azure 使用云端 diarization。
+- 云端 STT 阶段展示真实等待状态，不伪造百分比。
+- 说话人区分按 provider 分流：本地使用 pyannote，云端使用 provider 返回的 speaker 标签。
 
 ### 文本整理
 
@@ -131,7 +131,7 @@ flowchart LR
 
 1. 公开试用稳定性。
 2. 用户反馈记录。
-3. 长音频 Azure Batch 稳定性。
+3. ElevenLabs 云端转录稳定性与额度/失败提示。
 4. 笔记质量测试计划。
 5. 最小质量反馈入口。
 

@@ -38,9 +38,9 @@ def _truthy(value: str | None) -> bool:
 
 def _canonical_provider(value: str | None) -> str | None:
     raw = (value or "").strip().lower()
-    if raw in {"elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2", "cloud"}:
+    if raw in {"elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2", "cloud", "cloud_stt"}:
         return "elevenlabs_scribe"
-    if raw in {"azure", "azure_batch", "azure-fast", "azure_fast", "cloud"}:
+    if raw in {"azure", "azure_batch", "azure-fast", "azure_fast"}:
         return "azure_batch"
     if raw in {"local", "faster-whisper", "faster_whisper", "whisper"}:
         return "local"

@@ -106,6 +106,15 @@ def test_public_mode_defaults_to_cloud_transcription(monkeypatch) -> None:
     assert _H._normalize_stt_provider("local") == "elevenlabs_scribe"
 
 
+def test_cloud_alias_resolves_to_elevenlabs(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_PUBLIC_MODE", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
+
+    assert _H._normalize_stt_provider("cloud") == "elevenlabs_scribe"
+    assert _H._normalize_stt_provider("cloud_stt") == "elevenlabs_scribe"
+
+
 def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)

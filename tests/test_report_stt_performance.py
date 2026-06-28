@@ -38,7 +38,7 @@ def test_report_groups_stt_events_by_provider(tmp_path: Path) -> None:
         db_path=db_path,
     )
     log_event(
-        task_id="azure-task",
+        task_id="elevenlabs-task",
         event_name="stt_completed",
         source_duration_seconds=100,
         duration_seconds=20,
@@ -46,14 +46,14 @@ def test_report_groups_stt_events_by_provider(tmp_path: Path) -> None:
         metadata={
             "runtime_os": "Darwin",
             "runtime_machine": "arm64",
-            "stt_provider": "azure_batch",
-            "stt_model": "azure-batch-transcription",
+            "stt_provider": "elevenlabs_scribe",
+            "stt_model": "elevenlabs-scribe",
             "stt_speed": "balanced",
             "stt_language": "auto",
             "detected_language": "en-US",
             "stt_realtime_factor": 0.2,
-            "azure_batch_audio_size_mb": 3.5,
-            "azure_batch_duration_seconds": 100.0,
+            "elevenlabs_audio_size_mb": 3.5,
+            "elevenlabs_duration_seconds": 100.0,
         },
         db_path=db_path,
     )
@@ -65,29 +65,29 @@ def test_report_groups_stt_events_by_provider(tmp_path: Path) -> None:
     assert providers["local"]["sample_count"] == 1
     assert providers["local"]["inferred_provider_count"] == 1
     assert providers["local"]["weighted_realtime_factor"] == 0.5
-    assert providers["azure_batch"]["sample_count"] == 1
-    assert providers["azure_batch"]["inferred_provider_count"] == 0
-    assert providers["azure_batch"]["weighted_realtime_factor"] == 0.2
-    assert providers["azure_batch"]["detected_languages"] == {"en-US": 1}
-    assert providers["azure_batch"]["avg_azure_upload_audio_size_mb"] == 3.5
-    assert providers["azure_batch"]["avg_azure_upload_duration_seconds"] == 100.0
+    assert providers["elevenlabs_scribe"]["sample_count"] == 1
+    assert providers["elevenlabs_scribe"]["inferred_provider_count"] == 0
+    assert providers["elevenlabs_scribe"]["weighted_realtime_factor"] == 0.2
+    assert providers["elevenlabs_scribe"]["detected_languages"] == {"en-US": 1}
+    assert providers["elevenlabs_scribe"]["avg_cloud_upload_audio_size_mb"] == 3.5
+    assert providers["elevenlabs_scribe"]["avg_cloud_upload_duration_seconds"] == 100.0
 
 
-def test_report_summarizes_azure_batch_upload_metrics(tmp_path: Path) -> None:
+def test_report_summarizes_cloud_upload_metrics(tmp_path: Path) -> None:
     report = _load_report_module()
     db_path = tmp_path / "events.sqlite"
     log_event(
-        task_id="azure-batch-task",
+        task_id="elevenlabs-task",
         event_name="stt_completed",
         source_duration_seconds=120,
         duration_seconds=24,
         success=True,
         metadata={
-            "stt_provider": "azure_batch",
-            "stt_model": "azure-batch-transcription",
+            "stt_provider": "elevenlabs_scribe",
+            "stt_model": "elevenlabs-scribe",
             "detected_language": "zh-CN",
-            "azure_batch_audio_size_mb": 4.25,
-            "azure_batch_duration_seconds": 120.0,
+            "elevenlabs_audio_size_mb": 4.25,
+            "elevenlabs_duration_seconds": 120.0,
         },
         db_path=db_path,
     )
@@ -95,8 +95,8 @@ def test_report_summarizes_azure_batch_upload_metrics(tmp_path: Path) -> None:
     summary = report.summarize(report.load_stt_events(db_path))
     providers = {row["stt_provider"]: row for row in summary["providers"]}
 
-    assert providers["azure_batch"]["avg_azure_upload_audio_size_mb"] == 4.25
-    assert providers["azure_batch"]["avg_azure_upload_duration_seconds"] == 120.0
+    assert providers["elevenlabs_scribe"]["avg_cloud_upload_audio_size_mb"] == 4.25
+    assert providers["elevenlabs_scribe"]["avg_cloud_upload_duration_seconds"] == 120.0
 
 
 def test_report_json_summary_is_serializable(tmp_path: Path) -> None:
@@ -115,24 +115,24 @@ def test_report_json_summary_is_serializable(tmp_path: Path) -> None:
     json.dumps(report.summarize(report.load_stt_events(db_path)), ensure_ascii=False)
 
 
-def test_report_markdown_includes_azure_upload_and_detected_language(tmp_path: Path) -> None:
+def test_report_markdown_includes_cloud_upload_and_detected_language(tmp_path: Path) -> None:
     report = _load_report_module()
     db_path = tmp_path / "events.sqlite"
     output = tmp_path / "report.md"
     log_event(
-        task_id="azure-task",
+        task_id="elevenlabs-task",
         event_name="stt_completed",
         source_duration_seconds=60,
         duration_seconds=12,
         success=True,
         metadata={
-            "stt_provider": "azure_batch",
-            "stt_model": "azure-batch-transcription",
+            "stt_provider": "elevenlabs_scribe",
+            "stt_model": "elevenlabs-scribe",
             "stt_speed": "balanced",
             "stt_language": "auto",
             "detected_language": "en-US",
-            "azure_batch_audio_size_mb": 2.25,
-            "azure_batch_duration_seconds": 60.0,
+            "elevenlabs_audio_size_mb": 2.25,
+            "elevenlabs_duration_seconds": 60.0,
         },
         db_path=db_path,
     )
@@ -142,7 +142,7 @@ def test_report_markdown_includes_azure_upload_and_detected_language(tmp_path: P
     text = output.read_text(encoding="utf-8")
 
     assert "Detected languages" in text
-    assert "Avg Azure upload MB" in text
+    assert "Avg cloud upload MB" in text
     assert "en-US:1" in text
     assert "2.25" in text
 

@@ -140,7 +140,7 @@ python3 scripts/cleanup_storage.py --apply
 
 ### 失败信息与产物入口
 
-封闭 Beta 的用户不应该看到 Azure 原始错误码作为主要提示。当前后端会把常见 `InvalidModel`、`InvalidLocale`、`InvalidSubscription`、上传中断、文件过大、链接无法解析、队列调用失败等错误转换为中文失败原因；原始错误保留在 job metadata 中供维护者排障。
+封闭 Beta 的用户不应该看到 ElevenLabs 或 legacy provider 原始错误码作为主要提示。当前后端会把常见未配置、额度不足、上传中断、文件过大、链接无法解析、队列调用失败等错误转换为中文失败原因；原始错误保留在 job metadata 中供维护者排障。
 
 后台任务页是长任务的主入口，需要确认：
 

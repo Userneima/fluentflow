@@ -39,7 +39,7 @@ FluentFlow 的目标不是只做一个语音转文字工具，而是把长内容
 - 导入已有字幕/文本文件，跳过 STT，直接生成笔记。
 - 在工作台中设置语言、提示词模板、笔记生成模式、仅转录模式和飞书导出方式；云服务器试用形态下，转录路线和外部服务凭证由维护者统一配置。
 
-普通用户不需要理解 ElevenLabs Key、Azure、Blob、SAS 或 Speech Key。云端转录所需基础设施由产品维护者在后端配置；本地开发形态可以选择本地或云端转录路线，云服务器试用形态默认只开放云端转录。
+普通用户不需要理解 ElevenLabs Key、STT 服务商、Blob/SAS 或 Speech Key。云端转录所需基础设施由产品维护者在后端配置；本地开发形态可以选择本地或云端转录路线，云服务器试用形态默认只开放云端转录。
 
 ### 2. 本地处理
 
@@ -100,22 +100,21 @@ STT 阶段会通过 SSE 返回进度和状态，包括：
 - 字幕文件会跳过音频提取和 STT，避免伪造不存在的处理阶段。
 - 对 SRT/VTT 字幕，产品会保留带时间轴的片段数据，同时生成一份去时间码、去标签、重组段落后的正文，作为 AI 笔记生成输入。
 
-### 2. STT 转写：本地与 Azure Batch 云端路径
+### 2. STT 转写：ElevenLabs 云端路径与本地应急路径
 
 - 使用 FFmpeg 预处理音频。
 - 本地路径使用 faster-whisper 完成语音转写，采用整段音频转录以保留上下文。
-- 云端路径使用 Azure Batch + Blob/SAS，把 STT 阶段交给云端异步处理；Azure Fast inline 旧链路不再作为用户可见路线。
-- Azure Batch 路径会先把音视频压缩成 MP3，上传到后端配置的 Azure Blob container SAS，再调用 Speech Batch API 提交任务、轮询状态、下载结果。
-- Azure 路径仍复用同一套转录清洗、编辑器、AI 摘要和飞书导出链路；上传用 MP3，而不是本地 Whisper 专用 WAV。
+- 云端路径使用 ElevenLabs Scribe，把公开产品中的 STT 阶段交给云端高准确率转录服务。
+- ElevenLabs 路径会先把音视频压缩成 MP3，再调用 Speech-to-Text API，并把返回结果统一标准化为 segments、transcript 和 metadata。
+- 云端路径仍复用同一套转录清洗、编辑器、AI 摘要和飞书导出链路；上传用 MP3，而不是本地 Whisper 专用 WAV。
 - 云端配置状态只作为维护者排障信息，不应该成为普通用户的操作步骤。Dashboard 上传和编辑器重新转录会在上传前拦截未配置状态，后端也会在音频提取前做兜底预检。
-- 云服务器公开试用时，后端会通过运行配置只允许 Azure Batch 路径；即使旧客户端传入本地转录参数，也会被兜底改为云端路径。
-- Batch 路径会展示上传 Blob、提交任务、等待 Azure、下载结果等状态；由于 Azure 异步排队不返回细粒度音频进度，产品不伪造 STT 百分比。
-- 提供 `scripts/check_azure_batch_transcription.py` 做维护者使用的真实 Batch + Blob/SAS smoke test；提供 `--dry-run` 检查配置和音频预处理，不调用 Azure、不写事件表。
-- 说话人区分按转录服务分流：本地路径使用 pyannote，Azure Batch 路径可请求云端 diarization 并使用返回的 speaker 标签；Azure Fast 旧链路不作为说话人区分主路径。
-- Azure Batch 的“自动识别”会以 `zh-CN` 作为 fallback locale，并传入 `zh-CN` / `en-US` 候选语言；显式中文或英文会直接映射为对应 locale。
+- 云服务器公开试用时，后端会通过运行配置只允许 ElevenLabs 路径；即使旧客户端传入本地转录参数，也会被兜底改为云端路径。
+- ElevenLabs 路径会展示上传、云端处理、结果标准化等状态；由于云端服务不返回本地逐段推理进度，产品不伪造 STT 百分比。
+- 提供 `scripts/check_deployment_readiness.py` 做维护者上线前配置检查，重点确认 `ELEVENLABS_API_KEY`、摘要模型、上传限制和 SSE。
+- 说话人区分按转录服务分流：本地路径使用 pyannote，云端路径可请求 provider speaker labels 并使用返回的 speaker 标签。
 - 当前产品只开放 `medium` 和 `large-v3` 两个 STT 模型选项，其中 `medium` 是最低可用下限；旧的 `tiny`、`base`、`small` 设置会自动兜底为 `medium`。
 - 不再支持内置热词库或基于热词的字幕审阅；当前优先保证普通材料的稳定转录和低配置成本。
-- 本地路径支持速度档和模型设置；Azure 路径主要使用语言、云端凭证和可选说话人区分。
+- 本地路径支持速度档和模型设置；云端路径主要使用语言、后端凭证和可选说话人区分。
 - 记录 STT 耗时、音频时长、实时倍率、转录服务、模型配置和设备环境。
 
 ### 3. 重复幻觉清洗
@@ -164,7 +163,7 @@ STT 阶段会通过 SSE 返回进度和状态，包括：
 
 - 多文件或链接任务进入后台队列，不要求用户停留在开始页。
 - 任务页展示解析链接、下载视频、上传云端、等待转录、生成摘要、导出飞书等阶段。
-- 常见 Azure、链接解析、文件过大、队列调用失败会翻译成人能理解的失败原因，同时在 metadata 中保留原始错误便于排障。
+- 常见 ElevenLabs、链接解析、文件过大、队列调用失败会翻译成人能理解的失败原因，同时在 metadata 中保留原始错误便于排障。
 - 云服务器试用形态会限制单个设备同时排队/运行的任务数量，避免少量用户一次性提交过多长视频拖垮单机服务。
 - `scripts/cleanup_storage.py` 用于维护者定期清理本地源文件、产物、编辑记录和视频链接下载文件；默认 dry-run，确认后再 `--apply`。
 
@@ -210,8 +209,8 @@ STT 耗时强依赖设备性能，因此事件日志会记录：
 - 操作系统和 CPU 架构
 - CPU 核心数
 - faster-whisper / ctranslate2 / FFmpeg 版本
-- STT 服务：本地 faster-whisper 或 Azure 云转录
-- 说话人区分后端：pyannote 或 Azure diarization
+- STT 服务：ElevenLabs Scribe 或本地 faster-whisper
+- 说话人区分后端：云端 speaker labels 或 pyannote
 - STT 模型、速度档和语言
 - 转写耗时 / 原音频时长比例
 - 模型加载耗时

@@ -47,6 +47,18 @@ def test_processing_settings_no_longer_exposes_audio_language_control() -> None:
     assert "Audio Language" not in source
 
 
+def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+
+    assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in shared
+    assert "allowedSttProviders: ['elevenlabs_scribe', 'local']" in shared
+    assert "value=\"elevenlabs_scribe\"" in processing
+    assert "isCloudSttConfigured(sttProvider, status)" in editor
+    assert "isAzureCloudProvider(sttProvider)" not in editor
+
+
 def test_dashboard_stops_polling_stale_missing_job() -> None:
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")

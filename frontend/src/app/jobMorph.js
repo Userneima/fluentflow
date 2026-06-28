@@ -5,7 +5,7 @@ import {
 } from '../lib/resultSchema.js';
 import { normalizeTaskState, TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_QUEUED, TASK_STATE_RUNNING } from '../lib/taskState.js';
 
-const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
+const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
 const LEGACY_REMOVED_SETTING_KEYS = ['hotwordLibrary', 'hotwordLibraries', 'reviewMode', 'reviewUseAi'];
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
@@ -50,6 +50,7 @@ const sensitivePatchFromSettings = (settings={}) => ({
     openai_api_key: settings.openaiApiKey || '',
     lark_app_id: settings.larkAppId || '',
     lark_app_secret: settings.larkAppSecret || '',
+    elevenlabs_api_key: settings.elevenLabsApiKey || '',
     azure_speech_key: settings.azureSpeechKey || '',
     azure_speech_endpoint: settings.azureSpeechEndpoint || '',
     azure_blob_container_sas_url: settings.azureBlobContainerSasUrl || '',
@@ -389,11 +390,13 @@ export const noteModeLabel = (mode, lang) => {
 // STT config
 export const DEFAULT_STT_MODEL = 'medium';
 const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe';
-export const normalizeSttProvider = (provider) => (
-    provider === 'local' || provider === 'elevenlabs_scribe' || provider === 'azure_batch' || provider === 'azure_fast'
-        ? (provider === 'azure_fast' ? 'azure_batch' : provider)
-        : DEFAULT_STT_PROVIDER
-);
+export const normalizeSttProvider = (provider) => {
+    const value = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
+    if (value === 'local') return 'local';
+    if (value === 'cloud' || value === 'cloud_stt' || value === 'elevenlabs' || value === 'elevenlabs_scribe' || value === 'scribe' || value === 'scribe_v2') return 'elevenlabs_scribe';
+    if (value === 'azure_batch' || value === 'azure_fast') return 'azure_batch';
+    return DEFAULT_STT_PROVIDER;
+};
 const isElevenLabsProvider = (provider) => (
     normalizeSttProvider(provider) === 'elevenlabs_scribe'
 );

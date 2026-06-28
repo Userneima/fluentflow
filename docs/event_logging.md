@@ -38,9 +38,9 @@
 | --- | --- | --- |
 | `source_imported` | `/process`、`/summarize-transcript-file` 收到并读取文件后 | 用户导入音视频或字幕/文本文件。 |
 | `audio_extracted` | `/process` 中 FFmpeg 音频处理成功后 | 音视频路径完成音频提取。字幕/文本路径不会记录此事件。 |
-| `stt_completed` | `/process` 中选定 STT 服务返回结果后 | 音视频路径完成真实转写。`metadata.stt_provider` 区分本地 faster-whisper 和 Azure 云转录；字幕/文本路径不会记录此事件。 |
+| `stt_completed` | `/process` 中选定 STT 服务返回结果后 | 音视频路径完成真实转写。`metadata.stt_provider` 区分 ElevenLabs Scribe、本地 faster-whisper 和 legacy Azure；字幕/文本路径不会记录此事件。 |
 | `transcript_cleanup_completed` | `/process`、`/summarize-transcript-file` 检测到并折叠重复幻觉后 | 机械清洗明显重复片段完成。只在实际发生清洗时记录，不代表人工确认内容正确。 |
-| `speaker_diarization_completed` | 用户开启说话人区分且真实 diarization 后端成功返回后 | 字幕段已合并真实说话人标签；本地转录走 pyannote，Azure 云转录走 Azure diarization。不会用启发式猜测 speaker。 |
+| `speaker_diarization_completed` | 用户开启说话人区分且真实 diarization 后端成功返回后 | 字幕段已合并真实说话人标签；本地转录走 pyannote，云端转录走 provider 返回的 speaker labels。不会用启发式猜测 speaker。 |
 | `transcript_ready` | `/process` 转写完成后；`/summarize-transcript-file` 解析字幕/文本后 | 系统已有可用转写文本。 |
 | `transcript_review_completed` | 已移除，仅历史版本可能存在 | 旧版热词审阅事件。当前主流程不再产生。 |
 | `summary_completed` | AI 摘要真实成功并返回非空 Markdown 后 | 摘要生成成功，只记录 `success=true`。 |
@@ -73,11 +73,9 @@
 
 音视频路径的 STT 运行在独立子进程中。用户点击取消时，后端会取消后台任务并终止 STT 子进程，避免 faster-whisper 在线程池中继续占用 CPU。普通 SSE 连接断开不再等同于取消任务；后台任务会继续运行，前端可通过 `/jobs/{task_id}/events` 重新订阅进度。这个选择牺牲了跨任务复用模型缓存的速度优势；因此主流程里的 `model_cache_hit` 通常只反映子进程内部状态，不应再解读为“整个后端进程是否已经热启动”。
 
-Azure 云转录不会产生 faster-whisper 的逐段进度，因此前端只展示云端转录中的状态和已等待时间，不伪造 STT 百分比。Azure 路径的取消可中断前端任务状态，但正在进行的外部 HTTP 请求无法像本地 STT 子进程一样被强制杀掉。用户在 Azure 路径开启说话人区分时，会把 `diarization` 作为 Azure 请求参数发送；报告应按 `speaker_diarization_completed.metadata.backend` 区分 Azure 与 pyannote。
+ElevenLabs 云转录不会产生 faster-whisper 的逐段本地进度，因此前端只展示云端转录中的状态和已等待时间，不伪造 STT 百分比。云端路径的取消可中断前端任务状态，但正在进行的外部 HTTP 请求无法像本地 STT 子进程一样被强制杀掉。用户在云端路径开启说话人区分时，会把 diarization 请求交给 provider；报告应按 `speaker_diarization_completed.metadata.backend` 区分云端 provider 与 pyannote。
 
-当前 Azure Fast Transcription 使用 inline multipart 上传。Azure 路径会把音视频预处理成压缩 MP3 后上传，避免本地 Whisper 专用 WAV 膨胀导致云端上传不稳定；本地 faster-whisper 路径仍使用 16kHz 单声道 WAV。后端会在音频预处理后做保守预检，默认限制为 240MB / 2 小时，避免长音频在本机读入大文件后才失败。可通过 `FLUENTFLOW_AZURE_FAST_MAX_INLINE_MB`、`FLUENTFLOW_AZURE_FAST_MAX_DURATION_SECONDS`、`FLUENTFLOW_AZURE_FAST_MAX_DIARIZATION_SECONDS` 调整。更长音频应走未来 Azure Batch + Blob/SAS 流程，而不是复用 inline 上传。
-
-Azure Fast 默认使用 REST API `2025-10-15`；可通过 `FLUENTFLOW_AZURE_FAST_API_VERSION` 临时覆盖。若当前版本返回 `InvalidModel`，后端会尝试兼容版本 `2024-11-15`；如果仍失败，应判定为当前 Azure Speech 资源/区域/API 组合不支持 Fast Transcription 模型，而不是文件体积问题。
+ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 Whisper 专用 WAV 膨胀导致云端上传不稳定；本地 faster-whisper 路径仍使用 16kHz 单声道 WAV。Azure 相关字段只用于 legacy 任务和历史报告，不作为当前公开产品默认口径。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -88,16 +86,18 @@ Azure Fast 默认使用 REST API `2025-10-15`；可通过 `FLUENTFLOW_AZURE_FAST
 | `faster_whisper_version` | faster-whisper 包版本。 |
 | `ctranslate2_version` | ctranslate2 包版本。 |
 | `ffmpeg_version` | FFmpeg 版本首行。 |
-| `stt_provider` | `local`、`azure_batch` 或兼容旧链路的 `azure_fast`。报告必须按 provider 分组比较。 |
+| `stt_provider` | `elevenlabs_scribe`、`local`、legacy `azure_batch` 或兼容旧链路的 `azure_fast`。报告必须按 provider 分组比较。 |
 | `stt_provider_label` | 面向阅读的转录服务名称。 |
-| `stt_language` | 用户选择的语言配置。Azure Batch 路径下 `auto` 会以 `zh-CN` 作为 fallback，并提供 `zh-CN` / `en-US` 作为候选；不应解读为固定中文。 |
-| `detected_language` | STT 服务返回的检测语言；Azure 路径优先取 phrase 中的 `locale`。 |
-| `azure_batch_audio_size_mb` | Azure Batch 上传 Blob 前，FFmpeg 预处理后的 MP3 大小。 |
-| `azure_batch_duration_seconds` | Azure Batch 上传前的音频时长估计。 |
-| `azure_batch_status` | Azure Batch 轮询返回的任务状态，例如 `NotStarted`、`Running`、`Succeeded`。 |
+| `stt_language` | 用户选择的语言配置；`auto` 表示交给 STT provider 自动识别。 |
+| `detected_language` | STT 服务返回的检测语言。 |
+| `elevenlabs_audio_size_mb` | ElevenLabs 上传前，FFmpeg 预处理后的 MP3 大小。 |
+| `elevenlabs_duration_seconds` | ElevenLabs 上传前的音频时长估计。 |
+| `azure_batch_audio_size_mb` | Legacy Azure Batch 上传 Blob 前，FFmpeg 预处理后的 MP3 大小。 |
+| `azure_batch_duration_seconds` | Legacy Azure Batch 上传前的音频时长估计。 |
+| `azure_batch_status` | Legacy Azure Batch 轮询返回的任务状态，例如 `NotStarted`、`Running`、`Succeeded`。 |
 | `azure_fast_inline_audio_size_mb` | Azure Fast 旧链路 inline 上传前，FFmpeg 预处理后的上传音频大小。 |
 | `azure_fast_inline_duration_seconds` | Azure Fast 旧链路 inline 上传前的音频时长。 |
-| `audio_output_format` | `audio_extracted` 事件中的 STT 音频格式。本地路径为 `wav`，Azure 路径为 `mp3`。 |
+| `audio_output_format` | `audio_extracted` 事件中的 STT 音频格式。本地路径为 `wav`，云端路径为 `mp3`。 |
 | `stt_realtime_factor` | `stt_elapsed_seconds / source_duration_seconds`。例如 `0.2` 表示转写耗时约为原音频时长的 20%。该值按本次 STT 阶段耗时计算，冷启动时会包含模型加载时间。 |
 | `model_cache_hit` | Whisper 模型是否已在后端进程内缓存。 |
 | `model_load_seconds` | 本次加载模型耗时；热启动通常为 `0`。 |
@@ -110,22 +110,18 @@ Azure Fast 默认使用 REST API `2025-10-15`；可通过 `FLUENTFLOW_AZURE_FAST
 | `vad_filter` | 是否启用 VAD。 |
 | `source_fingerprint` | 原始文件 SHA256、大小和文件名，用于识别同一文件的多次复跑；不包含音频内容或转写正文。 |
 
-报告中比较 STT 性能时，应优先使用 `stt_realtime_factor`，并按 `stt_provider`、`stt_model`、`stt_speed`、`runtime_os`、`runtime_machine`、`model_cache_hit` 分组或说明口径。本地路径若要比较纯转写推理速度，应排除 `model_cache_hit=false` 的冷启动样本，或用 `duration_seconds - model_load_seconds` 单独计算；Azure 路径则应说明包含上传、网络等待和云端处理时间。
+报告中比较 STT 性能时，应优先使用 `stt_realtime_factor`，并按 `stt_provider`、`stt_model`、`stt_speed`、`runtime_os`、`runtime_machine`、`model_cache_hit` 分组或说明口径。本地路径若要比较纯转写推理速度，应排除 `model_cache_hit=false` 的冷启动样本，或用 `duration_seconds - model_load_seconds` 单独计算；云端路径则应说明包含上传、网络等待和云端处理时间。
 
-`scripts/report_stt_performance.py` 会额外汇总 Azure 上传音频平均体积、平均时长和 `detected_language` 分布。报告中 `stt_language` 表示用户请求配置，`detected_language` 才表示 STT 服务返回的识别结果；例如 Azure 的 `auto` 请求可能最终检测为 `zh-CN` 或 `en-US`。
+`scripts/report_stt_performance.py` 会额外汇总云端上传音频平均体积、平均时长和 `detected_language` 分布。报告中 `stt_language` 表示用户请求配置，`detected_language` 才表示 STT 服务返回的识别结果。
 
-当同一个 `source_fingerprint` 同时出现本地和 Azure 的 `stt_completed` 事件时，报告会生成 `Same-Source Comparisons`，列出同一文件下不同 provider 的耗时、倍率和最快/最慢差异。这个指标适合比较同一材料的 provider 表现，但不能泛化成所有材料的平均速度差；简历或报告中应保留“同源文件复测”口径。
+当同一个 `source_fingerprint` 同时出现本地和云端的 `stt_completed` 事件时，报告会生成 `Same-Source Comparisons`，列出同一文件下不同 provider 的耗时、倍率和最快/最慢差异。这个指标适合比较同一材料的 provider 表现，但不能泛化成所有材料的平均速度差；简历或报告中应保留“同源文件复测”口径。
 
 ## 性能分析命令
 
 - `venv/bin/python scripts/report_stt_performance.py --format md`：从 SQLite 事件日志汇总 STT 样本，按转录服务、设备、模型、速度档和语言分组。
 - `venv/bin/python scripts/report_stt_performance.py --format json --output reports/stt_performance.json`：导出机器可读报告。
 - `venv/bin/python scripts/benchmark_stt.py /path/to/media.mp4 --model medium --speed balanced --language auto`：用和应用相同的 FFmpeg + faster-whisper 核心链路跑单文件基准，不写入事件表。
-- `venv/bin/python scripts/check_azure_batch_transcription.py /path/to/media.mp4 --dry-run`：检查 Azure Batch + Blob/SAS 配置和音频预处理，不调用 Azure、不写事件表。
-- `venv/bin/python scripts/check_azure_batch_transcription.py /path/to/media.mp4 --language auto`：在 Speech 地址、Key、Blob 容器 SAS 都已配置时跑真实 Batch smoke test；会上传 Blob、提交 Azure Batch、轮询并下载结果。
-- `venv/bin/python scripts/check_azure_fast_transcription.py /path/to/media.mp4 --dry-run`：用同一套 FFmpeg + Azure inline 预检口径检查单文件云转录准备情况，不调用 Azure、不写事件表。
-- `venv/bin/python scripts/check_azure_fast_transcription.py /path/to/media.mp4 --language auto`：在 Azure 地址和 Key 已配置时跑真实单文件云转录 smoke test，只输出长度、耗时、语言、分段数等指标；默认不输出完整正文，不写事件表。
-- `venv/bin/python scripts/check_azure_fast_transcription.py /path/to/media.mp4 --address eastasia --dry-run`：临时指定 Azure 地址或地区名；脚本会自动补全为后端调用链接。
+- `venv/bin/python scripts/check_deployment_readiness.py`：检查公开部署所需的 ElevenLabs、LLM、上传限制、队列和飞书配置。
 
 若要比较「应用 vs 命令工具」，应使用同一文件、同一模型、同一速度档、同一语言设置。若要比较不同设备，应保留 `runtime_*`、`device_*`、`compute_type` 和 `model_cache_hit` 口径。
 

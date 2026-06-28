@@ -55,7 +55,7 @@
 - 计算：`stt_completed / 音视频转录尝试数`
 - 分母建议：音视频任务中进入 STT 阶段的任务数。
 - 最小样本量：20 个音视频 STT 样本。
-- 说明：必须按 `stt_provider` 分组，本地 faster-whisper 和 Azure Batch 不能混成一个口径。
+- 说明：必须按 `stt_provider` 分组，ElevenLabs Scribe、本地 faster-whisper 和 legacy Azure 不能混成一个口径。
 - 可写表达：在 X 个音视频样本中，本地/云端 STT 成功率为 X%。
 
 ### STT 实时倍率
@@ -64,8 +64,8 @@
 - 事件：`stt_completed`
 - 计算：`stt_completed.metadata.stt_realtime_factor`，或 `duration_seconds / source_duration_seconds`
 - 最小样本量：同 provider、同模型至少 10 个样本。
-- 说明：本地路径强依赖设备，Azure 路径包含上传、网络、排队和云端处理。
-- 可写表达：在当前设备/当前 Azure Batch 配置下，STT 平均耗时约为原音频时长的 X%。
+- 说明：本地路径强依赖设备，云端路径包含上传、网络和服务端处理。
+- 可写表达：在当前设备/当前 ElevenLabs 配置下，STT 平均耗时约为原音频时长的 X%。
 
 ### 摘要生成成功率
 
@@ -185,11 +185,11 @@
 
 - 累计处理 X 个真实音视频/字幕任务，覆盖约 X 小时课程、讲座和录音材料。
 - 基于 SQLite 事件日志记录导入、转写、摘要、导出、失败和取消等阶段，支持按任务回溯端到端耗时与失败原因。
-- 将本地 faster-whisper 与 Azure Batch 云转录纳入同一处理链路，并按 provider、设备和模型记录 STT 性能口径。
+- 将 ElevenLabs Scribe 云转录与本地 faster-whisper 纳入同一处理链路，并按 provider、设备和模型记录 STT 性能口径。
 
 ### 必须带口径写
 
-- 在当前设备 / Azure Batch 配置下，STT 平均耗时约为原音频时长的 X%。
+- 在当前设备 / ElevenLabs 配置下，STT 平均耗时约为原音频时长的 X%。
 - 在 X 次飞书导出尝试中，成功 X 次；其中自动导出 X 次、手动导出 X 次。
 - 在 X 次摘要尝试中，AI 摘要生成成功率为 X%，不含仅转录模式。
 

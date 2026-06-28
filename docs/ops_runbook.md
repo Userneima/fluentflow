@@ -29,7 +29,7 @@ python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 http://127.0.0.1:8000
 ```
 
-本地模式可以使用本地 faster-whisper，也可以配置 Azure Batch。不要把本地性能数据直接写成云端产品普遍表现。
+本地模式可以使用本地 faster-whisper；公开产品默认使用 ElevenLabs Scribe 云端转录。不要把本地性能数据直接写成云端产品普遍表现。
 
 ### 云服务器公开试用
 
@@ -80,15 +80,13 @@ FLUENTFLOW_AUTH_MODE=accounts
 FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
 ```
 
-### Azure Batch
+### ElevenLabs Scribe
 
 ```bash
-AZURE_SPEECH_ENDPOINT=...
-AZURE_SPEECH_KEY=...
-AZURE_BLOB_CONTAINER_SAS_URL=...
+ELEVENLABS_API_KEY=...
 ```
 
-前端可以显示“地址”，但后端应该负责把地区或地址转成真实调用 URL。不要把 Key、SAS 或 App Secret 暴露给普通用户。
+`ELEVENLABS_API_KEY` 只应配置在后端环境或后端本地配置中，不要暴露给普通用户或写入前端代码。
 
 ### AI 摘要
 
@@ -143,7 +141,7 @@ npm run build:frontend
 python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-如果有长任务正在进行，不要随便重启后端。重启会中断当前进程内运行的任务；Azure Batch 外部任务可能仍在云端跑，但本地状态恢复取决于任务持久化和轮询恢复逻辑。
+如果有长任务正在进行，不要随便重启后端。重启会中断当前进程内运行的任务；任务状态恢复取决于任务持久化和队列恢复逻辑。
 
 ### 云服务器重启服务
 
@@ -187,7 +185,7 @@ set +a
 
 - `FAIL` 必须处理。
 - 飞书如果不是本次开放能力，可以接受 `WARN`。
-- Azure、LLM、Nginx 大文件上传和 SSE 配置不能靠用户试出来，应该上线前先查。
+- ElevenLabs、LLM、Nginx 大文件上传和 SSE 配置不能靠用户试出来，应该上线前先查。
 
 ## 6. Smoke Test
 
@@ -195,7 +193,7 @@ set +a
 
 1. 注册或登录测试账号。
 2. 上传 1-3 分钟小视频，确认能生成转录和摘要。
-3. 上传接近真实体量的视频，确认 Azure Batch 能完成。
+3. 上传接近真实体量的视频，确认 ElevenLabs 云端转录能完成。
 4. 导入一份 SRT/TXT，确认跳过 STT 后可以生成摘要。
 5. 在编辑器修改一段转录，刷新页面后确认修改没有丢。
 6. 下载 TXT/SRT/Markdown。
@@ -245,22 +243,22 @@ sudo journalctl -u fluentflow -n 200 --no-pager
 
 然后确认 `/jobs/{task_id}` 是否能返回最新状态。若后端已完成但前端旧状态不刷新，重点排查任务轮询和 SSE 重连逻辑。
 
-### Azure Batch 长时间等待
+### ElevenLabs 云端转录失败或长时间等待
 
-先判断是正常排队还是配置问题：
+先判断是配置、额度、网络还是文件体量问题：
 
 ```bash
-./venv/bin/python scripts/check_azure_batch_transcription.py /path/to/sample.mp4 --dry-run
+./venv/bin/python scripts/check_deployment_readiness.py
 ```
 
 检查：
 
-- Speech 地址和 Key 是否正确。
-- Blob container SAS 是否过期。
-- 上传后的 MP3 是否过大。
-- Azure 返回状态是否为 `NotStarted`、`Running`、`Succeeded` 或失败状态。
+- `ELEVENLABS_API_KEY` 是否已配置。
+- ElevenLabs 账户额度或套餐是否足够。
+- 上传后的 MP3 是否过大或音频时长是否超出当前限制。
+- 后端日志里 ElevenLabs 返回的是认证、额度、格式还是网络错误。
 
-不要用假的百分比掩盖 Azure 排队；界面应该展示真实等待状态。
+不要用假的百分比掩盖云端等待；界面应该展示真实等待状态和可理解的失败原因。
 
 ### 上传失败或 Nginx 直接断开
 

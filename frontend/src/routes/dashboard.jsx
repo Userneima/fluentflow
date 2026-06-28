@@ -12,7 +12,7 @@ import {
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
-    azureSpeechMissingMessage,
+    cloudSttMissingMessage,
     clearGuestTrialSession,
     compactDisplayFilename,
     createTaskId,
@@ -342,7 +342,7 @@ const Dashboard = () => {
             const configured = isCloudSttConfigured(sttProvider, status);
             if (configured) return true;
         } catch (_) {}
-        setUploadError(azureSpeechMissingMessage(lang));
+        setUploadError(cloudSttMissingMessage(lang));
         return false;
     };
 

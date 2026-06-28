@@ -105,7 +105,7 @@ export const clearGuestTrialSession = () => {
 };
 
 export { fileNameStem, stripGeneratedFilenamePrefix, displayTitleForUser, compactDisplayFilename } from '../lib/format.js';
-export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
+export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
 export const LEGACY_REMOVED_SETTING_KEYS = ['hotwordLibrary', 'hotwordLibraries', 'reviewMode', 'reviewUseAi'];
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
@@ -149,6 +149,7 @@ export const sensitivePatchFromSettings = (settings={}) => ({
     openai_api_key: settings.openaiApiKey || '',
     lark_app_id: settings.larkAppId || '',
     lark_app_secret: settings.larkAppSecret || '',
+    elevenlabs_api_key: settings.elevenLabsApiKey || '',
     azure_speech_key: settings.azureSpeechKey || '',
     azure_speech_endpoint: settings.azureSpeechEndpoint || '',
     azure_blob_container_sas_url: settings.azureBlobContainerSasUrl || '',
@@ -405,7 +406,7 @@ export const jobToCurrentJob = (job) => ({
     durationSeconds: job.metadata?.duration_seconds,
     sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
     sttStatus: job.metadata?.stt_status,
-    azureBatchAudioSizeMb: job.metadata?.azure_batch_audio_size_mb,
+    azureBatchAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb ?? job.metadata?.azure_batch_audio_size_mb,
 });
 export const historyEntryToResult = (h) => h ? ({
     task_id: h.taskId,
@@ -488,11 +489,16 @@ export const noteModeLabel = (mode, lang) => {
 };
 
 export const DEFAULT_STT_MODEL = 'medium';
-export const DEFAULT_STT_PROVIDER = 'azure_batch';
-export const normalizeSttProvider = (provider) => (
-    provider === 'local' || provider === 'azure_batch' || provider === 'azure_fast'
-        ? (provider === 'azure_fast' ? 'azure_batch' : provider)
-        : DEFAULT_STT_PROVIDER
+export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe';
+export const normalizeSttProvider = (provider) => {
+    const value = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
+    if (value === 'local') return 'local';
+    if (value === 'cloud' || value === 'cloud_stt' || value === 'elevenlabs' || value === 'elevenlabs_scribe' || value === 'scribe' || value === 'scribe_v2') return 'elevenlabs_scribe';
+    if (value === 'azure_batch' || value === 'azure_fast') return 'azure_batch';
+    return DEFAULT_STT_PROVIDER;
+};
+export const isElevenLabsCloudProvider = (provider) => (
+    normalizeSttProvider(provider) === 'elevenlabs_scribe'
 );
 export const isAzureCloudProvider = (provider) => (
     normalizeSttProvider(provider) === 'azure_batch'
@@ -519,7 +525,7 @@ export const isAzureBatchConfigured = (status) => (
 );
 export const DEFAULT_RUNTIME_CONFIG = {
     publicMode: false,
-    allowedSttProviders: ['azure_batch', 'local'],
+    allowedSttProviders: ['elevenlabs_scribe', 'local'],
     defaultSttProvider: DEFAULT_STT_PROVIDER,
     showMaintainerSettings: true,
     guestTrial: {enabled: false},
@@ -528,7 +534,7 @@ export const normalizeRuntimeConfig = (config={}) => {
     const allowed = Array.isArray(config.allowed_stt_providers)
         ? config.allowed_stt_providers.map(normalizeSttProvider)
         : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
-    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'azure_batch' || item === 'local'))];
+    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'elevenlabs_scribe' || item === 'azure_batch' || item === 'local'))];
     const fallbackAllowed = uniqueAllowed.length ? uniqueAllowed : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
     const defaultProvider = normalizeSttProvider(config.default_stt_provider || DEFAULT_STT_PROVIDER);
     return {
@@ -544,11 +550,12 @@ export const effectiveSttProvider = (settings={}, runtimeConfig=DEFAULT_RUNTIME_
     const wanted = normalizeSttProvider(settings.sttProvider);
     return runtimeConfig.allowedSttProviders.includes(wanted) ? wanted : runtimeConfig.defaultSttProvider;
 };
-export const azureSpeechMissingMessage = (lang) => (
+export const cloudSttMissingMessage = (lang) => (
     lang === 'zh'
         ? '云端转录暂不可用，请联系产品维护者检查后台配置。'
         : 'Cloud transcription is unavailable. Ask the product maintainer to check backend configuration.'
 );
+export const azureSpeechMissingMessage = cloudSttMissingMessage;
 export const normalizeSttModel = (model) => (
     model === 'large-v3' || model === 'medium' ? model : DEFAULT_STT_MODEL
 );
