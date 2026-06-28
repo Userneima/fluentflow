@@ -93,3 +93,21 @@ du -sh /var/lib/fluentflow/*
 ```
 
 任务完成后会删除原始视频，只保留字幕、笔记和一份用于校对的压缩 MP3。默认每个用户只保留最近 20 条历史，产物最多保留 30 天。
+
+## 视频截图 / 关键帧
+
+FluentFlow 的截图能力分成本地和云端 provider：
+
+- `FLUENTFLOW_KEYFRAME_PROVIDER=local_ffmpeg`：在当前后端机器上用 FFmpeg 抽帧，适合单台阿里云 ECS 或 Docker 部署。
+- `FLUENTFLOW_KEYFRAME_PROVIDER=cloud_ffmpeg_worker`：预留给独立 Worker；Worker 需要能读取源视频，生成图片，并把图片写回 OSS 或产物目录。未配置 `FLUENTFLOW_KEYFRAME_WORKER_URL` 时会跳过，不影响转录和笔记。
+- `FLUENTFLOW_KEYFRAME_EXTRACTION=0`：完全关闭截图抽帧。
+
+如果使用本机/服务器 FFmpeg，先确认：
+
+```bash
+ffmpeg -version
+ffprobe -version
+du -sh /var/lib/fluentflow/artifacts
+```
+
+关键帧图片属于任务产物，受 `FLUENTFLOW_ARTIFACT_RETENTION_DAYS` 清理策略影响。公开视频部署时不应把本地文件路径写入笔记或 Agent 任务包，图片应通过 `/jobs/{task_id}/artifacts/frame?file=...` 或后续 OSS URL 访问。

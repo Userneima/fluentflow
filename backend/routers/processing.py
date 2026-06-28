@@ -457,9 +457,9 @@ async def process_video(
                 try:
                     frames_output_dir = H._artifact_storage_dir() / task_id_value / "frames"
                     frames_output_dir.mkdir(parents=True, exist_ok=True)
-                    frame_result = await loop.run_in_executor(
+                    keyframe_result = await loop.run_in_executor(
                         None,
-                        lambda: H.extract_candidate_frames(
+                        lambda: H.extract_keyframes(
                             str(in_path),
                             frames_output_dir,
                             segments=None,
@@ -467,8 +467,15 @@ async def process_video(
                             max_scene_frames=30,
                         ),
                     )
-                    frame_paths = [str(f["path"]) for f in frame_result]
-                    frame_metadata = frame_result
+                    frame_paths = [str(f["path"]) for f in keyframe_result.frames]
+                    frame_metadata = keyframe_result.frames
+                    if keyframe_result.skipped_reason:
+                        H.logger.info(
+                            "Frame extraction skipped for %s via %s: %s",
+                            task_id_value,
+                            keyframe_result.provider,
+                            keyframe_result.skipped_reason,
+                        )
                 except Exception as exc:
                     H.logger.warning("Frame extraction failed for %s: %s", task_id_value, exc)
 
@@ -1290,6 +1297,10 @@ async def process_video(
                     frame_name = Path(fm["path"]).name
                     try:
                         art = H._write_file_artifact(task_id_value, "frame", f"frames/{frame_name}", fm["path"])
+                        for key in ("timestamp_seconds", "source", "provider"):
+                            if fm.get(key) is not None:
+                                art[key] = fm.get(key)
+                        art["content_type"] = "image/jpeg"
                         frame_artifacts.append(art)
                     except Exception as exc:
                         H.logger.warning("Frame artifact write failed for %s: %s", task_id_value, exc)
@@ -1297,6 +1308,13 @@ async def process_video(
                     result["frame_artifacts"] = frame_artifacts
                     result["multimodal_summary"] = True
                     result["frame_count"] = len(frame_artifacts)
+                    summary_md = H.rewrite_note_image_references(summary_md, frame_artifacts)
+                    result["summary_markdown"] = summary_md
+                    result.update(H.build_visual_evidence_from_note_images(
+                        summary_md,
+                        frame_artifacts,
+                        provider=frame_artifacts[0].get("provider"),
+                    ))
 
             # ── Stage 4: Lark export (optional) ───────────────
             if do_lark:

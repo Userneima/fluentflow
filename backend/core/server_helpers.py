@@ -444,6 +444,8 @@ async def beta_access_middleware(request: Request, call_next):
 try:
     from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
     from backend.core.frame_extractor import extract_candidate_frames
+    from backend.core.keyframe_provider import extract_keyframes
+    from backend.core.visual_evidence import build_visual_evidence_from_note_images, rewrite_note_image_references
     from backend.core.local_stt import transcribe_audio, get_or_load_model
     from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
     from backend.core.elevenlabs_stt import transcribe_audio_scribe

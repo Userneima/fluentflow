@@ -96,6 +96,22 @@ FLUENTFLOW_QUEUE_PROCESS_TIMEOUT_SECONDS=86400
 FLUENTFLOW_STALE_JOB_SECONDS=90000
 ```
 
+如果启用视频截图/关键帧能力，单台 ECS 或 Docker 部署先使用本机 FFmpeg：
+
+```bash
+FLUENTFLOW_KEYFRAME_EXTRACTION=1
+FLUENTFLOW_KEYFRAME_PROVIDER=local_ffmpeg
+```
+
+后续如果把截图任务拆到独立 Worker，再切换为：
+
+```bash
+FLUENTFLOW_KEYFRAME_PROVIDER=cloud_ffmpeg_worker
+FLUENTFLOW_KEYFRAME_WORKER_URL=https://your-worker/keyframes
+```
+
+没有配置 Worker URL 时系统会跳过关键帧抽取，不会阻塞转录和笔记生成。关键帧图片属于任务产物，跟随 `FLUENTFLOW_ARTIFACT_RETENTION_DAYS` 清理；如果未来写入 OSS，笔记和 Agent 任务包里只能暴露 OSS/下载 URL，不能暴露服务器本地路径。
+
 如果暂时不想启用账号系统，也可以不配置 `FLUENTFLOW_AUTH_MODE`，让用户直接打开产品；此时后端仍会按设备、IP 和全站总量拦截异常提交，但任务历史无法跨设备找回。封闭 Beta 才需要额外设置 `FLUENTFLOW_ACCESS_TOKEN`。
 
 任务完成后，服务器会删除原始视频/上传源文件，只保留字幕、笔记和用于字幕校对的压缩 MP3。每个用户默认只保留最近 20 条历史，且历史产物最多保留 30 天；超过限制的旧任务会连同音频和产物一起清理。

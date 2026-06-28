@@ -78,24 +78,26 @@ Provider types:
 
 ### P3: Cloud Extraction Path
 
-- [ ] Add a provider boundary such as `backend/core/keyframe_provider.py`.
-- [ ] Implement `local_ffmpeg` first; make `cloud_ffmpeg_worker` a separate adapter.
-- [ ] For Aliyun deployment, run FFmpeg inside ECS/Docker worker and store outputs in OSS or the configured artifact directory.
-- [ ] Add environment flags for enabling/disabling screenshot extraction and selecting provider.
-- [ ] Update deployment docs with FFmpeg, temp storage, retention, and OSS notes.
+- [x] Add a provider boundary such as `backend/core/keyframe_provider.py`.
+- [x] Implement `local_ffmpeg` first; make `cloud_ffmpeg_worker` a separate adapter.
+- [x] For Aliyun deployment, run FFmpeg inside ECS/Docker worker and store outputs in OSS or the configured artifact directory.
+- [x] Add environment flags for enabling/disabling screenshot extraction and selecting provider.
+- [x] Update deployment docs with FFmpeg, temp storage, retention, and OSS notes.
 
 ### P4: Agent Selection And Note Insertion
 
-- [ ] Let the Agent propose screenshot evidence points after transcript/note planning.
-- [ ] Insert screenshots only beside sections where the reason is concrete.
-- [ ] Keep model rationale as user-facing evidence summaries, not inner monologue.
-- [ ] Add fallback messages when no reliable visual evidence exists.
+- [x] Let the Agent propose screenshot evidence points after transcript/note planning.
+- [x] Insert screenshots only beside sections where the reason is concrete.
+- [x] Keep model rationale as user-facing evidence summaries, not inner monologue.
+- [x] Add fallback messages when no reliable visual evidence exists.
 
 ### P5: Editor And Export UX
 
 - [ ] Show screenshots inline in the note only when attached to a real section.
 - [ ] Keep screenshot controls secondary; do not add another large panel.
-- [ ] Support Markdown export first, then Feishu image upload, then PDF/Word.
+- [x] Support Markdown export first by rewriting selected image references to artifact URLs.
+- [ ] Add Feishu image upload for selected visual evidence.
+- [ ] Add PDF/Word image export for selected visual evidence.
 - [ ] Add editor affordance to hide/show visual evidence if screenshots become distracting.
 
 ## Risk Rules
