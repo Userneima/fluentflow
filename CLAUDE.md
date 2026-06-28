@@ -24,6 +24,13 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Preserve existing worktree changes; do not reset or checkout files unless explicitly requested.
 - Do not push or deploy unless explicitly requested.
 
+## Git Safety
+
+- Never use `git stash` to temporarily set aside changes.
+- To verify whether a test passes on the original code, use `git show HEAD:path/to/file.py > /tmp/orig.py` and inspect, or run the test in a separate `git worktree`.
+- If `git stash` has already been used, verify every modified file is intact after `stash pop` by running `git diff --name-only HEAD` and comparing with the expected change list.
+- Never `git checkout` individual files from HEAD or another ref without confirming the user wants to discard local changes to those files.
+
 ## Privacy
 
 Do not commit secrets, local runtime state, generated media/transcripts/notes, personal workflow notes, local machine paths, or production-only deployment details. Keep private material in ignored local paths.
