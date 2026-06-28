@@ -11,6 +11,7 @@ import {
     Moon,
     PanelLeftClose,
     PanelLeftOpen,
+    SlidersHorizontal,
     Settings,
     ShieldCheck,
     Sun,
@@ -79,6 +80,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const fullItems = [
         {path:'/', icon:LayoutGrid, k:'nav.dashboard'},
         {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
+        {path:'/processing', icon:SlidersHorizontal, k:'nav.processing'},
         {path:'/tasks', icon:Activity, k:'nav.tasks'},
         {path:'/editor', icon:FilePenLine, k:'nav.editor'},
         ...(user?.role === 'admin' ? [{path:'/admin', icon:ShieldCheck, k:'nav.admin'}] : []),

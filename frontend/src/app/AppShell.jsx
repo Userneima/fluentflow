@@ -5,6 +5,7 @@ import Dashboard from '../routes/dashboard.jsx';
 import MediaText from '../routes/media-text.jsx';
 import Tasks from '../routes/tasks.jsx';
 import AgentTrace from '../routes/agent-trace.jsx';
+import Processing from '../routes/processing.jsx';
 import Editor from '../routes/editor.jsx';
 import Admin from '../routes/admin.jsx';
 import Settings from '../routes/settings.jsx';
@@ -29,6 +30,7 @@ const AppShell = () => {
                 <Routes>
                     <Route path="/" element={<Dashboard/>}/>
                     <Route path="/media-text" element={<MediaText/>}/>
+                    <Route path="/processing" element={guestMode ? <Dashboard/> : <Processing/>}/>
                     <Route path="/tasks" element={guestMode ? <Dashboard/> : <Tasks/>}/>
                     <Route path="/tasks/:taskId/agent" element={<AgentTrace/>}/>
                     <Route path="/editor" element={<Editor/>}/>

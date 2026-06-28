@@ -89,19 +89,19 @@ const noteModeReasonText = (result, lang) => {
     if (resolved === 'chapter_coverage') {
         return wasAuto
             ? (lang === 'zh' ? '材料较长或信息密度高，系统改用章节覆盖流程，先抽证据再按章节生成。' : 'The material is long or dense, so FluentFlow used chapter coverage: evidence first, then chapter writing.')
-            : (lang === 'zh' ? '来自本次处理设置：先抽取证据、规划章节，再检查重要遗漏。' : 'Chosen in this run: extract evidence, plan chapters, then check important omissions.');
+            : (lang === 'zh' ? '来自本次 Agent 工作流：先抽取证据、规划章节，再检查重要遗漏。' : 'Chosen in this Agent workflow: extract evidence, plan chapters, then check important omissions.');
     }
     if (resolved === 'high_fidelity') {
         return wasAuto
             ? (lang === 'zh' ? '材料偏长，系统改用分块整理，重点是减少遗漏。' : 'The material is long, so the system used chunked coverage to reduce omissions.')
-            : (lang === 'zh' ? '来自本次处理设置，优先完整覆盖，速度会慢一些。' : 'Chosen in this run. It prioritizes coverage and may take longer.');
+            : (lang === 'zh' ? '来自本次 Agent 工作流，优先完整覆盖，速度会慢一些。' : 'Chosen in this Agent workflow. It prioritizes coverage and may take longer.');
     }
     if (resolved === 'direct') {
         return wasAuto
             ? (lang === 'zh' ? '材料长度适中，系统直接生成，速度更快。' : 'The material is short enough for direct generation, which is faster.')
-            : (lang === 'zh' ? '来自本次处理设置，适合较短或结构清楚的材料。' : 'Chosen in this run. It fits shorter or clearly structured material.');
+            : (lang === 'zh' ? '来自本次 Agent 工作流，适合较短或结构清楚的材料。' : 'Chosen in this Agent workflow. It fits shorter or clearly structured material.');
     }
-    return lang === 'zh' ? '按本次处理设置生成。' : 'Generated from this run’s settings.';
+    return lang === 'zh' ? '按本次 Agent 工作流生成。' : 'Generated from this Agent workflow.';
 };
 
 const promptPresetReasonText = (result, lang) => {
@@ -112,7 +112,7 @@ const promptPresetReasonText = (result, lang) => {
         return lang === 'zh' ? '使用默认课程笔记结构，保证输出格式稳定。' : 'Uses the default course-note structure for stable output.';
     }
     return lang === 'zh'
-        ? '来自处理设置，用来决定笔记结构、重点和限制。'
+        ? '来自 Agent 工作流，用来决定笔记结构、重点和限制。'
         : 'Comes from Processing settings and controls note structure, focus, and constraints.';
 };
 
@@ -1013,8 +1013,6 @@ const Editor = () => {
             );
         }
     };
-
-    if(!result && guestMode) return <GuestEditorPreview lang={lang} />;
 
     if(!result) return (
         <div className="ml-[var(--sidebar-offset)] min-h-dvh bg-[#f8f7fb] pb-8 text-[#111111] dark:bg-[#101010] dark:text-white/[0.92]">
