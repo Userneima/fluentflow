@@ -11,6 +11,8 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.result_schema import RESULT_SCHEMA_VERSION
+from backend.core.versioning import version_payload
 
 router = APIRouter()
 
@@ -23,6 +25,17 @@ def health(request: Request) -> dict[str, Any]:
         "event_schema_version": H.EVENT_SCHEMA_VERSION,
         "runtime": H._runtime_context_metadata(),
         "limits": H._runtime_limits_for_request(request),
+    }
+
+
+@router.get("/version")
+def version() -> dict[str, Any]:
+    return {
+        **version_payload(component="backend"),
+        "schemas": {
+            "event": H.EVENT_SCHEMA_VERSION,
+            "result": RESULT_SCHEMA_VERSION,
+        },
     }
 
 

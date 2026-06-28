@@ -8,8 +8,10 @@ import hmac
 import os
 import uuid
 
+from backend.core.versioning import get_app_version
+
 EVENT_SCHEMA_VERSION = "1.3"
-APP_VERSION = "local"
+APP_VERSION = get_app_version()
 INTERNAL_QUEUE_TOKEN = os.environ.get("FLUENTFLOW_INTERNAL_QUEUE_TOKEN") or uuid.uuid4().hex
 GUEST_TRIAL_TOKEN_HEADER = "x-fluentflow-guest-token"
 

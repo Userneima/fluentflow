@@ -1,6 +1,10 @@
 {
+  "version": "0.1.0",
   "scripts": {
     "dev:frontend": "node scripts/write_frontend_config.js && vite --config vite.config.mjs --host 127.0.0.1",
+    "lint:frontend": "node scripts/lint_frontend.mjs",
+    "release:check": "python3 scripts/check_release_gate.py",
+    "release:prepare": "python3 scripts/prepare_release.py",
     "build:frontend": "node scripts/write_frontend_config.js && vite build --config vite.config.mjs",
     "preview:frontend": "vite preview --config vite.config.mjs --host 127.0.0.1"
   },

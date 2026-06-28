@@ -42,6 +42,8 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 npm ci
 npm run build:frontend
+python3 scripts/check_release_gate.py
+python3 scripts/write_release_manifest.py --environment setup
 ```
 
 ## 3. 环境变量
@@ -163,6 +165,7 @@ sudo systemctl reload nginx
 ## 8. 日常部署与回滚
 
 首次部署完成后，后续更新优先使用脚本，而不是手动复制命令。脚本会先备份数据，再拉取 `main`、安装依赖、构建前端、跑就绪检查、重启服务和检查 `/health`；如果健康检查失败，会回滚到部署前的 Git 版本。
+脚本还会在健康检查通过后写入 `/var/lib/fluentflow/releases/` 下的 release manifest，用来追踪当前线上版本、Git commit、前端资源、数据备份包和 schema 版本。
 
 ```bash
 cd /opt/fluentflow
@@ -173,6 +176,13 @@ bash deploy/deploy_server.sh
 
 ```bash
 FLUENTFLOW_PROJECT_DIR=/path/to/fluentflow bash deploy/deploy_server.sh
+```
+
+查看最近上线记录：
+
+```bash
+ls -lt /var/lib/fluentflow/releases | head
+cat /var/lib/fluentflow/releases/fluentflow-*.json | tail -n 80
 ```
 
 ## 9. 监控与告警

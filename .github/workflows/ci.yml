@@ -16,6 +16,7 @@ jobs:
           node-version: 22
           cache: 'npm'
       - run: npm ci
+      - run: python3 scripts/check_release_gate.py
       - run: npm run lint:frontend
       - run: npm run build:frontend
 
