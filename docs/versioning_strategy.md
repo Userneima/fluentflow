@@ -67,6 +67,18 @@ When unrelated worktree changes exist, inspect the diff and stage intentionally.
 Do not use `git add .` unless the worktree has already been audited and every
 changed file belongs to the same commit purpose.
 
+Default behavior:
+
+- A normal checkpoint commit does not require a separate user prompt when the
+  work unit is complete, validated, clearly scoped, and independently
+  reversible.
+- Do not commit when the user asks not to, when the change is still exploratory,
+  when validation has not run, or when unrelated dirty changes make the commit
+  boundary unclear. Leave the changes uncommitted and explain the reason.
+- `wip:` progress commits still require an explicit user request because they
+  are temporary development checkpoints, not finished history.
+- `git push` and deployment still require explicit user intent.
+
 ## Documentation Checkpoint Before Commit
 
 Before creating a finished checkpoint commit, check whether the change needs
