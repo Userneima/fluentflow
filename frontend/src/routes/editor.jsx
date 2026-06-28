@@ -1199,9 +1199,7 @@ const Editor = () => {
                                                 <h2 className="truncate font-headline text-base font-extrabold text-[#111111] dark:text-white">
                                                     {lang === 'zh' ? '转录原文' : 'Transcript'}
                                                 </h2>
-                                            </div>
-                                            {(transcriptDirty || transcriptSaveStatus !== 'idle') && (
-                                                <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[11px] font-semibold leading-tight text-[#666] dark:text-white/60">
+                                                {(transcriptDirty || transcriptSaveStatus !== 'idle') && (
                                                     <span className={`inline-flex h-6 items-center gap-1 rounded-[9px] px-2 ${
                                                         transcriptSaveStatus === 'failed'
                                                             ? 'bg-error-container text-error'
@@ -1223,8 +1221,8 @@ const Editor = () => {
                                                                 ? t('edit.transcriptSaveFailed')
                                                                 : (lang === 'zh' ? '转录已保存' : 'Transcript saved')}
                                                     </span>
-                                                </div>
-                                            )}
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                             {segments.length > 0 && (
@@ -1294,7 +1292,7 @@ const Editor = () => {
                                             )}
                                             <DropdownMenu
                                                 trigger={
-                                                    <button className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3 text-xs font-bold text-white transition hover:bg-[#2a2a2a] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
+                                                    <button className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3 text-xs font-bold text-white transition hover:bg-[#2a2a2a] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
                                                         <SvgIcon name="download" className="text-[17px]"/>
                                                         {lang === 'zh' ? '导出转录' : t('dl.transcript')}
                                                     </button>
@@ -1513,7 +1511,7 @@ const Editor = () => {
                                     </h2>
                                     <DropdownMenu
                                         trigger={
-                                            <button disabled={!summary || !!downloading} className="flex items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-white px-2.5 py-1.5 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
+                                            <button disabled={!summary || !!downloading} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
                                                 <SvgIcon name={downloading ? 'sync' : 'download'} className={`text-sm ${downloading?'animate-spin':''}`}/>
                                                 {downloading ? t('dl.generating') : t('dl.summary')}
                                         </button>

@@ -274,8 +274,11 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "纯文本模式" not in source
     assert "Plain text" not in source
     assert "转录已保存" in source
+    assert "mt-1 flex flex-wrap items-center gap-1.5 pl-6" not in source
     assert "editRecords.length > 0" in source
     assert "导出转录" in source
+    assert "inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3" in source
+    assert "inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3" in source
 
 
 def test_editor_video_review_keeps_current_subtitle_as_core_object() -> None:
