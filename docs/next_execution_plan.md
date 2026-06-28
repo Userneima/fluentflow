@@ -1,6 +1,6 @@
 # FluentFlow Next Execution Plan
 
-Last updated: 2026-06-28
+Last updated: 2026-06-29
 
 This document is the short execution anchor for the next stage of FluentFlow. If a future task conflicts with this document, prioritize the path below unless the product direction has explicitly changed.
 
@@ -34,9 +34,9 @@ The product should not drift into a generic STT tool, a full knowledge base, a s
 
 ### P0: Stabilize The Current Mainline
 
-- [ ] Commit the current sidebar and terminology cleanup so `Agent 工作流` fully replaces the old `处理设置` meaning in the UI.
-- [ ] Run the normal frontend validation after that cleanup: `npm run build:frontend` and `git diff --check`.
-- [ ] Check that no secret, runtime artifact, local media file, database, or private doc is staged.
+- [x] Commit the current sidebar and terminology cleanup so `Agent 工作流` fully replaces the old `处理设置` meaning in the UI.
+- [x] Run the normal frontend validation after that cleanup: `npm run build:frontend` and `git diff --check`.
+- [x] Check that no secret, runtime artifact, local media file, database, or private doc is staged.
 
 ### P1: Make ElevenLabs The Real Cloud STT Default
 
@@ -48,7 +48,7 @@ The product should not drift into a generic STT tool, a full knowledge base, a s
 ### P2: Turn Agent Workflow Into The Product Surface
 
 - [x] Convert `/processing` from a parameter panel into an Agent workflow view: current/recent task, execution route, selected route, judgment basis, evidence, next action, and collapsed advanced details.
-- [ ] Move human-maintained long-term preferences to `Settings`; remove or hide choices that the Agent now decides automatically.
+- [x] Move human-maintained long-term preferences to `Settings`; remove or hide choices that the Agent now decides automatically. Settings now describes this boundary as long-term preferences vs per-task Agent judgment.
 - [ ] Show the same Agent plan and tool trace in task detail/editor so completed jobs explain what happened after the fact. First slices are done: editor AI summary footer links to Agent workflow, and `/processing` now prefers persisted `processing_plan` fields when explaining completed results.
 - [ ] Make failure states actionable: show diagnosis, next step, and one-click recovery where the system already knows the correct action.
 
