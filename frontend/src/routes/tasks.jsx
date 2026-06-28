@@ -2,6 +2,18 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useLocation, useNavigate, Link} from 'react-router-dom';
 import {
+    Activity,
+    Download,
+    ExternalLink,
+    FileVideo,
+    ListTodo,
+    LoaderCircle,
+    RefreshCw,
+    Subtitles,
+    Trash2,
+    XCircle,
+} from 'lucide-react';
+import {
     fmtBytes,
     fmtElapsed,
     fmtFileSize,
@@ -21,7 +33,6 @@ import {
     useI18n,
     writeCachedAccountJobs,
 } from '../app/shared.jsx';
-import SvgIcon from '../components/SvgIcon.jsx';
 import {
     isCachedOnlyTask,
     isLiveTask,
@@ -379,7 +390,7 @@ const Tasks = () => {
                             ))}
                         </div>
                         <button type="button" onClick={loadJobs} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[14px] px-3 text-xs font-bold text-[#666] hover:bg-[#efeeee] hover:text-[#111111] dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white">
-                            <span className={`material-symbols-outlined text-base ${loading ? 'animate-spin' : ''}`}>refresh</span>
+                            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2.15}/>
                             {t('tasks.refresh')}
                         </button>
                     </div>
@@ -394,7 +405,7 @@ const Tasks = () => {
                                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                     <div className="flex items-start gap-3 min-w-0">
                                         <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white">
-                                            <span className="material-symbols-outlined text-lg animate-spin">sync</span>
+                                            <LoaderCircle className="size-5 animate-spin" strokeWidth={2.15}/>
                                         </div>
                                         <div className="min-w-0">
                                             <h2 className="text-base font-headline font-bold text-on-surface dark:text-white">
@@ -423,7 +434,7 @@ const Tasks = () => {
                         )}
                         {visibleJobs.length === 0 && !loading && !queueUploadJob && (
                             <div className="rounded-[24px] border border-[#e4e0e0] bg-white p-10 text-center shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
-                                <span className="material-symbols-outlined mb-3 text-4xl text-[#8a8a8a] dark:text-white/40">pending_actions</span>
+                                <ListTodo className="mx-auto mb-3 size-10 text-[#8a8a8a] dark:text-white/40" strokeWidth={2}/>
                                 <p className="text-sm font-semibold text-[#777] dark:text-white/55">{taskFilter === 'all' ? t('tasks.empty') : (lang === 'zh' ? '这个分类下暂时没有任务。' : 'No jobs in this view.')}</p>
                             </div>
                         )}
@@ -437,8 +448,8 @@ const Tasks = () => {
                             const canOpen = hasTranscriptResult(result) || (!!result && (taskState === TASK_STATE_COMPLETED || taskState === TASK_STATE_CACHED_ONLY));
                             const summaryFailed = job.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
                             const planSummary = agentPlanSummary(job, lang);
-                            const showDetail = isLiveJob(job) || taskState === TASK_STATE_FAILED || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result)) || !!nextStepText;
                             const nextStepText = taskNextStepText(job, lang);
+                            const showDetail = isLiveJob(job) || taskState === TASK_STATE_FAILED || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result)) || !!nextStepText;
                             const displayTitle = jobDisplayTitle(job, lang);
                             const downloadItems = [
                                 ...availableArtifacts.map(([kind, label]) => ({icon:'download', label, badge:kind.endsWith('vtt')?'VTT':kind.endsWith('srt')?'SRT':kind.endsWith('txt')?'TXT':kind.endsWith('md')?'MD':kind, onClick:()=>downloadArtifact(job,kind)})),
@@ -448,7 +459,9 @@ const Tasks = () => {
                                 <article key={job.task_id} className="rounded-[24px] border border-[#e4e0e0] bg-white p-4 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                                     <div className="flex items-start gap-3">
                                         <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] ${isLiveJob(job) ? 'bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white' : taskState === TASK_STATE_FAILED ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : 'bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white'}`}>
-                                            <span className="material-symbols-outlined text-lg">{job.source_type === 'transcript_file' ? 'subtitles' : 'movie'}</span>
+                                            {job.source_type === 'transcript_file'
+                                                ? <Subtitles className="size-5" strokeWidth={2.15}/>
+                                                : <FileVideo className="size-5" strokeWidth={2.15}/>}
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
@@ -484,30 +497,34 @@ const Tasks = () => {
                                         <div className="flex items-center gap-1.5 flex-shrink-0">
                                             {isLiveJob(job) ? (
                                                 <button type="button" disabled={cancellingTaskId === job.task_id} onClick={() => cancelLiveJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
-                                                    <span className={`material-symbols-outlined text-base ${cancellingTaskId === job.task_id ? 'animate-spin' : ''}`}>{cancellingTaskId === job.task_id ? 'sync' : 'cancel'}</span>
+                                                    {cancellingTaskId === job.task_id
+                                                        ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
+                                                        : <XCircle className="size-4" strokeWidth={2.15}/>}
                                                     {lang === 'zh' ? '取消' : 'Cancel'}
                                                 </button>
                                             ) : (
                                                 <>
                                                     <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
-                                                        <span className="material-symbols-outlined text-base">open_in_new</span>
+                                                        <ExternalLink className="size-4" strokeWidth={2.15}/>
                                                         {t('tasks.open')}
                                                     </button>
                                                     {job.task_id ? (
                                                         <Link to={`/tasks/${encodeURIComponent(job.task_id)}/agent`} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
-                                                            <SvgIcon name="monitoring" className="w-3.5 h-3.5" />
+                                                            <Activity className="size-3.5" strokeWidth={2.15}/>
                                                             Agent
                                                         </Link>
                                                     ) : null}
                                                     {downloadItems.length > 0 ? (
                                                         <DropdownMenu
                                                             align="right"
-                                                            trigger={<button type="button" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"><span className="material-symbols-outlined text-base">download</span></button>}
+                                                            trigger={<button type="button" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"><Download className="size-4" strokeWidth={2.15}/></button>}
                                                             items={downloadItems}
                                                         />
                                                     ) : null}
                                                     <button type="button" disabled={!isDeletableJob(job) || deletingTaskId === job.task_id} onClick={() => deleteFinishedJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
-                                                        <span className={`material-symbols-outlined text-base ${deletingTaskId === job.task_id ? 'animate-spin' : ''}`}>{deletingTaskId === job.task_id ? 'sync' : 'delete'}</span>
+                                                        {deletingTaskId === job.task_id
+                                                            ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
+                                                            : <Trash2 className="size-4" strokeWidth={2.15}/>}
                                                     </button>
                                                 </>
                                             )}

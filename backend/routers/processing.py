@@ -64,6 +64,7 @@ async def queue_process(
     stt_speed: Optional[str] = Form(None),
     stt_language: Optional[str] = Form(None),
     stt_provider: Optional[str] = Form(None),
+    elevenlabs_api_key: Optional[str] = Form(None),
     azure_speech_key: Optional[str] = Form(None),
     azure_speech_endpoint: Optional[str] = Form(None),
     azure_blob_container_sas_url: Optional[str] = Form(None),
@@ -124,6 +125,7 @@ async def queue_process(
         stt_speed=stt_speed,
         stt_language=stt_language,
         stt_provider=stt_provider,
+        elevenlabs_api_key=elevenlabs_api_key,
         azure_speech_key=azure_speech_key,
         azure_speech_endpoint=azure_speech_endpoint,
         azure_blob_container_sas_url=azure_blob_container_sas_url,
@@ -236,6 +238,7 @@ async def process_video(
     stt_speed: Optional[str] = Form(None),
     stt_language: Optional[str] = Form(None),
     stt_provider: Optional[str] = Form(None),
+    elevenlabs_api_key: Optional[str] = Form(None),
     azure_speech_key: Optional[str] = Form(None),
     azure_speech_endpoint: Optional[str] = Form(None),
     azure_blob_container_sas_url: Optional[str] = Form(None),
@@ -360,11 +363,16 @@ async def process_video(
     speed_profile = (stt_speed or "").strip() or "balanced"
     language = "auto"
     stt_provider_value = H._normalize_stt_provider(stt_provider, request)
+    elevenlabs_cloud_provider = stt_provider_value == "elevenlabs_scribe"
     azure_cloud_provider = stt_provider_value == "azure_batch"
+    cloud_stt_provider = elevenlabs_cloud_provider or azure_cloud_provider
     diarization_requested = H._truthy_form(speaker_diarization)
+    elevenlabs_key_value: str | None = None
     azure_endpoint_value: str | None = None
     azure_key_value: str | None = None
     azure_blob_container_sas_value: str | None = None
+    if elevenlabs_cloud_provider:
+        elevenlabs_key_value = H.resolve_secret(elevenlabs_api_key, "elevenlabs_api_key")
     if azure_cloud_provider:
         azure_endpoint_value = H.resolve_secret(azure_speech_endpoint, "azure_speech_endpoint")
         azure_key_value = H.resolve_secret(azure_speech_key, "azure_speech_key")
@@ -386,6 +394,11 @@ async def process_video(
         stt_queue = None
         playback_audio_path: Path | None = None
         try:
+            if elevenlabs_cloud_provider and not elevenlabs_key_value:
+                raise RuntimeError(
+                    "ElevenLabs transcription backend configuration is incomplete. "
+                    "Please contact the product maintainer."
+                )
             if azure_cloud_provider and (not azure_endpoint_value or not azure_key_value):
                 raise RuntimeError(
                     "Cloud transcription backend configuration is incomplete. "
@@ -402,10 +415,10 @@ async def process_video(
             H.upsert_job(task_id=task_id_value, status="running", stage="audio", progress=5)
             yield H._sse({"stage": "audio", "progress": 5})
             audio_started_at = time.perf_counter()
-            if azure_cloud_provider:
+            if cloud_stt_provider:
                 audio_output_format = "mp3"
                 out_audio = await loop.run_in_executor(
-                    None, lambda: H.extract_compressed_mp3(in_path, output_path=Path(td) / "azure_stt.mp3")
+                    None, lambda: H.extract_compressed_mp3(in_path, output_path=Path(td) / "cloud_stt.mp3")
                 )
                 playback_audio_path = out_audio
             else:
@@ -486,11 +499,72 @@ async def process_video(
                 "stt_status": "starting",
             }
 
-            azure_inline_limits: dict[str, Any] = {}
+            cloud_stt_metadata: dict[str, Any] = {}
             stt_started_at = time.perf_counter()
             stt_timeout = H._stale_job_seconds()
-            if stt_provider_value == "azure_batch":
-                azure_inline_limits = {
+            if stt_provider_value == "elevenlabs_scribe":
+                cloud_stt_metadata = {
+                    "elevenlabs_audio_size_mb": H._path_size_mb(out_audio),
+                    "elevenlabs_duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
+                }
+
+                def on_elevenlabs_progress(status: str, metadata: dict[str, Any] | None = None) -> None:
+                    progress_state["stt_status"] = status
+                    if metadata:
+                        cloud_stt_metadata.update(metadata)
+
+                progress_state["stt_status"] = "elevenlabs_uploading"
+                elevenlabs_task = loop.run_in_executor(
+                    None,
+                    lambda: H.transcribe_audio_scribe(
+                        out_audio,
+                        api_key=elevenlabs_key_value,
+                        language=language,
+                        diarization_enabled=diarization_requested,
+                        timeout=stt_timeout,
+                        progress_callback=on_elevenlabs_progress,
+                    ),
+                )
+                last_emit_at = time.perf_counter()
+                while not elevenlabs_task.done():
+                    await asyncio.sleep(1)
+                    now = time.perf_counter()
+                    if now - stt_started_at > stt_timeout:
+                        elevenlabs_task.cancel()
+                        try:
+                            await elevenlabs_task
+                        except Exception:
+                            pass
+                        raise RuntimeError("STT processing timed out")
+                    if now - last_emit_at < 2:
+                        continue
+                    last_emit_at = now
+                    H.upsert_job(
+                        task_id=task_id_value,
+                        status="running",
+                        stage="stt",
+                        progress=25,
+                        metadata={
+                            "stt_provider": stt_provider_value,
+                            "stt_provider_label": H._stt_provider_label(stt_provider_value),
+                            **cloud_stt_metadata,
+                            "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
+                            "stt_elapsed_seconds": round(now - stt_started_at, 1),
+                            "stt_status": progress_state.get("stt_status"),
+                        },
+                    )
+                    yield H._sse({
+                        "stage": "stt",
+                        "progress": 25,
+                        **cloud_stt_metadata,
+                        "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
+                        "stt_elapsed_seconds": round(now - stt_started_at, 1),
+                        "stt_status": progress_state.get("stt_status"),
+                        "stt_provider": stt_provider_value,
+                    })
+                tr = elevenlabs_task.result()
+            elif stt_provider_value == "azure_batch":
+                cloud_stt_metadata = {
                     "azure_batch_audio_size_mb": H._path_size_mb(out_audio),
                     "azure_batch_duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
                 }
@@ -498,7 +572,7 @@ async def process_video(
                 def on_azure_batch_progress(status: str, metadata: dict[str, Any] | None = None) -> None:
                     progress_state["stt_status"] = status
                     if metadata:
-                        azure_inline_limits.update(metadata)
+                        cloud_stt_metadata.update(metadata)
 
                 progress_state["stt_status"] = "azure_batch_uploading"
                 azure_task = loop.run_in_executor(
@@ -536,7 +610,7 @@ async def process_video(
                         metadata={
                             "stt_provider": stt_provider_value,
                             "stt_provider_label": H._stt_provider_label(stt_provider_value),
-                            **azure_inline_limits,
+                            **cloud_stt_metadata,
                             "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
                             "stt_elapsed_seconds": round(now - stt_started_at, 1),
                             "stt_status": progress_state.get("stt_status"),
@@ -545,7 +619,7 @@ async def process_video(
                     yield H._sse({
                         "stage": "stt",
                         "progress": 25,
-                        **azure_inline_limits,
+                        **cloud_stt_metadata,
                         "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
                         "stt_elapsed_seconds": round(now - stt_started_at, 1),
                         "stt_status": progress_state.get("stt_status"),
@@ -651,7 +725,7 @@ async def process_video(
                 metadata={
                     "stt_provider": stt_provider_value,
                     "stt_provider_label": H._stt_provider_label(stt_provider_value),
-                    **azure_inline_limits,
+                    **cloud_stt_metadata,
                     "stt_progress": 1,
                     "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
                 },
@@ -660,7 +734,7 @@ async def process_video(
                 "stage": "stt",
                 "progress": 60,
                 "stt_progress": 1,
-                **azure_inline_limits,
+                **cloud_stt_metadata,
                 "transcribed_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
                 "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
                 "stt_provider": stt_provider_value,
@@ -671,6 +745,8 @@ async def process_video(
             transcript_text = tr.text
             if stt_provider_value == "azure_batch":
                 stt_model_for_result = "azure-batch-transcription"
+            elif stt_provider_value == "elevenlabs_scribe":
+                stt_model_for_result = "scribe_v2"
             else:
                 stt_model_for_result = model_size
             H.log_event(
@@ -693,7 +769,7 @@ async def process_video(
                     stt_model=stt_model_for_result,
                     stt_speed=speed_profile,
                     stt_language=language,
-                    **azure_inline_limits,
+                    **cloud_stt_metadata,
                     device_requested=getattr(tr, "device_requested", None) or "auto",
                     device_resolved=getattr(tr, "device_resolved", None),
                     vad_filter=getattr(tr, "vad_filter", None),
@@ -742,15 +818,15 @@ async def process_video(
             transcript_text = cleanup_result.cleaned_text
             segments_payload = list(cleanup_result.cleaned_segments)
             raw_segments_payload = [
-                {"start": s.start, "end": s.end, "text": s.text}
+                {"start": s.start, "end": s.end, "text": s.text, "speaker": getattr(s, "speaker", None)}
                 for s in tr.segments
             ]
             speaker_payload: dict[str, Any] = {
                 "requested": diarization_requested,
-                "available": True if azure_cloud_provider else H.diarization_status()["available"],
+                "available": True if cloud_stt_provider else H.diarization_status()["available"],
                 "applied": False,
             }
-            if diarization_requested and azure_cloud_provider:
+            if diarization_requested and cloud_stt_provider:
                 speakers = sorted({
                     str(segment.get("speaker"))
                     for segment in segments_payload

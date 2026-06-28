@@ -38,6 +38,8 @@ def _truthy(value: str | None) -> bool:
 
 def _canonical_provider(value: str | None) -> str | None:
     raw = (value or "").strip().lower()
+    if raw in {"elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2", "cloud"}:
+        return "elevenlabs_scribe"
     if raw in {"azure", "azure_batch", "azure-fast", "azure_fast", "cloud"}:
         return "azure_batch"
     if raw in {"local", "faster-whisper", "faster_whisper", "whisper"}:
@@ -48,13 +50,13 @@ def _canonical_provider(value: str | None) -> str | None:
 def _allowed_stt_providers(public_mode: bool) -> list[str]:
     raw = os.environ.get("FLUENTFLOW_ALLOWED_STT_PROVIDERS")
     if not raw:
-        return ["azure_batch"] if public_mode else ["azure_batch", "local"]
+        return ["elevenlabs_scribe"] if public_mode else ["elevenlabs_scribe", "local"]
     providers: list[str] = []
     for item in raw.split(","):
         provider = _canonical_provider(item)
         if provider and provider not in providers:
             providers.append(provider)
-    return providers or (["azure_batch"] if public_mode else ["azure_batch", "local"])
+    return providers or (["elevenlabs_scribe"] if public_mode else ["elevenlabs_scribe", "local"])
 
 
 def _int_from_env(name: str, default: int) -> int:
@@ -92,7 +94,7 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
     checks: list[CheckResult] = []
     public_mode = _truthy(os.environ.get("FLUENTFLOW_PUBLIC_MODE"))
     allowed_providers = _allowed_stt_providers(public_mode)
-    default_provider = _canonical_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "azure_batch")
+    default_provider = _canonical_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "elevenlabs_scribe")
     credentials = credential_status()
 
     if public_mode:
@@ -183,27 +185,19 @@ def run_checks(*, allow_local_mode: bool = False, require_lark: bool = False) ->
 
     provider_status = "pass"
     provider_detail = f"allowed={','.join(allowed_providers)} default={default_provider or 'unknown'}"
-    if public_mode and allowed_providers != ["azure_batch"]:
+    if public_mode and allowed_providers != ["elevenlabs_scribe"]:
         provider_status = "fail"
-        provider_detail = "公共模式只应开放 azure_batch，避免用户触发本地 STT 消耗服务器资源。"
+        provider_detail = "公共模式只应开放 elevenlabs_scribe，避免用户触发本地 STT 消耗服务器资源。"
     elif default_provider not in allowed_providers:
         provider_status = "fail"
         provider_detail = "FLUENTFLOW_DEFAULT_STT_PROVIDER 不在 FLUENTFLOW_ALLOWED_STT_PROVIDERS 中。"
     checks.append(CheckResult("stt_provider_policy", provider_status, provider_detail))
 
-    azure_missing = [
-        label
-        for label, configured in (
-            ("AZURE_SPEECH_ENDPOINT", credentials["azure_speech_endpoint_configured"]),
-            ("AZURE_SPEECH_KEY", credentials["azure_speech_key_configured"]),
-            ("AZURE_BLOB_CONTAINER_SAS_URL", credentials["azure_blob_container_sas_url_configured"]),
-        )
-        if not configured
-    ]
+    elevenlabs_missing = ["ELEVENLABS_API_KEY"] if not credentials["elevenlabs_api_key_configured"] else []
     checks.append(CheckResult(
-        "azure_batch_credentials",
-        "pass" if not azure_missing else "fail",
-        "Azure Speech 和 Blob/SAS 已配置。" if not azure_missing else "缺少：" + ", ".join(azure_missing),
+        "elevenlabs_credentials",
+        "pass" if not elevenlabs_missing else "fail",
+        "ElevenLabs API Key 已配置。" if not elevenlabs_missing else "缺少：" + ", ".join(elevenlabs_missing),
     ))
 
     ai_configured = bool(credentials["deepseek_api_key_configured"] or credentials["openai_api_key_configured"])

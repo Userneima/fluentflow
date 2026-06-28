@@ -7,16 +7,16 @@ from scripts import codex_transcribe_link as script
 
 
 def test_resolve_stt_provider_prefers_local_when_available() -> None:
-    config = {"allowed_stt_providers": ["azure_batch", "local"], "default_stt_provider": "azure_batch"}
+    config = {"allowed_stt_providers": ["elevenlabs_scribe", "local"], "default_stt_provider": "elevenlabs_scribe"}
 
     assert script.resolve_stt_provider("auto", config) == "local"
 
 
 def test_resolve_stt_provider_falls_back_to_runtime_default() -> None:
-    config = {"allowed_stt_providers": ["azure_batch"], "default_stt_provider": "azure_batch"}
+    config = {"allowed_stt_providers": ["elevenlabs_scribe"], "default_stt_provider": "elevenlabs_scribe"}
 
-    assert script.resolve_stt_provider("auto", config) == "azure_batch"
-    assert script.resolve_stt_provider("local", config) == "azure_batch"
+    assert script.resolve_stt_provider("auto", config) == "elevenlabs_scribe"
+    assert script.resolve_stt_provider("local", config) == "elevenlabs_scribe"
 
 
 def test_build_codex_result_keeps_transcript_summary_and_artifact_paths(monkeypatch, tmp_path: Path) -> None:

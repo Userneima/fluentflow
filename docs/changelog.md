@@ -33,6 +33,12 @@
 
 - 修复线上打开页面时报 `Unexpected token '<'`、模块脚本 MIME 为 `text/html` 导致应用无法加载的问题。
 - 修复 `app.jsx` 拆分后部分页面缺少 helper import，导致 Dashboard / Editor / Processing 在运行时报 `ReferenceError` 的问题。
+- 公开云端转录默认路线改为 ElevenLabs Scribe；Azure Batch 仅保留为 legacy 兼容路径。
+
+### 维护者变化
+
+- 后端主 `/process` 链路已接入 `elevenlabs_scribe`，支持从后端配置或 `ELEVENLABS_API_KEY` 读取密钥，并把队列、部署自检和公开模式默认 provider 同步到 ElevenLabs。
+- 部署示例和公开试用文档改为 `FLUENTFLOW_ALLOWED_STT_PROVIDERS=elevenlabs_scribe` 与 `FLUENTFLOW_DEFAULT_STT_PROVIDER=elevenlabs_scribe`。
 - 本地说话人区分的 pyannote token 已配置后不再持续显示输入框，并在填写前说明 token 只用于本机后端获取模型，音频识别仍在本地执行。
 - 编辑器“重新转录”按钮改为明确的蓝色次级操作样式，避免可用状态被误认为灰色禁用。
 - 开始处理页在已有转录任务运行时，仍可继续选择音视频并添加到后台队列，不再要求等当前任务结束。

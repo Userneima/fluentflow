@@ -1,5 +1,6 @@
 import {useState,useEffect} from 'react';
 import {fmtDateTime, useApi, useAuth, useI18n} from '../app/shared.jsx';
+import SvgIcon from '../components/SvgIcon.jsx';
 
 const Admin = () => {
     const {t, lang} = useI18n();
@@ -92,7 +93,7 @@ const Admin = () => {
             <div className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] transition-[margin] duration-200 ease-out dark:bg-[#101010]">
                 <main className="mx-auto flex min-h-[70vh] max-w-[900px] items-center justify-center px-8 py-10">
                     <div className="rounded-[22px] border border-[#e4e0e0] bg-white p-8 text-center shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
-                        <span className="material-symbols-outlined text-4xl text-[#8a8a8a] dark:text-white/40">lock</span>
+                        <SvgIcon name="lock" className="text-4xl text-[#8a8a8a] dark:text-white/40"/>
                         <h1 className="mt-3 text-xl font-extrabold text-[#111111] dark:text-white font-headline">
                             {lang === 'zh' ? '没有管理员权限' : 'Admin access required'}
                         </h1>
@@ -129,7 +130,7 @@ const Admin = () => {
                         disabled={loading}
                         className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] shadow-[0_14px_34px_-30px_rgba(17,17,17,.45)] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.09] dark:shadow-none disabled:opacity-50"
                     >
-                        <span className={`material-symbols-outlined text-base ${loading ? 'animate-spin' : ''}`}>refresh</span>
+                        <SvgIcon name="refresh" className={`text-base ${loading ? 'animate-spin' : ''}`}/>
                         {lang === 'zh' ? '刷新' : 'Refresh'}
                     </button>
                 </header>
@@ -151,7 +152,7 @@ const Admin = () => {
                                 <span className="text-xs font-bold text-[#8a8a8a] dark:text-white/40 tabular-nums">{filteredUsers.length}</span>
                             </div>
                             <label className="flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] dark:border-white/[0.12] bg-[#f4f3f3] dark:bg-white/[0.08] px-3 focus-within:border-primary/60">
-                                <span className="material-symbols-outlined text-[18px] text-[#8a8a8a] dark:text-white/40">search</span>
+                                <SvgIcon name="search" className="text-[18px] text-[#8a8a8a] dark:text-white/40"/>
                                 <input
                                     value={query}
                                     onChange={(e)=>setQuery(e.target.value)}
@@ -273,7 +274,7 @@ const Admin = () => {
                                                 disabled={submitting || !units || !reason.trim()}
                                                 className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-4 text-sm font-bold text-white transition hover:bg-[#2a2a2a] disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88] sm:col-span-2 2xl:col-span-1"
                                             >
-                                                <span className="material-symbols-outlined text-base">{submitting ? 'hourglass_top' : 'add_card'}</span>
+                                                <SvgIcon name={submitting ? 'hourglass_top' : 'add_card'} className="text-base"/>
                                                 {submitting ? (lang === 'zh' ? '提交中' : 'Saving') : (lang === 'zh' ? '提交调整' : 'Apply adjustment')}
                                             </button>
                                         </div>
@@ -333,7 +334,7 @@ const Admin = () => {
                             </>
                         ) : (
                             <div className="rounded-[22px] border border-[#e4e0e0] bg-white p-10 text-center shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
-                                <span className="material-symbols-outlined text-4xl text-[#8a8a8a] dark:text-white/40">people</span>
+                                <SvgIcon name="people" className="text-4xl text-[#8a8a8a] dark:text-white/40"/>
                                 <p className="mt-3 text-sm font-semibold text-[#777] dark:text-white/55">
                                     {loading ? (lang === 'zh' ? '正在读取用户…' : 'Loading users...') : (lang === 'zh' ? '还没有用户。' : 'No users yet.')}
                                 </p>

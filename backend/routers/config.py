@@ -119,6 +119,7 @@ def update_credentials(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         "lark_app_id",
         "lark_app_secret",
         "pyannote_auth_token",
+        "elevenlabs_api_key",
         "azure_speech_key",
         "azure_speech_endpoint",
         "azure_blob_container_sas_url",

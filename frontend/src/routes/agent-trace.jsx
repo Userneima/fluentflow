@@ -224,7 +224,7 @@ const AgentTrace = () => {
         return (
             <div className="flex-1 flex items-center justify-center">
                 <div className="flex items-center gap-2.5 text-sm text-on-surface-variant">
-                    <span className="material-symbols-outlined animate-spin text-base">sync</span>
+                    <SvgIcon name="sync" className="animate-spin text-base"/>
                     {isZh ? '加载中...' : 'Loading...'}
                 </div>
             </div>
@@ -266,7 +266,7 @@ const AgentTrace = () => {
                     to="/editor"
                     className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-4 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]"
                 >
-                    <span className="material-symbols-outlined text-sm">open_in_new</span>
+                    <SvgIcon name="open_in_new" className="text-sm"/>
                     {isZh ? '查看笔记' : 'View Note'}
                 </Link>
             </div>
@@ -293,9 +293,9 @@ const AgentTrace = () => {
                                             style={{transform: 'translateX(-3px)', borderColor: !isError && !isPending ? color : undefined}}
                                         >
                                             {isError ? (
-                                                <span className="material-symbols-outlined text-[10px] text-red-500">close</span>
+                                                <SvgIcon name="close" className="text-[10px] text-red-500"/>
                                             ) : isPending ? (
-                                                <span className="material-symbols-outlined text-[10px] text-on-surface-variant">schedule</span>
+                                                <SvgIcon name="schedule" className="text-[10px] text-on-surface-variant"/>
                                             ) : (
                                                 <div className="w-[7px] h-[7px] rounded-full" style={{backgroundColor: color}} />
                                             )}
@@ -327,7 +327,7 @@ const AgentTrace = () => {
                             {thoughts.length > 0 && packageData?.tool_trace?.status === 'completed' && (
                                 <div className="relative pl-8">
                                     <div className="absolute left-0 top-1 flex items-center justify-center w-[15px] h-[15px]" style={{transform: 'translateX(-3px)', color: '#10b981'}}>
-                                        <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                                        <SvgIcon name="check_circle" className="text-[15px]"/>
                                     </div>
                                     <p className="text-sm text-on-surface-variant">
                                         {isZh ? '处理完成，所有步骤都已执行。' : 'Processing complete. All steps finished.'}
@@ -338,7 +338,7 @@ const AgentTrace = () => {
                             {thoughts.length > 0 && packageData?.tool_trace?.status === 'partial' && (
                                 <div className="relative pl-8">
                                     <div className="absolute left-0 top-1 flex items-center justify-center w-[15px] h-[15px]" style={{transform: 'translateX(-3px)', color: '#f59e0b'}}>
-                                        <span className="material-symbols-outlined text-[15px]">warning</span>
+                                        <SvgIcon name="warning" className="text-[15px]"/>
                                     </div>
                                     <p className="text-sm text-on-surface-variant">
                                         {isZh ? '处理部分完成，有些步骤失败了。' : 'Partial completion — some steps failed.'}

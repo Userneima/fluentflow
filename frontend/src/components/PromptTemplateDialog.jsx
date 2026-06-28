@@ -1,4 +1,5 @@
 import {BUILTIN_EXTRA_PROMPT_KEYS, editorPresetKeyOrder} from '../lib/promptPresets.js';
+import SvgIcon from '../components/SvgIcon.jsx';
 
 const builtinPromptValue = ({
     promptKey,
@@ -47,7 +48,7 @@ export default function PromptTemplateDialog({
                 <div className="flex items-start justify-between gap-4 border-b border-surface-container-highest px-5 py-4">
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-purple-600 text-lg">auto_fix_high</span>
+                            <SvgIcon name="auto_fix_high" className="text-purple-600 text-lg"/>
                             <span className="font-headline font-bold text-base text-on-surface">{t('prompt.label')}</span>
                         </div>
                         <p className="mt-1 text-xs font-medium text-on-surface-variant">{t('prompt.editHint')}</p>
@@ -58,7 +59,7 @@ export default function PromptTemplateDialog({
                         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-sm bg-surface-container text-on-surface-variant transition hover:bg-surface-container-high hover:text-on-surface"
                         aria-label={lang === 'zh' ? '关闭' : 'Close'}
                     >
-                        <span className="material-symbols-outlined text-lg">close</span>
+                        <SvgIcon name="close" className="text-lg"/>
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
@@ -76,7 +77,7 @@ export default function PromptTemplateDialog({
                                     </button>
                                     <button type="button" title={t('set.deletePreset')} onClick={(e)=>handleDeleteUserPreset(key,e)}
                                         className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-purple-700/30 dark:hover:bg-purple-400/20':'hover:bg-red-50 text-red-600'}`}>
-                                        <span className="material-symbols-outlined text-[16px] leading-none">close</span>
+                                        <SvgIcon name="close" className="text-[16px] leading-none"/>
                                     </button>
                                 </span>
                             ) : BUILTIN_EXTRA_PROMPT_KEYS.includes(key) ? (
@@ -95,7 +96,7 @@ export default function PromptTemplateDialog({
                                         onClick={(e)=>{ e.stopPropagation(); e.preventDefault(); resetBuiltinExtra(key); }}
                                         className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-purple-700/30 dark:hover:bg-purple-400/20':'hover:bg-red-50 text-red-600'}`}
                                     >
-                                        <span className="material-symbols-outlined text-[16px] leading-none">close</span>
+                                        <SvgIcon name="close" className="text-[16px] leading-none"/>
                                     </button>
                                 </span>
                             ) : (

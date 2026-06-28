@@ -27,15 +27,14 @@ def test_queue_process_persists_multiple_files_without_running_stt(tmp_path, mon
                 ("files", ("lesson-two.m4a", b"audio-two", "audio/mp4")),
             ],
             data={
-                "stt_provider": "azure_batch",
+                "stt_provider": "elevenlabs_scribe",
                 "stt_model": "medium",
                 "skip_summary": "true",
                 "export_to_lark": "true",
                 "lark_export_route": "local_cli",
                 "lark_via_cli": "true",
                 "deepseek_api_key": "secret-deepseek",
-                "azure_speech_key": "secret-azure",
-                "azure_blob_container_sas_url": "https://example.blob.core.windows.net/fluentflow?sig=secret",
+                "elevenlabs_api_key": "secret-elevenlabs",
             },
         )
 
@@ -51,13 +50,12 @@ def test_queue_process_persists_multiple_files_without_running_stt(tmp_path, mon
     assert jobs[0]["metadata"]["queue_position"] == 1
     assert jobs[1]["metadata"]["queue_position"] == 2
     assert jobs[0]["metadata"]["queue_total"] == 2
-    assert jobs[0]["metadata"]["queue_options"]["stt_provider"] == "azure_batch"
+    assert jobs[0]["metadata"]["queue_options"]["stt_provider"] == "elevenlabs_scribe"
     assert jobs[0]["metadata"]["queue_options"]["skip_summary"] == "true"
     assert jobs[0]["metadata"]["queue_options"]["export_to_lark"] == "true"
     assert jobs[0]["metadata"]["queue_options"]["lark_export_route"] == "local_cli"
     assert "deepseek_api_key" not in jobs[0]["metadata"]["queue_options"]
-    assert "azure_speech_key" not in jobs[0]["metadata"]["queue_options"]
-    assert "azure_blob_container_sas_url" not in jobs[0]["metadata"]["queue_options"]
+    assert "elevenlabs_api_key" not in jobs[0]["metadata"]["queue_options"]
 
     assert len(enqueued) == 2
     assert enqueued[0]["task_id"] == jobs[0]["task_id"]
@@ -106,6 +104,7 @@ def test_main_processing_route_does_not_accept_or_forward_hotwords() -> None:
         stt_speed=None,
         stt_language=None,
         stt_provider=None,
+        elevenlabs_api_key=None,
         azure_speech_key=None,
         azure_speech_endpoint=None,
         azure_blob_container_sas_url=None,

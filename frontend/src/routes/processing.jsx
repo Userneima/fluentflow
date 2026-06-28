@@ -11,6 +11,7 @@ import {
     presetDisplayLabel,
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
+import SvgIcon from '../components/SvgIcon.jsx';
 import {
     azureSpeechMissingMessage,
     compactDisplayFilename,
@@ -147,7 +148,7 @@ const Processing = () => {
     const SectionTitle = ({icon, title, desc}) => (
         <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-sm bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                <span className="material-symbols-outlined text-lg">{icon}</span>
+                <SvgIcon name={icon} className="text-lg"/>
             </div>
             <div className="min-w-0">
                 <h3 className="font-headline font-bold text-base text-on-surface">{title}</h3>
@@ -158,7 +159,7 @@ const Processing = () => {
 
     const ToggleRow = ({id, checked, onChange, label, hint, icon, disabled=false}) => (
         <label htmlFor={id} className={`flex items-start gap-3 p-3 rounded-sm bg-surface-container-low transition-colors ${disabled?'opacity-60 cursor-not-allowed':'hover:bg-surface-container cursor-pointer'}`}>
-            <span className="material-symbols-outlined text-primary text-lg mt-0.5">{icon}</span>
+            <SvgIcon name={icon} className="text-primary text-lg mt-0.5"/>
             <span className="flex-1 min-w-0">
                 <span className="block text-sm font-semibold text-on-surface">{label}</span>
                 {hint && <span className="block text-[11px] text-on-surface-variant mt-0.5 leading-snug">{hint}</span>}
@@ -182,7 +183,7 @@ const Processing = () => {
                     <section className="bg-surface-container-lowest rounded-sm p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                             <div className="w-10 h-10 rounded-sm bg-primary-fixed flex items-center justify-center text-primary flex-shrink-0">
-                                <span className="material-symbols-outlined">monitoring</span>
+                                <SvgIcon name="monitoring" className=""/>
                             </div>
                             <div className="min-w-0">
                                 <p className="text-sm font-bold text-on-surface truncate">{currentJob.fileName}</p>
@@ -190,7 +191,7 @@ const Processing = () => {
                             </div>
                         </div>
                         <Link to="/" className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-primary text-white font-bold rounded-sm hover:bg-primary-container transition-colors text-sm flex-shrink-0">
-                            <span className="material-symbols-outlined text-base">arrow_back</span>{t('work.viewProgress')}
+                            <SvgIcon name="arrow_back" className="text-base"/>{t('work.viewProgress')}
                         </Link>
                     </section>
                 )}
@@ -212,7 +213,7 @@ const Processing = () => {
                                         <label className={fieldLabelClass}>{t('set.sttProvider')}</label>
                                         <div className={`${inputClass} flex items-center justify-between bg-surface-container-low`}>
                                             <span>{sttProvider === 'azure_batch' ? t('set.providerAzureBatch') : t('set.providerLocal')}</span>
-                                            <span className="material-symbols-outlined text-base text-primary">lock</span>
+                                            <SvgIcon name="lock" className="text-base text-primary"/>
                                         </div>
                                     </div>
                                 )}
@@ -238,7 +239,7 @@ const Processing = () => {
                             </div>
                             {isAzureCloudProvider(sttProvider) && (
                                 <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
-                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">cloud_done</span>
+                                    <SvgIcon name="cloud_done" className="text-primary text-lg mt-0.5"/>
                                     <p className="text-xs text-on-surface-variant leading-relaxed">
                                         {lang==='zh'
                                             ? '云端转录由后台统一配置。你只需要上传文件，长任务会继续在后台运行。'
@@ -353,7 +354,7 @@ const Processing = () => {
                             </div>
                             ) : (
                             <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
-                                <span className="material-symbols-outlined text-primary text-lg mt-0.5">admin_panel_settings</span>
+                                <SvgIcon name="admin_panel_settings" className="text-primary text-lg mt-0.5"/>
                                 <p className="text-xs text-on-surface-variant leading-relaxed">
                                     {lang==='zh'?'摘要模型由后台统一配置，普通用户不需要填写 API Key。':'The summary model is configured in the backend. Users do not need to enter API keys.'}
                                 </p>
@@ -412,7 +413,7 @@ const Processing = () => {
                             )}
                             {!showMaintainerSettings && (
                                 <div className="rounded-sm border ff-border-muted bg-surface-container-low p-3 flex items-start gap-3">
-                                    <span className="material-symbols-outlined text-primary text-lg mt-0.5">cloud_done</span>
+                                    <SvgIcon name="cloud_done" className="text-primary text-lg mt-0.5"/>
                                     <p className="text-xs text-on-surface-variant leading-relaxed">
                                         {t('set.larkRouteOpenapiHint')}
                                     </p>
@@ -489,7 +490,7 @@ const GuestEditorPreview = ({lang}) => {
                 <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div className="max-w-3xl">
                         <div className="mb-3 inline-flex items-center gap-2 rounded-sm border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-bold text-primary">
-                            <span className="material-symbols-outlined text-base">visibility</span>
+                            <SvgIcon name="visibility" className="text-base"/>
                             {content.eyebrow}
                         </div>
                         <h1 className="font-headline text-3xl font-bold leading-tight text-on-surface">{content.title}</h1>
@@ -498,7 +499,7 @@ const GuestEditorPreview = ({lang}) => {
                     <div className="flex flex-wrap items-center gap-3">
                         <span className="text-xs font-medium text-slate-500">{content.hint}</span>
                         <Link to="/" className="inline-flex items-center gap-2 rounded-sm bg-primary px-5 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary-container">
-                            <span className="material-symbols-outlined text-xl">upload_file</span>
+                            <SvgIcon name="upload_file" className="text-xl"/>
                             {content.cta}
                         </Link>
                     </div>
@@ -511,7 +512,7 @@ const GuestEditorPreview = ({lang}) => {
                                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{content.source}</p>
                                 <h2 className="mt-1 text-base font-bold text-on-surface">{content.transcriptLabel}</h2>
                             </div>
-                            <span className="material-symbols-outlined text-slate-300">graphic_eq</span>
+                            <SvgIcon name="graphic_eq" className="text-slate-300"/>
                         </div>
                         <div className="max-h-[560px] space-y-3 overflow-y-auto p-5">
                             {content.segments.map((segment, index) => (
@@ -532,7 +533,7 @@ const GuestEditorPreview = ({lang}) => {
                                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{content.noteLabel}</p>
                                 <h2 className="mt-1 text-base font-bold text-on-surface">{content.noteTitle}</h2>
                             </div>
-                            <span className="material-symbols-outlined text-slate-300">auto_awesome</span>
+                            <SvgIcon name="auto_awesome" className="text-slate-300"/>
                         </div>
                         <div className="space-y-6 p-6">
                             <div>

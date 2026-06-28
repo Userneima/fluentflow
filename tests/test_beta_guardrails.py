@@ -102,8 +102,8 @@ def test_public_mode_defaults_to_cloud_transcription(monkeypatch) -> None:
     monkeypatch.delenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", raising=False)
     monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
 
-    assert _H._allowed_stt_providers() == ("azure_batch",)
-    assert _H._normalize_stt_provider("local") == "azure_batch"
+    assert _H._allowed_stt_providers() == ("elevenlabs_scribe",)
+    assert _H._normalize_stt_provider("local") == "elevenlabs_scribe"
 
 
 def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> None:
@@ -113,8 +113,8 @@ def test_public_mode_keeps_cloud_admin_on_cloud_transcription(monkeypatch) -> No
     monkeypatch.setattr(_H, "_request_account_user", lambda request: {"id": "admin", "role": "admin"})
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("cloud.example.com", 443)})
 
-    assert _H._allowed_stt_providers(request) == ("azure_batch",)
-    assert _H._normalize_stt_provider("local", request) == "azure_batch"
+    assert _H._allowed_stt_providers(request) == ("elevenlabs_scribe",)
+    assert _H._normalize_stt_provider("local", request) == "elevenlabs_scribe"
 
 
 def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch) -> None:
@@ -123,7 +123,7 @@ def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch)
     monkeypatch.delenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", raising=False)
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("127.0.0.1", 8000)})
 
-    assert _H._allowed_stt_providers(request) == ("azure_batch", "local")
+    assert _H._allowed_stt_providers(request) == ("elevenlabs_scribe", "local")
     assert _H._normalize_stt_provider("local", request) == "local"
 
 
@@ -242,18 +242,18 @@ def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
 
 def test_public_cloud_filters_explicit_local_provider(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
-    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,azure_batch")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,elevenlabs_scribe")
     request = Request({"type": "http", "method": "GET", "path": "/runtime-config", "headers": [], "server": ("cloud.example.com", 443)})
 
-    assert _H._allowed_stt_providers(request) == ("azure_batch",)
+    assert _H._allowed_stt_providers(request) == ("elevenlabs_scribe",)
 
 
 def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
     monkeypatch.delenv("FLUENTFLOW_PUBLIC_MODE", raising=False)
-    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,azure_batch")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "local,elevenlabs_scribe")
     monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "local")
 
-    assert _H._allowed_stt_providers() == ("local", "azure_batch")
+    assert _H._allowed_stt_providers() == ("local", "elevenlabs_scribe")
     assert _H._normalize_stt_provider(None) == "local"
 
 
@@ -467,7 +467,7 @@ def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None
     payload = response.json()
     assert response.status_code == 200
     assert payload["public_mode"] is True
-    assert payload["allowed_stt_providers"] == ["azure_batch"]
+    assert payload["allowed_stt_providers"] == ["elevenlabs_scribe"]
     assert payload["show_maintainer_settings"] is False
     assert "key" not in str(payload).lower()
 

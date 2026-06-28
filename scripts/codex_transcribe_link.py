@@ -104,7 +104,7 @@ def runtime_config(api_base: str, client_id: str, access_token: str | None = Non
 def resolve_stt_provider(requested: str, config: dict[str, Any]) -> str:
     value = (requested or "auto").strip().lower()
     allowed = [str(item).strip() for item in config.get("allowed_stt_providers") or [] if str(item).strip()]
-    default = str(config.get("default_stt_provider") or "").strip() or "azure_batch"
+    default = str(config.get("default_stt_provider") or "").strip() or "elevenlabs_scribe"
     if value in {"", "auto"}:
         return "local" if "local" in allowed else default
     if not allowed or value in allowed:
@@ -304,7 +304,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--stt-provider",
         default=os.environ.get("FLUENTFLOW_CODEX_STT_PROVIDER", "auto"),
-        choices=["auto", "local", "azure_batch"],
+        choices=["auto", "local", "elevenlabs_scribe", "azure_batch"],
         help="Transcription route. auto prefers local when available.",
     )
     parser.add_argument("--stt-model", default=os.environ.get("FLUENTFLOW_CODEX_STT_MODEL", "medium"))

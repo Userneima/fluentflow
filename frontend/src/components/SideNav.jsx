@@ -1,7 +1,23 @@
 import {useEffect, useState, useRef, useCallback} from 'react';
 import {Link, useLocation} from 'react-router-dom';
+import {
+    Activity,
+    FilePenLine,
+    Hand,
+    Languages,
+    LayoutGrid,
+    LogIn,
+    LogOut,
+    Moon,
+    PanelLeftClose,
+    PanelLeftOpen,
+    Settings,
+    ShieldCheck,
+    Sun,
+    UserPlus,
+    Video,
+} from 'lucide-react';
 import {useApi, useAuth, useI18n, useSettings} from '../app/shared.jsx';
-import SvgIcon from './SvgIcon.jsx';
 
 const FluentFlowLogo = () => (
     <div className="relative flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#111111] text-white shadow-[0_18px_42px_-26px_rgba(17,17,17,.75)] [--ff-logo-line:#111111] dark:bg-white dark:text-[#111111] dark:[--ff-logo-line:#ffffff]">
@@ -61,17 +77,19 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     }, [menuOpen]);
 
     const fullItems = [
-        {path:'/', icon:'grid', k:'nav.dashboard'},
-        {path:'/media-text', icon:'video', label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
-        {path:'/tasks', icon:'queue', k:'nav.tasks'},
-        {path:'/editor', icon:'subject', k:'nav.editor'},
-        ...(user?.role === 'admin' ? [{path:'/admin', icon:'shield', k:'nav.admin'}] : []),
-        {path:'/settings', icon:'settings', k:'nav.settings'},
+        {path:'/', icon:LayoutGrid, k:'nav.dashboard'},
+        {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
+        {path:'/tasks', icon:Activity, k:'nav.tasks'},
+        {path:'/editor', icon:FilePenLine, k:'nav.editor'},
+        ...(user?.role === 'admin' ? [{path:'/admin', icon:ShieldCheck, k:'nav.admin'}] : []),
+        {path:'/settings', icon:Settings, k:'nav.settings'},
     ];
     const items = guestMode ? fullItems.filter((item) => ['/', '/editor'].includes(item.path)) : fullItems;
     const quotaExempt = user?.role === 'admin' || quota?.unlimited || quota?.quota_exempt;
     const displayName = user?.name || user?.email?.split('@')[0] || (lang === 'zh' ? '访客' : 'Guest');
     const displayInitial = (displayName || 'F').trim().slice(0, 1).toUpperCase();
+    const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
+    const ThemeIcon = isDark ? Sun : Moon;
 
     return (
         <aside className={`fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-[#e5e5e5] bg-[#fbfbfb] text-[#111111] transition-[width] duration-200 ease-out dark:border-white/[0.12] dark:bg-[#0a0a0a] dark:text-white/[0.92] ${collapsed ? 'w-[72px]' : 'w-56'}`}>
@@ -98,13 +116,14 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                         aria-label={collapsed ? (lang === 'zh' ? '展开侧边栏' : 'Expand sidebar') : (lang === 'zh' ? '收起侧边栏' : 'Collapse sidebar')}
                         title={collapsed ? (lang === 'zh' ? '展开侧边栏' : 'Expand sidebar') : (lang === 'zh' ? '收起侧边栏' : 'Collapse sidebar')}
                     >
-                        <SvgIcon name={collapsed ? 'sidebar-expand' : 'sidebar-collapse'} className="size-[18px] stroke-[1.8]"/>
+                        <CollapseIcon className="size-[18px]" strokeWidth={1.9}/>
                     </button>
                 </div>
 
                 <nav className={collapsed ? 'flex-1 space-y-3' : 'flex-1 space-y-1'}>
                     {items.map((it) => {
                         const active = loc.pathname === it.path;
+                        const Icon = it.icon;
                         return (
                             <Link
                                 key={it.path}
@@ -116,7 +135,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                         : 'text-[#111111] hover:bg-[#efeeee] dark:text-white/[0.72] dark:hover:bg-white/[0.08] dark:hover:text-white'
                                 } ${collapsed ? 'mx-auto size-12 justify-center p-0 rounded-[20px]' : 'gap-3 px-3.5 py-2.5'}`}
                             >
-                                <SvgIcon name={it.icon} className={`${collapsed ? 'size-[22px]' : 'size-5'} shrink-0 stroke-[2.4]`}/>
+                                <Icon className={`${collapsed ? 'size-[22px]' : 'size-5'} shrink-0`} strokeWidth={2.15}/>
                                 <span className={collapsed ? 'sr-only' : 'truncate'}>{it.label || t(it.k)}</span>
                             </Link>
                         );
@@ -153,7 +172,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                             title={collapsed ? (lang === 'zh' ? '访客试用' : 'Guest trial') : undefined}
                         >
                             <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[#efeeee] text-[#6b6c72] dark:bg-white/[0.12] dark:text-white/70">
-                                <SvgIcon name="wave" className="size-4"/>
+                                <Hand className="size-4" strokeWidth={2.15}/>
                             </span>
                             {!collapsed && (
                                 <span className="min-w-0">
@@ -181,7 +200,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                         onClick={() => { setMenuOpen(false); openAuth('login'); }}
                                         className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                                     >
-                                        <SvgIcon name="logout" className="size-[18px] shrink-0 rotate-180 text-[#6b6c72] dark:text-white/70"/>
+                                        <LogIn className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
                                         {lang === 'zh' ? '登录账号' : 'Sign in'}
                                     </button>
                                     {canRegister && (
@@ -190,7 +209,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                             onClick={() => { setMenuOpen(false); openAuth('register'); }}
                                             className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                                         >
-                                            <SvgIcon name="playlist-add" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                            <UserPlus className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
                                             {lang === 'zh' ? '创建账号' : 'Create account'}
                                         </button>
                                     )}
@@ -202,7 +221,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                     onClick={toggleLang}
                                     className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                                 >
-                                    <SvgIcon name="translate" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                    <Languages className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
                                     <span className="flex-1 text-left">{lang === 'zh' ? '界面语言' : 'Language'}</span>
                                     <span className="text-[11px] font-bold text-[#6b6c72] dark:text-white/70">{lang === 'en' ? '中文' : 'EN'}</span>
                                 </button>
@@ -211,7 +230,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                     onClick={toggleTheme}
                                     className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                                 >
-                                    <SvgIcon name={isDark ? 'sun' : 'moon'} className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                    <ThemeIcon className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
                                     <span className="flex-1 text-left">{isDark ? (lang === 'zh' ? '浅色模式' : 'Light mode') : (lang === 'zh' ? '暗色模式' : 'Dark mode')}</span>
                                 </button>
                             </div>
@@ -221,7 +240,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                 onClick={() => setMenuOpen(false)}
                                 className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                             >
-                                <SvgIcon name="shield" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                <ShieldCheck className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
                                 {lang === 'zh' ? '关于与协议' : 'About & terms'}
                             </Link>
                             {authMode === 'accounts' && user && (
@@ -230,7 +249,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                     onClick={() => { setMenuOpen(false); logout(); }}
                                     className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] hover:text-[#ff4f7a] dark:text-white dark:hover:bg-white/[0.08] dark:hover:text-[#ff7fa0]"
                                 >
-                                    <SvgIcon name="logout" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                    <LogOut className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
                                     {lang === 'zh' ? '退出登录' : 'Sign out'}
                                 </button>
                             )}

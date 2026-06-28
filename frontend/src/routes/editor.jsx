@@ -11,6 +11,7 @@ import {
     presetDisplayLabel,
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
+import SvgIcon from '../components/SvgIcon.jsx';
 import {
     API_BASE,
     azureSpeechMissingMessage,
@@ -1019,14 +1020,14 @@ const Editor = () => {
     if(!result && guestMode) return <GuestEditorPreview lang={lang} />;
 
     if(!result) return (
-        <div className="ml-64 min-h-screen relative pb-8">
-            <main className="flex items-center justify-center h-[calc(100vh-2rem)]">
-                <div className="text-center">
-                    <span className="material-symbols-outlined text-6xl text-slate-300 mb-4">edit_note</span>
-                    <h2 className="font-headline text-2xl font-bold text-on-surface mb-2">{t('edit.noResult')}</h2>
-                    <p className="text-on-surface-variant mb-6">{t('edit.noResultDesc')}</p>
-                    <Link to="/" className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white font-bold rounded-sm hover:bg-primary-container transition-colors">
-                        <span className="material-symbols-outlined">upload_file</span>{t('dash.selectFile')}
+        <div className="ml-[var(--sidebar-offset)] min-h-dvh bg-[#f8f7fb] pb-8 text-[#111111] dark:bg-[#101010] dark:text-white/[0.92]">
+            <main className="flex h-[calc(100vh-2rem)] items-center justify-center px-8">
+                <div className="w-full max-w-xl rounded-[28px] border border-[#e4e0e0] bg-white px-8 py-10 text-center shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                    <SvgIcon name="edit_note" className="mb-4 text-6xl text-[#8a8a8a] dark:text-white/40"/>
+                    <h2 className="mb-2 font-headline text-2xl font-extrabold text-[#111111] dark:text-white">{t('edit.noResult')}</h2>
+                    <p className="mb-6 text-sm font-semibold leading-relaxed text-[#666] dark:text-white/60">{t('edit.noResultDesc')}</p>
+                    <Link to="/" className="inline-flex items-center gap-2 rounded-[14px] bg-[#111111] px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
+                        <SvgIcon name="upload_file" className="text-lg"/>{t('dash.selectFile')}
                     </Link>
                                             </div>
             </main>
@@ -1050,58 +1051,58 @@ const Editor = () => {
     const mediaProgress = playbackDuration > 0 ? Math.min(100, Math.max(0, mediaCurrentTime / playbackDuration * 100)) : 0;
 
     return (
-    <div className="ml-64 min-h-screen relative pb-8">
+    <div className="ml-[var(--sidebar-offset)] min-h-dvh bg-[#f8f7fb] pb-8 text-[#111111] dark:bg-[#101010] dark:text-white/[0.92]">
         {toast && (
-            <div className={`fixed top-6 right-8 z-50 px-5 py-3 rounded-lg shadow-lg text-sm font-medium animate-pulse ${toast.ok?'bg-green-500 text-white':'bg-red-500 text-white'}`}>
+            <div className={`fixed right-8 top-6 z-50 rounded-[16px] px-5 py-3 text-sm font-bold shadow-[0_18px_44px_-26px_rgba(17,17,17,.55)] ${toast.ok?'bg-[#111111] text-white dark:bg-white dark:text-[#111111]':'bg-red-600 text-white'}`}>
                 {toast.msg}
                                             </div>
         )}
         {larkUrl && (
-            <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-white shadow-xl border border-green-200 rounded-xl px-6 py-4 flex items-center gap-4 max-w-lg">
-                <span className="material-symbols-outlined text-green-500 text-2xl" style={{fontVariationSettings:"'FILL' 1"}}>check_circle</span>
+            <div className="fixed left-1/2 top-6 z-50 flex max-w-lg -translate-x-1/2 items-center gap-4 rounded-[20px] border border-[#d9eadf] bg-white px-6 py-4 shadow-[0_18px_44px_-26px_rgba(17,17,17,.55)] dark:border-emerald-400/20 dark:bg-[#151515]">
+                <SvgIcon name="check_circle" className="text-2xl text-emerald-600 dark:text-emerald-300"/>
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-on-surface">{t('edit.exportDone')}</p>
+                    <p className="text-sm font-bold text-[#111111] dark:text-white">{t('edit.exportDone')}</p>
                     <a href={larkUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-sm hover:underline truncate block">{larkUrl}</a>
                                                 </div>
-                <button onClick={()=>setLarkUrl(null)} className="text-slate-400 hover:text-slate-600 flex-shrink-0">
-                    <span className="material-symbols-outlined text-sm">close</span>
+                <button onClick={()=>setLarkUrl(null)} className="flex-shrink-0 text-[#777] hover:text-[#111111] dark:text-white/50 dark:hover:text-white">
+                    <SvgIcon name="close" className="text-sm"/>
                 </button>
                                                 </div>
         )}
         {retranscribeConfirmOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-6">
-                <div className="w-full max-w-lg bg-surface-container-lowest rounded-sm shadow-2xl border ff-border-muted overflow-hidden">
-                    <div className="px-6 py-5 border-b border-surface-container-highest flex items-start gap-4">
-                        <div className="w-11 h-11 rounded-sm bg-blue-50 text-primary flex items-center justify-center flex-shrink-0">
-                            <span className="material-symbols-outlined">record_voice_over</span>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
+                <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
+                    <div className="flex items-start gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
+                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white">
+                            <SvgIcon name="record_voice_over" className=""/>
                         </div>
                         <div className="min-w-0">
-                            <h2 className="font-headline text-xl font-extrabold text-on-surface">
+                            <h2 className="font-headline text-xl font-extrabold text-[#111111] dark:text-white">
                                 {canRetranscribeStoredMedia ? t('edit.retranscribeConfirmTitle') : t('edit.retranscribeUnavailableTitle')}
                             </h2>
-                            <p className="text-sm text-on-surface-variant mt-2 leading-relaxed">
+                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
                                 {canRetranscribeStoredMedia ? t('edit.retranscribeConfirmDesc') : t('edit.retranscribeUnavailableDesc')}
                             </p>
-                            <div className="mt-4 rounded-sm bg-surface-container-low p-3">
-                                <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-bold mb-1">{retranscribeSourceLabel}</p>
-                                <p className="text-sm font-bold text-on-surface truncate">{retranscribeSourceName}</p>
+                            <div className="mt-4 rounded-[16px] border border-[#e4e0e0] bg-[#f8f7fb] p-3 dark:border-white/[0.12] dark:bg-white/[0.06]">
+                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#777] dark:text-white/45">{retranscribeSourceLabel}</p>
+                                <p className="truncate text-sm font-bold text-[#111111] dark:text-white">{retranscribeSourceName}</p>
                             </div>
                         </div>
                     </div>
-                    <div className="px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                    <div className="flex flex-col-reverse gap-3 px-6 py-4 sm:flex-row sm:justify-end">
                         <button
                             type="button"
                             onClick={()=>setRetranscribeConfirmOpen(false)}
-                            className="px-4 py-2 rounded-sm bg-surface-container text-on-surface text-sm font-bold hover:bg-surface-container-high transition"
+                            className="rounded-[13px] bg-[#efeeee] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
                         >
                             {t('edit.cancel')}
                         </button>
                         <button
                             type="button"
                             onClick={confirmRetranscribe}
-                            className="px-4 py-2 rounded-sm bg-primary text-white text-sm font-bold hover:bg-primary-container transition inline-flex items-center justify-center gap-2"
+                            className="inline-flex items-center justify-center gap-2 rounded-[13px] bg-[#111111] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
                         >
-                            <span className="material-symbols-outlined text-base">{canRetranscribeStoredMedia ? 'sync' : 'upload_file'}</span>
+                            <SvgIcon name={canRetranscribeStoredMedia ? 'sync' : 'upload_file'} className="text-base"/>
                             {canRetranscribeStoredMedia ? t('edit.retranscribeConfirmAction') : t('edit.retranscribeChooseAction')}
                         </button>
                     </div>
@@ -1109,33 +1110,33 @@ const Editor = () => {
             </div>
         )}
         {editRecordsOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-6">
-                <div className="w-full max-w-3xl max-h-[82vh] bg-surface-container-lowest rounded-sm shadow-2xl border ff-border-muted overflow-hidden flex flex-col">
-                    <div className="px-6 py-5 border-b border-surface-container-highest flex items-start justify-between gap-4">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
+                <div className="flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
+                    <div className="flex items-start justify-between gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
                         <div className="min-w-0">
-                            <h2 className="font-headline text-xl font-extrabold text-on-surface flex items-center gap-2">
-                                <span className="material-symbols-outlined text-primary">edit_note</span>
+                            <h2 className="flex items-center gap-2 font-headline text-xl font-extrabold text-[#111111] dark:text-white">
+                                <SvgIcon name="edit_note" className="text-primary"/>
                                 {t('edit.editRecordsTitle')}
-                                <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-sm">{editRecords.length}</span>
+                                <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-bold text-primary dark:bg-white/[0.08] dark:text-white">{editRecords.length}</span>
                             </h2>
-                            <p className="text-sm text-on-surface-variant mt-2 leading-relaxed">{t('edit.editRecordsDesc')}</p>
+                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">{t('edit.editRecordsDesc')}</p>
                         </div>
                         <button
                             type="button"
                             onClick={()=>setEditRecordsOpen(false)}
-                            className="w-9 h-9 rounded-sm bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high flex items-center justify-center transition"
+                            className="flex h-9 w-9 items-center justify-center rounded-[13px] bg-[#efeeee] text-[#666] transition hover:bg-[#e4e0e0] hover:text-[#111111] dark:bg-white/[0.08] dark:text-white/60 dark:hover:bg-white/[0.12] dark:hover:text-white"
                         >
-                            <span className="material-symbols-outlined text-lg">close</span>
+                            <SvgIcon name="close" className="text-lg"/>
                         </button>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div className="flex-1 space-y-4 overflow-y-auto p-5">
                         {editRecords.length === 0 ? (
-                            <div className="rounded-sm bg-surface-container-low px-5 py-8 text-center text-sm text-on-surface-variant">
+                            <div className="rounded-[18px] bg-[#f8f7fb] px-5 py-8 text-center text-sm font-medium text-[#666] dark:bg-white/[0.06] dark:text-white/60">
                                 {t('edit.editRecordsEmpty')}
                             </div>
                         ) : editRecords.map((record, idx) => (
-                            <article key={`${record.index}-${record.start}-${idx}`} className="rounded-sm border ff-border-muted bg-surface-container-lowest overflow-hidden">
-                                <div className="px-4 py-3 bg-surface-container-low flex items-center gap-3">
+                            <article key={`${record.index}-${record.start}-${idx}`} className="overflow-hidden rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                <div className="flex items-center gap-3 bg-[#f8f7fb] px-4 py-3 dark:bg-white/[0.04]">
                                     <button
                                         type="button"
                                         onClick={()=>{ setEditRecordsOpen(false); seekToSegment(record); }}
@@ -1143,27 +1144,27 @@ const Editor = () => {
                                     >
                                         {fmtTime(record.start || 0)}
                                     </button>
-                                    <span className="text-xs font-semibold text-on-surface-variant">#{record.index + 1}</span>
+                                    <span className="text-xs font-semibold text-[#777] dark:text-white/45">#{record.index + 1}</span>
                                 </div>
-                                <div className="p-4 space-y-3">
-                                    <div className="grid md:grid-cols-2 gap-3">
-                                        <div className="rounded-sm bg-red-50/70 border border-red-500/10 p-3">
-                                            <p className="text-[10px] font-bold text-red-600 mb-1">{t('edit.before')}</p>
-                                            <p className="text-sm text-on-surface leading-relaxed whitespace-pre-wrap">{record.before}</p>
+                                <div className="space-y-3 p-4">
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="rounded-[14px] border border-red-500/10 bg-red-50/70 p-3 dark:bg-red-500/10">
+                                            <p className="mb-1 text-[10px] font-bold text-red-600 dark:text-red-300">{t('edit.before')}</p>
+                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{record.before}</p>
                                         </div>
-                                        <div className="rounded-sm bg-green-50/80 border border-green-500/10 p-3">
-                                            <p className="text-[10px] font-bold text-green-700 mb-1">{t('edit.after')}</p>
-                                            <p className="text-sm text-on-surface leading-relaxed whitespace-pre-wrap">{record.after}</p>
+                                        <div className="rounded-[14px] border border-green-500/10 bg-green-50/80 p-3 dark:bg-green-500/10">
+                                            <p className="mb-1 text-[10px] font-bold text-green-700 dark:text-green-300">{t('edit.after')}</p>
+                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{record.after}</p>
                                         </div>
                                     </div>
-                                    <div className="grid md:grid-cols-2 gap-3 text-xs text-on-surface-variant">
-                                        <div className="rounded-sm bg-surface-container-low p-3">
-                                            <p className="font-bold mb-1">{t('edit.previousSentence')}</p>
-                                            <p className="leading-relaxed whitespace-pre-wrap">{record.previous_before || record.previous_after || '-'}</p>
+                                    <div className="grid gap-3 text-xs text-[#666] dark:text-white/60 md:grid-cols-2">
+                                        <div className="rounded-[14px] bg-[#f8f7fb] p-3 dark:bg-white/[0.06]">
+                                            <p className="mb-1 font-bold text-[#111111] dark:text-white">{t('edit.previousSentence')}</p>
+                                            <p className="whitespace-pre-wrap leading-relaxed">{record.previous_before || record.previous_after || '-'}</p>
                                         </div>
-                                        <div className="rounded-sm bg-surface-container-low p-3">
-                                            <p className="font-bold mb-1">{t('edit.nextSentence')}</p>
-                                            <p className="leading-relaxed whitespace-pre-wrap">{record.next_before || record.next_after || '-'}</p>
+                                        <div className="rounded-[14px] bg-[#f8f7fb] p-3 dark:bg-white/[0.06]">
+                                            <p className="mb-1 font-bold text-[#111111] dark:text-white">{t('edit.nextSentence')}</p>
+                                            <p className="whitespace-pre-wrap leading-relaxed">{record.next_before || record.next_after || '-'}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1195,41 +1196,41 @@ const Editor = () => {
                 if(file) handleMediaFileSelected(file);
             }}
         />
-        <main className="pt-6 pb-4 px-8 h-screen overflow-hidden">
+        <main className="h-dvh overflow-hidden px-8 pb-4 pt-6">
             <div className="max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-4">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
                                             <div className="min-w-0 pr-2">
                         <h1
-                            className="max-w-[30ch] text-[clamp(1.6rem,1.9vw,2.05rem)] leading-tight font-extrabold font-headline text-on-surface"
+                            className="max-w-[30ch] font-headline text-[clamp(1.55rem,1.8vw,2rem)] font-extrabold leading-tight text-[#111111] dark:text-white"
                             title={rawEditorTitle}
                             aria-label={rawEditorTitle}
                         >
                             {editorTitle}
                         </h1>
-	                        <p className="max-w-[68ch] text-on-surface-variant mt-1 text-sm leading-snug">
+	                        <p className="mt-1 max-w-[68ch] text-sm font-semibold leading-snug text-[#666] dark:text-white/60">
 	                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
 		                            {sttElapsedSec > 0 && <>{t('edit.sttElapsed')}: {fmtElapsed(sttElapsedSec)} {sttRealtimeFactor ? `(${fmtSttRelative(sttRealtimeFactor, lang)})` : ''} &bull; </>}
 		                            {sttProfile && <>STT: {sttProfile} &bull; </>}
 		                            {noteModeText && <>{t('work.summaryMode')}: {noteModeText} &bull; </>}
 		                            {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
-                            <span className="text-tertiary font-semibold uppercase tracking-wider text-[10px]">{t('edit.confidence')}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#111111] dark:text-white">{t('edit.confidence')}</span>
                         </p>
                                             </div>
                     <div className="grid grid-cols-4 gap-3 w-[360px] flex-shrink-0">
-	                        <button onClick={()=>setPromptOpen(true)} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-amber-50 text-amber-700 font-semibold text-xs rounded-lg hover:bg-amber-100 transition border border-amber-200/50">
-	                            <span className="material-symbols-outlined text-lg">tune</span>
+	                        <button onClick={()=>setPromptOpen(true)} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[#e4e0e0] bg-white px-2 py-2 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
+	                            <SvgIcon name="tune" className="text-lg"/>
 	                            <span className="leading-tight text-center whitespace-normal break-keep">{t('prompt.collapsed')}</span>
 	                        </button>
-	                        <button onClick={handleRegenerate} disabled={isGuestResult||regenerating||!transcript} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-tertiary/10 text-tertiary font-semibold text-xs rounded-lg hover:bg-tertiary/20 transition disabled:opacity-40">
-                            <span className={`material-symbols-outlined text-lg ${regenerating?'animate-spin':''}`}>{regenerating?'sync':'refresh'}</span>
+	                        <button onClick={handleRegenerate} disabled={isGuestResult||regenerating||!transcript} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[#e4e0e0] bg-white px-2 py-2 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
+                            <SvgIcon name={regenerating ? 'sync' : 'refresh'} className={`text-lg ${regenerating?'animate-spin':''}`}/>
                             <span className="leading-tight text-center whitespace-normal break-keep">{t('edit.regenerate')}</span>
                         </button>
-	                        <button onClick={handleRetranscribe} disabled={isGuestResult||retranscribing||retranscribeBlockedByJob} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 rounded-lg border border-primary/20 bg-primary/10 text-primary font-semibold text-xs transition hover:bg-primary/15 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-outline-variant/40 disabled:bg-surface-container-low disabled:text-outline disabled:opacity-100 disabled:hover:bg-surface-container-low">
-                            <span className={`material-symbols-outlined text-lg ${retranscribing?'animate-spin':''}`}>{retranscribing?'sync':'record_voice_over'}</span>
+	                        <button onClick={handleRetranscribe} disabled={isGuestResult||retranscribing||retranscribeBlockedByJob} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[#d6dcff] bg-[#eef2ff] px-2 py-2 text-xs font-bold text-primary transition hover:bg-[#e7edff] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-[#e4e0e0] disabled:bg-white disabled:text-[#8a8a8a] disabled:opacity-100 disabled:hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:disabled:bg-white/[0.04] dark:disabled:text-white/35">
+                            <SvgIcon name={retranscribing ? 'sync' : 'record_voice_over'} className={`text-lg ${retranscribing?'animate-spin':''}`}/>
                             <span className="leading-tight text-center whitespace-normal break-keep">{retranscribing ? t('edit.retranscribing') : t('edit.retranscribe')}</span>
                         </button>
-                        <button onClick={handleExportLark} disabled={isGuestResult||exporting||!summary} className="h-[86px] min-w-0 flex flex-col items-center justify-center gap-1.5 px-2 py-2 bg-primary text-white font-semibold text-xs rounded-lg hover:bg-primary-container transition disabled:opacity-40">
-                            <span className={`material-symbols-outlined text-lg ${exporting?'animate-spin':''}`}>{exporting?'sync':'cloud_upload'}</span>
+                        <button onClick={handleExportLark} disabled={isGuestResult||exporting||!summary} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] bg-[#111111] px-2 py-2 text-xs font-bold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
+                            <SvgIcon name={exporting ? 'sync' : 'cloud_upload'} className={`text-lg ${exporting?'animate-spin':''}`}/>
                             <span className="leading-tight text-center whitespace-normal break-keep">{t('edit.export')}</span>
                         </button>
                                         </div>
@@ -1262,19 +1263,19 @@ const Editor = () => {
                     handleBuiltinExtraChange={handleBuiltinExtraChange}
                 />
 
-                        <div className="flex-1 min-h-0 flex gap-4 overflow-hidden">
-                            <section className="flex-1 min-h-0 bg-surface-container-low rounded-sm flex flex-col overflow-hidden">
-                                <div className="p-4 sm:p-5 border-b border-surface-container-highest">
+                        <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
+                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                <div className="border-b border-[#e4e0e0] p-4 dark:border-white/[0.12] sm:p-5">
                                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2">
-                                                <span className="material-symbols-outlined text-primary text-[20px]">subject</span>
-                                                <h2 className="font-headline font-bold text-lg text-on-surface truncate">
+                                                <SvgIcon name="subject" className="text-[20px] text-[#111111] dark:text-white"/>
+                                                <h2 className="truncate font-headline text-lg font-extrabold text-[#111111] dark:text-white">
                                                     {t('edit.transcript')}
                                                 </h2>
                                             </div>
                                             {(transcriptDirty || segments.length === 0 || transcriptSaveStatus !== 'idle') && (
-                                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-7 text-[11px] font-semibold leading-tight text-on-surface-variant">
+                                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-7 text-[11px] font-semibold leading-tight text-[#666] dark:text-white/60">
                                                     {transcriptDirty && (
                                                         <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
                                                             <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
@@ -1295,15 +1296,16 @@ const Editor = () => {
                                                                     ? 'text-primary'
                                                                     : 'text-emerald-700 dark:text-emerald-300'
                                                         }`}>
-                                                            <span className={`material-symbols-outlined text-[13px] ${
-                                                                transcriptSaveStatus === 'saving' ? 'animate-spin' : ''
-                                                            }`}>
-                                                                {transcriptSaveStatus === 'saving'
+                                                            <SvgIcon
+                                                                name={transcriptSaveStatus === 'saving'
                                                                     ? 'sync'
                                                                     : transcriptSaveStatus === 'failed'
                                                                         ? 'error'
                                                                         : 'check_circle'}
-                                                            </span>
+                                                                className={`text-[13px] ${
+                                                                transcriptSaveStatus === 'saving' ? 'animate-spin' : ''
+                                                            }`}
+                                                            />
                                                             {transcriptSaveStatus === 'saving'
                                                                 ? t('edit.transcriptSaving')
                                                                 : transcriptSaveStatus === 'failed'
@@ -1314,21 +1316,21 @@ const Editor = () => {
                                                 </div>
                                             )}
                                             {transcriptReason && (
-                                                <p className="mt-1 max-w-[56ch] pl-7 text-[11px] font-semibold leading-relaxed text-on-surface-variant">
+                                                <p className="mt-1 max-w-[56ch] pl-7 text-[11px] font-semibold leading-relaxed text-[#666] dark:text-white/60">
                                                     {transcriptReason}
                                                 </p>
                                             )}
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                             {hasBilingualTranscript && segments.length > 0 && (
-                                                <div className="inline-flex h-9 overflow-hidden rounded-sm border ff-border-control bg-surface-container-lowest p-0.5">
+                                                <div className="inline-flex h-9 overflow-hidden rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                                     <button
                                                         type="button"
                                                         onClick={()=>setTranscriptView('bilingual')}
                                                         className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                                                             visibleTranscriptView === 'bilingual'
-                                                                ? 'bg-primary text-on-primary'
-                                                                : 'text-on-surface-variant hover:bg-primary/5 hover:text-primary'
+                                                                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                                                                : 'text-[#666] hover:bg-white hover:text-[#111111] dark:text-white/60 dark:hover:bg-white/[0.08] dark:hover:text-white'
                                                         }`}
                                                     >
                                                         {lang === 'zh' ? '中英对照' : 'Bilingual'}
@@ -1338,8 +1340,8 @@ const Editor = () => {
                                                         onClick={()=>setTranscriptView('raw')}
                                                         className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                                                             visibleTranscriptView === 'raw'
-                                                                ? 'bg-primary text-on-primary'
-                                                                : 'text-on-surface-variant hover:bg-primary/5 hover:text-primary'
+                                                                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                                                                : 'text-[#666] hover:bg-white hover:text-[#111111] dark:text-white/60 dark:hover:bg-white/[0.08] dark:hover:text-white'
                                                         }`}
                                                     >
                                                         {lang === 'zh' ? '原始字幕' : 'Original'}
@@ -1350,11 +1352,9 @@ const Editor = () => {
                                                 type="button"
                                                 onClick={handleTranslateTranscript}
                                                 disabled={isGuestResult || translatingTranscript || !result?.task_id || segments.length === 0}
-                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-primary/20 bg-primary/5 px-3 text-xs font-bold text-primary transition hover:bg-primary/10 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-outline-variant disabled:bg-surface-container-low disabled:text-outline"
+                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] border border-[#d6dcff] bg-[#eef2ff] px-3 text-xs font-bold text-primary transition hover:bg-[#e7edff] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-[#e4e0e0] disabled:bg-[#f8f7fb] disabled:text-[#8a8a8a] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:disabled:bg-white/[0.04] dark:disabled:text-white/35"
                                             >
-                                                <span className={`material-symbols-outlined text-[17px] ${translatingTranscript ? 'animate-spin' : ''}`}>
-                                                    {translatingTranscript ? 'sync' : 'translate'}
-                                                </span>
+                                                <SvgIcon name={translatingTranscript ? 'sync' : 'translate'} className={`text-[17px] ${translatingTranscript ? 'animate-spin' : ''}`}/>
                                                 <span>
                                                     {translatingTranscript
                                                         ? (lang === 'zh' ? '生成中' : 'Translating')
@@ -1366,16 +1366,16 @@ const Editor = () => {
                                             <button
                                                 type="button"
                                                 onClick={()=>setEditRecordsOpen(true)}
-                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border ff-border-control bg-surface-container-lowest px-3 text-xs font-bold text-on-surface-variant transition hover:bg-primary/5 hover:text-primary active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
                                             >
-                                                <span className="material-symbols-outlined text-[17px]">edit_note</span>
+                                                <SvgIcon name="edit_note" className="text-[17px]"/>
                                                 <span>{t('edit.editRecords')}</span>
                                                 <span className="tabular-nums text-primary">{editRecords.length}</span>
                                             </button>
                                             <DropdownMenu
                                                 trigger={
-                                                    <button className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm bg-primary px-3 text-xs font-bold text-on-primary transition hover:bg-primary-container active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-                                                        <span className="material-symbols-outlined text-[17px]">download</span>
+                                                    <button className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3 text-xs font-bold text-white transition hover:bg-[#2a2a2a] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
+                                                        <SvgIcon name="download" className="text-[17px]"/>
                                                         {lang === 'zh' ? '导出' : t('dl.transcript')}
                                                     </button>
                                                 }
@@ -1390,26 +1390,26 @@ const Editor = () => {
                                         </div>
                                     </div>
                                 </div>
-                        <div ref={transcriptScrollRef} className="flex-1 min-h-0 overflow-y-auto p-5 space-y-2 hide-scrollbar">
+                        <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-5">
                             {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
                                 <div
                                     key={`bilingual-${i}`}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                    className={`flex gap-4 rounded-sm px-3 py-3 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-primary/10' : 'hover:bg-surface-container'}`}
+                                    className={`flex gap-4 rounded-[16px] px-3 py-3 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={()=>seekToSegment(seg)}
-                                        className={`w-24 flex-shrink-0 pt-1 text-left font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'text-primary font-bold' : 'text-on-surface-variant hover:text-primary'}`}
+                                        className={`w-24 flex-shrink-0 pt-1 text-left font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#777] hover:text-primary dark:text-white/45'}`}
                                     >
                                         <span className="block">{fmtTime(seg.start)}</span>
                                         <span className="mt-0.5 block text-[10px] opacity-70">{fmtTime(seg.end)}</span>
                                     </button>
                                     <div className="min-w-0 flex-1">
-                                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
+                                        <p className="whitespace-pre-wrap text-sm font-medium leading-relaxed text-[#111111] dark:text-white">
                                             {seg.text}
                                         </p>
-                                        <p className="mt-2 border-l-2 border-primary/25 pl-3 text-sm leading-relaxed text-on-surface-variant">
+                                        <p className="mt-2 border-l-2 border-primary/25 pl-3 text-sm font-medium leading-relaxed text-[#666] dark:text-white/65">
                                             {seg.text_zh}
                                         </p>
                                     </div>
@@ -1418,12 +1418,12 @@ const Editor = () => {
                                 <div
                                     key={i}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                    className={`flex gap-4 group rounded-sm px-2 py-2 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-primary/10' : 'hover:bg-surface-container'}`}
+                                    className={`group flex gap-4 rounded-[16px] px-2 py-2 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={()=>seekToSegment(seg)}
-                                        className={`text-xs font-mono pt-2 w-14 flex-shrink-0 text-left transition ${i===activeSegmentIndex && mediaUrl ? 'text-primary font-bold' : 'text-slate-400 hover:text-primary'}`}
+                                        className={`w-14 flex-shrink-0 pt-2 text-left font-mono text-xs transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#8a8a8a] hover:text-primary dark:text-white/40'}`}
                                     >
                                         {fmtTime(seg.start)}
                                     </button>
@@ -1435,14 +1435,14 @@ const Editor = () => {
                                             onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
                                             onFocus={()=>setFollowPlayback(false)}
                                             rows={1}
-                                            className="w-full resize-none overflow-hidden min-h-[2rem] bg-transparent border-none p-0 text-on-surface text-sm leading-relaxed focus:ring-0"
+                                            className="min-h-[2rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-medium leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
                                         />
                                     </div>
                                         </div>
 	                            )) : (
                                     <div className="min-h-full flex flex-col gap-3">
-                                        <div className="rounded-sm border border-primary/20 bg-primary/5 px-3.5 py-3 flex items-start gap-3">
-                                            <span className="material-symbols-outlined text-primary text-base mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">info</span>
+                                        <div className="flex items-start gap-3 rounded-[16px] border border-[#d6dcff] bg-[#eef2ff] px-3.5 py-3 dark:border-white/[0.12] dark:bg-white/[0.08]">
+                                            <SvgIcon name="info" className="text-primary text-base mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10"/>
                                             <p className="text-xs leading-relaxed text-on-surface-variant">
                                                 {lang==='zh'
                                                     ? '当前结果没有时间戳分段，只能按纯文本编辑。常见原因是旧历史记录、纯文本导入，或任务结果没有成功写入后端。重新转录原音频后会恢复左侧时间戳分段。'
@@ -1453,12 +1453,12 @@ const Editor = () => {
 	                                    value={transcript}
 	                                    onChange={(e)=>handlePlainTranscriptChange(e.target.value)}
 	                                    onFocus={()=>setFollowPlayback(false)}
-	                                    className="w-full flex-1 min-h-[320px] resize-none bg-transparent border-none p-0 text-on-surface text-sm leading-relaxed whitespace-pre-wrap focus:ring-0"
+	                                    className="min-h-[320px] w-full flex-1 resize-none whitespace-pre-wrap border-none bg-transparent p-0 text-sm font-medium leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
 	                                />
                                     </div>
 	                            )}
                                 </div>
-                                <div className="border-t border-surface-container-highest bg-surface-container-lowest/80 p-4">
+                                <div className="border-t border-[#e4e0e0] bg-[#fbfbfb]/90 p-4 dark:border-white/[0.12] dark:bg-white/[0.04]">
                                     <video
                                         ref={mediaRef}
                                         src={mediaUrl || undefined}
@@ -1472,10 +1472,10 @@ const Editor = () => {
                                     {mediaUrl ? (
                                         <div className="space-y-3">
                                             <div className="flex items-center gap-3">
-                                                <button type="button" onClick={togglePlayback} className="w-9 h-9 rounded-sm bg-primary text-white flex items-center justify-center hover:bg-primary-container transition">
-                                                    <span className="material-symbols-outlined text-lg">{mediaPlaying ? 'pause' : 'play_arrow'}</span>
+                                                <button type="button" onClick={togglePlayback} className="flex h-9 w-9 items-center justify-center rounded-[13px] bg-[#111111] text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
+                                                    <SvgIcon name={mediaPlaying ? 'pause' : 'play_arrow'} className="text-lg"/>
                                                 </button>
-                                                <button type="button" onClick={()=>setFollowPlayback(v=>!v)} className={`px-2.5 py-1.5 rounded-sm text-xs font-bold transition ${followPlayback?'bg-blue-50 text-primary':'bg-surface-container text-on-surface-variant'}`}>
+                                                <button type="button" onClick={()=>setFollowPlayback(v=>!v)} className={`rounded-[12px] px-2.5 py-1.5 text-xs font-bold transition ${followPlayback?'bg-[#eef2ff] text-primary dark:bg-white/[0.1] dark:text-white':'bg-[#efeeee] text-[#666] dark:bg-white/[0.08] dark:text-white/60'}`}>
                                                     {t('edit.followPlayback')}
                                                 </button>
                                                 <span className="text-xs font-mono text-on-surface-variant ml-auto">{fmtTime(mediaCurrentTime)} / {fmtTime(playbackDuration || mediaCurrentTime)}</span>
@@ -1497,29 +1497,29 @@ const Editor = () => {
                                         </div>
                                     ) : (
                                         <div className="flex items-center justify-between gap-3">
-                                            <p className="text-xs text-on-surface-variant">{mediaLoading ? t('edit.sourceLoading') : (mediaError || t('edit.audioUnavailable'))}</p>
-                                            <button type="button" onClick={()=>mediaInputRef.current?.click()} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-sm bg-surface-container text-on-surface text-xs font-bold hover:bg-surface-container-high transition">
-                                                <span className="material-symbols-outlined text-sm">audio_file</span>{t('edit.chooseAudio')}
+                                            <p className="text-xs font-semibold text-[#666] dark:text-white/60">{mediaLoading ? t('edit.sourceLoading') : (mediaError || t('edit.audioUnavailable'))}</p>
+                                            <button type="button" onClick={()=>mediaInputRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-[13px] bg-[#efeeee] px-3 py-2 text-xs font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                                                <SvgIcon name="audio_file" className="text-sm"/>{t('edit.chooseAudio')}
                                             </button>
                                         </div>
                                     )}
                                 </div>
                             </section>
 
-                            <section className="flex-1 min-h-0 bg-surface-container-lowest rounded-sm flex flex-col shadow-sm overflow-hidden">
-                                <div className="p-5 flex justify-between items-center bg-tertiary/5 border-b border-surface-container-highest">
-                                    <h2 className="font-headline font-bold text-lg flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-tertiary">psychology</span>
+                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                <div className="flex items-center justify-between border-b border-[#e4e0e0] bg-[#fbfbfb] p-5 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                    <h2 className="flex items-center gap-2 font-headline text-lg font-extrabold text-[#111111] dark:text-white">
+                                        <SvgIcon name="psychology" className="text-[#111111] dark:text-white"/>
                                 {t('edit.aiSummary')}
                                     </h2>
                             <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/50">
+                            <span className="rounded-full border border-[#e4e0e0] bg-white px-2.5 py-1 text-[10px] font-bold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
                                 {t('prompt.activeHint')}{presetLabel(promptKey)}
                             </span>
                                 <DropdownMenu
                                     trigger={
-                                        <button disabled={!summary || !!downloading} className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-tertiary bg-purple-50 hover:bg-purple-100 rounded-lg transition border border-purple-200/50 disabled:opacity-40">
-                                            <span className={`material-symbols-outlined text-sm ${downloading?'animate-spin':''}`}>{downloading?'sync':'download'}</span>
+                                        <button disabled={!summary || !!downloading} className="flex items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-white px-2.5 py-1.5 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
+                                            <SvgIcon name={downloading ? 'sync' : 'download'} className={`text-sm ${downloading?'animate-spin':''}`}/>
                                             {downloading ? t('dl.generating') : t('dl.summary')}
                                     </button>
                                     }
@@ -1537,36 +1537,36 @@ const Editor = () => {
                                 />
                             </div>
                                 </div>
-                                <div className="flex-1 min-h-0 overflow-y-auto p-8 hide-scrollbar">
+                                <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-8 text-[#111111] dark:text-white">
 	                            {summary ? (
 	                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
 	                            ) : result.summary_skipped ? (
-	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summarySkipped')}</p>
+	                                <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summarySkipped')}</p>
 	                            ) : result.summary_status === 'failed' || result.summary_error ? (
-	                                <div className="space-y-2 text-sm text-on-surface-variant">
+	                                <div className="space-y-2 text-sm text-[#666] dark:text-white/60">
 	                                    <p className="italic">{t('edit.summaryFailed')}</p>
 	                                    {summaryFailureHint && (
-	                                        <p className="rounded-sm border border-error/20 bg-error-container px-3 py-2 text-xs font-semibold leading-relaxed text-on-error-container">
+	                                        <p className="rounded-[14px] border border-error/20 bg-error-container px-3 py-2 text-xs font-semibold leading-relaxed text-on-error-container">
 	                                            {summaryFailureHint}
 	                                        </p>
 	                                    )}
 	                                </div>
 	                            ) : (
-	                                <p className="text-on-surface-variant text-sm italic">{t('edit.summaryPending')}</p>
+	                                <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summaryPending')}</p>
 	                            )}
                                 </div>
-                                <div className="border-t border-tertiary/20 bg-tertiary-fixed px-4 py-3">
+                                <div className="border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
                                     <div className="flex flex-col gap-2">
                                         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                                         <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-tertiary text-sm" style={{fontVariationSettings:"'FILL' 1"}}>verified</span>
-                                            <span className="text-[10px] font-bold text-on-tertiary-fixed-variant uppercase tracking-widest">{t('edit.confidence')}</span>
+                                            <SvgIcon name="verified" className="text-sm text-[#111111] dark:text-white"/>
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#666] dark:text-white/60">{t('edit.confidence')}</span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5">
                                             {summaryGenerationMeta.map((item) => (
-                                                <span key={item.label} className="inline-flex min-h-7 items-center gap-1 rounded-sm border border-tertiary/20 bg-surface-container-lowest/75 px-2.5 py-1 text-[11px] font-semibold text-on-surface-variant">
-                                                    <span className="text-outline">{item.label}</span>
-                                                    <span className="max-w-[16rem] truncate text-on-surface" title={item.value}>{item.value}</span>
+                                                <span key={item.label} className="inline-flex min-h-7 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                                    <span className="text-[#8a8a8a] dark:text-white/40">{item.label}</span>
+                                                    <span className="max-w-[16rem] truncate text-[#111111] dark:text-white" title={item.value}>{item.value}</span>
                                                 </span>
                                             ))}
                                         </div>
@@ -1574,8 +1574,8 @@ const Editor = () => {
                                         {summaryReasonItems.length > 0 && (
                                             <div className="grid gap-1.5 md:grid-cols-3">
                                                 {summaryReasonItems.map((item) => (
-                                                    <p key={item.label} className="rounded-sm border border-tertiary/15 bg-surface-container-lowest/60 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-on-surface-variant">
-                                                        <span className="mr-1 text-outline">{item.label}</span>
+                                                    <p key={item.label} className="rounded-[11px] border border-[#e4e0e0] bg-white px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                                        <span className="mr-1 text-[#8a8a8a] dark:text-white/40">{item.label}</span>
                                                         <span>{item.value}</span>
                                                     </p>
                                                 ))}

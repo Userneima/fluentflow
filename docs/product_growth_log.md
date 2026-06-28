@@ -538,7 +538,7 @@ SRT/VTT 是面向播放器的字幕格式，包含时间码、序号和短字幕
 
 ### 问题
 
-如果把 FluentFlow 上线到云服务器给外部用户使用，继续暴露本地 faster-whisper、Azure Key、Blob/SAS、pyannote token、DeepSeek/OpenAI Key、飞书 App Secret 等配置，会让普通用户误以为自己需要理解和维护基础设施。
+如果把 FluentFlow 上线到云服务器给外部用户使用，继续暴露本地 faster-whisper、STT 厂商 Key、pyannote token、DeepSeek/OpenAI Key、飞书 App Secret 等配置，会让普通用户误以为自己需要理解和维护基础设施。
 
 更大的风险是：本地转录路径在云服务器上会消耗主机 CPU/GPU，并且不同用户共享同一个服务进程；如果没有并发限制，少量长视频就可能拖垮封闭 Beta。
 
@@ -549,12 +549,12 @@ SRT/VTT 是面向播放器的字幕格式，包含时间码、序号和短字幕
 ### 方案
 
 - 新增 `FLUENTFLOW_PUBLIC_MODE=1` 运行模式。
-- 公共模式默认只允许 `azure_batch` 转录；后端会把旧客户端传来的 `local` 兜底改为云端路径。
+- 公共模式默认只允许 `elevenlabs_scribe` 转录；后端会把旧客户端传来的 `local` 兜底改为云端路径。
 - 新增 `/runtime-config`，只向前端暴露运行模式、允许的 STT Provider 和任务限制，不暴露任何密钥。
 - 前端根据运行配置隐藏维护者设置：本地模型、速度档、pyannote token、AI API Key、飞书 App ID/App Secret 等不再出现在普通用户工作台。
 - 新增 `FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT`，默认公共模式下每个设备最多 2 个排队/运行中的任务。
 - 多文件上传、抖音链接任务和单文件处理都会在创建任务前做并发限制，避免单个浏览器无限堆长任务。
-- Beta 部署清单补充云服务器推荐环境变量和口径：普通用户不理解 Azure，维护者负责配置 Speech、Blob/SAS、摘要模型和飞书导出。
+- Beta 部署清单补充云服务器推荐环境变量和口径：普通用户不理解 STT 厂商和基础设施，维护者负责配置 ElevenLabs、摘要模型和飞书导出。
 
 ### 取舍
 

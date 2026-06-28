@@ -1,5 +1,6 @@
 import {Link} from 'react-router-dom';
 import {useI18n} from '../app/shared.jsx';
+import SvgIcon from '../components/SvgIcon.jsx';
 
 const About = () => {
     const {lang} = useI18n();
@@ -43,7 +44,7 @@ const About = () => {
         <main className="ml-[var(--sidebar-offset)] min-h-screen bg-surface px-10 py-10 text-on-surface transition-[margin] duration-200 ease-out">
             <div className="mx-auto max-w-4xl">
                 <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-on-surface-variant transition hover:text-on-surface">
-                    <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+                    <SvgIcon name="arrow_back" className="text-[18px]"/>
                     {zh ? '返回开始处理' : 'Back to Start'}
                 </Link>
                 <div className="mt-8 rounded-sm border ff-border-muted bg-surface-container-lowest p-8 shadow-sm">

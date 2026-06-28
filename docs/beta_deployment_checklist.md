@@ -81,14 +81,14 @@ export FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS=14400
 
 ### 云服务器用户模式
 
-上线给外部试用者使用时，普通用户不应该看到本地 faster-whisper、Azure Key、Blob/SAS、pyannote token、DeepSeek/OpenAI Key、飞书 App Secret 等维护者配置。
+上线给外部试用者使用时，普通用户不应该看到本地 faster-whisper、ElevenLabs Key、pyannote token、DeepSeek/OpenAI Key、飞书 App Secret 等维护者配置。
 
 推荐云服务器最小配置：
 
 ```bash
 export FLUENTFLOW_PUBLIC_MODE=1
-export FLUENTFLOW_ALLOWED_STT_PROVIDERS=azure_batch
-export FLUENTFLOW_DEFAULT_STT_PROVIDER=azure_batch
+export FLUENTFLOW_ALLOWED_STT_PROVIDERS=elevenlabs_scribe
+export FLUENTFLOW_DEFAULT_STT_PROVIDER=elevenlabs_scribe
 export FLUENTFLOW_AUTH_MODE=accounts
 export FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
 export FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT=2
@@ -102,7 +102,7 @@ export FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
 
 效果：
 
-- 后端会把客户端传来的 `local` 转录路线强制改为 `azure_batch`。
+- 后端会把客户端传来的 `local` 转录路线强制改为 `elevenlabs_scribe`。
 - 前端处理设置页只显示云端转录，不再让普通用户选择本地转录。
 - API Key、飞书 App 凭证、pyannote token 等维护者字段会隐藏为“后台统一配置”。
 - 默认不配置 `FLUENTFLOW_ACCESS_TOKEN`；用户通过账号登录。后端通过账号、IP 和全站额度控制异常提交。如果要封闭 Beta，再额外设置访问码。
@@ -111,7 +111,7 @@ export FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP=12
 本地开发时不要开启 `FLUENTFLOW_PUBLIC_MODE`，仍可显式设置：
 
 ```bash
-export FLUENTFLOW_ALLOWED_STT_PROVIDERS=local,azure_batch
+export FLUENTFLOW_ALLOWED_STT_PROVIDERS=local,elevenlabs_scribe
 ```
 
 ### 本地文件清理
@@ -156,7 +156,7 @@ python3 scripts/cleanup_storage.py --apply
 
 - 单台云服务器运行 FastAPI、前端静态文件、FFmpeg
 - Nginx 做 HTTPS、反向代理和请求体大小限制
-- Azure Batch 作为默认云转录路线
+- ElevenLabs Scribe 作为默认云转录路线
 - SQLite 继续用于小规模任务历史和事件日志
 - 对象存储暂缓，等 Beta 用户和文件量上来再迁移
 

@@ -443,6 +443,7 @@ try:
     from backend.core.frame_extractor import extract_candidate_frames
     from backend.core.local_stt import transcribe_audio, get_or_load_model
     from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
+    from backend.core.elevenlabs_stt import transcribe_audio_scribe
     from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
     from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh
     from backend.core.lark_exporter import export_markdown_to_lark
@@ -501,6 +502,7 @@ except ImportError:
     from core.audio_handler import extract_compressed_mp3, extract_stt_wav
     from core.local_stt import transcribe_audio, get_or_load_model
     from core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
+    from core.elevenlabs_stt import transcribe_audio_scribe
     from core.stt_process import drain_queue, start_transcription_process, terminate_process
     from core.ai_summarizer import generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
     from core.lark_exporter import export_markdown_to_lark
@@ -1080,6 +1082,12 @@ def _friendly_error_message(error: Any) -> str:
         return "云端转录暂不可用：后端 Azure Speech 配置不完整。请联系产品维护者检查 Speech endpoint 和 key。"
     if "cloud transcription storage is not configured" in lowered:
         return "云端转录暂不可用：后端 Blob/SAS 存储配置缺失。请联系产品维护者检查 Azure 存储设置。"
+    if "elevenlabs api key is not configured" in lowered or "elevenlabs transcription backend configuration is incomplete" in lowered:
+        return "云端转录暂不可用：后端 ElevenLabs API Key 未配置。请联系产品维护者检查 ELEVENLABS_API_KEY。"
+    if "elevenlabs transcription failed" in lowered:
+        return "ElevenLabs 云端转录失败。请检查 API Key、账户额度、文件格式和音频长度后重试。"
+    if "elevenlabs transcription request failed" in lowered:
+        return "ElevenLabs 云端转录请求失败。请检查网络连接后重试。"
     if "only \"standard\" subscriptions" in lowered or 'only \\"standard\\" subscriptions' in lowered or "invalidsubscription" in lowered:
         return "云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。"
     if "invalidlocale" in lowered or "specified locale is not supported" in lowered:
@@ -2195,6 +2203,8 @@ def _stt_realtime_factor(stt_elapsed_seconds: float | None, duration_seconds: fl
 
 def _canonical_stt_provider(value: str | None) -> str:
     provider = (value or "").strip().lower().replace("-", "_")
+    if provider in {"elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2"}:
+        return "elevenlabs_scribe"
     if provider in {"azure", "azure_batch", "azure_blob", "azure_speech_batch", "azure_fast", "azure_speech"}:
         return "azure_batch"
     if provider in {"local", "faster_whisper", "faster-whisper", "whisper"}:
@@ -2216,19 +2226,19 @@ def _request_can_use_local_stt(request: Request | None = None) -> bool:
 def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
     raw = os.environ.get("FLUENTFLOW_ALLOWED_STT_PROVIDERS")
     if raw is None or not raw.strip():
-        return ("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",)
+        return ("elevenlabs_scribe", "local") if _request_can_use_local_stt(request) else ("elevenlabs_scribe",)
     providers: list[str] = []
     for item in raw.split(","):
         provider = _canonical_stt_provider(item)
-        if provider in {"azure_batch", "local"} and provider not in providers:
+        if provider in {"elevenlabs_scribe", "azure_batch", "local"} and provider not in providers:
             providers.append(provider)
     if _public_mode_enabled() and not _request_can_use_local_stt(request):
         providers = [provider for provider in providers if provider != "local"]
-    return tuple(providers) or (("azure_batch", "local") if _request_can_use_local_stt(request) else ("azure_batch",))
+    return tuple(providers) or (("elevenlabs_scribe", "local") if _request_can_use_local_stt(request) else ("elevenlabs_scribe",))
 
 
 def _default_stt_provider(request: Request | None = None) -> str:
-    requested = _canonical_stt_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "azure_batch")
+    requested = _canonical_stt_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "elevenlabs_scribe")
     allowed = _allowed_stt_providers(request)
     return requested if requested in allowed else allowed[0]
 
@@ -2240,8 +2250,10 @@ def _normalize_stt_provider(value: str | None, request: Request | None = None) -
 
 
 def _stt_provider_label(provider: str) -> str:
+    if provider == "elevenlabs_scribe":
+        return "ElevenLabs Scribe"
     if provider == "azure_batch":
-        return "Cloud Transcription"
+        return "Legacy Azure Batch"
     return "faster-whisper"
 
 
@@ -2745,6 +2757,7 @@ def _queue_options_from_form(
     stt_speed: Optional[str],
     stt_language: Optional[str],
     stt_provider: Optional[str],
+    elevenlabs_api_key: Optional[str],
     azure_speech_key: Optional[str],
     azure_speech_endpoint: Optional[str],
     azure_blob_container_sas_url: Optional[str],
@@ -3138,13 +3151,8 @@ def _ops_status_payload() -> dict[str, Any]:
             elif used_percent >= 85:
                 warnings.append(f"{name} 所在磁盘使用率 {used_percent}%")
     if _public_mode_enabled():
-        for key, label in (
-            ("azure_speech_endpoint_configured", "Azure Speech endpoint"),
-            ("azure_speech_key_configured", "Azure Speech key"),
-            ("azure_blob_container_sas_url_configured", "Azure Blob SAS"),
-        ):
-            if not credentials.get(key):
-                failures.append(f"缺少 {label}")
+        if not credentials.get("elevenlabs_api_key_configured"):
+            failures.append("缺少 ElevenLabs API Key")
         if not (credentials.get("deepseek_api_key_configured") or credentials.get("openai_api_key_configured")):
             failures.append("缺少摘要模型 Key")
     user_count: int | None = None

@@ -11,6 +11,7 @@ import {
     presetDisplayLabel,
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
+import SvgIcon from '../components/SvgIcon.jsx';
 import {
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_OPENAI_MODEL,
@@ -220,7 +221,7 @@ const Settings = () => {
                     <section className="rounded-[22px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex items-center gap-3 mb-5">
                             <span className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-purple-50 text-purple-600 dark:bg-purple-500/10 dark:text-purple-300">
-                                <span className="material-symbols-outlined text-lg">key</span>
+                                <SvgIcon name="key" className="text-lg"/>
                             </span>
                             <div>
                                 <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{lang==='zh'?'运行凭证':'Credentials'}</h2>
@@ -269,7 +270,7 @@ const Settings = () => {
                     <section className="rounded-[22px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex items-center gap-3 mb-5">
                             <span className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-primary/10 text-primary">
-                                <span className="material-symbols-outlined text-lg">mic</span>
+                                <SvgIcon name="mic" className="text-lg"/>
                             </span>
                             <div>
                                 <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{t('work.transcription')}</h2>
@@ -289,7 +290,7 @@ const Settings = () => {
                                 ) : (
                                     <div className={`${inputClass} flex items-center justify-between`}>
                                         <span>{isCloudSttProvider(sttProvider) ? t('set.providerCloud') : t('set.providerLocal')}</span>
-                                        <span className="material-symbols-outlined text-base text-primary">lock</span>
+                                        <SvgIcon name="lock" className="text-base text-primary"/>
                                     </div>
                                 )}
                             </div>
@@ -315,7 +316,7 @@ const Settings = () => {
                         </div>
 
                         <label htmlFor="settingsSpeakerDiarization" className={`flex items-start gap-3 rounded-[14px] bg-[#f4f3f3] dark:bg-white/[0.08] p-4 ${speakerDiarizationAvailable?'cursor-pointer hover:bg-[#efeeee] dark:hover:bg-white/[0.12]':'cursor-not-allowed opacity-60'}`}>
-                            <span className="material-symbols-outlined mt-0.5 text-primary text-lg">record_voice_over</span>
+                            <SvgIcon name="record_voice_over" className="mt-0.5 text-primary text-lg"/>
                             <span className="flex-1 min-w-0">
                                 <span className="block text-sm font-bold text-[#111111] dark:text-white">{lang==='zh'?'区分不同讲话人':'Speaker diarization'}</span>
                                 <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
@@ -364,7 +365,7 @@ const Settings = () => {
                     <section className="rounded-[22px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex items-center gap-3 mb-5">
                             <span className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-primary/10 text-primary">
-                                <span className="material-symbols-outlined text-lg">ios_share</span>
+                                <SvgIcon name="ios_share" className="text-lg"/>
                             </span>
                             <div>
                                 <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{t('work.export')}</h2>
@@ -374,7 +375,7 @@ const Settings = () => {
 
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                             <label htmlFor="settingsExportToLark" className="flex cursor-pointer items-start gap-3 rounded-[14px] bg-[#f4f3f3] dark:bg-white/[0.08] p-4 hover:bg-[#efeeee] dark:hover:bg-white/[0.12]">
-                                <span className="material-symbols-outlined mt-0.5 text-primary text-lg">ios_share</span>
+                                <SvgIcon name="ios_share" className="mt-0.5 text-primary text-lg"/>
                                 <span className="flex-1 min-w-0">
                                     <span className="block text-sm font-bold text-[#111111] dark:text-white">{t('set.autoExport')}</span>
                                     <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">{lang==='zh'?'处理完成后自动创建飞书文档。':'Create a Lark document automatically after processing.'}</span>
@@ -428,7 +429,7 @@ const Settings = () => {
                     <section className="rounded-[22px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex items-center gap-3 mb-5">
                             <span className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-purple-50 text-purple-600 dark:bg-purple-500/10 dark:text-purple-300">
-                                <span className="material-symbols-outlined text-lg">auto_fix_high</span>
+                                <SvgIcon name="auto_fix_high" className="text-lg"/>
                             </span>
                             <div>
                                 <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{t('set.promptTitle')}</h2>
@@ -447,7 +448,7 @@ const Settings = () => {
                                     </select>
                                 </div>
                                 <button type="button" onClick={() => setPromptAdvanced(v => !v)} className="inline-flex h-[42px] items-center gap-1.5 rounded-[12px] border border-[#dedada] dark:border-white/[0.12] bg-white dark:bg-white/[0.06] px-4 text-xs font-bold text-[#666] dark:text-white/55 hover:bg-[#efeeee] dark:hover:bg-white/[0.12] hover:text-[#111111] dark:hover:text-white">
-                                    <span className="material-symbols-outlined text-sm">{promptAdvanced ? 'expand_less' : 'code'}</span>
+                                    <SvgIcon name={promptAdvanced ? 'expand_less' : 'code'} className="text-sm"/>
                                     {lang==='zh'?'编辑正文':'Edit body'}
                                 </button>
                             </div>
@@ -507,7 +508,7 @@ const Settings = () => {
                         <section className="rounded-[22px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                             <div className="flex items-center gap-3 mb-4">
                                 <span className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-300">
-                                    <span className="material-symbols-outlined text-lg">history</span>
+                                    <SvgIcon name="history" className="text-lg"/>
                                 </span>
                                 <div>
                                     <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{t('set.larkHistory')}</h2>
@@ -517,12 +518,12 @@ const Settings = () => {
                             <div className="space-y-2 max-h-64 overflow-y-auto hide-scrollbar">
                                 {larkExports.map((ex,i) => (
                                     <a key={i} href={ex.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 rounded-[12px] bg-[#f4f3f3] dark:bg-white/[0.08] hover:bg-blue-50 dark:hover:bg-white/[0.12] transition group">
-                                        <span className="material-symbols-outlined text-primary text-lg" style={{fontVariationSettings:"'FILL' 1"}}>description</span>
+                                        <SvgIcon name="description" className="text-primary text-lg"/>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-semibold text-[#111111] dark:text-white truncate group-hover:text-primary">{ex.title}</p>
                                             <p className="text-[10px] text-[#8a8a8a] dark:text-white/40">{timeAgo(ex.timestamp, t)}</p>
                                         </div>
-                                        <span className="material-symbols-outlined text-[#8a8a8a] dark:text-white/40 group-hover:text-primary text-sm">open_in_new</span>
+                                        <SvgIcon name="open_in_new" className="text-[#8a8a8a] dark:text-white/40 group-hover:text-primary text-sm"/>
                                     </a>
                                 ))}
                             </div>
@@ -533,7 +534,7 @@ const Settings = () => {
                     <section className="rounded-[22px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex items-center gap-3 mb-5">
                             <span className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-primary/10 text-primary">
-                                <span className="material-symbols-outlined text-lg">palette</span>
+                                <SvgIcon name="palette" className="text-lg"/>
                             </span>
                             <div>
                                 <h2 className="text-base font-extrabold text-[#111111] dark:text-white font-headline">{t('set.prefs')}</h2>
@@ -544,18 +545,18 @@ const Settings = () => {
                         <div className="flex flex-wrap items-center gap-3">
                             <div className="inline-flex rounded-[14px] border border-[#dedada] dark:border-white/[0.12] bg-[#f4f3f3] dark:bg-white/[0.08] p-1">
                                 <button onClick={()=>applyTheme('light')} className={`flex items-center gap-1.5 rounded-[12px] px-4 py-2 text-xs font-bold transition ${!isDark?'bg-white text-[#111111] shadow-sm dark:bg-white/[0.16] dark:text-white':'text-[#777] hover:text-[#111111] dark:text-white/55 dark:hover:text-white'}`}>
-                                    <span className="material-symbols-outlined text-sm">light_mode</span>{t('set.light')}
+                                    <SvgIcon name="light_mode" className="text-sm"/>{t('set.light')}
                                 </button>
                                 <button onClick={()=>applyTheme('dark')} className={`flex items-center gap-1.5 rounded-[12px] px-4 py-2 text-xs font-bold transition ${isDark?'bg-white text-[#111111] shadow-sm dark:bg-white/[0.16] dark:text-white':'text-[#777] hover:text-[#111111] dark:text-white/55 dark:hover:text-white'}`}>
-                                    <span className="material-symbols-outlined text-sm">dark_mode</span>{t('set.dark')}
+                                    <SvgIcon name="dark_mode" className="text-sm"/>{t('set.dark')}
                                 </button>
                             </div>
                             <button onClick={handleSave} className={`inline-flex h-[38px] items-center gap-1.5 rounded-[12px] px-4 text-xs font-bold transition ${saved?'bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-300':'bg-primary/10 text-primary hover:bg-primary/20'}`}>
-                                <span className="material-symbols-outlined text-sm">{saved?"check":"save"}</span>
+                                <SvgIcon name={saved ? 'check' : 'save'} className="text-sm"/>
                                 {saved ? t('set.saved') : t('set.saveAll')}
                             </button>
                             <button onClick={handleClear} disabled={history.length===0} className={`inline-flex h-[38px] items-center gap-1.5 rounded-[12px] px-4 text-xs font-bold transition disabled:opacity-30 ${clearArmed?'bg-red-600 text-white':'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20'}`}>
-                                <span className="material-symbols-outlined text-sm">delete_sweep</span>
+                                <SvgIcon name="delete_sweep" className="text-sm"/>
                                 {cleared ? t('edit.clearConfirm') : (clearArmed ? t('edit.clearConfirmAgain') : `${t('edit.clearHistory')} (${history.length})`)}
                             </button>
                         </div>

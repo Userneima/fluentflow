@@ -102,7 +102,7 @@ FLUENTFLOW_STALE_JOB_SECONDS=90000
 
 ## 4. 备份与恢复
 
-上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 Azure、DeepSeek 等密钥写进备份包。
+上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 ElevenLabs、DeepSeek 等密钥写进备份包。
 
 ```bash
 cd /opt/fluentflow

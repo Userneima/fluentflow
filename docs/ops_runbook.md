@@ -37,7 +37,7 @@ http://127.0.0.1:8000
 
 - ECS 跑 FastAPI、静态前端、FFmpeg。
 - Nginx 做 HTTPS、反向代理、大文件上传限制和 SSE 转发。
-- Azure Batch 作为默认云转录路径。
+- ElevenLabs Scribe 作为默认云转录路径。
 - SQLite 用于小规模账号、任务历史和事件日志。
 - 定期清理本地源文件和产物。
 
@@ -45,8 +45,8 @@ http://127.0.0.1:8000
 
 ```bash
 FLUENTFLOW_PUBLIC_MODE=1
-FLUENTFLOW_ALLOWED_STT_PROVIDERS=azure_batch
-FLUENTFLOW_DEFAULT_STT_PROVIDER=azure_batch
+FLUENTFLOW_ALLOWED_STT_PROVIDERS=elevenlabs_scribe
+FLUENTFLOW_DEFAULT_STT_PROVIDER=elevenlabs_scribe
 FLUENTFLOW_AUTH_MODE=accounts
 ```
 
