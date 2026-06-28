@@ -166,8 +166,8 @@ def _deduplicate_frames(
         if frame["timestamp_seconds"] - deduped[-1]["timestamp_seconds"] >= min_gap_seconds:
             deduped.append(frame)
         else:
-            # Prefer scene frames over timepoint when close together
-            if frame["source"] == "scene" and deduped[-1]["source"] == "timepoint":
+            # Transcript-derived timepoints map better to note sections than raw scene changes.
+            if frame["source"] == "timepoint" and deduped[-1]["source"] == "scene":
                 deduped[-1] = frame
     return deduped
 

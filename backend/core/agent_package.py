@@ -118,10 +118,13 @@ def note_generation_diagnosis(job: dict[str, Any], result: dict[str, Any]) -> di
 def _artifact_local_path(task_id: str, artifact: dict[str, Any], artifact_root: Path | None) -> str | None:
     if artifact_root is None:
         return None
-    filename = Path(_text(artifact.get("filename"))).name
+    filename = _text(artifact.get("filename"))
     if not filename:
         return None
-    return str((artifact_root / task_id / filename).expanduser())
+    relative_path = Path(filename)
+    if relative_path.is_absolute() or any(part in {"", ".", ".."} for part in relative_path.parts):
+        return None
+    return str((artifact_root / task_id / relative_path).expanduser())
 
 
 def _agent_artifacts(task_id: str, result: dict[str, Any], artifact_root: Path | None) -> dict[str, dict[str, Any]]:
@@ -143,6 +146,58 @@ def _agent_artifacts(task_id: str, result: dict[str, Any], artifact_root: Path |
         if local_path:
             item["local_path"] = local_path
         payload[str(kind)] = {key: value for key, value in item.items() if value is not None and value != ""}
+    return payload
+
+
+def _agent_visual_artifacts(task_id: str, result: dict[str, Any], artifact_root: Path | None) -> dict[str, dict[str, Any]]:
+    visual_artifacts = result.get("visual_artifacts")
+    if not isinstance(visual_artifacts, dict):
+        return {}
+    payload: dict[str, dict[str, Any]] = {}
+    for kind, artifact in visual_artifacts.items():
+        if not isinstance(artifact, dict):
+            continue
+        key = str(kind)
+        url = _text(artifact.get("url") or artifact.get("artifact_url"))
+        item = {
+            "kind": key,
+            "filename": _text(artifact.get("filename")),
+            "url": url,
+            "download_url": url,
+            "content_type": artifact.get("content_type"),
+            "size_bytes": artifact.get("size_bytes"),
+            "timestamp_seconds": artifact.get("timestamp_seconds"),
+            "provider": _text(artifact.get("provider")),
+        }
+        local_path = _artifact_local_path(task_id, artifact, artifact_root)
+        if local_path:
+            item["local_path"] = local_path
+        payload[key] = {field: value for field, value in item.items() if value not in (None, "")}
+    return payload
+
+
+def _agent_visual_evidence(result: dict[str, Any], visual_artifacts: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    evidence = result.get("visual_evidence")
+    if not isinstance(evidence, list):
+        return []
+    payload: list[dict[str, Any]] = []
+    for index, item in enumerate(evidence, 1):
+        if not isinstance(item, dict):
+            continue
+        artifact_kind = _text(item.get("artifact_kind"))
+        artifact = visual_artifacts.get(artifact_kind, {}) if artifact_kind else {}
+        entry = {
+            "id": _text(item.get("id")) or f"visual_{index:03d}",
+            "timestamp_seconds": item.get("timestamp_seconds"),
+            "reason": _text(item.get("reason")),
+            "note_section": _text(item.get("note_section")),
+            "source": _text(item.get("source")),
+            "confidence": _text(item.get("confidence")),
+            "provider": _text(item.get("provider") or artifact.get("provider")),
+            "artifact_kind": artifact_kind,
+            "artifact_url": _text(item.get("artifact_url") or artifact.get("url")),
+        }
+        payload.append({field: value for field, value in entry.items() if value not in (None, "")})
     return payload
 
 
@@ -187,6 +242,8 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
         or task_id
     )
     artifacts = _agent_artifacts(task_id, result, artifact_root)
+    visual_artifacts = _agent_visual_artifacts(task_id, result, artifact_root)
+    visual_evidence = _agent_visual_evidence(result, visual_artifacts)
     note_status = diagnosis["status"]
     if result.get("summary_skipped"):
         note_status = "skipped"
@@ -247,6 +304,12 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
             },
         },
         "artifacts": artifacts,
+        "visual": {
+            "available": bool(visual_evidence),
+            "evidence": visual_evidence,
+            "artifacts": visual_artifacts,
+            "candidate_frame_count": len(result.get("frame_artifacts") or []) if isinstance(result.get("frame_artifacts"), list) else 0,
+        },
         "usage": {
             "estimated_processing_units": job.get("estimated_processing_units") or result.get("estimated_processing_units"),
             "billable_processing_units": job.get("billable_processing_units") or result.get("billable_processing_units"),

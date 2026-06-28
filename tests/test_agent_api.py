@@ -44,6 +44,30 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
                 "summary_markdown": "# Summary",
                 "summary_status": "completed",
                 "artifacts": {"summary_md": {"filename": "demo.md", "url": "/jobs/task-agent/artifacts/summary_md"}},
+                "visual_evidence": [
+                    {
+                        "id": "visual_001",
+                        "timestamp_seconds": 12.5,
+                        "reason": "这一帧展示了课程中的核心示意图。",
+                        "note_section": "核心概念",
+                        "source": "agent_transcript",
+                        "confidence": "high",
+                        "provider": "local_ffmpeg",
+                        "artifact_kind": "visual_001",
+                    }
+                ],
+                "visual_artifacts": {
+                    "visual_001": {
+                        "filename": "visual/visual_001.jpg",
+                        "url": "/jobs/task-agent/artifacts/frame?file=visual_001.jpg",
+                        "content_type": "image/jpeg",
+                        "timestamp_seconds": 12.5,
+                        "provider": "local_ffmpeg",
+                    }
+                },
+                "frame_artifacts": [
+                    {"kind": "frame", "filename": "frames/frame_001.jpg", "url": "/jobs/task-agent/artifacts/frame?file=frame_001.jpg"}
+                ],
             },
         }
 
@@ -72,6 +96,11 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["processing_plan"]["processing_plan_version"] == "1"
     assert package["processing_plan"]["material"]["source_type"] == "video_link"
     assert package["artifacts"]["summary_md"]["url"] == "/jobs/task-agent/artifacts/summary_md"
+    assert package["visual"]["available"] is True
+    assert package["visual"]["candidate_frame_count"] == 1
+    assert package["visual"]["evidence"][0]["artifact_url"] == "/jobs/task-agent/artifacts/frame?file=visual_001.jpg"
+    assert package["visual"]["evidence"][0]["reason"] == "这一帧展示了课程中的核心示意图。"
+    assert package["visual"]["artifacts"]["visual_001"]["filename"] == "visual/visual_001.jpg"
     assert package["next_actions"] == []
 
 

@@ -67,12 +67,12 @@ Provider types:
 - [x] Extend `docs/result_schema.md` with `visual_evidence` and `visual_artifacts`.
 - [x] Define fields: `timestamp_seconds`, `reason`, `note_section`, `source`, `confidence`, `artifact_kind`, `artifact_url`, `provider`.
 - [x] Add compatibility rule: existing `frame_artifacts` are raw candidates, not final note screenshots.
-- [ ] Expose visual evidence in Agent Task Package without requiring editor UI changes.
+- [x] Expose visual evidence in Agent Task Package without requiring editor UI changes.
 
 ### P2: Local Extraction Path
 
 - [x] Refine `backend/core/frame_extractor.py` so extracted frame timestamps are accurate.
-- [ ] Prefer transcript/note-derived candidate timestamps over blind scene extraction for V1.
+- [x] Prefer transcript/note-derived candidate timestamps over blind scene extraction for V1.
 - [ ] Keep scene extraction as supplemental evidence for slide/video transitions.
 - [ ] Add a small integration test using a generated short video if FFmpeg is available.
 

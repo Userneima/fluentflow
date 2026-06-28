@@ -60,3 +60,13 @@ def test_scene_frame_timestamps_fallback_to_duration_when_showinfo_missing(tmp_p
     )
 
     assert [frame["timestamp_seconds"] for frame in frames] == [0.0, 5.0]
+
+
+def test_transcript_timepoint_frames_win_over_nearby_scene_frames() -> None:
+    frames = frame_extractor._deduplicate_frames(
+        [{"path": "scene.jpg", "timestamp_seconds": 10.0, "source": "scene"}],
+        [{"path": "segment.jpg", "timestamp_seconds": 10.8, "source": "timepoint"}],
+        min_gap_seconds=2.0,
+    )
+
+    assert frames == [{"path": "segment.jpg", "timestamp_seconds": 10.8, "source": "timepoint"}]

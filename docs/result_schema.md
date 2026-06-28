@@ -153,6 +153,7 @@ Top-level shape:
 | `transcript` | Transcript availability, text, preview, raw/display segments, language, subtitle and translation state. |
 | `note` | Note status, Markdown, diagnosis, modes, prompt metadata, and generation stats. |
 | `artifacts` | Download/export outputs by kind, with URL and optional local path. |
+| `visual` | Optional visual evidence package with final screenshot evidence and generated image artifacts. |
 | `usage` | Estimated and billable processing units. |
 | `next_actions` | Agent-callable follow-up actions, such as `wait` or `regenerate_note`. |
 | `processing_plan` | Same Processing Plan v1 object exposed on the result, generated on read for old tasks when missing. |
