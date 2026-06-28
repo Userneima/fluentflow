@@ -13,6 +13,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 ## Rules
 
 - Edit frontend source under `frontend/src`; do not hand-edit `frontend/dist`.
+- Before major UI or information-architecture changes, discuss the proposed direction with the user first. State what will move, hide, or be removed; what user workflow changes; and what existing settings/data remain intact. Wait for explicit confirmation before editing. Small visual fixes and bug fixes may still be implemented directly.
 - After frontend changes, run `npm run build:frontend`.
 - For backend logic, state, queue, auth, quota, or persistence changes, run relevant pytest coverage.
 - Always run `git diff --check` before reporting completion.
