@@ -88,6 +88,9 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const quotaExempt = user?.role === 'admin' || quota?.unlimited || quota?.quota_exempt;
     const displayName = user?.name || user?.email?.split('@')[0] || (lang === 'zh' ? '访客' : 'Guest');
     const displayInitial = (displayName || 'F').trim().slice(0, 1).toUpperCase();
+    const versionInfo = window.FLUENTFLOW_CONFIG?.version || {};
+    const versionLabel = versionInfo.version ? `v${versionInfo.version}` : 'local';
+    const versionDetail = [versionInfo.shortCommit, versionInfo.dirty ? 'dirty' : null].filter(Boolean).join(' · ');
     const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
     const ThemeIcon = isDark ? Sun : Moon;
 
@@ -253,6 +256,15 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                     {lang === 'zh' ? '退出登录' : 'Sign out'}
                                 </button>
                             )}
+                            <div className="mt-1 rounded-[10px] px-3 py-2 text-[11px] font-semibold leading-relaxed text-[#85868c] dark:text-white/45">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span>FluentFlow</span>
+                                    <span className="font-bold tabular-nums">{versionLabel}</span>
+                                </div>
+                                {versionDetail && (
+                                    <div className="mt-0.5 truncate text-[10px]" title={versionDetail}>{versionDetail}</div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
