@@ -275,6 +275,7 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "Plain text" not in source
     assert "转录已保存" in source
     assert "mt-1 flex flex-wrap items-center gap-1.5 pl-6" not in source
+    assert "inline-flex h-5 items-center gap-1 rounded-[8px] px-1.5 text-[11px] font-bold leading-none" in source
     assert "editRecords.length > 0" in source
     assert "导出转录" in source
     assert "inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3" in source

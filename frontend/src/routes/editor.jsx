@@ -1200,7 +1200,7 @@ const Editor = () => {
                                                     {lang === 'zh' ? '转录原文' : 'Transcript'}
                                                 </h2>
                                                 {(transcriptDirty || transcriptSaveStatus !== 'idle') && (
-                                                    <span className={`inline-flex h-6 items-center gap-1 rounded-[9px] px-2 ${
+                                                    <span className={`inline-flex h-5 items-center gap-1 rounded-[8px] px-1.5 text-[11px] font-bold leading-none ${
                                                         transcriptSaveStatus === 'failed'
                                                             ? 'bg-error-container text-error'
                                                             : transcriptSaveStatus === 'saving'
@@ -1211,9 +1211,9 @@ const Editor = () => {
                                                             name={transcriptSaveStatus === 'saving'
                                                                 ? 'sync'
                                                                 : transcriptSaveStatus === 'failed'
-                                                                    ? 'error'
-                                                                    : 'check_circle'}
-                                                            className={`text-[13px] ${transcriptSaveStatus === 'saving' ? 'animate-spin' : ''}`}
+                                                                ? 'error'
+                                                                : 'check_circle'}
+                                                            className={`text-[12px] ${transcriptSaveStatus === 'saving' ? 'animate-spin' : ''}`}
                                                         />
                                                         {transcriptSaveStatus === 'saving'
                                                             ? t('edit.transcriptSaving')
