@@ -51,8 +51,8 @@ def test_tasks_open_cached_result_without_backend_detail_request() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
-    assert "__cacheOnly" in source
-    assert "if (job.__cacheOnly && job.result)" in source
+    assert "isCachedOnlyTask" in source
+    assert "isCachedOnlyTask(job) && job.result" in source
     assert "err.status === 404 && job.result" in source
     assert "err.status = r.status" in shared
     assert "const {__cacheOnly, ...persistedJob} = job" in shared
@@ -175,7 +175,7 @@ def test_subtitle_import_is_a_note_generation_action() -> None:
     assert "导入字幕生成笔记" in shared
     assert "skipSummary: false" in source
     assert "summarizeTranscriptFile(file, {taskId, ...buildAiOptions(settings), skipSummary: false}" in source
-    assert "SRT / VTT / TXT / MD" in source
+    assert "\.(srt|vtt|txt|md)$" in source
 
 
 def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:

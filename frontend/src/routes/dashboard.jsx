@@ -26,9 +26,8 @@ import {
     getGuestTrialToken,
     friendlyTaskError,
     hasTranscriptResult,
-    isAzureBatchConfigured,
-    isAzureCloudProvider,
-    isAzureSpeechConfigured,
+    isCloudSttConfigured,
+    isCloudSttProvider,
     isLocalHistoryResult,
     isSttProgressUnmeasured,
     historyEntryToResult,
@@ -55,16 +54,17 @@ import {
     useI18n,
     useSettings,
 } from '../app/shared.jsx';
+import SvgIcon from '../components/SvgIcon.jsx';
 
 const Dashboard = () => {
     const {t, lang} = useI18n();
-    const {guestMode, guestTrial} = useAuth();
+    const {guestMode, guestTrial, user} = useAuth();
     const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
             const subtitleInputRef = useRef(null);
-    const {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, getCredentialsStatus} = useApi();
+    const {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, cancelJob, getCredentialsStatus} = useApi();
     const {loadSettings} = useSettings();
             const navigate = useNavigate();
     const abortRef = useRef(null);
@@ -83,6 +83,11 @@ const Dashboard = () => {
     }, [currentJob?.taskId, currentJob?.stage]);
 
     const handleCancel = async () => {
+        const confirmText = lang === 'zh'
+            ? '取消当前正在处理的任务？转录进度不会保留。'
+            : 'Cancel this active task? Transcription progress will not be kept.';
+        if (!window.confirm(confirmText)) return;
+
         const task = currentTaskRef.current;
         if(task){
             recordEvent({
@@ -99,6 +104,11 @@ const Dashboard = () => {
         if(abortRef.current){ abortRef.current.abort(); abortRef.current=null; }
         if(currentJob?.guestTrial && currentJob.taskId) {
             try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken || getGuestTrialToken()); } catch(_) {}
+        }
+        if(currentJob?.taskId && !currentJob?.guestTrial) {
+            try {
+                await cancelJob(currentJob.taskId, {sttProvider: currentJob.sttProvider});
+            } catch(_) {}
         }
         currentTaskRef.current = null;
         setCurrentJob(null);
@@ -172,7 +182,7 @@ const Dashboard = () => {
             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
             sttStatus: ev.stt_status ?? prev.sttStatus,
             sttProvider: ev.stt_provider ?? prev.sttProvider,
-            azureBatchAudioSizeMb: ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
         } : null);
         if(ev.stage === 'transcript_ready' && ev.result) {
             setLastResult(ev.result);
@@ -308,12 +318,10 @@ const Dashboard = () => {
 
     const ensureCloudReady = async (sttProvider) => {
         if (guestMode) return true;
-        if (!isAzureCloudProvider(sttProvider)) return true;
+        if (!isCloudSttProvider(sttProvider)) return true;
         try {
             const status = await getCredentialsStatus();
-            const configured = sttProvider === 'azure_batch'
-                ? isAzureBatchConfigured(status)
-                : isAzureSpeechConfigured(status);
+            const configured = isCloudSttConfigured(sttProvider, status);
             if (configured) return true;
         } catch (_) {}
         setUploadError(azureSpeechMissingMessage(lang));
@@ -742,7 +750,7 @@ const Dashboard = () => {
     const sttProfile = currentJob?.sourceType === 'transcript_file'
         ? '-'
         : [
-            isAzureCloudProvider(currentJob?.sttProvider) ? 'Azure' : 'local',
+            isCloudSttProvider(currentJob?.sttProvider) ? 'cloud' : 'local',
             currentJob?.sttModel||DEFAULT_STT_MODEL,
             currentJob?.sttSpeed||'balanced',
             currentJob?.sttLanguage||'auto',
@@ -751,8 +759,17 @@ const Dashboard = () => {
     const sttProgressUnknown = isSttProgressUnmeasured(currentJob);
     const hasSttTiming = currentJob?.stage === 'stt' && currentJob?.durationSeconds > 0 && !sttProgressUnknown;
     const sttElapsedForHint = Math.max(elapsedSec, Number(currentJob?.sttElapsedSeconds) || 0);
-    const sttWaitedLong = sttProgressUnknown && !isAzureCloudProvider(currentJob?.sttProvider) && sttElapsedForHint >= 60;
+    const sttWaitedLong = sttProgressUnknown && !isCloudSttProvider(currentJob?.sttProvider) && sttElapsedForHint >= 60;
     const selectedSttProvider = currentJob?.sttProvider || effectiveSttProvider(loadSettings(), runtimeConfig);
+    const linkPlatforms = [
+        '抖音',
+        'Bilibili',
+        'YouTube',
+        'TikTok',
+        '小红书',
+        '快手',
+        lang === 'zh' ? '视频直链' : 'Direct video',
+    ];
     const taskInfoCards = [
         ...(currentJob?.guestTrial && currentJob?.queue
             ? [
@@ -762,7 +779,7 @@ const Dashboard = () => {
             : []),
         {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
         {label:t('dash.fileSize'), value:fmtFileSize(currentJob?.fileSizeMb)},
-        ...(isAzureCloudProvider(currentJob?.sttProvider) && currentJob?.azureBatchAudioSizeMb != null
+        ...(isCloudSttProvider(currentJob?.sttProvider) && currentJob?.azureBatchAudioSizeMb != null
             ? [{label:t('dash.azureUploadAudio'), value:fmtFileSize(currentJob.azureBatchAudioSizeMb)}]
             : []),
         {label:t('dash.modelProfile'), value:sttProfile},
@@ -770,243 +787,186 @@ const Dashboard = () => {
     ];
 
             return (
-            <div className="ml-64 min-h-screen relative pb-8">
-                <section className="p-12 max-w-7xl mx-auto space-y-12 h-[calc(100vh-2rem)] overflow-y-auto hide-scrollbar">
-                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-                        <div>
-                    <h2 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-2">{t('dash.welcome')}</h2>
-                    <p className="text-on-surface-variant font-body">{t('dash.subtitle')}</p>
-                        </div>
-                        <div className="flex gap-4">
-	                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px] border border-outline-variant/20 dark:border-white/5">
-	                                <div className="w-12 h-12 rounded-sm bg-primary/10 flex items-center justify-center text-primary dark:bg-blue-400/10 dark:text-blue-300">
-	                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>timer</span>
-	                                </div>
-                                <div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-outline">{t('dash.totalMin')}</p>
-                            <p className="text-2xl font-headline font-bold text-on-surface">{stats.totalMinutes.toLocaleString()} {t('dash.minUnit')}</p>
-                                </div>
-                            </div>
-	                    <div className="bg-surface-container-lowest editorial-shadow p-6 rounded-sm flex items-center gap-4 min-w-[220px] border border-outline-variant/20 dark:border-white/5">
-	                                <div className="w-12 h-12 rounded-sm bg-tertiary/10 flex items-center justify-center text-tertiary dark:bg-blue-400/10 dark:text-blue-300">
-	                            <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>description</span>
-	                                </div>
-                                <div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-outline">{t('dash.noteGen')}</p>
-                            <p className="text-2xl font-headline font-bold text-on-surface">{stats.notesGenerated} {t('dash.docUnit')}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            <div className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] pb-8 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
+                <section className="mx-auto h-dvh max-w-[1500px] overflow-y-auto px-8 py-10 hide-scrollbar">
+                    <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
+                    <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
 
-                    <div className="space-y-6">
-                        {!guestMode && (
-                        <form
-                            onSubmit={(e)=>{e.preventDefault(); handleVideoLinkSubmit();}}
-                            className="flex items-stretch gap-2"
+                    <header className="mb-10 text-center">
+                        <div className="flex items-center justify-center gap-2 text-[1.25rem] font-semibold leading-tight tracking-normal text-[#050505] sm:text-[1.5rem] lg:text-[1.7rem] dark:text-white">
+                            <SvgIcon name="hand" className="h-6 w-6 shrink-0 -rotate-12 sm:h-7 sm:w-7 lg:h-8 lg:w-8" style={{strokeWidth: 2.4}}/>
+                            <span>{lang === 'zh' ? '你好' : 'Hi'}</span>
+                        </div>
+                        <h1 className="mt-2.5 text-[1.5rem] font-semibold leading-[1.1] tracking-normal text-[#050505] sm:mt-3 sm:text-[2rem] lg:text-[2.45rem] dark:text-white">
+                            {lang === 'zh' ? '今天想创作些什么呢？' : 'What do you want to create today?'}
+                        </h1>
+                    </header>
+
+                    <div className="grid gap-5 sm:grid-cols-2">
+                        <Link
+                            to="/media-text?mode=media"
+                            className="group relative min-h-[17.25rem] overflow-hidden rounded-[0.5rem] border border-white/40 p-6 text-white shadow-[0_26px_80px_rgba(15,23,42,0.12)] transition hover:-translate-y-1 dark:border-white/10 dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)]"
+                            style={{backgroundImage:'radial-gradient(circle at 72% 34%, rgba(120,255,217,.28), transparent 10%), radial-gradient(circle at 50% 42%, rgba(45,212,191,.18), transparent 24%), linear-gradient(180deg, rgba(2,6,23,0.12), rgba(6,78,59,0.82)), linear-gradient(145deg,#05131a,#0a2c36 52%,#134e4a 100%)'}}
                         >
-                            <input
-                                type="text"
-                                value={videoLinkInput}
-                                onChange={(e)=>setVideoLinkInput(e.target.value)}
-                                disabled={videoLinkSubmitting}
-                                className="h-12 min-w-0 flex-1 appearance-none rounded-sm border border-outline-variant/35 bg-surface-container-lowest/70 px-4 text-sm font-semibold text-on-surface shadow-none outline-none ring-0 placeholder:text-on-surface-variant/60 transition-colors focus:border-primary/45 focus:bg-surface-container-lowest focus:outline-none focus:ring-0 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:placeholder:text-slate-500 dark:focus:border-blue-300/40"
-                                placeholder={t('dash.linkPlaceholder')}
-                                aria-label={t('dash.linkPlaceholder')}
-                            />
-                            <button
-                                type="submit"
-                                disabled={videoLinkSubmitting}
-                                className="flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-sm border border-primary/20 bg-primary/10 px-5 text-sm font-extrabold text-primary transition-colors duration-200 hover:bg-primary/15 active:translate-y-px disabled:opacity-50 dark:border-blue-300/20 dark:bg-blue-400/10 dark:text-blue-200 dark:hover:bg-blue-400/15"
-                            >
-                                <span className={`material-symbols-outlined text-[18px] ${videoLinkSubmitting ? 'animate-spin' : ''}`}>{videoLinkSubmitting ? 'sync' : 'arrow_forward'}</span>
-                                {videoLinkSubmitting ? t('dash.linkSubmitting') : t('dash.linkSubmit')}
-                            </button>
-                        </form>
-                        )}
-
-                    <div className="grid grid-cols-12 gap-8">
-                        <div className="col-span-12 lg:col-span-9 group">
-                    <div className={`relative h-[480px] rounded-sm overflow-hidden bg-slate-900 shadow-2xl transition-transform duration-500 ${uploading?'':'hover:scale-[1.01]'}`} onDrop={handleDrop} onDragOver={e=>e.preventDefault()}>
-                                <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus" onChange={handleFileSelect} className="hidden"/>
-                                <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,.txt,.md,text/plain,text/markdown" onChange={handleSubtitleSelect} className="hidden"/>
-                                <div className="absolute inset-0 opacity-40" aria-hidden="true">
-                            <div className="w-full h-full bg-gradient-to-br from-slate-800 via-indigo-950/90 to-blue-900/70" style={{backgroundImage:'linear-gradient(135deg,#1e293b 0%,#312e81 35%,#1e3a5f 70%,#0f172a 100%)'}} />
-                                </div>
-                                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
-	                                <div className="relative h-full flex flex-col justify-end items-center p-10 space-y-6">
-	                                    {!uploading && (
-	                                    <div className="w-full max-w-[720px] mx-auto">
-                                <span className="bg-white/[0.08] text-blue-100 border border-white/[0.12] px-3 py-1 rounded-sm text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.proTag')}</span>
-                                <h3 className="font-headline text-3xl font-bold text-white leading-tight">{guestMode ? (lang==='zh'?'访客试用：上传一个短视频生成字幕与笔记':'Guest trial: upload one short file for subtitles and notes') : t('dash.heroTitle')}</h3>
-                                <p className="text-slate-300 mt-4 text-sm leading-relaxed">
-                                    {guestMode
-                                        ? (lang==='zh'?'支持 15 分钟以内、150MB 以内的单个音视频文件。真实转录，完成后可下载结果。':'One audio/video file up to 15 minutes and 150 MB. Real processing with downloadable results.')
-                                        : t('dash.heroDesc')}
-                                </p>
-                                    </div>
-                                    )}
-                                    {uploading && currentJob && (
-                                    <div className="w-full max-w-[760px] mx-auto space-y-6">
-                                        <div className="flex items-start justify-between gap-6">
-                                            <div className="min-w-0">
-                                                <span className="bg-blue-400/15 text-blue-100 border border-blue-300/30 px-3 py-1 rounded-sm text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">{t('dash.activeTask')}</span>
-                                                <h3 className="font-headline text-3xl font-bold text-white leading-tight truncate">{currentJob.fileName}</h3>
-                                                <p className="text-slate-300 mt-3 text-sm">
-                                                    {currentJob.guestTrial && currentJob.stage === 'queued'
-                                                        ? (lang==='zh'?'文件已进入访客试用队列，开始处理后会自动更新进度。':'Your file is in the guest trial queue. Progress updates automatically when processing starts.')
-                                                        : currentJob.sourceType === 'video_link'
-                                                            ? t('dash.linkQueued')
-                                                        : t('dash.waitingForTranscript')}
-                                                </p>
-                                            </div>
-                                            <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                                                {!guestMode && (
-                                                    <button onClick={()=>fileInputRef.current?.click()} disabled={queueSubmitting} className="text-blue-100 hover:text-white border border-blue-300/40 hover:bg-blue-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                                        <span className={`material-symbols-outlined text-sm ${queueSubmitting?'animate-spin':''}`}>{queueSubmitting?'sync':'playlist_add'}</span>
-                                                        {queueSubmitting ? (lang==='zh'?'添加中…':'Adding…') : (lang==='zh'?'添加到队列':'Add to queue')}
-                                                    </button>
-                                                )}
-                                                {currentJob.resume && !currentJob.guestTrial ? (
-                                                    <Link to="/tasks" className="text-blue-100 hover:text-white border border-blue-300/40 hover:bg-blue-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 transition-colors">
-                                                        <span className="material-symbols-outlined text-sm">monitoring</span>{t('dash.viewTasks')}
-                                                    </Link>
-                                                ) : (
-                                                    <button onClick={handleCancel} className="text-red-300 hover:text-white border border-red-300/40 hover:bg-red-500/20 px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-2 transition-colors">
-                                                        <span className="material-symbols-outlined text-sm">cancel</span>{t('dash.cancel')}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="flex items-end justify-between gap-4 mb-2">
-                                                <div>
-                                                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">{t('dash.currentStage')}</p>
-                                                    <p className="text-lg font-bold text-white">{activeStageLabel}</p>
-                                                </div>
-                                                <p className="font-headline text-3xl font-extrabold text-white">{jobProgressLabel(currentJob, t)}</p>
-                                            </div>
-                                            <div className={`w-full h-3 bg-slate-700/80 rounded-full overflow-hidden ${sttProgressUnknown ? 'progress-indeterminate' : ''}`}>
-                                                {!sttProgressUnknown && <div className="h-full bg-gradient-to-r from-blue-400 to-cyan-300 transition-all duration-700" style={{width:`${activeProgress}%`}}></div>}
-                                            </div>
-                                            {currentJob.stage === 'stt' && (
-                                                <div className="flex flex-wrap items-center justify-between gap-2 mt-3 text-xs text-slate-300">
-	                                                    <span>
-	                                                        {hasSttTiming
-	                                                            ? `${t('dash.transcribedTo')}: ${fmtElapsed(currentJob.transcribedSeconds||0)} / ${fmtElapsed(currentJob.durationSeconds||0)}`
-	                                                            : sttStatusLabel(currentJob.sttStatus, t)}
-	                                                    </span>
-	                                                    <span className="font-bold text-cyan-200">{sttProgressUnknown ? t('dash.sttMeasuring') : `STT ${sttProgressPct}%`}</span>
-	                                                    {sttWaitedLong && (
-	                                                        <span className="basis-full text-[11px] text-amber-200 leading-snug">{t('dash.sttNoProgressHint')}</span>
-	                                                    )}
-	                                                </div>
-	                                            )}
-                                        </div>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                            {taskInfoCards.map((item) => (
-	                                                <div key={item.label} className="bg-white/[0.08] border border-white/10 rounded-sm p-3 min-w-0">
-                                                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">{item.label}</p>
-                                                    <p className="text-sm font-bold text-white truncate">{item.value}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className="bg-white/[0.07] border border-white/10 rounded-sm p-4">
-                                            <div className="flex items-center justify-between mb-4">
-                                                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">{t('dash.pipeline')}</p>
-                                                <p className="text-xs text-slate-300">{currentJob.exportToLark?t('dash.exportOn'):t('dash.exportOff')}</p>
-                                            </div>
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                                {jobStages.map((stage) => {
-                                                    const rank = stageRank[stage.key] ?? 0;
-                                                    const isActive = currentJob.stage === stage.key || (currentJob.stage === 'transcript_ready' && stage.key === 'summary');
-                                                    const isDone = currentRank > rank;
-                                                    return (
-                                                        <div key={stage.key} className={`flex items-center gap-2 text-xs font-bold ${isDone?'text-blue-100':isActive?'text-white':'text-slate-500'}`}>
-                                                            <span className={`material-symbols-outlined text-base ${isDone?'text-cyan-300':isActive?'text-blue-300 animate-spin':'text-slate-600'}`}>{isDone?'check_circle':isActive?'sync':'radio_button_unchecked'}</span>
-                                                            <span className="truncate">{t(stage.label)}</span>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    )}
-	                                    {!uploading && (
-			                                    <div className="w-full max-w-[720px] mx-auto space-y-5">
-			                                        <div className="grid grid-cols-1 sm:grid-cols-[auto_auto] gap-3 w-full max-w-[560px]">
-			                                            <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.92] text-slate-950 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-blue-50 transition-colors shadow-[0_16px_46px_-30px_rgba(255,255,255,0.8)] active:translate-y-px disabled:opacity-50 justify-center dark:bg-white/90 dark:hover:bg-white">
-			                                                <span className="material-symbols-outlined">upload_file</span>
-			                                                <span>{uploading ? t('dash.processing') : (guestMode ? (lang==='zh'?'开始访客试用':'Start guest trial') : t('dash.selectFile'))}</span>
-			                                            </button>
-	                                                    {!guestMode && (
-			                                                <button onClick={()=>subtitleInputRef.current?.click()} disabled={uploading} className="min-h-[56px] bg-white/[0.07] text-white border border-white/15 font-bold px-5 py-4 rounded-sm flex items-center gap-3 hover:bg-white/[0.12] transition-colors active:translate-y-px disabled:opacity-50 justify-center">
-			                                                    <span className="material-symbols-outlined">subtitles</span>
-			                                                    <span className="flex flex-col items-start text-left leading-tight">
-                                                                    <span>{t('dash.selectSubtitle')}</span>
-                                                                    <span className="mt-1 text-[11px] font-semibold text-slate-300">SRT / VTT / TXT / MD</span>
-                                                                </span>
-			                                                </button>
-	                                                    )}
-			                                        </div>
-		                                <div className="text-slate-400 text-sm font-bold max-w-xl">{t('dash.dragHint')}</div>
-	                                {isAzureCloudProvider(selectedSttProvider) && (
-		                                    <div className="text-cyan-100/85 text-xs leading-relaxed max-w-xl bg-white/[0.08] border border-white/10 rounded-sm px-3 py-2">
-	                                        {t('dash.azureUploadHint')}
-	                                    </div>
-	                                )}
-	                                    </div>
-                                    )}
-                            {uploadError && <div className="bg-red-500/15 border border-red-400/30 text-red-200 px-4 py-2 rounded-sm text-sm">{uploadError}</div>}
-	                                    {processingResult && (
-	                                        <div className="bg-green-500/15 border border-green-400/30 text-green-200 px-4 py-2 rounded-sm text-sm">
-	                                    {processingResult.source==='transcript_file' ? t('dash.subtitleDone') : t('dash.done')} <button onClick={()=>navigate("/editor")} className="underline hover:no-underline">{t('dash.viewEditor')}</button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="col-span-12 lg:col-span-3 flex flex-col gap-5">
-                            <div className="flex items-center justify-between px-2">
-                        <h4 className="font-headline text-xl font-bold text-on-surface">{t('dash.recent')}</h4>
-                        <Link to="/tasks" className="text-xs font-bold text-primary hover:underline">{t('dash.viewAll')}</Link>
-                            </div>
-                            <div className="space-y-3">
-                        {history.length === 0 && (
-                            <div className="text-center py-12 text-on-surface-variant text-sm">{t('dash.noActivity')}</div>
-                        )}
-                        {history.slice(0,3).map(h => {
-                            const historyDone = h.status === 'completed';
-                            const historyProcessing = h.status === 'processing';
-                            return (
-		                            <div key={h.id} className="bg-surface-container-low p-4 rounded-sm flex gap-3 items-start hover:bg-surface-container transition-all cursor-pointer" onClick={() => openHistoryEntry(h)}>
-                                <div className={`w-10 h-10 rounded-sm flex items-center justify-center flex-shrink-0 ${historyDone?'bg-blue-50':historyProcessing?'bg-primary/10':'bg-red-50'}`}>
-                                    <span className={`material-symbols-outlined ${historyDone?'text-primary':historyProcessing?'text-primary':'text-red-500'}`}>{historyDone?'check_circle':historyProcessing?'sync':'error'}</span>
-                                        </div>
-                                <div className="flex-1 min-w-0">
-                                            <div className="flex justify-between items-start mb-1">
-                                        <h5 className="font-bold text-on-surface text-sm truncate pr-2">{h.name}</h5>
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-tighter flex-shrink-0 ${historyDone?'text-primary bg-primary-fixed':historyProcessing?'text-primary bg-primary/10':'text-red-600 bg-red-50'}`}>
-                                            {t(historyDone?'dash.statusCompleted':historyProcessing?'dash.statusProcessing':'dash.statusFailed')}
-                                                </span>
-                                            </div>
-                                    <p className="text-xs text-on-surface-variant">
-	                                        {timeAgo(h.timestamp, t)}
-	                                        {h.durationMin > 0 && ` • ${h.durationMin} ${t('dash.minUnit')}`}
-	                                        {h.sttElapsedSec > 0 && ` • ${t('edit.sttElapsed')} ${fmtElapsed(h.sttElapsedSec)}`}
-	                                        {h.sttElapsedSec > 0 && h.audioDurationSec > 0 && ` (${fmtSttRelative(h.sttElapsedSec / h.audioDurationSec, lang)})`}
-	                                        {h.sttModel && ` • STT ${[h.sttModel,h.sttSpeed,h.sttLanguage].filter(Boolean).join('/')}`}
-	                                        {h.larkUrl && <> • <a href={h.larkUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" onClick={e=>e.stopPropagation()}>Lark</a></>}
+                            <div className="relative flex h-full flex-col justify-between">
+                                <div>
+                                    <span className="inline-flex rounded-[0.3rem] bg-emerald-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-emerald-950">MEDIA</span>
+                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '音视频转写' : 'Media transcription'}</h3>
+                                    <p className="mt-2 max-w-[16rem] text-[0.88rem] leading-5 text-white/72">
+                                        {lang === 'zh' ? '上传媒体文件或粘贴平台链接，自动生成转录文本与 AI 总结。' : 'Upload media or paste a platform link to get transcripts and AI summaries.'}
                                     </p>
-                                        </div>
-                                    </div>
-                            );
-                        })}
+                                </div>
+                                <div className="mt-4 flex flex-wrap gap-1.5">
+                                    {linkPlatforms.slice(0, 4).map((platform) => (
+                                        <span key={platform} className="rounded-[0.3rem] border border-white/18 bg-white/8 px-2.5 py-1 text-[0.74rem] font-medium text-white/78 backdrop-blur">{platform}</span>
+                                    ))}
+                                </div>
                             </div>
+                        </Link>
+
+                        <Link
+                            to="/tasks"
+                            className="group relative min-h-[17.25rem] overflow-hidden rounded-[0.5rem] border border-white/40 p-6 text-white shadow-[0_26px_80px_rgba(15,23,42,0.12)] transition hover:-translate-y-1 dark:border-white/10 dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)]"
+                            style={{backgroundImage:'radial-gradient(circle at 62% 34%, rgba(167,139,250,.28), transparent 10%), radial-gradient(circle at 50% 42%, rgba(99,102,241,.18), transparent 24%), linear-gradient(180deg, rgba(2,6,23,0.12), rgba(49,46,129,0.82)), linear-gradient(145deg,#101827,#182f69 52%,#17214d 100%)'}}
+                        >
+                            <div className="relative flex h-full flex-col justify-between">
+                                <div>
+                                    <span className="inline-flex rounded-[0.3rem] bg-violet-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-violet-950">TASKS</span>
+                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '任务管理' : 'Task management'}</h3>
+                                    <p className="mt-2 max-w-[16rem] text-[0.88rem] leading-5 text-white/72">
+                                        {lang === 'zh' ? '追踪处理进度、查看失败原因、下载转录产物。' : 'Track progress, review failures, and download results.'}
+                                    </p>
+                                </div>
+                                <div className="mt-4 flex flex-wrap gap-1.5">
+                                    {(lang === 'zh' ? ['实时进度', '失败详情', '产物下载'] : ['Live progress', 'Failure details', 'Downloads']).map((item) => (
+                                        <span key={item} className="rounded-[0.3rem] border border-white/18 bg-white/8 px-2.5 py-1 text-[0.74rem] font-medium text-white/78 backdrop-blur">{item}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        </Link>
+                    </div>
+
+                    {(uploadError || processingResult) && (
+                        <div className="mt-5 space-y-3">
+                            {uploadError && <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{uploadError}</div>}
+                            {processingResult && (
+                                <div className="rounded-[16px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                    {processingResult.source==='transcript_file' ? t('dash.subtitleDone') : t('dash.done')} <button onClick={()=>navigate("/editor")} className="underline hover:no-underline">{t('dash.viewEditor')}</button>
+                                </div>
+                            )}
                         </div>
-                    </div>
-                    </div>
+                    )}
+
+                    {uploading && currentJob && (
+                        <section className="mt-6 rounded-[24px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div className="min-w-0">
+                                    <span className="inline-flex rounded-full bg-[#efeeee] px-3 py-1 text-[12px] font-bold text-[#111111] dark:bg-white/[0.12] dark:text-white">{t('dash.activeTask')}</span>
+                                    <h3 className="mt-3 truncate font-headline text-[24px] font-extrabold leading-tight text-[#111111] dark:text-white">{currentJob.fileName}</h3>
+                                    <p className="mt-2 text-[14px] font-medium leading-6 text-[#666] dark:text-white/55">
+                                        {currentJob.guestTrial && currentJob.stage === 'queued'
+                                            ? (lang==='zh'?'文件已进入访客试用队列，开始处理后会自动更新进度。':'Your file is in the guest trial queue. Progress updates automatically when processing starts.')
+                                            : currentJob.sourceType === 'video_link'
+                                                ? t('dash.linkQueued')
+                                                : t('dash.waitingForTranscript')}
+                                    </p>
+                                </div>
+                                <div className="flex shrink-0 flex-wrap gap-2">
+                                    {!guestMode && (
+                                        <button onClick={()=>fileInputRef.current?.click()} disabled={queueSubmitting} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 text-xs font-bold text-[#111111] hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.09]">
+                                            <SvgIcon name={queueSubmitting ? 'sync' : 'playlist-add'} className={`h-4 w-4 ${queueSubmitting ? 'animate-spin' : ''}`}/>
+                                            {queueSubmitting ? (lang==='zh'?'添加中…':'Adding…') : (lang==='zh'?'添加到队列':'Add to queue')}
+                                        </button>
+                                    )}
+                                    {currentJob.resume && !currentJob.guestTrial ? (
+                                        <Link to="/tasks" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-3 text-xs font-bold text-white hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                            <SvgIcon name="monitoring" className="h-4 w-4"/>{t('dash.viewTasks')}
+                                        </Link>
+                                    ) : (
+                                        <button onClick={handleCancel} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-600 hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
+                                            <SvgIcon name="cancel" className="h-4 w-4"/>{t('dash.cancel')}
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="mt-5">
+                                <div className="mb-2 flex items-end justify-between gap-4">
+                                    <div>
+                                        <p className="text-[12px] font-bold text-[#777] dark:text-white/55">{t('dash.currentStage')}</p>
+                                        <p className="text-[18px] font-extrabold text-[#111111] dark:text-white">{activeStageLabel}</p>
+                                    </div>
+                                    <p className="font-headline text-[28px] font-extrabold tabular-nums text-[#111111] dark:text-white">{jobProgressLabel(currentJob, t)}</p>
+                                </div>
+                                <div className={`h-2.5 w-full overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${sttProgressUnknown ? 'progress-indeterminate' : ''}`}>
+                                    {!sttProgressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width:`${activeProgress}%`}}></div>}
+                                </div>
+                                {currentJob.stage === 'stt' && (
+                                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[#666] dark:text-white/55">
+                                        <span>
+                                            {hasSttTiming
+                                                ? `${t('dash.transcribedTo')}: ${fmtElapsed(currentJob.transcribedSeconds||0)} / ${fmtElapsed(currentJob.durationSeconds||0)}`
+                                                : sttStatusLabel(currentJob.sttStatus, t)}
+                                        </span>
+                                        <span className="font-extrabold text-[#111111] dark:text-white">{sttProgressUnknown ? t('dash.sttMeasuring') : `STT ${sttProgressPct}%`}</span>
+                                        {sttWaitedLong && <span className="basis-full text-[11px] leading-snug text-amber-700 dark:text-amber-300">{t('dash.sttNoProgressHint')}</span>}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                                {taskInfoCards.map((item) => (
+                                    <div key={item.label} className="min-w-0 rounded-[18px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
+                                        <p className="mb-1 text-[11px] font-bold text-[#777] dark:text-white/55">{item.label}</p>
+                                        <p className="truncate text-sm font-extrabold text-[#111111] dark:text-white">{item.value}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    <section className="mt-8">
+                        <div className="mb-4 flex items-center justify-between">
+                            <div>
+                                <h3 className="font-headline text-[24px] font-extrabold text-[#111111] dark:text-white">{t('dash.recent')}</h3>
+                                <p className="mt-1 text-sm font-medium text-[#777] dark:text-white/55">{lang === 'zh' ? '最近完成和处理中任务会显示在这里。' : 'Recent completed and active tasks appear here.'}</p>
+                            </div>
+                            <Link to="/tasks" className="rounded-full bg-[#efeeee] px-4 py-2 text-xs font-extrabold text-[#111111] hover:bg-[#e8e5e5] dark:bg-white/[0.12] dark:text-white dark:hover:bg-white/[0.18]">{t('dash.viewAll')}</Link>
+                        </div>
+                        <div className="rounded-[24px] border border-[#e4e0e0] bg-white p-4 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                            {history.length === 0 ? (
+                                <div className="rounded-[18px] bg-[#f4f3f3] px-4 py-12 text-center text-sm font-semibold text-[#777] dark:bg-white/[0.08] dark:text-white/55">{t('dash.noActivity')}</div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                                    {history.slice(0,6).map(h => {
+                                        const historyDone = h.status === 'completed';
+                                        const historyProcessing = h.status === 'processing';
+                                        return (
+                                            <div key={h.id} className="flex cursor-pointer items-start gap-3 rounded-[18px] bg-[#f4f3f3] p-3 transition hover:bg-[#efeeee] dark:bg-white/[0.08] dark:hover:bg-white/[0.12]" onClick={() => openHistoryEntry(h)}>
+                                                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] ${historyDone?'bg-white dark:bg-white/[0.16]':historyProcessing?'bg-white dark:bg-white/[0.16]':'bg-red-50 dark:bg-red-500/10'}`}>
+                                                    <SvgIcon name={historyDone ? 'check-circle' : historyProcessing ? 'sync' : 'error'} className={`h-5 w-5 ${historyProcessing ? 'animate-spin' : ''} ${historyDone?'text-[#111111] dark:text-white':historyProcessing?'text-[#111111] dark:text-white':'text-red-500 dark:text-red-300'}`}/>
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="mb-1 flex items-start justify-between gap-2">
+                                                        <h5 className="truncate pr-2 text-sm font-extrabold text-[#111111] dark:text-white">{h.name}</h5>
+                                                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${historyDone?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':historyProcessing?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'}`}>
+                                                            {t(historyDone?'dash.statusCompleted':historyProcessing?'dash.statusProcessing':'dash.statusFailed')}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs font-medium leading-5 text-[#777] dark:text-white/55">
+                                                        {timeAgo(h.timestamp, t)}
+                                                        {h.durationMin > 0 && ` • ${h.durationMin} ${t('dash.minUnit')}`}
+                                                        {h.sttElapsedSec > 0 && ` • ${t('edit.sttElapsed')} ${fmtElapsed(h.sttElapsedSec)}`}
+                                                        {h.sttElapsedSec > 0 && h.audioDurationSec > 0 && ` (${fmtSttRelative(h.sttElapsedSec / h.audioDurationSec, lang)})`}
+                                                        {h.sttModel && ` • STT ${[h.sttModel,h.sttSpeed,h.sttLanguage].filter(Boolean).join('/')}`}
+                                                        {h.larkUrl && <> • <a href={h.larkUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-[#111111] hover:underline dark:text-white" onClick={e=>e.stopPropagation()}>Lark</a></>}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </section>
                 </section>
             </div>
             );

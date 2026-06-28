@@ -1,16 +1,18 @@
 /* ═══════════════ Background Tasks ═══════════════ */
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {useLocation, useNavigate} from 'react-router-dom';
+import {useLocation, useNavigate, Link} from 'react-router-dom';
 import {
     fmtBytes,
     fmtElapsed,
     fmtFileSize,
     friendlyTaskError,
     hasTranscriptResult,
+    DropdownMenu,
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobDisplayTitle,
     jobToHistoryEntry,
+    noteGenerationDiagnosis,
     readCachedAccountJobs,
     timeAgo,
     useApi,
@@ -19,26 +21,35 @@ import {
     useI18n,
     writeCachedAccountJobs,
 } from '../app/shared.jsx';
-
-const markCachedOnlyJob = (job) => job && typeof job === 'object'
-    ? {...job, __cacheOnly: true}
-    : job;
-
-const markBackendJob = (job) => {
-    if (!job || typeof job !== 'object') return job;
-    const {__cacheOnly, ...backendJob} = job;
-    return {...backendJob, __cacheOnly: false};
-};
+import SvgIcon from '../components/SvgIcon.jsx';
+import {
+    isCachedOnlyTask,
+    isLiveTask,
+    markBackendJob,
+    markCachedOnlyJob,
+    normalizeTaskState,
+    TASK_STATE_CANCELLED,
+    TASK_STATE_CACHED_ONLY,
+    TASK_STATE_COMPLETED,
+    TASK_STATE_FAILED,
+    TASK_STATE_QUEUED,
+    TASK_STATE_RUNNING,
+} from '../lib/taskState.js';
 
 const taskNextStepText = (job, lang) => {
     const result = job?.result || {};
     const errorText = String(job?.error_reason || result.summary_error || '').toLowerCase();
     const summaryFailed = job?.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
+    const noteDiagnosis = noteGenerationDiagnosis({
+        ...result,
+        summary_status: result.summary_status || job?.summary_status,
+        summary_error: result.summary_error || job?.error_reason,
+    }, lang);
     if (job?.status === 'cancelled') {
         return lang === 'zh' ? '下一步：不用继续等，可以直接删除这条记录。' : 'Next: no need to wait. You can delete this record.';
     }
     if (summaryFailed && hasTranscriptResult(result)) {
-        return lang === 'zh' ? '下一步：打开结果，点击重新生成摘要；字幕不会丢。' : 'Next: open the result and regenerate the summary. The transcript is preserved.';
+        return noteDiagnosis.nextAction || (lang === 'zh' ? '下一步：打开结果，点击重新生成摘要；字幕不会丢。' : 'Next: open the result and regenerate the summary. The transcript is preserved.');
     }
     if (job?.status !== 'failed') return '';
     if (errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
@@ -56,6 +67,45 @@ const taskNextStepText = (job, lang) => {
     return lang === 'zh' ? '下一步：可以删除这条失败记录，然后从开始页重新提交。' : 'Next: delete this failed record, then submit it again from Dashboard.';
 };
 
+const agentPlanSummary = (job, lang) => {
+    const plan = job?.result?.processing_plan;
+    const trace = job?.result?.tool_trace;
+    if (!plan || typeof plan !== 'object') return null;
+    const zh = lang === 'zh';
+    const goal = (() => {
+        const primary = plan.goal?.primary;
+        if (primary === 'lecture_notes') return zh ? '讲座整理' : 'Lecture notes';
+        if (primary === 'course_notes') return zh ? '课程笔记' : 'Course notes';
+        return primary || null;
+    })();
+    const route = (() => {
+        const strategy = plan.note_strategy || {};
+        const mode = strategy.resolved_mode || strategy.selected_mode || strategy.requested_mode;
+        if (mode === 'high_fidelity') return zh ? '高保真整理' : 'High fidelity';
+        if (mode === 'chapter_coverage') return zh ? '章节覆盖' : 'Chapter coverage';
+        if (mode === 'direct') return zh ? '直接生成' : 'Direct';
+        return mode || null;
+    })();
+    const traceSteps = Array.isArray(trace?.steps) ? trace.steps : [];
+    const friendlyTool = (step) => ({
+        resolve_link: zh ? '解析链接' : 'Resolve link',
+        download_video: zh ? '下载媒体' : 'Download media',
+        extract_audio: zh ? '提取音频' : 'Extract audio',
+        local_stt: zh ? '本机转录' : 'Local STT',
+        cloud_stt: zh ? '云端转录' : 'Cloud STT',
+        generate_note: zh ? '生成笔记' : 'Generate notes',
+        save_artifacts: zh ? '保存产物' : 'Save artifacts',
+        export_lark: zh ? '导出飞书' : 'Export Feishu',
+    })[step.id] || step.label || step.tool;
+    const completedTrace = traceSteps
+        .filter((step) => step.status === 'completed')
+        .map(friendlyTool)
+        .filter(Boolean)
+        .slice(0, 4);
+    if (!goal && !route && completedTrace.length === 0) return null;
+    return {goal, route, trace: completedTrace};
+};
+
 const Tasks = () => {
     const {t, lang} = useI18n();
     const {authMode, user} = useAuth();
@@ -71,15 +121,15 @@ const Tasks = () => {
     const [deletingTaskId, setDeletingTaskId] = useState('');
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
-    const isLiveJob = (job) => job.status === 'queued' || job.status === 'running';
-    const isCancelledJob = (job) => job.status === 'cancelled';
+    const isLiveJob = isLiveTask;
+    const isCancelledJob = (job) => normalizeTaskState(job) === TASK_STATE_CANCELLED;
     const isDeletableJob = (job) => !isLiveJob(job);
     const isLocalJob = (job) => String(job.client_id || '').startsWith('local-') || job.metadata?.stt_provider === 'local';
     const [taskFilter, setTaskFilter] = useState('all');
     const stats = useMemo(() => ({
         live: jobs.filter(isLiveJob).length,
-        failed: jobs.filter((job) => job.status === 'failed').length,
-        completed: jobs.filter((job) => job.status === 'completed').length,
+        failed: jobs.filter((job) => normalizeTaskState(job) === TASK_STATE_FAILED).length,
+        completed: jobs.filter((job) => normalizeTaskState(job) === TASK_STATE_COMPLETED || isCachedOnlyTask(job)).length,
         all: jobs.length,
     }), [jobs]);
     const taskFilters = [
@@ -93,13 +143,14 @@ const Tasks = () => {
         return jobs
             .filter((job) => {
                 if (taskFilter === 'live') return isLiveJob(job);
-                if (taskFilter === 'failed') return job.status === 'failed' || job.status === 'cancelled';
-                if (taskFilter === 'completed') return job.status === 'completed';
+                const taskState = normalizeTaskState(job);
+                if (taskFilter === 'failed') return taskState === TASK_STATE_FAILED || taskState === TASK_STATE_CANCELLED;
+                if (taskFilter === 'completed') return taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job);
                 return true;
             })
             .slice()
             .sort((a, b) => {
-                const priorityDiff = (priority[a.status] ?? 9) - (priority[b.status] ?? 9);
+                const priorityDiff = (priority[normalizeTaskState(a)] ?? 9) - (priority[normalizeTaskState(b)] ?? 9);
                 if (priorityDiff !== 0) return priorityDiff;
                 return (Date.parse(b.updated_at || b.created_at || '') || 0) - (Date.parse(a.updated_at || a.created_at || '') || 0);
             });
@@ -116,7 +167,7 @@ const Tasks = () => {
             [...accountJobs, ...localJobs].forEach((job) => {
                 if (!job?.task_id) return;
                 const existing = byId.get(job.task_id);
-                if (existing?.status === 'cancelled' && job.status !== 'cancelled') return;
+                if (normalizeTaskState(existing) === TASK_STATE_CANCELLED && normalizeTaskState(job) !== TASK_STATE_CANCELLED) return;
                 const existingTs = Date.parse(existing?.updated_at || existing?.created_at || '') || 0;
                 const nextTs = Date.parse(job.updated_at || job.created_at || '') || 0;
                 if (!existing || nextTs >= existingTs) byId.set(job.task_id, markBackendJob(job));
@@ -165,7 +216,7 @@ const Tasks = () => {
     }, [loadJobs, hasLiveJobs]);
 
     const openJob = async (job) => {
-        if (job.status === 'running') {
+        if (normalizeTaskState(job) === TASK_STATE_RUNNING) {
             setCurrentJob(jobToCurrentJob(job));
             return;
         }
@@ -174,7 +225,7 @@ const Tasks = () => {
             addToHistory(jobToHistoryEntry({...sourceJob, result}));
             navigate('/editor');
         };
-        if (job.__cacheOnly && job.result) {
+        if (isCachedOnlyTask(job) && job.result) {
             openResult(job, job.result);
             return;
         }
@@ -209,7 +260,8 @@ const Tasks = () => {
             setJobs((current) => {
                 const next = current.map((item) => item.task_id === job.task_id ? {
                     ...item,
-                    status: 'cancelled',
+                    status: TASK_STATE_CANCELLED,
+                    task_state: TASK_STATE_CANCELLED,
                     error_reason: 'user_cancelled',
                     updated_at: new Date().toISOString(),
                 } : item);
@@ -254,39 +306,33 @@ const Tasks = () => {
     };
 
     const statusLabel = (job) => {
-        if (job.status === 'queued') return t('tasks.queued');
-        if (job.status === 'completed') return t('tasks.completed');
-        if (job.status === 'failed') return t('tasks.failed');
-        if (job.status === 'cancelled') return lang === 'zh' ? '已取消' : 'Cancelled';
+        const taskState = normalizeTaskState(job);
+        if (taskState === TASK_STATE_QUEUED) return t('tasks.queued');
+        if (taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job)) return t('tasks.completed');
+        if (taskState === TASK_STATE_FAILED) return t('tasks.failed');
+        if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '已取消' : 'Cancelled';
         return t('tasks.running');
     };
-    const statusClass = (job) => (
-        job.status === 'completed'
+    const statusClass = (job) => {
+        const taskState = normalizeTaskState(job);
+        return (
+        taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job)
             ? 'bg-primary/10 text-primary border-primary/20'
-            : job.status === 'failed'
+            : taskState === TASK_STATE_FAILED
                 ? 'bg-error-container text-on-error-container border-error/20'
-                : job.status === 'cancelled'
+                : taskState === TASK_STATE_CANCELLED
                     ? 'bg-surface-container text-on-surface-variant border-outline-variant/40'
-                : job.status === 'queued'
+                : taskState === TASK_STATE_QUEUED
                     ? 'bg-surface-container text-on-surface-variant border-outline-variant/40'
                     : 'bg-tertiary/10 text-tertiary border-tertiary/20'
-    );
+        );
+    };
     const formatUpdated = (job) => {
         const ts = Date.parse(job.updated_at || job.created_at || '');
         if (!ts) return '-';
         return timeAgo(ts, t);
     };
-    const providerLabel = (job) => (
-        job.source_type === 'video_link'
-            ? (lang === 'zh' ? '视频链接获取' : 'Video link fetch')
-            :
-        job.metadata?.stt_provider_label ||
-        job.result?.stt_provider_label ||
-        (job.metadata?.stt_provider === 'azure_batch' || job.result?.stt_provider === 'azure_batch'
-            ? (lang === 'zh' ? '云端转录' : 'Cloud transcription')
-            : 'faster-whisper')
-    );
-    const stageLabel = (job) => t(`status.${job.stage || (job.status === 'failed' ? 'failed' : 'idle')}`);
+    const stageLabel = (job) => t(`status.${job.stage || (normalizeTaskState(job) === TASK_STATE_FAILED ? 'failed' : 'idle')}`);
     const stageDetail = (job) => {
         const progressMeta = job.metadata?.video_source_progress || {};
         const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
@@ -295,15 +341,19 @@ const Tasks = () => {
         const summaryFailed = job.summary_status === 'failed' || job.result?.summary_status === 'failed' || job.result?.summary_error;
         if (progressMeta.message) return `${progressMeta.message}${byteText}`;
         if (summaryFailed && hasTranscriptResult(job.result)) {
-            return lang === 'zh'
-                ? `转录已保存，AI 摘要失败。打开结果后可重新生成。${job.result?.summary_error ? ` ${job.result.summary_error}` : ''}`
-                : `Transcript saved, but AI summary failed. Open the result to regenerate it.${job.result?.summary_error ? ` ${job.result.summary_error}` : ''}`;
+            const noteDiagnosis = noteGenerationDiagnosis({
+                ...job.result,
+                summary_status: job.result?.summary_status || job.summary_status,
+                summary_error: job.result?.summary_error || job.error_reason,
+            }, lang);
+            return `${noteDiagnosis.title}。${noteDiagnosis.detail}`;
         }
-        if (job.status === 'queued') return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
-        if (job.status === 'running') return job.summary_status || stageLabel(job);
-        if (job.status === 'completed') return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
-        if (job.status === 'cancelled') return lang === 'zh' ? '任务已取消，可以删除这条记录。' : 'Task cancelled. You can delete this record.';
-        if (job.status === 'failed') return friendlyTaskError(job.error_reason, lang);
+        const taskState = normalizeTaskState(job);
+        if (taskState === TASK_STATE_QUEUED) return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
+        if (taskState === TASK_STATE_RUNNING) return job.summary_status || stageLabel(job);
+        if (taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job)) return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
+        if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '任务已取消，可以删除这条记录。' : 'Task cancelled. You can delete this record.';
+        if (taskState === TASK_STATE_FAILED) return friendlyTaskError(job.error_reason, lang);
         return '-';
     };
     const artifactButtons = [
@@ -316,50 +366,38 @@ const Tasks = () => {
     ];
 
     return (
-        <div className="ml-64 min-h-screen relative pb-8">
-            <main className="px-8 py-10 max-w-[1500px] mx-auto h-[calc(100vh-2rem)] overflow-y-auto hide-scrollbar">
+        <div className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] pb-8 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
+            <main className="mx-auto h-dvh max-w-[1500px] overflow-y-auto px-8 py-7 hide-scrollbar">
                 <div className="space-y-5">
-                    <header className="flex flex-col md:flex-row md:items-end justify-between gap-5">
-                        <div className="max-w-3xl">
-                            <h1 className="font-headline text-3xl font-extrabold text-on-surface mb-2">{t('tasks.title')}</h1>
-                            <p className="text-sm leading-relaxed text-on-surface-variant max-w-[68ch]">{t('tasks.subtitle')}</p>
-                        </div>
-                        <button type="button" onClick={loadJobs} className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-surface-container-lowest text-on-surface font-bold text-sm border ff-border-muted hover:bg-surface-container-low transition-colors active:translate-y-px px-3.5">
-                            <span className={`material-symbols-outlined text-base ${loading ? 'animate-spin' : ''}`}>refresh</span>
-                            {t('tasks.refresh')}
-                        </button>
-                    </header>
-
-                    <div className="flex flex-col gap-3 rounded-sm border ff-border-muted bg-surface-container-lowest px-3 py-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-col gap-3 rounded-[22px] border border-[#e4e0e0] bg-white px-3 py-3 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] md:flex-row md:items-center md:justify-between dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex flex-wrap gap-1.5">
                             {taskFilters.map(([key, label, count]) => (
-                                <button key={key} type="button" onClick={() => setTaskFilter(key)} className={`inline-flex h-8 items-center gap-1.5 rounded-sm px-3 text-xs font-bold transition ${taskFilter === key ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'}`}>
+                                <button key={key} type="button" onClick={() => setTaskFilter(key)} className={`inline-flex h-9 items-center gap-1.5 rounded-[14px] px-3 text-xs font-bold transition ${taskFilter === key ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]' : 'text-[#666] hover:bg-[#efeeee] hover:text-[#111111] dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white'}`}>
                                     {label}
-                                    <span className={`tabular-nums ${taskFilter === key ? 'text-on-primary' : 'text-outline'}`}>{count}</span>
+                                    <span className={`tabular-nums ${taskFilter === key ? 'text-white dark:text-[#111111]' : 'text-[#8a8a8a] dark:text-white/40'}`}>{count}</span>
                                 </button>
                             ))}
                         </div>
-                        <p className="text-xs font-semibold text-on-surface-variant">
-                            {hasLiveJobs
-                                ? (lang === 'zh' ? '有任务进行中，5 秒自动刷新。' : 'Active jobs refresh every 5 seconds.')
-                                : (lang === 'zh' ? '只有历史记录时，自动刷新会降频。' : 'History refreshes less often when no job is active.')}
-                        </p>
+                        <button type="button" onClick={loadJobs} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[14px] px-3 text-xs font-bold text-[#666] hover:bg-[#efeeee] hover:text-[#111111] dark:text-white/55 dark:hover:bg-white/[0.08] dark:hover:text-white">
+                            <span className={`material-symbols-outlined text-base ${loading ? 'animate-spin' : ''}`}>refresh</span>
+                            {t('tasks.refresh')}
+                        </button>
                     </div>
 
                     {error && (
-                        <div className="rounded-sm border border-error/20 bg-error-container px-4 py-3 text-sm font-semibold text-on-error-container">{error}</div>
+                        <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>
                     )}
 
                     <section className="space-y-3">
                         {queueUploadJob && (
-                            <article className="rounded-sm bg-surface-container-lowest border border-primary/20 shadow-sm p-5">
+                            <article className="rounded-[24px] border border-[#e4e0e0] bg-white p-5 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                     <div className="flex items-start gap-3 min-w-0">
-                                        <div className="w-10 h-10 rounded-sm bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white">
                                             <span className="material-symbols-outlined text-lg animate-spin">sync</span>
                                         </div>
                                         <div className="min-w-0">
-                                            <h2 className="text-base font-headline font-bold text-on-surface">
+                                            <h2 className="text-base font-headline font-bold text-on-surface dark:text-white">
                                                 {lang === 'zh' ? '正在上传到后台任务' : 'Uploading to background tasks'}
                                             </h2>
                                             <p className="text-sm text-on-surface-variant mt-1">
@@ -380,107 +418,99 @@ const Tasks = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="mt-4 h-2 rounded-full overflow-hidden bg-surface-container-highest progress-indeterminate"></div>
+                                <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#efeeee] progress-indeterminate dark:bg-white/[0.12]"></div>
                             </article>
                         )}
                         {visibleJobs.length === 0 && !loading && !queueUploadJob && (
-                            <div className="rounded-sm bg-surface-container-lowest border ff-border-muted p-10 text-center">
-                                <span className="material-symbols-outlined text-4xl text-outline mb-3">pending_actions</span>
-                                <p className="text-sm text-on-surface-variant">{taskFilter === 'all' ? t('tasks.empty') : (lang === 'zh' ? '这个分类下暂时没有任务。' : 'No jobs in this view.')}</p>
+                            <div className="rounded-[24px] border border-[#e4e0e0] bg-white p-10 text-center shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                <span className="material-symbols-outlined mb-3 text-4xl text-[#8a8a8a] dark:text-white/40">pending_actions</span>
+                                <p className="text-sm font-semibold text-[#777] dark:text-white/55">{taskFilter === 'all' ? t('tasks.empty') : (lang === 'zh' ? '这个分类下暂时没有任务。' : 'No jobs in this view.')}</p>
                             </div>
                         )}
                         {visibleJobs.map((job) => {
-                            const progress = Math.max(0, Math.min(100, Number(job.progress) || (job.status === 'completed' ? 100 : 0)));
+                            const taskState = normalizeTaskState(job);
+                            const progress = Math.max(0, Math.min(100, Number(job.progress) || (taskState === TASK_STATE_COMPLETED || taskState === TASK_STATE_CACHED_ONLY ? 100 : 0)));
                             const result = job.result || {};
                             const artifacts = result.artifacts || {};
                             const availableArtifacts = artifactButtons.filter(([kind]) => artifacts[kind]);
                             const larkUrl = result.lark_response?.url || result.feishu_doc_url || null;
-                            const canOpen = hasTranscriptResult(result) || (!!result && job.status === 'completed');
+                            const canOpen = hasTranscriptResult(result) || (!!result && (taskState === TASK_STATE_COMPLETED || taskState === TASK_STATE_CACHED_ONLY));
                             const summaryFailed = job.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
-                            const showDetail = isLiveJob(job) || job.status === 'failed' || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result));
+                            const planSummary = agentPlanSummary(job, lang);
+                            const showDetail = isLiveJob(job) || taskState === TASK_STATE_FAILED || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result)) || !!nextStepText;
                             const nextStepText = taskNextStepText(job, lang);
                             const displayTitle = jobDisplayTitle(job, lang);
+                            const downloadItems = [
+                                ...availableArtifacts.map(([kind, label]) => ({icon:'download', label, badge:kind.endsWith('vtt')?'VTT':kind.endsWith('srt')?'SRT':kind.endsWith('txt')?'TXT':kind.endsWith('md')?'MD':kind, onClick:()=>downloadArtifact(job,kind)})),
+                                ...(larkUrl ? [{divider:true},{icon:'open_in_new', label:t('tasks.larkDoc'), onClick:()=>window.open(larkUrl,'_blank','noopener')}] : []),
+                            ];
                             return (
-                                <article key={job.task_id} className="rounded-sm bg-surface-container-lowest border ff-border-muted shadow-sm p-4">
-                                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                                        <div className="min-w-0 flex-1 space-y-3">
-                                            <div className="flex flex-wrap items-start gap-3">
-                                                <div className={`w-9 h-9 rounded-sm flex items-center justify-center flex-shrink-0 ${isLiveJob(job) ? 'bg-tertiary/10 text-tertiary' : job.status === 'failed' ? 'bg-error-container text-on-error-container' : 'bg-primary/10 text-primary'}`}>
-                                                    <span className="material-symbols-outlined text-lg">{job.source_type === 'transcript_file' ? 'subtitles' : 'movie'}</span>
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <h2 className="text-sm font-headline font-extrabold text-on-surface truncate" title={displayTitle}>{displayTitle}</h2>
-                                                    <p className="text-xs text-on-surface-variant mt-1">
-                                                        {formatUpdated(job)}
-                                                        {job.source_file_size_mb ? ` • ${fmtFileSize(job.source_file_size_mb)}` : ''}
-                                                        {result.audio_duration_seconds ? ` • ${fmtElapsed(result.audio_duration_seconds)}` : ''}
-                                                        {` • ${providerLabel(job)}`}
-                                                    </p>
-                                                </div>
-                                                <span className={`px-2.5 py-1 rounded-sm border text-[11px] font-bold ${statusClass(job)}`}>{statusLabel(job)}</span>
+                                <article key={job.task_id} className="rounded-[24px] border border-[#e4e0e0] bg-white p-4 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                    <div className="flex items-start gap-3">
+                                        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] ${isLiveJob(job) ? 'bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white' : taskState === TASK_STATE_FAILED ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : 'bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white'}`}>
+                                            <span className="material-symbols-outlined text-lg">{job.source_type === 'transcript_file' ? 'subtitles' : 'movie'}</span>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h2 className="max-w-[520px] truncate font-headline text-sm font-extrabold text-[#111111] dark:text-white" title={displayTitle}>{displayTitle}</h2>
+                                                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold flex-shrink-0 ${statusClass(job)}`}>{statusLabel(job)}</span>
+                                                <span className="text-xs font-medium text-[#777] dark:text-white/55 flex-shrink-0">{formatUpdated(job)}</span>
                                             </div>
-
+                                            {planSummary && (
+                                                <p className="mt-1.5 text-xs font-medium leading-relaxed text-on-surface-variant">
+                                                    <span className="mr-1 font-semibold">{planSummary.goal}</span>
+                                                    {[planSummary.route, ...(planSummary.trace.length > 0 ? [planSummary.trace.join(' → ')] : [])].filter(Boolean).join(' · ')}
+                                                </p>
+                                            )}
                                             {showDetail && (
-                                                <div className="ml-12 space-y-2">
-                                                    {isLiveJob(job) && (
-                                                        <div className={`h-1.5 rounded-full overflow-hidden bg-surface-container-highest ${isSttProgressUnmeasured(jobToCurrentJob(job)) ? 'progress-indeterminate' : ''}`}>
-                                                            {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-primary transition-all duration-500" style={{width:`${progress}%`}}></div>}
-                                                        </div>
-                                                    )}
-                                                    <p className={`rounded-sm px-3 py-2 text-xs font-semibold leading-relaxed ${job.status === 'failed' && !canOpen ? 'border border-error/20 bg-error-container text-on-error-container' : summaryFailed && hasTranscriptResult(result) ? 'border border-amber-400/25 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-surface-container-low text-on-surface-variant'}`}>
-                                                        {job.status === 'failed' && !canOpen ? <span className="font-bold">{t('tasks.error')}： </span> : null}
-                                                        {stageDetail(job)}
+                                            <div className="mt-2 ml-0 space-y-2">
+                                                {isLiveJob(job) && (
+                                                    <div className={`h-1.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${isSttProgressUnmeasured(jobToCurrentJob(job)) ? 'progress-indeterminate' : ''}`}>
+                                                        {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width:`${progress}%`}}></div>}
+                                                    </div>
+                                                )}
+                                                <p className={`rounded-sm px-3 py-2 text-xs font-semibold leading-relaxed ${taskState === TASK_STATE_FAILED && !canOpen ? 'border border-error/20 bg-error-container text-on-error-container' : summaryFailed && hasTranscriptResult(result) ? 'border border-amber-400/25 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-surface-container-low text-on-surface-variant'}`}>
+                                                    {taskState === TASK_STATE_FAILED && !canOpen ? <span className="font-bold">{t('tasks.error')}： </span> : null}
+                                                    {stageDetail(job)}
+                                                </p>
+                                                {nextStepText && (
+                                                    <p className="rounded-sm border ff-border-control bg-surface-container-lowest px-3 py-2 text-xs font-semibold leading-relaxed text-on-surface-variant">
+                                                        {nextStepText}
                                                     </p>
-                                                    {nextStepText && (
-                                                        <p className="rounded-sm border ff-border-control bg-surface-container-lowest px-3 py-2 text-xs font-semibold leading-relaxed text-on-surface-variant">
-                                                            {nextStepText}
-                                                        </p>
-                                                    )}
-                                                </div>
+                                                )}
+                                            </div>
                                             )}
                                         </div>
-
-                                        <div className="lg:w-[430px] flex-shrink-0 space-y-2">
+                                        <div className="flex items-center gap-1.5 flex-shrink-0">
                                             {isLiveJob(job) ? (
-                                                <button type="button" disabled={cancellingTaskId === job.task_id} onClick={() => cancelLiveJob(job)} className="w-full inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm border border-error/20 bg-surface-container-low text-error font-bold text-xs hover:bg-error-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
+                                                <button type="button" disabled={cancellingTaskId === job.task_id} onClick={() => cancelLiveJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
                                                     <span className={`material-symbols-outlined text-base ${cancellingTaskId === job.task_id ? 'animate-spin' : ''}`}>{cancellingTaskId === job.task_id ? 'sync' : 'cancel'}</span>
-                                                    {lang === 'zh' ? '取消任务' : 'Cancel task'}
+                                                    {lang === 'zh' ? '取消' : 'Cancel'}
                                                 </button>
                                             ) : (
-                                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                                    <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm bg-primary text-on-primary font-bold text-xs hover:bg-primary-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
+                                                <>
+                                                    <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
                                                         <span className="material-symbols-outlined text-base">open_in_new</span>
                                                         {t('tasks.open')}
                                                     </button>
-                                                    <button type="button" disabled={!isDeletableJob(job) || deletingTaskId === job.task_id} onClick={() => deleteFinishedJob(job)} className="inline-flex h-9 items-center justify-center gap-2 px-3.5 rounded-sm border border-error/20 bg-surface-container-low text-error font-bold text-xs hover:bg-error-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:translate-y-px">
+                                                    {job.task_id ? (
+                                                        <Link to={`/tasks/${encodeURIComponent(job.task_id)}/agent`} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                                                            <SvgIcon name="monitoring" className="w-3.5 h-3.5" />
+                                                            Agent
+                                                        </Link>
+                                                    ) : null}
+                                                    {downloadItems.length > 0 ? (
+                                                        <DropdownMenu
+                                                            align="right"
+                                                            trigger={<button type="button" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"><span className="material-symbols-outlined text-base">download</span></button>}
+                                                            items={downloadItems}
+                                                        />
+                                                    ) : null}
+                                                    <button type="button" disabled={!isDeletableJob(job) || deletingTaskId === job.task_id} onClick={() => deleteFinishedJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
                                                         <span className={`material-symbols-outlined text-base ${deletingTaskId === job.task_id ? 'animate-spin' : ''}`}>{deletingTaskId === job.task_id ? 'sync' : 'delete'}</span>
-                                                        {t('tasks.delete')}
                                                     </button>
-                                                </div>
+                                                </>
                                             )}
-                                            <div className="flex flex-wrap items-center justify-start gap-1.5 lg:justify-end">
-                                                {availableArtifacts.length > 0 ? (
-                                                    <>
-                                                        <span className="mr-1 text-[11px] font-bold text-outline">{t('tasks.download')}</span>
-                                                        {availableArtifacts.map(([kind, label]) => {
-                                                        const artifact = artifacts[kind];
-                                                        return (
-                                                            <button key={kind} type="button" title={artifact?.filename || label} onClick={() => downloadArtifact(job, kind)} className="inline-flex h-7 items-center rounded-sm border ff-border-muted bg-surface-container-low px-2.5 text-[11px] font-bold text-on-surface transition hover:bg-surface-container active:translate-y-px">
-                                                                {label}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                    </>
-                                                ) : (
-                                                    <span className="text-[11px] font-semibold text-outline">{t('tasks.noOutputs')}</span>
-                                                )}
-                                                {larkUrl && (
-                                                    <a href={larkUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center justify-center gap-1.5 rounded-sm border border-primary/30 px-2.5 text-[11px] font-bold text-primary transition hover:bg-primary/10">
-                                                        <span className="material-symbols-outlined text-sm">open_in_new</span>
-                                                        {t('tasks.larkDoc')}
-                                                    </a>
-                                                )}
-                                            </div>
                                         </div>
                                     </div>
                                 </article>
