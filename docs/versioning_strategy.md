@@ -31,6 +31,9 @@ tasks, account, or UI modules.
 
 The rollback unit is the commit, not the conversation.
 
+Atomic does not mean "commit every tiny edit." It means the smallest coherent
+change that can be understood, validated, and reverted as one unit.
+
 One conversation may produce several commits. Split commits by product purpose:
 
 - Transcription route changes.
@@ -63,6 +66,44 @@ chore: ignore local agent workspace files
 When unrelated worktree changes exist, inspect the diff and stage intentionally.
 Do not use `git add .` unless the worktree has already been audited and every
 changed file belongs to the same commit purpose.
+
+## Development History Vs Mainline History
+
+Development speed and readable history have different needs. During exploration
+on a local or feature branch, temporary commits are acceptable when they help
+save progress or create a rollback point. They may use `wip:` messages if the
+user explicitly asks to save progress.
+
+Before merging, pushing for review, or treating work as a finished checkpoint,
+clean the visible history into coherent commits:
+
+- Fold typo fixes, formatting nits, and "fix previous commit" changes into the
+  commit they belong to.
+- Split unrelated changes into separate commits even if they happened in the
+  same conversation.
+- Keep large features as a small sequence of stable sub-commits, not one giant
+  commit and not dozens of trivia commits.
+- Ensure each final commit builds on its own intent: a bug fix, a small feature,
+  a focused document update, a schema change, or a tooling/release change.
+
+Good final commit units:
+
+- One closed bug fix.
+- One independently usable small capability.
+- One focused documentation or product-language cleanup.
+- One stable submodule or UI slice of a larger feature.
+- One release/tooling step with its own validation.
+
+Do not leave these as standalone final commits:
+
+- Single typo fixes or one-line copy tweaks without independent product value.
+- Broken or unvalidated half-finished code.
+- Mixed changes such as "fix a backend bug, update unrelated docs, and redesign
+  a page" in the same commit.
+
+When history cleanup is needed, prefer non-interactive commands where practical.
+Use interactive rebase only when the branch is local/unpushed or the user has
+approved rewriting history. Never rewrite shared history casually.
 
 ## App Version Rules
 

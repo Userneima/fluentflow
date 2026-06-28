@@ -24,6 +24,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 
 - Follow `docs/versioning_strategy.md` for app versions, atomic commits, changelog entries, schema versions, release tags, and rollback decisions.
 - One conversation is not one commit. Split work into separate commits by product purpose.
+- Do not commit after every tiny edit by default. Commit after a coherent, validated work unit, or make temporary `wip:` commits only when the user explicitly asks to save progress.
 - Do not create broad `misc`, `update`, or `fix things` commits. Each commit should explain one coherent user or maintainer outcome.
 - Stage intentionally. When unrelated changes exist, inspect the diff and stage only the hunks/files for the current commit.
 - Use English Conventional Commit style for new commit messages when practical, for example `fix: handle stale dashboard jobs` or `docs: clarify release process`.
