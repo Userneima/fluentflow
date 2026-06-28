@@ -257,6 +257,8 @@ def test_processing_page_is_agent_workflow_surface() -> None:
     assert "planEvidence" in source
     assert "计划依据" in source
     assert "高级详情" in source
+    assert "editorActionLabel" in source
+    assert "打开编辑器重新生成" in source
     assert 'to="/settings"' in source
     assert "ml-[var(--sidebar-offset)]" in source
     assert "saveCredentials" not in source

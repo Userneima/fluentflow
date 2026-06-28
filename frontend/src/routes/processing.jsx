@@ -271,6 +271,9 @@ const Processing = () => {
             : result
                 ? (isZh ? '打开编辑器校对笔记、下载字幕，或进入后台任务查看完整记录。' : 'Open the editor to review notes and subtitles, or inspect the full task record in Tasks.')
                 : (isZh ? '从开始处理页上传课程、讲座或字幕文件后，这里会展示 Agent 的处理路线。' : 'Upload a course, lecture, or transcript from Start, then this page will explain the Agent route.');
+    const editorActionLabel = summaryFailed
+        ? (isZh ? '打开编辑器重新生成' : 'Open editor to regenerate')
+        : (isZh ? '打开编辑器' : 'Open editor');
 
     return (
         <main className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] px-6 py-8 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
@@ -426,7 +429,7 @@ const Processing = () => {
                                 {result && (
                                     <Link to="/editor" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
                                         <SvgIcon name="open_in_new" className="text-base"/>
-                                        {isZh ? '打开编辑器' : 'Open editor'}
+                                        {editorActionLabel}
                                     </Link>
                                 )}
                                 <Link to="/tasks" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#f4f3f3] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
