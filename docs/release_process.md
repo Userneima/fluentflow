@@ -2,6 +2,9 @@
 
 FluentFlow releases must be traceable, reproducible enough for debugging, and explicit about data compatibility.
 
+For the everyday change-control rules that happen before release preparation,
+read `docs/versioning_strategy.md` first.
+
 ## Version Sources
 
 - `VERSION` is the product release version.

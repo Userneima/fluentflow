@@ -20,6 +20,17 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Do not commit `.env`, SQLite databases, runtime artifacts, media files, transcripts, notes, logs, exports, or private docs.
 - Do not push or deploy unless explicitly requested.
 
+## Versioning And Commit Discipline
+
+- Follow `docs/versioning_strategy.md` for app versions, atomic commits, changelog entries, schema versions, release tags, and rollback decisions.
+- One conversation is not one commit. Split work into separate commits by product purpose.
+- Do not create broad `misc`, `update`, or `fix things` commits. Each commit should explain one coherent user or maintainer outcome.
+- Stage intentionally. When unrelated changes exist, inspect the diff and stage only the hunks/files for the current commit.
+- Use English Conventional Commit style for new commit messages when practical, for example `fix: handle stale dashboard jobs` or `docs: clarify release process`.
+- Do not bump `VERSION` for ordinary fixes. Bump the app version only when preparing a coherent release.
+- User-visible behavior changes belong in `docs/changelog.md` under `Unreleased`; shipped release sections are prepared during release.
+- Persistent data/API/result-shape changes must update the relevant schema or migration documentation and keep old data readable.
+
 ## Privacy Boundary
 
 Public repo files should avoid personal names, local machine paths, production domains, credentials, private workflow notes, and generated user content. Keep those in ignored local files such as `docs/private/`, `.env`, `data/`, `backend/data/`, `logs/`, `exports/`, and `reports/`.

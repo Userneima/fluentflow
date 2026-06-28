@@ -1,5 +1,8 @@
 # FluentFlow Project Rules
 
+Claude should follow the project rules in `AGENTS.md`. This file exists only as
+a Claude-compatible entry point so agent instructions do not drift.
+
 Default language: Chinese. Code, commands, variables, and commit messages use English.
 
 FluentFlow is a maintained video/audio-to-transcript-and-note product.
@@ -30,6 +33,16 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - To verify whether a test passes on the original code, use `git show HEAD:path/to/file.py > /tmp/orig.py` and inspect, or run the test in a separate `git worktree`.
 - If `git stash` has already been used, verify every modified file is intact after `stash pop` by running `git diff --name-only HEAD` and comparing with the expected change list.
 - Never `git checkout` individual files from HEAD or another ref without confirming the user wants to discard local changes to those files.
+
+## Versioning And Commits
+
+- Follow `docs/versioning_strategy.md` for app versions, atomic commits, schema versions, changelog entries, release tags, and rollback decisions.
+- One conversation is not one commit. Split work into separate commits by product purpose.
+- Do not create broad `misc`, `update`, or `fix things` commits.
+- Stage intentionally and avoid mixing unrelated UI, backend, data, deployment, and documentation changes in one commit.
+- Do not bump `VERSION` unless preparing a coherent release.
+- User-visible behavior changes belong in `docs/changelog.md` under `Unreleased`.
+- Persistent data/API/result-shape changes must update the relevant schema or migration documentation and keep old data readable.
 
 ## Privacy
 

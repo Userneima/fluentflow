@@ -68,6 +68,7 @@
 
 - 新增产品版本管理基础：`VERSION` 作为唯一版本源，后端 `/version` 和前端构建配置会暴露版本、Git commit 与 schema 信息；CI 和部署流程新增 release gate，部署成功后会写入 release manifest 方便回滚和排障。
 - 新增 `scripts/prepare_release.py` 和 npm `release:prepare` / `release:check` 入口，用于发版前同步版本号、生成发布检查单，并把 changelog 归档保留为人工判断步骤。
+- 新增 `docs/versioning_strategy.md`，明确 App 版本、原子提交、schema version、changelog、tag/release 和回滚之间的职责边界；`AGENTS.md` 与 `CLAUDE.md` 会要求未来 Agent 按该策略拆分提交和记录变更。
 - `/assets/*` 静态资源在 SPA 兜底路由之前挂载，并新增测试防止 JS 资源再次被 `index.html` 吞掉。
 - 拆分后的路由页补齐从 `frontend/src/app/shared.jsx` 引入的共享 helper。
 - 本地运行产物默认迁移到系统应用数据目录；新增 `backend.core.runtime_paths` 统一管理路径，并提供 `scripts/migrate_runtime_storage.py` 显式迁移旧 repo 内数据。
