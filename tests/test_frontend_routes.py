@@ -234,6 +234,10 @@ def test_editor_explains_generation_reasons() -> None:
     assert "promptPresetReasonText" in source
     assert "subtitleReasonText" in source
     assert "summaryFailureNextStep" in source
+    assert "summaryCompactMeta" in source
+    assert "agentWorkflowHref" in source
+    assert "查看 Agent 工作流" in source
+    assert "生成详情" in source
     assert "summaryReasonItems.map" in source
     assert "noteModePlanReason" in shared
     assert "chapter_coverage" in shared

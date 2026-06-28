@@ -173,7 +173,7 @@ These are useful for debugging or advanced review, but not for the first viewpor
 1. Redesign the `/processing` page information structure first. Done in first slice: `/processing` is now a read-only Agent workflow explanation surface instead of a settings form.
 2. Move editor generation reasoning into the Agent workflow page.
 3. Verify that the Agent workflow page can explain a completed result without the editor panel.
-4. Replace the editor `AI 生成` panel with a compact workflow/details entry.
+4. Replace the editor `AI 生成` panel with a compact workflow/details entry. Done in second slice: the editor now shows a compact generation bar, an Agent workflow link, and collapsed generation details.
 5. Compress the editor title metadata into one readable line.
 6. Move purely technical metadata into collapsed advanced details.
 7. Validate that the transcript and note are visible earlier on desktop and smaller screens.

@@ -49,7 +49,7 @@ The product should not drift into a generic STT tool, a full knowledge base, a s
 
 - [x] Convert `/processing` from a parameter panel into an Agent workflow view: current/recent task, execution route, selected route, judgment basis, evidence, next action, and collapsed advanced details.
 - [ ] Move human-maintained long-term preferences to `Settings`; remove or hide choices that the Agent now decides automatically.
-- [ ] Show the same Agent plan and tool trace in task detail/editor so completed jobs explain what happened after the fact.
+- [ ] Show the same Agent plan and tool trace in task detail/editor so completed jobs explain what happened after the fact. First slice is done: editor AI summary footer now links to Agent workflow and hides detailed generation reasons behind disclosure.
 - [ ] Make failure states actionable: show diagnosis, next step, and one-click recovery where the system already knows the correct action.
 
 ### P3: Protect The Course/Lecture Note Quality Loop

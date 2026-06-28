@@ -64,6 +64,7 @@
 - 后台任务队列改为持久化任务步骤模型，上传、访客试用和视频链接任务会先写入可恢复的步骤记录，再由 worker 领取执行。
 - 笔记生成新增真实 `chapter_coverage` / “完整覆盖笔记”模式：先抽证据、规划章节、逐章生成，再做覆盖检查，适合超长或高价值材料。
 - Agent 工作流页从旧处理设置表单改为任务解释页：展示当前/最近任务、执行路线、Agent 判断、使用依据、下一步动作和折叠的高级详情；长期参数和凭证入口保留在设置页。
+- 编辑器 AI 摘要底部的生成说明改为紧凑状态条，默认只显示模式、模板、语言和“查看 Agent 工作流”入口；分块、证据数和原因说明移入折叠的生成详情。
 
 ### 维护者变化
 
@@ -71,6 +72,7 @@
 - 新增 `scripts/prepare_release.py` 和 npm `release:prepare` / `release:check` 入口，用于发版前同步版本号、生成发布检查单，并把 changelog 归档保留为人工判断步骤。
 - 新增 `docs/versioning_strategy.md`，明确 App 版本、原子提交、schema version、changelog、tag/release 和回滚之间的职责边界；`AGENTS.md` 与 `CLAUDE.md` 会要求未来 Agent 按该策略拆分提交和记录变更。
 - `/processing` 删除重复的转录、摘要、飞书和凭证表单逻辑，改为只读 Agent workflow surface，并新增前端路由测试防止页面回退成设置表单。
+- 编辑器保留生成元数据，但默认阅读区不再展开大块说明；新增测试保护 Agent 工作流入口和折叠详情结构。
 - `/assets/*` 静态资源在 SPA 兜底路由之前挂载，并新增测试防止 JS 资源再次被 `index.html` 吞掉。
 - 拆分后的路由页补齐从 `frontend/src/app/shared.jsx` 引入的共享 helper。
 - 本地运行产物默认迁移到系统应用数据目录；新增 `backend.core.runtime_paths` 统一管理路径，并提供 `scripts/migrate_runtime_storage.py` 显式迁移旧 repo 内数据。

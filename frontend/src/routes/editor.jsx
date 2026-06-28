@@ -492,6 +492,20 @@ const Editor = () => {
             value: `${result.note_mode_covered_important_evidence_count ?? 0}/${result.note_mode_important_evidence_count}`,
         } : null,
     ].filter(Boolean);
+    const summaryCompactMeta = [
+        {
+            label: lang === 'zh' ? '模式' : 'Mode',
+            value: noteModeText || (lang === 'zh' ? '未记录' : 'Not recorded'),
+        },
+        {
+            label: lang === 'zh' ? '模板' : 'Prompt',
+            value: promptPresetMetaLabel || (lang === 'zh' ? '未记录' : 'Not recorded'),
+        },
+        {
+            label: lang === 'zh' ? '语言' : 'Language',
+            value: sourceLanguageLabel,
+        },
+    ];
     const summaryReasonItems = [
         {
             label: lang === 'zh' ? '模式原因' : 'Mode reason',
@@ -512,6 +526,7 @@ const Editor = () => {
     const resultDownloadName = result?.display_title || resultTitle || result?.filename;
     const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
     const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
+    const agentWorkflowHref = activeTaskId ? `/tasks/${encodeURIComponent(activeTaskId)}/agent` : '/processing';
     const playbackDuration = mediaDuration || durSec || 0;
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
@@ -1551,31 +1566,51 @@ const Editor = () => {
 	                            )}
                                 </div>
                                 <div className="border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                    <div className="flex flex-col gap-2">
+                                    <div className="space-y-2">
                                         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <SvgIcon name="verified" className="text-sm text-[#111111] dark:text-white"/>
-                                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#666] dark:text-white/60">{t('edit.confidence')}</span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {summaryGenerationMeta.map((item) => (
-                                                <span key={item.label} className="inline-flex min-h-7 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                                    <span className="text-[#8a8a8a] dark:text-white/40">{item.label}</span>
-                                                    <span className="max-w-[16rem] truncate text-[#111111] dark:text-white" title={item.value}>{item.value}</span>
+                                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                <span className="inline-flex h-7 items-center gap-1.5 rounded-[11px] bg-[#111111] px-2.5 text-[11px] font-extrabold text-white dark:bg-white dark:text-[#111111]">
+                                                    <SvgIcon name="verified" className="text-sm"/>
+                                                    {lang === 'zh' ? 'AI 生成' : 'AI generated'}
                                                 </span>
-                                            ))}
-                                        </div>
-                                        </div>
-                                        {summaryReasonItems.length > 0 && (
-                                            <div className="grid gap-1.5 md:grid-cols-3">
-                                                {summaryReasonItems.map((item) => (
-                                                    <p key={item.label} className="rounded-[11px] border border-[#e4e0e0] bg-white px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                                        <span className="mr-1 text-[#8a8a8a] dark:text-white/40">{item.label}</span>
-                                                        <span>{item.value}</span>
-                                                    </p>
+                                                {summaryCompactMeta.map((item) => (
+                                                    <span key={item.label} className="inline-flex h-7 max-w-[14rem] items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2.5 text-[11px] font-semibold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                                        <span className="shrink-0 text-[#8a8a8a] dark:text-white/40">{item.label}</span>
+                                                        <span className="truncate text-[#111111] dark:text-white" title={item.value}>{item.value}</span>
+                                                    </span>
                                                 ))}
                                             </div>
-                                        )}
+                                            <Link to={agentWorkflowHref} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#dedada] bg-white px-3 text-[12px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                                                <SvgIcon name="route" className="text-sm"/>
+                                                {lang === 'zh' ? '查看 Agent 工作流' : 'View Agent workflow'}
+                                            </Link>
+                                        </div>
+                                        <details className="group rounded-[12px] border border-[#e4e0e0] bg-white px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-extrabold text-[#666] dark:text-white/60">
+                                                <span>{lang === 'zh' ? '生成详情' : 'Generation details'}</span>
+                                                <SvgIcon name="expand_more" className="text-base transition-transform group-open:rotate-180"/>
+                                            </summary>
+                                            <div className="mt-3 space-y-2">
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {summaryGenerationMeta.map((item) => (
+                                                        <span key={item.label} className="inline-flex min-h-7 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-[#fbfbfb] px-2.5 py-1 text-[11px] font-semibold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                                            <span className="text-[#8a8a8a] dark:text-white/40">{item.label}</span>
+                                                            <span className="max-w-[16rem] truncate text-[#111111] dark:text-white" title={item.value}>{item.value}</span>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                                {summaryReasonItems.length > 0 && (
+                                                    <div className="grid gap-1.5 md:grid-cols-3">
+                                                        {summaryReasonItems.map((item) => (
+                                                            <p key={item.label} className="rounded-[11px] border border-[#e4e0e0] bg-[#fbfbfb] px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                                                <span className="mr-1 text-[#8a8a8a] dark:text-white/40">{item.label}</span>
+                                                                <span>{item.value}</span>
+                                                            </p>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </details>
                                     </div>
                                 </div>
                             </section>
