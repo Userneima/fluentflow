@@ -33,6 +33,9 @@ Every persisted task result should expose:
 | `subtitle_mode` | Example values: `source_only`, `bilingual_zh`. |
 | `translation_status` | Translation state for bilingual subtitles. |
 | `artifacts` | Downloadable outputs keyed by artifact kind. |
+| `visual_evidence` | Optional Agent-selected screenshot evidence points for note sections. These are final note-level decisions, not raw frame candidates. |
+| `visual_artifacts` | Optional generated image artifacts attached to `visual_evidence`. |
+| `frame_artifacts` | Legacy/raw candidate frame artifacts. These may exist when the runtime extracted frames for multimodal review, but they are not final note screenshots unless promoted into `visual_evidence`. |
 | `requested_note_mode` | User-requested note mode. |
 | `resolved_note_mode` | Actual note mode used after planning/fallback. |
 | `prompt_preset` / `prompt_preset_label` | Prompt template metadata. |
@@ -85,6 +88,34 @@ Legacy aliases are read-only compatibility inputs:
 | `risk_notes` | Honest limitations or fallback notes for the plan. |
 
 Compatibility rule: keep legacy `note_mode_plan_*` fields on the Result Payload, but new UI and Agent surfaces should prefer `processing_plan.note_strategy`.
+
+## Visual Evidence v1
+
+Visual evidence is the result contract for screenshots that help explain a specific course or lecture note section. It should be generated only when the system can name why a frame helps the user.
+
+`visual_evidence` is an ordered list:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable evidence id within the task, such as `visual_001`. |
+| `timestamp_seconds` | Seconds from media start. |
+| `reason` | User-facing explanation of why this screenshot matters. Do not expose model inner monologue. |
+| `note_section` | Optional note heading or section id this screenshot supports. |
+| `source` | Selection source, such as `agent_transcript`, `scene_change`, `manual`, or `visual_review_grid`. |
+| `confidence` | `high`, `medium`, or `low`. Low confidence screenshots should not be inserted by default. |
+| `provider` | Extraction provider, such as `local_ffmpeg`, `cloud_ffmpeg_worker`, `media_thumbnail_api`, or `disabled`. |
+| `artifact_kind` | Artifact key when a generated image exists. |
+| `artifact_url` | Downloadable or embeddable image URL. Must not expose local filesystem paths. |
+
+`visual_artifacts` is a keyed object for image outputs. Each value follows the same artifact shape as `artifacts` and may add:
+
+| Field | Meaning |
+| --- | --- |
+| `timestamp_seconds` | Source media timestamp used to generate the image. |
+| `content_type` | Usually `image/jpeg` or `image/png`. |
+| `provider` | Runtime provider that generated the artifact. |
+
+Raw `frame_artifacts` are compatibility/candidate outputs. They may be exposed for diagnostics or future visual review, but UI should not present them as final note screenshots unless `visual_evidence` promotes them with a concrete reason and section association.
 
 V1 planning is intentionally two-stage:
 

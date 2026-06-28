@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from backend.core.processing_plan import ensure_processing_plan
 from backend.core.result_schema import (
@@ -35,7 +36,11 @@ def safe_filename_stem(value: str | None, fallback: str = "transcript") -> str:
     return (safe_stem or fallback)[:96]
 
 
-def artifact_url(task_id: str, kind: str) -> str:
+def artifact_url(task_id: str, kind: str, *, filename: str | None = None) -> str:
+    if kind == "frame" and filename:
+        frame_name = Path(filename).name
+        if frame_name:
+            return f"/jobs/{task_id}/artifacts/frame?file={quote(frame_name)}"
     return f"/jobs/{task_id}/artifacts/{kind}"
 
 
@@ -162,11 +167,20 @@ def write_text_artifact(task_id: str, kind: str, filename: str, content: str) ->
     }
 
 
+def _safe_artifact_relative_path(filename: str) -> Path:
+    path = Path(filename)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("Artifact filename must be a safe relative path")
+    return path
+
+
 def write_file_artifact(task_id: str, kind: str, filename: str, source_path: Path | str) -> dict[str, Any]:
     target_dir = artifact_storage_dir() / task_id
     target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / filename
-    tmp = target_dir / f".{filename}.{uuid.uuid4().hex}.tmp"
+    relative_path = _safe_artifact_relative_path(filename)
+    path = target_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
     try:
         shutil.copyfile(str(source_path), tmp)
         tmp.replace(path)
@@ -175,8 +189,8 @@ def write_file_artifact(task_id: str, kind: str, filename: str, source_path: Pat
             tmp.unlink()
     return {
         "kind": kind,
-        "filename": filename,
-        "url": artifact_url(task_id, kind),
+        "filename": str(relative_path).replace("\\", "/"),
+        "url": artifact_url(task_id, kind, filename=str(relative_path)),
         "size_bytes": path.stat().st_size,
         "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
     }

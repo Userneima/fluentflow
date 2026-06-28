@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
@@ -1705,7 +1706,11 @@ def _format_edited_transcript_backup(transcript: str, segments: list[dict[str, A
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _artifact_url(task_id: str, kind: str) -> str:
+def _artifact_url(task_id: str, kind: str, *, filename: str | None = None) -> str:
+    if kind == "frame" and filename:
+        frame_name = Path(filename).name
+        if frame_name:
+            return f"/jobs/{task_id}/artifacts/frame?file={quote(frame_name)}"
     return f"/jobs/{task_id}/artifacts/{kind}"
 
 
@@ -1875,11 +1880,20 @@ def _write_text_artifact(task_id: str, kind: str, filename: str, content: str) -
     }
 
 
+def _safe_artifact_relative_path(filename: str) -> Path:
+    path = Path(filename)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("Artifact filename must be a safe relative path")
+    return path
+
+
 def _write_file_artifact(task_id: str, kind: str, filename: str, source_path: Path | str) -> dict[str, Any]:
     target_dir = _artifact_storage_dir() / task_id
     target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / filename
-    tmp = target_dir / f".{filename}.{uuid.uuid4().hex}.tmp"
+    relative_path = _safe_artifact_relative_path(filename)
+    path = target_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
     try:
         shutil.copyfile(str(source_path), tmp)
         tmp.replace(path)
@@ -1888,8 +1902,8 @@ def _write_file_artifact(task_id: str, kind: str, filename: str, source_path: Pa
             tmp.unlink()
     return {
         "kind": kind,
-        "filename": filename,
-        "url": _artifact_url(task_id, kind),
+        "filename": str(relative_path).replace("\\", "/"),
+        "url": _artifact_url(task_id, kind, filename=str(relative_path)),
         "size_bytes": path.stat().st_size,
         "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
     }
@@ -1987,6 +2001,12 @@ def _write_result_artifacts(task_id: str, result: dict[str, Any]) -> dict[str, d
             _artifact_filename(result, "_summary.md"),
             summary.rstrip() + "\n",
         )
+    frame_artifacts = result.get("frame_artifacts")
+    if isinstance(frame_artifacts, list):
+        for frame_artifact in frame_artifacts:
+            if isinstance(frame_artifact, dict) and frame_artifact.get("kind") == "frame":
+                key = f"frame_{Path(str(frame_artifact.get('filename') or '')).stem}"
+                artifacts[key] = frame_artifact
     return artifacts
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -39,6 +40,26 @@ def _video_duration_seconds(video_path: str) -> float:
     return max(0.0, float((result.stdout or "").strip()))
 
 
+def _parse_showinfo_timestamps(stderr: str) -> list[float]:
+    timestamps: list[float] = []
+    for match in re.finditer(r"pts_time:([0-9]+(?:\.[0-9]+)?)", stderr or ""):
+        try:
+            timestamps.append(float(match.group(1)))
+        except ValueError:
+            continue
+    return timestamps
+
+
+def _selected_even_indices(total: int, keep: int) -> list[int]:
+    if total <= 0 or keep <= 0:
+        return []
+    if total <= keep:
+        return list(range(total))
+    if keep == 1:
+        return [0]
+    return [round(i * (total - 1) / (keep - 1)) for i in range(keep)]
+
+
 def _extract_scene_frames(
     video_path: str,
     output_dir: Path,
@@ -47,40 +68,39 @@ def _extract_scene_frames(
     max_frames: int,
 ) -> list[dict[str, Any]]:
     """Run ffmpeg scene detection and extract key frames."""
+    for stale in output_dir.glob("scene_*.jpg"):
+        stale.unlink(missing_ok=True)
     output_pattern = output_dir / "scene_%04d.jpg"
     cmd = [
         _ffmpeg_path(),
         "-y",
         "-i", str(video_path),
-        "-vf", f"select='gt(scene,{threshold})',setpts=N/FRAME_RATE/TB",
+        "-vf", f"select='gt(scene,{threshold})',showinfo",
         "-vsync", "vfr",
         "-q:v", "2",
         str(output_pattern),
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+    completed = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
     frames = sorted(output_dir.glob("scene_*.jpg"))
-    # Truncate to max_frames evenly
-    if len(frames) > max_frames:
-        step = len(frames) / max_frames
-        selected = [frames[int(i * step)] for i in range(max_frames)]
-        for f in frames:
-            if f not in selected:
-                f.unlink(missing_ok=True)
-        frames = selected
-
     duration = _video_duration_seconds(video_path)
+    timestamps = _parse_showinfo_timestamps(completed.stderr or "")
+    frame_records: list[tuple[Path, float]] = []
+    for idx, path in enumerate(frames):
+        fallback = duration * idx / max(len(frames), 1)
+        timestamp = timestamps[idx] if idx < len(timestamps) else fallback
+        frame_records.append((path, timestamp))
+
+    selected_indices = set(_selected_even_indices(len(frame_records), max_frames))
+    selected_records: list[tuple[Path, float]] = []
+    for idx, record in enumerate(frame_records):
+        if idx in selected_indices:
+            selected_records.append(record)
+        else:
+            record[0].unlink(missing_ok=True)
+
     results: list[dict[str, Any]] = []
-    index_by_filename: dict[str, int] = {}
-    for path in frames:
-        index_by_filename[path.name] = 0
-    known_indices = sorted(set(
-        int(name.split("_")[-1].split(".")[0]) for name in index_by_filename
-    ))
-    for idx, frame_index in enumerate(known_indices):
-        filename = f"scene_{frame_index:04d}.jpg"
-        path = output_dir / filename
+    for path, timestamp in selected_records:
         if path.is_file():
-            timestamp = duration * idx / max(len(known_indices), 1)
             results.append({
                 "path": str(path),
                 "timestamp_seconds": round(timestamp, 1),

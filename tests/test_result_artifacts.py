@@ -135,6 +135,41 @@ def test_playback_audio_artifact_survives_result_artifact_refresh(tmp_path, monk
     assert (tmp_path / "task_audio" / artifacts["playback_audio"]["filename"]).read_bytes() == b"mp3"
 
 
+def test_write_file_artifact_supports_nested_frame_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"jpg")
+
+    artifact = _H._write_file_artifact("task_frame", "frame", "frames/frame_001.jpg", source)
+
+    assert artifact["kind"] == "frame"
+    assert artifact["filename"] == "frames/frame_001.jpg"
+    assert artifact["url"] == "/jobs/task_frame/artifacts/frame?file=frame_001.jpg"
+    assert (tmp_path / "task_frame" / "frames" / "frame_001.jpg").read_bytes() == b"jpg"
+
+
+def test_attach_result_artifacts_preserves_frame_download_urls(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path))
+    frame_dir = tmp_path / "input"
+    frame_dir.mkdir()
+    frame = frame_dir / "frame_001.jpg"
+    frame.write_bytes(b"jpg")
+    frame_artifact = _H._write_file_artifact("task_visual", "frame", "frames/frame_001.jpg", frame)
+
+    result = _attach_result_artifacts(
+        "task_visual",
+        {
+            "filename": "lesson.mp4",
+            "transcript_text": "一句话",
+            "frame_artifacts": [frame_artifact],
+        },
+    )
+
+    artifacts = result["artifacts"]
+    assert artifacts["frame_frame_001"]["url"] == "/jobs/task_visual/artifacts/frame?file=frame_001.jpg"
+    assert artifacts["frame_frame_001"]["filename"] == "frames/frame_001.jpg"
+
+
 def test_upload_job_playback_audio_persists_artifact_with_original_suffix(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "jobs.sqlite"
     artifact_dir = tmp_path / "artifacts"
