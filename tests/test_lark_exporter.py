@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from backend.core.lark_exporter import (
@@ -59,6 +60,14 @@ class TestLarkExporter(unittest.TestCase):
         self.assertNotIn("language", blocks[3]["code"])
         self.assertEqual(blocks[4]["block_type"], 22)
         self.assertEqual(blocks[4]["divider"], {})
+
+    def test_markdown_image_without_local_artifact_becomes_text_fallback(self) -> None:
+        blocks = markdown_to_feishu_blocks(
+            "![板书截图](/jobs/task-1/artifacts/frame?file=frame_001.jpg)"
+        )
+
+        self.assertEqual(blocks[0]["block_type"], 2)
+        self.assertIn("板书截图", blocks[0]["text"]["elements"][0]["text_run"]["content"])
 
     def test_markdown_contains_table_only_for_standard_table_syntax(self) -> None:
         self.assertTrue(
@@ -185,6 +194,57 @@ class TestLarkExporter(unittest.TestCase):
         mock_write_flat.assert_called_once()
         self.assertEqual(result["via"], "legacy_markdown")
         self.assertEqual(result["doc_token"], "doc_123")
+
+    def test_create_doc_markdown_uploads_resolved_artifact_images(self) -> None:
+        artifact_root = self._tmp_dir = Path(os.getcwd()) / ".pytest_lark_exporter_tmp"
+        frame_dir = artifact_root / "task-visual" / "frames"
+        frame_dir.mkdir(parents=True, exist_ok=True)
+        frame = frame_dir / "frame_001.jpg"
+        frame.write_bytes(b"jpg")
+        try:
+            with patch.object(LarkExporter, "_create_empty_doc", return_value="doc_123"), \
+                 patch("backend.core.lark_exporter._get_tenant_token", return_value="tenant_token"), \
+                 patch("backend.core.lark_exporter._post_block_children", return_value={
+                     "code": 0,
+                     "data": {
+                         "children": [
+                             {"block_id": "heading_1"},
+                             {"block_id": "image_1"},
+                         ],
+                         "document_revision_id": 2,
+                     },
+                 }), \
+                 patch("backend.core.lark_exporter._upload_docx_image", return_value="file_token_1") as mock_upload, \
+                 patch("backend.core.lark_exporter._replace_docx_image") as mock_replace:
+                exporter = LarkExporter(app_id=self.app_id, app_secret=self.app_secret)
+
+                result = exporter.create_doc_markdown(
+                    "视觉笔记",
+                    "# 标题\n\n![板书截图](/jobs/task-visual/artifacts/frame?file=frame_001.jpg)",
+                    task_id="task-visual",
+                    artifact_root=artifact_root,
+                )
+
+            self.assertEqual(result["image_upload_count"], 1)
+            self.assertEqual(result["image_upload_errors"], [])
+            mock_upload.assert_called_once()
+            self.assertEqual(mock_upload.call_args.args[3], "image_1")
+            mock_replace.assert_called_once_with(
+                "tenant_token",
+                exporter.base_url,
+                "doc_123",
+                "image_1",
+                "file_token_1",
+                90,
+            )
+        finally:
+            try:
+                frame.unlink()
+                frame_dir.rmdir()
+                (artifact_root / "task-visual").rmdir()
+                artifact_root.rmdir()
+            except OSError:
+                pass
 
     @patch.dict(os.environ, {"FLUENTFLOW_LARK_USE_OPENAPI_CONVERT": "1"})
     @patch("backend.core.lark_exporter._convert_markdown_via_openapi")

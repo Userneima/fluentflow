@@ -111,3 +111,15 @@ du -sh /var/lib/fluentflow/artifacts
 ```
 
 关键帧图片属于任务产物，受 `FLUENTFLOW_ARTIFACT_RETENTION_DAYS` 清理策略影响。公开视频部署时不应把本地文件路径写入笔记或 Agent 任务包，图片应通过 `/jobs/{task_id}/artifacts/frame?file=...` 或后续 OSS URL 访问。
+
+## 飞书图片导出
+
+如果笔记中包含 Agent 选中的关键截图，OpenAPI 飞书导出会尝试把本地 artifact 图片上传为飞书文档图片块，而不是把 `/jobs/{task_id}/artifacts/frame?...` 这种私有下载地址直接写进云文档。
+
+上线前需要确认飞书应用权限同时覆盖：
+
+- 创建和写入 docx 文档。
+- 上传文档图片素材。
+- 替换 docx 图片块。
+
+如果缺少图片相关权限，文本笔记仍应优先可导出；截图会记录在导出返回的 `image_upload_errors` 中。排障时先看 `/export-lark` 或 `lark_export_completed` 的错误信息，再确认飞书开放平台权限和应用发布状态。

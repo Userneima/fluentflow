@@ -254,6 +254,28 @@ def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     assert "完整覆盖笔记" in shared
 
 
+def test_editor_visual_evidence_stays_inline_and_secondary() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    markdown = Path("frontend/src/lib/markdown.js").read_text(encoding="utf-8")
+    icons = Path("frontend/src/components/SvgIcon.jsx").read_text(encoding="utf-8")
+    plan = Path("docs/video_keyframe_notes_plan.md").read_text(encoding="utf-8")
+
+    assert "const [visualEvidenceVisible, setVisualEvidenceVisible] = useState(true)" in source
+    assert "inlineVisualEvidenceCount" in source
+    assert "hasInlineVisualEvidence" in source
+    assert "simpleMd(summary, {renderImages: !hasInlineVisualEvidence || visualEvidenceVisible})" in source
+    assert "隐藏截图" in source
+    assert "显示截图" in source
+    assert "生成详情" not in source
+    assert "const renderImages = options.renderImages !== false" in markdown
+    assert "if(!renderImages)" in markdown
+    assert "visibility_off: EyeOff" in icons
+    assert "[x] Show screenshots inline in the note only when attached to a real section." in plan
+    assert "[x] Keep screenshot controls secondary; do not add another large panel." in plan
+    assert "[x] Add PDF/Word image export for selected visual evidence." in plan
+    assert "[x] Add editor affordance to hide/show visual evidence if screenshots become distracting." in plan
+
+
 def test_editor_uses_compact_review_workbench_layout() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")

@@ -17,6 +17,7 @@ import {
     CreditCard,
     Download,
     Eye,
+    EyeOff,
     ExternalLink,
     FilePenLine,
     FileText,
@@ -127,6 +128,7 @@ const lucideIcons = {
     add_card: CreditCard,
     people: Users,
     visibility: Eye,
+    visibility_off: EyeOff,
     verified: BadgeCheck,
 };
 

@@ -93,12 +93,12 @@ Provider types:
 
 ### P5: Editor And Export UX
 
-- [ ] Show screenshots inline in the note only when attached to a real section.
-- [ ] Keep screenshot controls secondary; do not add another large panel.
+- [x] Show screenshots inline in the note only when attached to a real section.
+- [x] Keep screenshot controls secondary; do not add another large panel.
 - [x] Support Markdown export first by rewriting selected image references to artifact URLs.
-- [ ] Add Feishu image upload for selected visual evidence.
-- [ ] Add PDF/Word image export for selected visual evidence.
-- [ ] Add editor affordance to hide/show visual evidence if screenshots become distracting.
+- [x] Add Feishu image upload for selected visual evidence.
+- [x] Add PDF/Word image export for selected visual evidence.
+- [x] Add editor affordance to hide/show visual evidence if screenshots become distracting.
 
 ## Risk Rules
 
@@ -110,4 +110,4 @@ Provider types:
 
 ## Immediate Next Step
 
-Finish P0 first. The existing code already has a partial frame extraction path, but nested frame artifacts and URLs need to be reliable before building the higher-level screenshot feature.
+Run an end-to-end smoke test with a short course or lecture video after Feishu image permissions are configured: process video, generate a note with selected screenshot references, open the editor, toggle screenshots, download PDF/Word/Markdown, and export to Feishu.

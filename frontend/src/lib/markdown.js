@@ -55,8 +55,9 @@ export const renderTableHtml = (headerCells, bodyRows, renderInline) => {
     </div>`;
 };
 
-export const simpleMd = (md) => {
+export const simpleMd = (md, options={}) => {
     if(!md) return '';
+    const renderImages = options.renderImages !== false;
     const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const renderInline = (s) => esc(s)
         .replace(/`([^`]+)`/g,'<code class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[0.92em]">$1</code>')
@@ -170,6 +171,10 @@ export const simpleMd = (md) => {
         const imageMatch = trimmed.match(/^!\[(.*?)\]\((.*?)\)$/);
         if(imageMatch){
             closeLists();
+            if(!renderImages){
+                i += 1;
+                continue;
+            }
             const alt = imageMatch[1] || '';
             const src = imageMatch[2] || '';
             html += `<figure class="my-3"><img src="${esc(src)}" alt="${esc(alt)}" class="rounded-lg max-w-full" loading="lazy"/><figcaption class="text-xs text-on-surface-variant mt-1">${esc(alt)}</figcaption></figure>`;

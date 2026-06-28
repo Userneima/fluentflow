@@ -1359,7 +1359,11 @@ async def process_video(
                         resp = await loop.run_in_executor(
                             None,
                             lambda: H.export_markdown_to_lark(
-                                doc_title, summary_md, **lark_kwargs
+                                doc_title,
+                                summary_md,
+                                task_id=task_id_value,
+                                artifact_root=H._artifact_storage_dir(),
+                                **lark_kwargs,
                             ),
                         )
                     result["lark_response"] = resp
@@ -1639,7 +1643,14 @@ async def export_lark(
             )
         else:
             resp = await loop.run_in_executor(
-                None, lambda: H.export_markdown_to_lark(resolved, markdown, **kwargs)
+                None,
+                lambda: H.export_markdown_to_lark(
+                    resolved,
+                    markdown,
+                    task_id=task_id_value,
+                    artifact_root=H._artifact_storage_dir(),
+                    **kwargs,
+                )
             )
         if isinstance(resp, dict):
             resp["doc_title"] = resolved

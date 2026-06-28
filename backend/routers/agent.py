@@ -389,7 +389,13 @@ async def export_agent_task(request: Request, task_id: str, payload: Optional[di
         else:
             export_response = await loop.run_in_executor(
                 None,
-                lambda: H.export_markdown_to_lark(resolved_title, markdown, **kwargs),
+                lambda: H.export_markdown_to_lark(
+                    resolved_title,
+                    markdown,
+                    task_id=task_id,
+                    artifact_root=H._artifact_storage_dir(),
+                    **kwargs,
+                ),
             )
     except Exception as exc:
         friendly_error = H._friendly_error_message(exc)

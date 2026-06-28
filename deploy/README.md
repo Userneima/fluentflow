@@ -60,6 +60,8 @@ sudo chown fluentflow:fluentflow /etc/fluentflow/fluentflow.env
 - `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`
 - 如果需要飞书导出，再配置 `LARK_APP_ID` / `LARK_APP_SECRET`
 
+如果启用“关键截图写入笔记”，飞书应用除了文档创建/写入权限外，还要具备文档图片素材上传和替换 docx 图片块的权限；否则飞书文档可能只有文字，没有截图。
+
 正式上线建议启用账号系统，而不是访问码：
 
 ```bash

@@ -116,6 +116,7 @@ const Editor = () => {
     const [larkUrl, setLarkUrl] = useState(null);
     const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
     const [retranscribeConfirmOpen, setRetranscribeConfirmOpen] = useState(false);
+    const [visualEvidenceVisible, setVisualEvidenceVisible] = useState(true);
     const summaryRef = useRef(null);
     const retranscribeInputRef = useRef(null);
     const fallbackTaskIdRef = useRef(createTaskId());
@@ -382,6 +383,12 @@ const Editor = () => {
         [baselineSegments, segments, result?.transcript_edit_records]
     );
     const summary = result?.summary_markdown || '';
+    const inlineVisualEvidenceCount = (summary.match(/(^|\n)\s*!\[[^\]]+\]\([^)]+\)\s*(?=\n|$)/g) || []).length;
+    const hasInlineVisualEvidence = inlineVisualEvidenceCount > 0;
+    const renderedSummary = useMemo(
+        () => simpleMd(summary, {renderImages: !hasInlineVisualEvidence || visualEvidenceVisible}),
+        [summary, hasInlineVisualEvidence, visualEvidenceVisible]
+    );
     const displayTranscriptSegments = pickDisplayTranscriptSegments(result, segments);
     const bilingualTranscriptSegments = displayTranscriptSegments
         .filter((seg) => String(seg.text_zh || '').trim());
@@ -408,7 +415,7 @@ const Editor = () => {
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
     const summaryFailureHint = summaryFailureNextStep(result, lang);
     const resultTitle = resultDisplayTitle(result, {name: t('edit.title')});
-    const resultDownloadName = result?.display_title || resultTitle || result?.filename;
+    const resultDownloadName = resultTitle || result?.filename;
     const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
     const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
     const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';
@@ -1504,34 +1511,49 @@ const Editor = () => {
                             </section>
 
                             <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
-                                <div className="flex items-center justify-between border-b border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                <div className="flex items-center justify-between gap-3 border-b border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
                                     <h2 className="flex items-center gap-2 font-headline text-base font-extrabold text-[#111111] dark:text-white">
                                         <SvgIcon name="psychology" className="text-[#111111] dark:text-white"/>
                                         {lang === 'zh' ? '笔记正文' : 'Note'}
                                     </h2>
-                                    <DropdownMenu
-                                        trigger={
-                                            <button disabled={!summary || !!downloading} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
-                                                <SvgIcon name={downloading ? 'sync' : 'download'} className={`text-sm ${downloading?'animate-spin':''}`}/>
-                                                {downloading ? t('dl.generating') : t('dl.summary')}
-                                        </button>
-                                        }
-                                        items={[
-                                            {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,resultDownloadName); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
-                                            {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,resultDownloadName); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
-                                            {divider:true},
-                                            {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
-                                                setDownloading('pdf');
-                                                try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
-                                                finally{setDownloading(null);}
-                                            }},
-                                            {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
-                                        ]}
-                                    />
+                                    <div className="flex shrink-0 items-center gap-2">
+                                        {hasInlineVisualEvidence && (
+                                            <button
+                                                type="button"
+                                                onClick={()=>setVisualEvidenceVisible((value)=>!value)}
+                                                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#555] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white/70 dark:hover:bg-white/[0.08]"
+                                                title={lang === 'zh' ? `当前笔记包含 ${inlineVisualEvidenceCount} 张关键截图` : `${inlineVisualEvidenceCount} key screenshots in this note`}
+                                            >
+                                                <SvgIcon name={visualEvidenceVisible ? 'visibility_off' : 'visibility'} className="text-sm"/>
+                                                {visualEvidenceVisible
+                                                    ? (lang === 'zh' ? '隐藏截图' : 'Hide screenshots')
+                                                    : (lang === 'zh' ? '显示截图' : 'Show screenshots')}
+                                            </button>
+                                        )}
+                                        <DropdownMenu
+                                            trigger={
+                                                <button disabled={!summary || !!downloading} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
+                                                    <SvgIcon name={downloading ? 'sync' : 'download'} className={`text-sm ${downloading?'animate-spin':''}`}/>
+                                                    {downloading ? t('dl.generating') : t('dl.summary')}
+                                            </button>
+                                            }
+                                            items={[
+                                                {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,resultDownloadName); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
+                                                {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,resultDownloadName); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
+                                                {divider:true},
+                                                {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
+                                                    setDownloading('pdf');
+                                                    try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                                    finally{setDownloading(null);}
+                                                }},
+                                                {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
+                                            ]}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-6 text-[#111111] dark:text-white">
 	                            {summary ? (
-	                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
+	                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: renderedSummary}}></div>
 	                            ) : result.summary_skipped ? (
 	                                <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summarySkipped')}</p>
 	                            ) : result.summary_status === 'failed' || result.summary_error ? (

@@ -73,6 +73,8 @@ DEEPSEEK_API_KEY=你的key
 - `docx:document`
 - `docx:document:create`
 
+如果希望导出的笔记里保留视频关键截图，还需要开启文档图片素材上传和 docx 图片块替换相关权限；否则截图会降级或上传失败，但文本笔记仍应能导出。
+
 > 权限不对时会出现“Access denied / no folder permission / 创建失败”等错误。
 
 ### 3.2 填写飞书 App 配置
