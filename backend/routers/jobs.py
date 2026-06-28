@@ -358,6 +358,7 @@ def download_job_artifact(request: Request, task_id: str, kind: str) -> FileResp
         "transcript_bilingual_vtt": ".vtt",
         "summary_md": ".md",
         "playback_audio": ".mp3",
+        "frame": ".jpg",
     }
     suffix = allowed.get(kind)
     if not suffix:
@@ -365,6 +366,16 @@ def download_job_artifact(request: Request, task_id: str, kind: str) -> FileResp
     target_dir = H._artifact_storage_dir() / task_id
     if not target_dir.is_dir():
         raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if kind == "frame":
+        frame_file = request.query_params.get("file", "").strip()
+        if not frame_file or ".." in frame_file or "/" in frame_file or "\\" in frame_file:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        target = target_dir / "frames" / frame_file
+        if target.is_file():
+            return FileResponse(path=str(target), filename=target.name)
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
     result = job.get("result") if isinstance(job.get("result"), dict) else {}
     artifact = (result.get("artifacts") or {}).get(kind) if isinstance(result.get("artifacts"), dict) else None
     artifact_filename = Path(str((artifact or {}).get("filename") or "")).name if isinstance(artifact, dict) else ""

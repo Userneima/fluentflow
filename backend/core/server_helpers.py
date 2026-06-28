@@ -440,10 +440,11 @@ async def beta_access_middleware(request: Request, call_next):
 
 try:
     from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
+    from backend.core.frame_extractor import extract_candidate_frames
     from backend.core.local_stt import transcribe_audio, get_or_load_model
     from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
     from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from backend.core.ai_summarizer import generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
+    from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh
     from backend.core.lark_exporter import export_markdown_to_lark
     from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
     from backend.core.note_title import resolve_lark_doc_title
@@ -2322,6 +2323,7 @@ def _ai_kwargs(
     *,
     deepseek_api_key: Optional[str],
     openai_api_key: Optional[str],
+    qwen_api_key: Optional[str] = None,
     ai_provider: Optional[str],
     ai_model: Optional[str],
     system_prompt: Optional[str],
@@ -2331,6 +2333,7 @@ def _ai_kwargs(
     provider_name = (ai_provider or "").strip()
     resolved_openai_key = resolve_secret(openai_api_key, "openai_api_key")
     resolved_deepseek_key = resolve_secret(deepseek_api_key, "deepseek_api_key")
+    resolved_qwen_key = resolve_secret(qwen_api_key, "qwen_api_key")
     if not provider_name and resolved_openai_key:
         provider_name = "openai"
     if provider_name:
@@ -2341,6 +2344,8 @@ def _ai_kwargs(
     if resolved_openai_key and provider_name.lower() == "openai":
         k = resolved_openai_key
         kwargs["api_key"] = k
+    if resolved_qwen_key and provider_name.lower() == "qwen":
+        kwargs["api_key"] = resolved_qwen_key
     if (m := (ai_model or "").strip()):
         kwargs["model"] = m
     if (sp := (system_prompt or "").strip()):

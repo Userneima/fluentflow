@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 import re
 import json
+import base64
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 from dotenv import load_dotenv
@@ -13,10 +15,12 @@ from openai import OpenAI
 
 DEEPSEEK_BASE_URL: Final[str] = "https://api.deepseek.com"
 OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
+QWEN_BASE_URL: Final[str] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-reasoner"
 DEFAULT_OPENAI_MODEL: Final[str] = "gpt-5.4-mini"
+DEFAULT_QWEN_MODEL: Final[str] = "qwen3.7-plus"
 DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
-SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai"}
+SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai", "qwen"}
 SUPPORTED_NOTE_MODES: Final[set[str]] = {"auto", "direct", "fast", "high_fidelity", "chapter_coverage"}
 DIRECT_MODE_MAX_CHARS: Final[int] = 20_000
 HIGH_FIDELITY_NOTICE_CHARS: Final[int] = 60_000
@@ -98,6 +102,34 @@ _SOURCE_FAITHFULNESS_RULES: Final[str] = """
 - 可以忽略口头禅、重复和无意义噪声。
 - 只能修正明显转录错误；不确定就标注「疑似」或「原文不清晰」。
 - 保留具体例子、数字、步骤、限制条件和判断依据。
+"""
+
+_MULTIMODAL_NOTE_SYSTEM: Final[str] = """# Role: FluentFlow 多模态知识架构师
+
+你将收到：
+1. 完整的视频转录稿（文本）
+2. 从视频中截取的若干画面（图片，每张带有时间戳和文件名标注）
+
+你的任务：
+- 仔细审阅所有截图，选出 3-8 张真正有信息量的画面：
+  - 板书、PPT 幻灯片、代码片段、图表、流程图、数据表格
+  - 关键演示画面、重要的实物展示、场景切换
+  - 不要选：模糊画面、过渡动画中间帧、纯人物讲话且无明显视觉信息
+- 按照「知识架构师」的标准，生成一份结构化中文笔记
+- 在笔记最合适的位置，用 Markdown 图片语法插入选中的截图
+- 每张截图配一句简短中文图注
+
+截图引用格式（仅限文件名，不要写路径）：
+![图注](filename.jpg)
+
+只输出最终笔记正文，不要写任何解释说明。"""
+
+_MULTIMODAL_CONTENT_POLICY: Final[str] = """
+
+# Note Content Policy
+- 笔记必须忠实于转录稿，只能基于原文内容组织、压缩和表达。
+- 图片只用于辅助说明原文已有内容，不要在图片中阅读原文未提及的信息。
+- 不确定的画面直接跳过不要选。
 """
 
 # 分段提炼时使用（减轻最终合并输入长度）
@@ -298,6 +330,13 @@ class SummaryResult:
 
 
 @dataclass(frozen=True)
+class MultimodalSummaryResult:
+    markdown: str
+    frame_count: int
+    transcript_length: int
+
+
+@dataclass(frozen=True)
 class SegmentTranslationResult:
     segments: list[dict[str, Any]]
     translated_count: int
@@ -321,12 +360,16 @@ def _normalize_provider(provider: str | None) -> str:
 def _provider_base_url(provider: str) -> str:
     if provider == "openai":
         return (os.environ.get("OPENAI_BASE_URL") or OPENAI_BASE_URL).rstrip("/")
+    if provider == "qwen":
+        return (os.environ.get("QWEN_BASE_URL") or QWEN_BASE_URL).rstrip("/")
     return (os.environ.get("DEEPSEEK_BASE_URL") or DEEPSEEK_BASE_URL).rstrip("/")
 
 
 def _provider_default_model(provider: str) -> str:
     if provider == "openai":
         return (os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL).strip()
+    if provider == "qwen":
+        return _normalize_model(provider, os.environ.get("QWEN_MODEL") or DEFAULT_QWEN_MODEL)
     return _normalize_model(provider, os.environ.get("DEEPSEEK_MODEL") or DEFAULT_DEEPSEEK_MODEL)
 
 
@@ -339,7 +382,12 @@ def _normalize_model(provider: str, model: str | None) -> str:
 
 def _provider_api_key(provider: str, api_key: str | None = None) -> str:
     load_dotenv()
-    env_name = "OPENAI_API_KEY" if provider == "openai" else "DEEPSEEK_API_KEY"
+    if provider == "openai":
+        env_name = "OPENAI_API_KEY"
+    elif provider == "qwen":
+        env_name = "QWEN_API_KEY"
+    else:
+        env_name = "DEEPSEEK_API_KEY"
     key = (api_key or os.environ.get(env_name, "")).strip()
     if not key:
         raise ValueError(f"{env_name} 未设置：请在 .env 中配置或在设置页填写 API Key。")
@@ -371,11 +419,60 @@ def _chat(
     return (msg.content or "").strip()
 
 
+def _image_to_base64_data_url(image_path: str) -> str:
+    path = Path(image_path)
+    suffix = path.suffix.lower().lstrip(".")
+    mime = "jpeg" if suffix in {"jpg", "jpeg"} else suffix
+    if mime not in {"jpeg", "png", "webp"}:
+        mime = "jpeg"
+    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
+    return f"data:image/{mime};base64,{encoded}"
+
+
+def _vision_chat(
+    client: OpenAI,
+    model: str,
+    system: str,
+    user_text: str,
+    image_paths: list[str],
+    *,
+    temperature: float = 0.3,
+) -> str:
+    content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
+    for path in image_paths:
+        data_url = _image_to_base64_data_url(path)
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": data_url},
+        })
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": content},
+        ],
+        temperature=temperature,
+    )
+    msg = resp.choices[0].message
+    return (msg.content or "").strip()
+
+
 def _compose_note_system_prompt(system_prompt: str | None) -> str:
     base = (system_prompt or "").strip() or FLUENTFLOW_SYSTEM_PROMPT
     return (
         f"{base.rstrip()}"
         f"{_NOTE_CONTENT_POLICY}"
+        f"{_NOTE_OUTPUT_LANGUAGE}"
+        f"{_FEISHU_NOTE_FORMATTING_PREFERENCES}"
+        f"{_NOTE_OUTPUT_GUARDRAILS}"
+    )
+
+
+def _compose_multimodal_system_prompt(system_prompt: str | None) -> str:
+    base = (system_prompt or "").strip() or _MULTIMODAL_NOTE_SYSTEM
+    return (
+        f"{base.rstrip()}"
+        f"{_MULTIMODAL_CONTENT_POLICY}"
         f"{_NOTE_OUTPUT_LANGUAGE}"
         f"{_FEISHU_NOTE_FORMATTING_PREFERENCES}"
         f"{_NOTE_OUTPUT_GUARDRAILS}"
@@ -527,6 +624,10 @@ def _normalize_note_mode(mode: str | None) -> str:
     if value not in SUPPORTED_NOTE_MODES:
         raise ValueError(f"Unsupported note generation mode: {mode}")
     return "direct" if value == "fast" else value
+
+
+def can_use_multimodal(provider: str | None) -> bool:
+    return (provider or "").strip().lower() == "qwen"
 
 
 def _resolve_note_mode(mode: str, transcript_length: int) -> str:
@@ -921,6 +1022,45 @@ def summarize_transcript_with_metadata(
     )
 
 
+def summarize_transcript_with_frames(
+    transcript: str,
+    frame_paths: list[str],
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    system_prompt: str | None = None,
+) -> MultimodalSummaryResult:
+    """Generate a structured note from transcript text and video frame images."""
+    load_dotenv()
+    provider_name = _normalize_provider(provider)
+    if not can_use_multimodal(provider_name):
+        raise ValueError(f"Provider {provider_name} does not support multimodal")
+    client = _get_client(provider=provider_name, api_key=api_key)
+    m = _normalize_model(provider_name, model)
+    prompt = _compose_multimodal_system_prompt(system_prompt)
+    transcript_text = transcript.strip()
+    if not transcript_text:
+        return MultimodalSummaryResult(markdown="", frame_count=0, transcript_length=0)
+    if not frame_paths:
+        return MultimodalSummaryResult(markdown="", frame_count=0, transcript_length=len(transcript_text))
+
+    frame_lines = [f"- [{Path(p).name}] (截图)" for p in frame_paths]
+    user = (
+        f"请在以下 {len(frame_paths)} 张截图中挑选最有信息量的 3-8 张，生成结构化笔记：\n\n"
+        + "\n".join(frame_lines)
+        + f"\n\n--- 转录稿 ---\n\n{transcript_text}"
+    )
+    markdown = _strip_prompt_leakage(
+        _vision_chat(client, m, prompt, user, frame_paths, temperature=0.2)
+    )
+    return MultimodalSummaryResult(
+        markdown=markdown,
+        frame_count=len(frame_paths),
+        transcript_length=len(transcript_text),
+    )
+
+
 def translate_segments_to_zh(
     segments: list[dict[str, Any]],
     *,
@@ -1093,17 +1233,22 @@ def summarize_transcript_to_markdown(
 __all__ = [
     "DEEPSEEK_BASE_URL",
     "OPENAI_BASE_URL",
+    "QWEN_BASE_URL",
     "DEFAULT_MODEL",
     "DEFAULT_DEEPSEEK_MODEL",
     "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_QWEN_MODEL",
     "FLUENTFLOW_SYSTEM_PROMPT",
     "DIRECT_MODE_MAX_CHARS",
     "HIGH_FIDELITY_NOTICE_CHARS",
     "SummaryResult",
+    "MultimodalSummaryResult",
     "SegmentTranslationResult",
     "BilingualSegmentResult",
+    "can_use_multimodal",
     "generate_bilingual_segments_zh",
     "translate_segments_to_zh",
     "summarize_transcript_with_metadata",
+    "summarize_transcript_with_frames",
     "summarize_transcript_to_markdown",
 ]

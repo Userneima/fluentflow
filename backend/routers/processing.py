@@ -55,6 +55,7 @@ async def queue_process(
     folder_token: Optional[str] = Form(None),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
+    qwen_api_key: Optional[str] = Form(None),
     ai_provider: Optional[str] = Form(None),
     ai_model: Optional[str] = Form(None),
     note_mode: Optional[str] = Form(None),
@@ -226,6 +227,7 @@ async def process_video(
     folder_token: Optional[str] = Form(None),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
+    qwen_api_key: Optional[str] = Form(None),
     ai_provider: Optional[str] = Form(None),
     ai_model: Optional[str] = Form(None),
     note_mode: Optional[str] = Form(None),
@@ -434,6 +436,28 @@ async def process_video(
             )
             H.upsert_job(task_id=task_id_value, status="running", stage="audio", progress=20)
             yield H._sse({"stage": "audio", "progress": 20})
+
+            # ── Stage 1.5: Frame extraction (video only, multimodal provider) ──
+            frame_paths: list[str] = []
+            frame_metadata: list[dict[str, Any]] = []
+            if source_type == "video" and H.can_use_multimodal(ai_provider):
+                try:
+                    frames_output_dir = H._artifact_storage_dir() / task_id_value / "frames"
+                    frames_output_dir.mkdir(parents=True, exist_ok=True)
+                    frame_result = await loop.run_in_executor(
+                        None,
+                        lambda: H.extract_candidate_frames(
+                            str(in_path),
+                            frames_output_dir,
+                            segments=None,
+                            scene_threshold=0.3,
+                            max_scene_frames=30,
+                        ),
+                    )
+                    frame_paths = [str(f["path"]) for f in frame_result]
+                    frame_metadata = frame_result
+                except Exception as exc:
+                    H.logger.warning("Frame extraction failed for %s: %s", task_id_value, exc)
 
             # ── Stage 2: STT transcription ─────────────────────
             current_stage = "stt"
@@ -1019,6 +1043,7 @@ async def process_video(
                 kwargs = H._ai_kwargs(
                     deepseek_api_key=deepseek_api_key,
                     openai_api_key=openai_api_key,
+                    qwen_api_key=qwen_api_key,
                     ai_provider=ai_provider,
                     ai_model=ai_model,
                     system_prompt=system_prompt,
@@ -1033,11 +1058,24 @@ async def process_video(
                     duration_seconds=duration_sec,
                     current_prompt_preset=prompt_preset,
                 )
-                summary_result = await loop.run_in_executor(
-                    None,
-                    lambda: H.summarize_transcript_with_metadata(transcript_text, **kwargs),
-                )
-                summary_md = summary_result.markdown
+                if frame_paths and H.can_use_multimodal(ai_provider):
+                    multimodal_result = await loop.run_in_executor(
+                        None,
+                        lambda: H.summarize_transcript_with_frames(
+                            transcript_text,
+                            frame_paths,
+                            api_key=kwargs.get("api_key"),
+                            model=kwargs.get("model"),
+                            provider=kwargs.get("provider", "qwen"),
+                        ),
+                    )
+                    summary_md = multimodal_result.markdown
+                else:
+                    summary_result = await loop.run_in_executor(
+                        None,
+                        lambda: H.summarize_transcript_with_metadata(transcript_text, **kwargs),
+                    )
+                    summary_md = summary_result.markdown
                 if not summary_md.strip():
                     raise ValueError("AI summarization returned empty result")
                 summary_status = "completed"
@@ -1057,9 +1095,11 @@ async def process_video(
                         route="/process",
                         ai_provider=(ai_provider or "").strip() or None,
                         ai_model=(ai_model or "").strip() or None,
-                        requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
+                        requested_note_mode=note_mode_plan.get("requested_note_mode") or (summary_result.requested_mode if summary_result is not None else None),
                         **H._summary_result_metadata(summary_result),
                         **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
+                        multimodal=(bool(frame_paths and H.can_use_multimodal(ai_provider)) or None),
+                        frame_count=len(frame_paths) if frame_paths else None,
                     ),
                 )
             except Exception as exc:
@@ -1166,6 +1206,21 @@ async def process_video(
                 prompt_preset=(prompt_preset or "").strip() or None,
                 prompt_preset_label=(prompt_preset_label or "").strip() or None,
             )
+
+            # Register frame files as artifacts
+            if frame_paths:
+                frame_artifacts = []
+                for fm in frame_metadata:
+                    frame_name = Path(fm["path"]).name
+                    try:
+                        art = H._write_file_artifact(task_id_value, "frame", f"frames/{frame_name}", fm["path"])
+                        frame_artifacts.append(art)
+                    except Exception as exc:
+                        H.logger.warning("Frame artifact write failed for %s: %s", task_id_value, exc)
+                if frame_artifacts:
+                    result["frame_artifacts"] = frame_artifacts
+                    result["multimodal_summary"] = True
+                    result["frame_count"] = len(frame_artifacts)
 
             # ── Stage 4: Lark export (optional) ───────────────
             if do_lark:
@@ -1549,6 +1604,7 @@ async def regenerate_summary(
     transcript: str = Form(...),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
+    qwen_api_key: Optional[str] = Form(None),
     ai_provider: Optional[str] = Form(None),
     ai_model: Optional[str] = Form(None),
     note_mode: Optional[str] = Form(None),
@@ -1569,6 +1625,7 @@ async def regenerate_summary(
     kwargs = H._ai_kwargs(
         deepseek_api_key=deepseek_api_key,
         openai_api_key=openai_api_key,
+        qwen_api_key=qwen_api_key,
         ai_provider=ai_provider,
         ai_model=ai_model,
         system_prompt=system_prompt,
@@ -1697,6 +1754,7 @@ async def summarize_transcript_file(
     file: UploadFile = File(...),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
+    qwen_api_key: Optional[str] = Form(None),
     ai_provider: Optional[str] = Form(None),
     ai_model: Optional[str] = Form(None),
     note_mode: Optional[str] = Form(None),
@@ -2023,6 +2081,7 @@ async def summarize_transcript_file(
     kwargs = H._ai_kwargs(
         deepseek_api_key=deepseek_api_key,
         openai_api_key=openai_api_key,
+        qwen_api_key=qwen_api_key,
         ai_provider=ai_provider,
         ai_model=ai_model,
         system_prompt=system_prompt,

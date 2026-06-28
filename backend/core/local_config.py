@@ -16,6 +16,7 @@ DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 SENSITIVE_FIELDS = {
     "deepseek_api_key",
     "openai_api_key",
+    "qwen_api_key",
     "lark_app_id",
     "lark_app_secret",
     "pyannote_auth_token",
@@ -27,6 +28,7 @@ SENSITIVE_FIELDS = {
 ENV_FALLBACKS = {
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
+    "qwen_api_key": "QWEN_API_KEY",
     "lark_app_id": "LARK_APP_ID",
     "lark_app_secret": "LARK_APP_SECRET",
     "pyannote_auth_token": "PYANNOTE_AUTH_TOKEN",
@@ -105,6 +107,7 @@ def credential_status(path: Path | str | None = None) -> dict[str, Any]:
     return {
         "deepseek_api_key_configured": bool(get_sensitive_setting("deepseek_api_key", path)),
         "openai_api_key_configured": bool(get_sensitive_setting("openai_api_key", path)),
+        "qwen_api_key_configured": bool(get_sensitive_setting("qwen_api_key", path)),
         "lark_app_id_configured": bool(get_sensitive_setting("lark_app_id", path)),
         "lark_app_secret_configured": bool(get_sensitive_setting("lark_app_secret", path)),
         "pyannote_auth_token_configured": bool(get_sensitive_setting("pyannote_auth_token", path)),
