@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from types import SimpleNamespace
+
+import pytest
 
 from backend.core import frame_extractor
 
@@ -70,3 +74,38 @@ def test_transcript_timepoint_frames_win_over_nearby_scene_frames() -> None:
     )
 
     assert frames == [{"path": "segment.jpg", "timestamp_seconds": 10.8, "source": "timepoint"}]
+
+
+@pytest.mark.skipif(
+    not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
+    reason="ffmpeg and ffprobe are required for integration frame extraction",
+)
+def test_extract_candidate_frames_from_generated_video_at_transcript_timepoint(tmp_path) -> None:
+    video = tmp_path / "sample.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f", "lavfi",
+            "-i", "testsrc=duration=2:size=160x90:rate=5",
+            "-pix_fmt", "yuv420p",
+            str(video),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    frames = frame_extractor.extract_candidate_frames(
+        str(video),
+        tmp_path / "frames",
+        segments=[{"start": 0.5, "end": 1.2, "text": "关键段落"}],
+        scene_threshold=0.99,
+        max_scene_frames=0,
+    )
+
+    timepoint_frames = [frame for frame in frames if frame["source"] == "timepoint"]
+    assert timepoint_frames
+    assert timepoint_frames[0]["timestamp_seconds"] == 0.5
+    assert (tmp_path / "frames" / "ts_0000.jpg").is_file()

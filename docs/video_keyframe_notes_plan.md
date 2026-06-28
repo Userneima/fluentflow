@@ -73,8 +73,8 @@ Provider types:
 
 - [x] Refine `backend/core/frame_extractor.py` so extracted frame timestamps are accurate.
 - [x] Prefer transcript/note-derived candidate timestamps over blind scene extraction for V1.
-- [ ] Keep scene extraction as supplemental evidence for slide/video transitions.
-- [ ] Add a small integration test using a generated short video if FFmpeg is available.
+- [x] Keep scene extraction as supplemental evidence for slide/video transitions.
+- [x] Add a small integration test using a generated short video if FFmpeg is available.
 
 ### P3: Cloud Extraction Path
 
