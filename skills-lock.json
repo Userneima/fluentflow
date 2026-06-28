@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "vercel-ui-skills": {
+      "source": "ihlamury/design-skills",
+      "sourceType": "github",
+      "skillPath": "skills/vercel/SKILL.md",
+      "computedHash": "34e0a886aa79d3084b6474984c520c1ba6eb201c67db157444054cc34a31cbb3"
+    }
+  }
+}
