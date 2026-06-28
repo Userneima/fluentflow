@@ -75,6 +75,15 @@ def test_dashboard_stops_polling_stale_missing_job() -> None:
     assert "subscribeJobEvents" in shared
 
 
+def test_dashboard_homepage_copy_matches_recording_product_positioning() -> None:
+    source = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+
+    assert "今天想记录些什么呢？" in source
+    assert "What do you want to record today?" in source
+    assert "今天想创作些什么呢？" not in source
+    assert "What do you want to create today?" not in source
+
+
 def test_tasks_open_cached_result_without_backend_detail_request() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")

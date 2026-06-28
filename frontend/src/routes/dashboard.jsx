@@ -816,7 +816,7 @@ const Dashboard = () => {
                             <span>{lang === 'zh' ? '你好' : 'Hi'}</span>
                         </div>
                         <h1 className="mt-2.5 text-[1.5rem] font-semibold leading-[1.1] tracking-normal text-[#050505] sm:mt-3 sm:text-[2rem] lg:text-[2.45rem] dark:text-white">
-                            {lang === 'zh' ? '今天想创作些什么呢？' : 'What do you want to create today?'}
+                            {lang === 'zh' ? '今天想记录些什么呢？' : 'What do you want to record today?'}
                         </h1>
                     </header>
 
