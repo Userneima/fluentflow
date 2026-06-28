@@ -644,8 +644,6 @@ export const AppProvider = ({children}) => {
                 .filter(jobVisibleInHistory)
                 .map(jobToHistoryEntry);
             setHistory(cachedEntries);
-            const cachedRunning = cachedJobs.find((job) => job.status === 'running' || job.status === 'queued');
-            if (cachedRunning) setCurrentJob(jobToCurrentJob(cachedRunning));
         }
         apiFetch(`${API_BASE}/jobs?limit=100`)
             .then((r) => r.ok ? r.json() : null)
@@ -884,7 +882,13 @@ export const useApi = () => {
     };
     const subscribeJobEvents = async (taskId, onProgress, signal, options={}) => {
         const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/events`, {headers: localExecutionHeaders(options), signal});
-        if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail||`HTTP ${r.status}`); }
+        if(!r.ok){
+            const e = await r.json().catch(()=>({}));
+            const err = new Error(e.detail||`HTTP ${r.status}`);
+            err.status = r.status;
+            err.payload = e;
+            throw err;
+        }
         return await readSseResult(r, onProgress);
     };
     const summarizeTranscriptFile = async (file, options={}, signal) => {

@@ -193,6 +193,7 @@ const Dashboard = () => {
     useEffect(() => {
         if(!currentJob?.taskId || currentJob.stage === 'done') return;
         let stale = false;
+        let timer = null;
         const syncCurrentJob = async () => {
             try {
                 const job = currentJob.guestTrial
@@ -242,10 +243,21 @@ const Dashboard = () => {
                     }
                     setCurrentJob(null);
                 }
-            } catch(_) {}
+            } catch(err) {
+                if(!stale && err?.status === 404) {
+                    stale = true;
+                    if(timer) clearInterval(timer);
+                    if(abortRef.current){
+                        abortRef.current.abort();
+                        abortRef.current = null;
+                    }
+                    currentTaskRef.current = null;
+                    setCurrentJob((prev) => prev?.taskId === currentJob.taskId ? null : prev);
+                }
+            }
         };
         syncCurrentJob();
-        const timer = setInterval(syncCurrentJob, 5000);
+        timer = setInterval(syncCurrentJob, 5000);
         return () => {
             stale = true;
             clearInterval(timer);
@@ -270,7 +282,13 @@ const Dashboard = () => {
             if(stale) return;
             settleCompletedJob({task_id: currentJob.taskId, source_filename: currentJob.fileName, result}, currentJob);
         }).catch((err) => {
-            if(!stale && err.name !== 'AbortError') setUploadError(err.message || 'Failed to resume task.');
+            if(!stale && err.name !== 'AbortError') {
+                if(err?.status === 404) {
+                    setCurrentJob((prev) => prev?.taskId === currentJob.taskId ? null : prev);
+                    return;
+                }
+                setUploadError(err.message || 'Failed to resume task.');
+            }
         }).finally(() => {
             if(abortRef.current === ac) abortRef.current = null;
         });

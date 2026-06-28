@@ -47,6 +47,17 @@ def test_processing_settings_no_longer_exposes_audio_language_control() -> None:
     assert "Audio Language" not in source
 
 
+def test_dashboard_stops_polling_stale_missing_job() -> None:
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "err?.status === 404" in dashboard
+    assert "prev?.taskId === currentJob.taskId ? null : prev" in dashboard
+    assert "const cachedRunning = cachedJobs.find" not in shared
+    assert "err.status = r.status" in shared
+    assert "subscribeJobEvents" in shared
+
+
 def test_tasks_open_cached_result_without_backend_detail_request() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
