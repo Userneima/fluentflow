@@ -250,21 +250,21 @@ const Processing = () => {
     ];
 
     const nextActionTitle = summaryFailed
-        ? (isZh ? '笔记生成失败' : 'Note generation failed')
+        ? (isZh ? '重生笔记' : 'Regenerate note')
         : active
-            ? (isZh ? '任务正在运行' : 'Task is running')
+            ? (isZh ? '查看运行状态' : 'Review run status')
             : result
-                ? (isZh ? '结果可以复查' : 'Result is ready to review')
-                : (isZh ? '还没有可解释的任务' : 'No task to explain yet');
+                ? (isZh ? '复查结果' : 'Review result')
+                : (isZh ? '开始处理任务' : 'Start a task');
     const nextActionDesc = summaryFailed
-        ? (result?.summary_error || (isZh ? '保留已完成的转录，建议在编辑器重新生成笔记。' : 'Transcript is preserved. Regenerate the note from the editor.'))
+        ? (result?.summary_error || (isZh ? '保留已完成的转录，建议在编辑器重生笔记。' : 'Transcript is preserved. Regenerate the note from the editor.'))
         : active
             ? (isZh ? '实时进度仍在开始处理页和后台任务页显示，这里解释当前路线和判断依据。' : 'Live progress is still shown on Start and Tasks. This page explains the route and evidence.')
             : result
                 ? (isZh ? '打开编辑器校对笔记、下载字幕，或进入后台任务查看完整记录。' : 'Open the editor to review notes and subtitles, or inspect the full task record in Tasks.')
                 : (isZh ? '从开始处理页上传课程、讲座或字幕文件后，这里会展示 Agent 的处理路线。' : 'Upload a course, lecture, or transcript from Start, then this page will explain the Agent route.');
     const editorActionLabel = summaryFailed
-        ? (isZh ? '打开编辑器重新生成' : 'Open editor to regenerate')
+        ? (isZh ? '打开编辑器重生笔记' : 'Open editor to regenerate note')
         : (isZh ? '打开编辑器' : 'Open editor');
 
     return (
@@ -303,11 +303,11 @@ const Processing = () => {
                     </div>
                 </header>
 
-                <div className="grid gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.55fr)]">
-                    <div className="space-y-7">
-                        <section className="border-b border-[#dedada] pb-5 dark:border-white/[0.10]">
+                <div className="grid min-w-0 gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.55fr)]">
+                    <div className="min-w-0 space-y-7">
+                        <section className="min-w-0 overflow-hidden border-b border-[#dedada] pb-5 dark:border-white/[0.10]">
                             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                                <div className="min-w-0">
+                                <div className="min-w-0 max-w-full flex-1 overflow-hidden">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
                                             {stageLabel(stage, lang)}
@@ -318,7 +318,7 @@ const Processing = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <h2 className="mt-3 truncate font-headline text-[21px] font-extrabold text-[#111111] dark:text-white" title={title}>{title}</h2>
+                                    <h2 className="mt-3 max-w-full truncate font-headline text-[21px] font-extrabold text-[#111111] dark:text-white" title={title}>{title}</h2>
                                     <p className="mt-2 text-[13px] leading-5 text-[#6f7177] dark:text-white/60">
                                         {active
                                             ? (isZh ? '这是当前正在执行的任务。' : 'This is the task currently running.')
@@ -341,7 +341,7 @@ const Processing = () => {
                             <SectionHeading
                                 icon="route"
                                 title={isZh ? '执行路线' : 'Execution route'}
-                                desc={isZh ? '这不是多 Agent 表演，而是当前任务真实会经过的处理步骤。' : 'This is the real task route, not decorative multi-agent theater.'}
+                                desc={isZh ? '按执行顺序展示本次任务经过的处理步骤。' : 'Shows the processing steps for this task in execution order.'}
                             />
                             <div>
                                 {steps.map((step, index) => {

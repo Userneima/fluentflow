@@ -1,188 +1,291 @@
 import {useEffect, useMemo, useState} from 'react';
 import {Link, useParams, useNavigate} from 'react-router-dom';
-import {useApi, useI18n, useAuth} from '../app/shared.jsx';
+import {API_BASE, apiFetch, noteModeLabel, useI18n} from '../app/shared.jsx';
 import SvgIcon from '../components/SvgIcon.jsx';
 
-const THOUGHT_GENERATORS = {
-
-    resolve_link(result, job) {
-        const source = result?.source || job?.source_type || '';
-        if (source === 'douyin') return '这是一个抖音分享链接，我先解析出里面的视频地址再下载。';
-        return '这是一个分享链接，我先解析出真实视频地址再下载。';
-    },
-
-    download_video(result, job) {
-        const dur = result?.audio_duration_seconds || job?.source_duration_seconds;
-        if (dur && dur >= 1800) return `视频下载完毕，长度 ${Math.round(dur / 60)} 分钟。这是个长内容，后续笔记需要分段处理才能不丢重点。`;
-        if (dur) return `视频下载完毕，长度 ${Math.round(dur / 60)} 分钟。`;
-        return '视频下载完毕。';
-    },
-
-    save_source(result, job) {
-        const name = result?.display_title || result?.filename || job?.source_filename || '';
-        const dur = result?.audio_duration_seconds || job?.source_duration_seconds;
-        if (name && dur && dur >= 1800) return `收到「${name}」，约 ${Math.round(dur / 60)} 分钟。内容不短，我得选一个靠谱的转录方案。`;
-        if (name) return `收到「${name}」。`;
-        return '文件已收到，开始处理。';
-    },
-
-    parse_subtitles(result, job) {
-        const name = result?.display_title || result?.filename || job?.source_filename || '';
-        if (name) return `收到「${name}」，这是一个字幕文件，不需要转写，我直接整理后生成笔记。`;
-        return '这是一个字幕文件，跳过转写，我直接整理格式后生成笔记。';
-    },
-
-    extract_audio(result, job) {
-        return '从视频里提取音频，准备送去转写。';
-    },
-
-    local_stt(result, job) {
-        const model = result?.stt_model || '';
-        const lang = result?.detected_language || result?.source_language || '';
-        const rf = result?.stt_realtime_factor;
-        if (model && rf != null) {
-            return `用 faster-whisper ${model} 在本地跑完转写了，速度是你设备上的实际表现。${lang ? `检测到语言是 ${String(lang).toLowerCase().startsWith('en') ? '英文' : lang.startsWith('zh') ? '中文' : lang}。` : ''}`;
-        }
-        return '本地转录完成。';
-    },
-
-    cloud_stt(result, job) {
-        const provider = result?.stt_provider || '';
-        const lang = result?.source_language || result?.detected_language || '';
-        const parts = [];
-        if (provider === 'elevenlabs_scribe') {
-            parts.push('这次走 ElevenLabs 云端转写——准确率比本地高不少，适合需要认真对待的长内容。');
-        } else if (provider === 'azure_batch') {
-            parts.push('这次走 Azure 云端转写。');
-        } else {
-            parts.push('云端转写完成。');
-        }
-        if (lang) {
-            parts.push(`识别到 ${String(lang).toLowerCase().startsWith('en') ? '英文' : lang.startsWith('zh') ? '中文' : lang}。`);
-        }
-        return parts.join(' ');
-    },
-
-    diarize_speakers(result, job) {
-        const count = result?.speaker_diarization?.speaker_count;
-        if (count) return `检测到 ${count} 位说话人，已经做了区分——转录里能看到谁说了什么。`;
-        return '已尝试区分说话人。';
-    },
-
-    cleanup_transcript(result, job) {
-        const info = result?.transcript_cleanup || {};
-        const removed = info.removed_segment_count;
-        const issues = info.issues;
-        const parts = [];
-        if (removed) {
-            parts.push(`转录里发现了 ${removed} 段重复内容，已经清洗掉——避免这些重复文字干扰笔记生成。`);
-        } else if (issues) {
-            parts.push('转录里有一些重复痕迹，已经洗掉了。');
-        }
-        if (!parts.length) parts.push('转录整理完成。');
-        return parts.join(' ');
-    },
-
-    rebuild_paragraphs(result, job) {
-        return '转录是带时间码的碎片句，不适合直接喂给模型。我把碎片按段落重组成正文，模型才能按逻辑而不是按时间戳理解内容。';
-    },
-
-    generate_note(result, job) {
-        const mode = result?.resolved_note_mode || result?.note_mode_plan_selected_mode || result?.requested_note_mode || 'auto';
-        const chunkCount = result?.note_mode_chunk_count;
-        const provider = result?.ai_provider || '';
-        const length = (result?.transcript_text || '').length;
-        const parts = [];
-        if (mode === 'high_fidelity') {
-            if (chunkCount) parts.push(`转录有 ${length.toLocaleString()} 字，直接丢给模型会被选择性概括——我把内容拆成 ${chunkCount} 段，每段先提取论点和证据，再合成完整笔记。`);
-            else parts.push(`转录有 ${length.toLocaleString()} 字，密度比较高，我决定走分段提取再合成的路线——宁愿慢一点，不丢重点。`);
-        } else if (mode === 'direct') {
-            parts.push(`转录 ${length.toLocaleString()} 字，内容长度适中，直接生成笔记不会漏。`);
-        } else {
-            parts.push('根据转录长度和内容结构选择笔记策略，生成笔记。');
-        }
-        if (provider) parts.push(`笔记由 ${provider} 生成。`);
-        return parts.join(' ');
-    },
-
-    save_artifacts(result, job) {
-        return '笔记和产出物已经保存，你可以随时下载或导出。';
-    },
-
-    export_lark(result, job) {
-        const docUrl = result?.lark_response?.url || '';
-        if (docUrl) return `笔记已自动导出到飞书文档，可以在飞书里继续编辑和复习。`;
-        return '已尝试导出飞书。';
-    },
-
-    regenerate_note(result, job) {
-        return '你让我重新生成笔记，我重新评估了材料特征，再生成一次。';
-    },
+const languageLabel = (value, lang) => {
+    const normalized = String(value || '').toLowerCase();
+    if (!normalized || normalized === 'auto') return lang === 'zh' ? '未记录' : 'Not recorded';
+    if (normalized.startsWith('en')) return lang === 'zh' ? '英文' : 'English';
+    if (normalized.startsWith('zh') || normalized.startsWith('cmn')) return lang === 'zh' ? '中文' : 'Chinese';
+    return value;
 };
 
+const materialTypeLabel = (type, lang) => {
+    const isZh = lang === 'zh';
+    const labels = {
+        course_transcript_file: isZh ? '课程字幕文件' : 'Course transcript file',
+        course_material: isZh ? '课程材料' : 'Course material',
+        lecture_material: isZh ? '讲座材料' : 'Lecture material',
+        course_video_pending_content: isZh ? '待转录课程视频' : 'Course video pending transcript',
+        lecture_video_pending_content: isZh ? '待转录讲座视频' : 'Lecture video pending transcript',
+    };
+    return labels[type] || type || (isZh ? '待判断' : 'Pending');
+};
 
-function buildThoughts(toolTrace, result, jobMetadata) {
-    if (!toolTrace?.steps) return [];
-    const resultObj = result || {};
-    const jobObj = jobMetadata || {};
-    return toolTrace.steps.map((step) => {
-        const generator = THOUGHT_GENERATORS[step.id];
-        const thought = generator ? generator(resultObj, jobObj) : `${step.label}完成。`;
-        return {
-            id: step.id,
-            stage: step.id,
-            thought,
-            status: step.status,
-            error: step.error_reason || null,
-            duration_seconds: step.duration_seconds || null,
-            metadata: step.metadata || null,
-        };
-    });
+const confidenceLabel = (value, lang) => {
+    const isZh = lang === 'zh';
+    const labels = {
+        high: isZh ? '高' : 'High',
+        medium: isZh ? '中' : 'Medium',
+        low: isZh ? '低' : 'Low',
+    };
+    return labels[value] || value || (isZh ? '未记录' : 'Not recorded');
+};
+
+const routeLabel = (plan, lang) => {
+    const tool = plan?.execution?.transcription_tool || '';
+    const scope = plan?.execution?.scope || '';
+    if (tool === 'transcript_parser') return lang === 'zh' ? '读取字幕文件' : 'Read transcript file';
+    if (tool === 'local_whisper') return lang === 'zh' ? '本地 faster-whisper' : 'Local faster-whisper';
+    if (tool === 'cloud_stt') return lang === 'zh' ? '云端转录' : 'Cloud STT';
+    if (scope === 'cloud') return lang === 'zh' ? '云端执行' : 'Cloud execution';
+    if (scope === 'local') return lang === 'zh' ? '本机执行' : 'Local execution';
+    return lang === 'zh' ? '按任务来源决定' : 'From task source';
+};
+
+const sourceTypeLabel = (value, lang) => {
+    const isZh = lang === 'zh';
+    const labels = {
+        video_link: isZh ? '视频链接' : 'Video link',
+        transcript_file: isZh ? '字幕文件' : 'Transcript file',
+        video: isZh ? '视频文件' : 'Video file',
+        audio: isZh ? '音频文件' : 'Audio file',
+    };
+    return labels[value] || value || (isZh ? '未知来源' : 'Unknown source');
+};
+
+const formatDuration = (seconds, lang) => {
+    const value = Number(seconds) || 0;
+    if (!value) return lang === 'zh' ? '未记录' : 'Not recorded';
+    const mins = Math.round(value / 60);
+    if (mins < 1) return lang === 'zh' ? `${Math.round(value)} 秒` : `${Math.round(value)} sec`;
+    if (mins < 60) return lang === 'zh' ? `${mins} 分钟` : `${mins} min`;
+    const hours = Math.floor(mins / 60);
+    const rest = mins % 60;
+    return lang === 'zh' ? `${hours} 小时 ${rest} 分钟` : `${hours}h ${rest}m`;
+};
+
+const compactList = (items, fallback, limit = 3) => {
+    const values = (Array.isArray(items) ? items : []).map((item) => String(item || '').trim()).filter(Boolean);
+    if (!values.length) return fallback;
+    return values.slice(0, limit).join('；');
+};
+
+const noteStatusText = (note, lang) => {
+    const status = note?.status || note?.diagnosis?.status || 'unavailable';
+    const isZh = lang === 'zh';
+    const labels = {
+        completed: isZh ? '笔记已生成' : 'Note generated',
+        pending: isZh ? '笔记生成中' : 'Note pending',
+        skipped: isZh ? '仅转录，未生成笔记' : 'Transcript only',
+        failed: isZh ? '笔记生成失败' : 'Note failed',
+        unavailable: isZh ? '没有可用笔记' : 'No note available',
+    };
+    return labels[status] || status;
+};
+
+const stageLabel = (step, lang) => {
+    if (step?.label) return step.label;
+    const id = String(step?.id || '');
+    const isZh = lang === 'zh';
+    const labels = {
+        resolve_link: isZh ? '解析链接' : 'Resolve link',
+        download_video: isZh ? '下载视频' : 'Download video',
+        save_source: isZh ? '保存来源' : 'Save source',
+        parse_subtitles: isZh ? '读取字幕' : 'Read subtitles',
+        extract_audio: isZh ? '提取音频' : 'Extract audio',
+        local_stt: isZh ? '本地转录' : 'Local STT',
+        cloud_stt: isZh ? '云端转录' : 'Cloud STT',
+        diarize_speakers: isZh ? '区分讲话人' : 'Diarize speakers',
+        cleanup_transcript: isZh ? '清理转录' : 'Clean transcript',
+        rebuild_paragraphs: isZh ? '整理段落' : 'Rebuild paragraphs',
+        generate_note: isZh ? '生成笔记' : 'Generate note',
+        save_artifacts: isZh ? '保存产物' : 'Save artifacts',
+        export_lark: isZh ? '导出飞书' : 'Export to Feishu',
+        regenerate_note: isZh ? '重生笔记' : 'Regenerate note',
+    };
+    return labels[id] || id || (isZh ? '处理步骤' : 'Processing step');
+};
+
+const statusTone = (status) => {
+    if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200';
+    if (status === 'pending') return 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50';
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200';
+};
+
+const evidenceWeightText = (policy, lang) => {
+    const transcriptWeight = policy?.transcript_content;
+    const filenameWeight = policy?.filename;
+    if (lang === 'zh') {
+        if (transcriptWeight === 'primary') return '以转录正文为主，文件名只作弱信号。';
+        if (transcriptWeight === 'pending') return '转录尚未完成，当前主要依赖来源、时长和文件名弱信号。';
+        if (filenameWeight === 'weak') return '文件名只作弱信号。';
+        return '依据来自当前任务包。';
+    }
+    if (transcriptWeight === 'primary') return 'Transcript content is primary; filename is only a weak signal.';
+    if (transcriptWeight === 'pending') return 'Transcript is pending, so this uses source, duration, and weak filename signals.';
+    if (filenameWeight === 'weak') return 'Filename is only a weak signal.';
+    return 'Evidence comes from this task package.';
+};
+
+function buildJudgmentCards(packageData, lang) {
+    const isZh = lang === 'zh';
+    const plan = packageData?.processing_plan || {};
+    const material = plan.material || {};
+    const noteStrategy = plan.note_strategy || {};
+    const transcript = packageData?.transcript || {};
+    const note = packageData?.note || {};
+    const source = packageData?.source || {};
+    const stats = note.stats || {};
+    const evidenceFallback = isZh ? '当前任务包没有记录更细的判断依据。' : 'This task package does not include more detailed evidence.';
+    const evidenceText = compactList(material.evidence, evidenceFallback);
+    const noteMode = noteStrategy.resolved_mode || note.resolved_mode || noteStrategy.selected_mode || note.requested_mode;
+    const chunkCount = stats.chunk_count || noteStrategy.chunk_count;
+    const evidenceCount = stats.evidence_count;
+    const covered = stats.covered_important_evidence_count;
+    const important = stats.important_evidence_count;
+    const coverage = important ? `${covered || 0}/${important}` : null;
+    const preview = String(transcript.preview || '').trim();
+
+    const cards = [
+        {
+            key: 'material',
+            icon: 'psychology',
+            title: isZh ? '材料判断' : 'Material judgment',
+            evidenceLabel: isZh ? '依据' : 'Evidence',
+            impactLabel: isZh ? '对结果的影响' : 'Impact on result',
+            conclusion: materialTypeLabel(material.type, lang),
+            meta: isZh ? `置信度：${confidenceLabel(material.confidence, lang)}` : `Confidence: ${confidenceLabel(material.confidence, lang)}`,
+            evidence: evidenceText,
+            impact: material.type?.includes('lecture')
+                ? (isZh ? '因此按讲座笔记处理，优先保留主题推进、论证和关键例子。' : 'Therefore it is treated as lecture notes, preserving topic flow, arguments, and examples.')
+                : (isZh ? '因此按课程笔记处理，优先保留结构、知识点和复习线索。' : 'Therefore it is treated as course notes, preserving structure, concepts, and review cues.'),
+        },
+        {
+            key: 'route',
+            icon: 'cloud_done',
+            title: isZh ? '转录路线' : 'Transcription route',
+            evidenceLabel: isZh ? '依据' : 'Evidence',
+            impactLabel: isZh ? '对结果的影响' : 'Impact on result',
+            conclusion: routeLabel(plan, lang),
+            meta: sourceTypeLabel(material.source_type || source.type, lang),
+            evidence: [
+                plan.execution?.transcription_tool ? `${isZh ? '工具' : 'Tool'}：${plan.execution.transcription_tool}` : '',
+                source.duration_seconds || material.duration_seconds ? `${isZh ? '时长' : 'Duration'}：${formatDuration(source.duration_seconds || material.duration_seconds, lang)}` : '',
+                languageLabel(transcript.source_language || transcript.detected_language || material.language, lang),
+            ].filter(Boolean).join(' · ') || evidenceFallback,
+            impact: plan.execution?.scope === 'cloud'
+                ? (isZh ? '云端路线适合对准确率要求更高的材料，前端不暴露个人密钥。' : 'Cloud route fits accuracy-sensitive material; personal keys are not exposed in the UI.')
+                : (isZh ? '本机路线适合私人材料、开发调试或云端不可用时兜底。' : 'Local route fits private material, development, or cloud fallback.'),
+        },
+        {
+            key: 'note',
+            icon: 'subject',
+            title: isZh ? '笔记策略' : 'Note strategy',
+            evidenceLabel: isZh ? '依据' : 'Evidence',
+            impactLabel: isZh ? '对结果的影响' : 'Impact on result',
+            conclusion: noteModeLabel(noteMode || 'auto', lang),
+            meta: [
+                chunkCount ? `${isZh ? '分块' : 'Chunks'}：${chunkCount}` : '',
+                evidenceCount ? `${isZh ? '证据' : 'Evidence'}：${evidenceCount}` : '',
+                coverage ? `${isZh ? '重点覆盖' : 'Coverage'}：${coverage}` : '',
+            ].filter(Boolean).join(' · ') || (isZh ? '未记录生成统计' : 'No generation stats recorded'),
+            evidence: noteStrategy.reason || note.diagnosis?.detail || (isZh ? '按转录长度、材料类型和当前模板选择笔记结构。' : 'Chosen from transcript length, material type, and active template.'),
+            impact: noteMode === 'high_fidelity' || noteMode === 'chapter_coverage'
+                ? (isZh ? '会牺牲一些速度，换取更完整的结构和重点覆盖。' : 'Trades speed for stronger structure and coverage.')
+                : (isZh ? '处理速度更快，适合长度适中或结构清楚的材料。' : 'Faster processing for shorter or clearly structured material.'),
+        },
+        {
+            key: 'review',
+            icon: note.status === 'failed' ? 'error' : 'verified',
+            title: isZh ? '复查点' : 'Review points',
+            evidenceLabel: isZh ? '依据' : 'Evidence',
+            impactLabel: isZh ? '下一步' : 'Next step',
+            conclusion: noteStatusText(note, lang),
+            meta: [
+                transcript.raw_segment_count ? `${isZh ? '原文段' : 'Raw segments'}：${transcript.raw_segment_count}` : '',
+                transcript.display_segment_count ? `${isZh ? '展示段' : 'Display segments'}：${transcript.display_segment_count}` : '',
+                note.markdown_chars ? `${isZh ? '笔记字数' : 'Note chars'}：${Number(note.markdown_chars).toLocaleString()}` : '',
+            ].filter(Boolean).join(' · ') || (isZh ? '没有记录复查统计' : 'No review stats recorded'),
+            evidence: note.diagnosis?.detail || evidenceWeightText(material.evidence_policy, lang),
+            impact: note.diagnosis?.next_action || (isZh ? '下一步在编辑器复查正文、下载字幕，必要时重生笔记。' : 'Next, review the note in Editor, download subtitles, or regenerate when needed.'),
+        },
+    ];
+
+    if (preview) {
+        cards.push({
+            key: 'preview',
+            icon: 'closed_caption',
+            title: isZh ? '转录信号' : 'Transcript signal',
+            evidenceLabel: isZh ? '依据' : 'Evidence',
+            impactLabel: isZh ? '对判断的影响' : 'Impact on judgment',
+            conclusion: isZh ? '正文已可用于判断' : 'Transcript is available for judgment',
+            meta: languageLabel(transcript.source_language || transcript.detected_language || material.language, lang),
+            evidence: preview.length > 180 ? `${preview.slice(0, 180)}...` : preview,
+            impact: evidenceWeightText(material.evidence_policy, lang),
+        });
+    }
+
+    return cards;
 }
 
-const STAGE_ICONS = {
-    resolve_link: 'douyin',
-    download_video: 'video',
-    save_source: 'local-file',
-    parse_subtitles: 'subtitles',
-    extract_audio: 'wave',
-    local_stt: 'wave',
-    cloud_stt: 'sync',
-    diarize_speakers: 'queue',
-    cleanup_transcript: 'tune',
-    rebuild_paragraphs: 'subject',
-    generate_note: 'grid',
-    save_artifacts: 'upload-file',
-    export_lark: 'arrow-right',
-    regenerate_note: 'sync',
-};
+function buildExecutionSteps(packageData, lang) {
+    const traceSteps = Array.isArray(packageData?.tool_trace?.steps) ? packageData.tool_trace.steps : [];
+    if (traceSteps.length) {
+        return traceSteps.map((step) => ({
+            id: step.id || step.label,
+            title: stageLabel(step, lang),
+            status: step.status || 'done',
+            detail: step.error_reason || step.reason || step.tool || null,
+            duration: step.duration_seconds,
+        }));
+    }
+    const planSteps = Array.isArray(packageData?.processing_plan?.steps) ? packageData.processing_plan.steps : [];
+    return planSteps.map((step) => ({
+        id: step.id || step.label,
+        title: step.label || step.id,
+        status: 'done',
+        detail: step.reason || step.tool || null,
+        duration: null,
+    }));
+}
 
-const STAGE_COLORS = {
-    resolve_link: '#6366f1',
-    download_video: '#6366f1',
-    save_source: '#6366f1',
-    parse_subtitles: '#6366f1',
-    extract_audio: '#8b5cf6',
-    local_stt: '#8b5cf6',
-    cloud_stt: '#8b5cf6',
-    diarize_speakers: '#8b5cf6',
-    cleanup_transcript: '#f59e0b',
-    rebuild_paragraphs: '#f59e0b',
-    generate_note: '#10b981',
-    save_artifacts: '#6b7280',
-    export_lark: '#3b82f6',
-    regenerate_note: '#10b981',
-};
+const JudgmentCard = ({card}) => (
+    <article className="min-w-0 rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
+        <div className="flex items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-[#f0f0f0] text-[#111111] dark:bg-white/[0.10] dark:text-white">
+                <SvgIcon name={card.icon} className="text-[18px]"/>
+            </div>
+            <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{card.title}</p>
+                <h2 className="mt-1 truncate font-headline text-[18px] font-extrabold leading-tight text-[#111111] dark:text-white" title={card.conclusion}>
+                    {card.conclusion}
+                </h2>
+                {card.meta && <p className="mt-1 text-[12px] font-bold text-[#676970] dark:text-white/55">{card.meta}</p>}
+            </div>
+        </div>
+        <div className="mt-4 space-y-3 text-[13px] leading-5">
+            <div>
+                <p className="mb-1 text-[11px] font-extrabold text-[#85868c] dark:text-white/40">{card.evidenceLabel}</p>
+                <p className="text-[#2f3035] dark:text-white/78">{card.evidence}</p>
+            </div>
+            <div>
+                <p className="mb-1 text-[11px] font-extrabold text-[#85868c] dark:text-white/40">{card.impactLabel}</p>
+                <p className="text-[#2f3035] dark:text-white/78">{card.impact}</p>
+            </div>
+        </div>
+    </article>
+);
 
 const AgentTrace = () => {
     const {taskId} = useParams();
     const navigate = useNavigate();
-    const {t, lang} = useI18n();
-    const {guestMode} = useAuth();
-    const {request: apiRequest} = useApi();
+    const {lang} = useI18n();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [packageData, setPackageData] = useState(null);
+    const isZh = lang === 'zh';
 
     useEffect(() => {
         let stale = false;
@@ -190,7 +293,7 @@ const AgentTrace = () => {
             setLoading(true);
             setError(null);
             try {
-                const r = await apiRequest(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
+                const r = await apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
                 const data = await r.json().catch(() => ({}));
                 if (!r.ok) throw new Error(data?.detail || `HTTP ${r.status}`);
                 if (!stale) setPackageData(data);
@@ -204,159 +307,171 @@ const AgentTrace = () => {
         return () => { stale = true; };
     }, [taskId]);
 
-    const thoughts = useMemo(() => {
-        const result = packageData?.transcript ? {
-            transcript_text: packageData.transcript.text,
-            transcript_text_preview: packageData.transcript.preview,
-            source_language: packageData.transcript.source_language,
-            detected_language: packageData.transcript.detected_language,
-            stt_provider: (packageData.processing_plan?.execution?.scope === 'cloud' ? 'elevenlabs_scribe' : 'local'),
-            ...packageData.processing_plan?.material,
-            ...packageData.note,
-        } : {};
-        return buildThoughts(packageData?.tool_trace, result, {});
-    }, [packageData]);
-
-    const isZh = lang === 'zh';
     const title = packageData?.title || taskId;
+    const judgmentCards = useMemo(() => buildJudgmentCards(packageData, lang), [packageData, lang]);
+    const executionSteps = useMemo(() => buildExecutionSteps(packageData, lang), [packageData, lang]);
+    const plan = packageData?.processing_plan || {};
+    const note = packageData?.note || {};
+    const riskNotes = Array.isArray(plan.risk_notes) ? plan.risk_notes.filter(Boolean) : [];
 
     if (loading) {
         return (
-            <div className="flex-1 flex items-center justify-center">
-                <div className="flex items-center gap-2.5 text-sm text-on-surface-variant">
+            <main className="flex min-h-dvh flex-1 items-center justify-center bg-[#f8f7fb] p-8 dark:bg-[#101010]">
+                <div className="flex items-center gap-2.5 text-sm font-semibold text-on-surface-variant">
                     <SvgIcon name="sync" className="animate-spin text-base"/>
-                    {isZh ? '加载中...' : 'Loading...'}
+                    {isZh ? '加载任务解释...' : 'Loading task explanation...'}
                 </div>
-            </div>
+            </main>
         );
     }
 
     if (error) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-                <div className="text-sm text-red-500">{error}</div>
-                <button type="button" onClick={() => navigate('/tasks')} className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-[#f4f3f3] px-4 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+            <main className="flex min-h-dvh flex-1 flex-col items-center justify-center gap-4 bg-[#f8f7fb] p-8 dark:bg-[#101010]">
+                <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>
+                <button type="button" onClick={() => navigate('/tasks')} className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
                     {isZh ? '返回任务列表' : 'Back to Tasks'}
                 </button>
-            </div>
+            </main>
         );
     }
 
     return (
-        <div className="flex-1 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#dedada] dark:border-white/[0.08]">
-                <div className="flex flex-col gap-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                        <Link to="/tasks" className="text-sm text-on-surface-variant hover:text-on-surface transition-colors">
-                            {isZh ? '任务' : 'Tasks'}
-                        </Link>
-                        <span className="text-sm text-on-surface-variant">/</span>
-                        <Link to="/editor" className="text-sm text-on-surface-variant hover:text-on-surface transition-colors">
-                            {isZh ? '编辑器' : 'Editor'}
-                        </Link>
-                        <span className="text-sm text-on-surface-variant">/</span>
-                        <h1 className="text-sm font-bold text-on-surface truncate max-w-[300px]" title={title}>
-                            {isZh ? '处理过程' : 'Processing'}
-                        </h1>
+        <main className="min-h-dvh flex-1 overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
+            <div className="mx-auto max-w-7xl space-y-5">
+                <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Link to="/tasks" className="text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/55 dark:hover:text-white">
+                                {isZh ? '后台任务' : 'Tasks'}
+                            </Link>
+                            <span className="text-[#a2a3a8] dark:text-white/35">/</span>
+                            <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
+                                {isZh ? '素材处理解释' : 'Material explanation'}
+                            </h1>
+                            <span className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                {isZh ? '证据摘要' : 'Evidence summary'}
+                            </span>
+                        </div>
+                        <p className="mt-1 max-w-[72ch] truncate text-[13px] leading-5 text-[#676970] dark:text-white/60" title={title}>
+                            {title}
+                        </p>
                     </div>
-                    <p className="text-xs text-on-surface-variant truncate max-w-[400px]">{title}</p>
-                </div>
-                <Link
-                    to="/editor"
-                    className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-4 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]"
-                >
-                    <SvgIcon name="open_in_new" className="text-sm"/>
-                    {isZh ? '查看笔记' : 'View Note'}
-                </Link>
-            </div>
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <Link to="/editor" className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                            <SvgIcon name="open_in_new" className="text-base"/>
+                            {isZh ? '查看笔记' : 'View note'}
+                        </Link>
+                        <Link to="/tasks" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                            <SvgIcon name="monitoring" className="text-base"/>
+                            {isZh ? '任务记录' : 'Task record'}
+                        </Link>
+                    </div>
+                </header>
 
-            {/* Timeline */}
-            <div className="flex-1 overflow-auto px-6 py-6">
-                <div className="max-w-[640px] mx-auto">
-                    <div className="relative ml-4">
-                        {/* vertical line */}
-                        <div className="absolute left-0 top-0 bottom-0 w-px bg-[#dedada] dark:bg-white/[0.08]" style={{transform: 'translateX(7px)'}} />
-
-                        <div className="flex flex-col gap-5">
-                            {thoughts.map((item, index) => {
-                                const icon = STAGE_ICONS[item.stage] || 'check-circle';
-                                const color = STAGE_COLORS[item.stage] || '#6b7280';
-                                const isError = item.status === 'failed';
-                                const isPending = item.status === 'pending';
-
-                                return (
-                                    <div key={`${item.id}-${index}`} className="relative pl-8">
-                                        {/* dot */}
-                                        <div
-                                            className={`absolute left-0 top-1 flex items-center justify-center w-[15px] h-[15px] rounded-full border-2 transition-colors ${isError ? 'bg-red-50 border-red-300 dark:bg-red-500/10 dark:border-red-500/30' : isPending ? 'bg-surface border-[#dedada] dark:bg-[#1a1a1a] dark:border-white/[0.12]' : 'bg-white border-[#aaa] dark:bg-[#1a1a1a] dark:border-white/[0.25]'}`}
-                                            style={{transform: 'translateX(-3px)', borderColor: !isError && !isPending ? color : undefined}}
-                                        >
-                                            {isError ? (
-                                                <SvgIcon name="close" className="text-[10px] text-red-500"/>
-                                            ) : isPending ? (
-                                                <SvgIcon name="schedule" className="text-[10px] text-on-surface-variant"/>
-                                            ) : (
-                                                <div className="w-[7px] h-[7px] rounded-full" style={{backgroundColor: color}} />
-                                            )}
-                                        </div>
-
-                                        {/* thought text */}
-                                        <p className={`text-sm leading-relaxed ${isError ? 'text-red-600 dark:text-red-400' : isPending ? 'text-on-surface-variant opacity-60' : 'text-on-surface'}`}>
-                                            {item.thought}
-                                        </p>
-
-                                        {/* error detail */}
-                                        {item.error && (
-                                            <p className="mt-1 text-xs text-red-500">{item.error}</p>
-                                        )}
-
-                                        {/* duration badge */}
-                                        {item.duration_seconds != null && !isPending && (
-                                            <span className="inline-block mt-1.5 text-xs text-on-surface-variant opacity-60">
-                                                {item.duration_seconds < 60
-                                                    ? `${Math.round(item.duration_seconds)}s`
-                                                    : `${Math.round(item.duration_seconds / 60)}min ${Math.round(item.duration_seconds % 60)}s`}
-                                            </span>
-                                        )}
-                                    </div>
-                                );
-                            })}
-
-                            {/* final status */}
-                            {thoughts.length > 0 && packageData?.tool_trace?.status === 'completed' && (
-                                <div className="relative pl-8">
-                                    <div className="absolute left-0 top-1 flex items-center justify-center w-[15px] h-[15px]" style={{transform: 'translateX(-3px)', color: '#10b981'}}>
-                                        <SvgIcon name="check_circle" className="text-[15px]"/>
-                                    </div>
-                                    <p className="text-sm text-on-surface-variant">
-                                        {isZh ? '处理完成，所有步骤都已执行。' : 'Processing complete. All steps finished.'}
-                                    </p>
-                                </div>
-                            )}
-
-                            {thoughts.length > 0 && packageData?.tool_trace?.status === 'partial' && (
-                                <div className="relative pl-8">
-                                    <div className="absolute left-0 top-1 flex items-center justify-center w-[15px] h-[15px]" style={{transform: 'translateX(-3px)', color: '#f59e0b'}}>
-                                        <SvgIcon name="warning" className="text-[15px]"/>
-                                    </div>
-                                    <p className="text-sm text-on-surface-variant">
-                                        {isZh ? '处理部分完成，有些步骤失败了。' : 'Partial completion — some steps failed.'}
-                                    </p>
-                                </div>
-                            )}
+                <section className="rounded-[20px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.34fr)] lg:items-center">
+                        <div className="min-w-0">
+                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                                {isZh ? '本页展示什么' : 'What this page shows'}
+                            </p>
+                            <h2 className="mt-1 font-headline text-[20px] font-extrabold text-[#111111] dark:text-white">
+                                {isZh ? '这条素材为什么被这样处理' : 'Why this material was processed this way'}
+                            </h2>
+                            <p className="mt-2 max-w-[78ch] text-[13px] leading-5 text-[#676970] dark:text-white/60">
+                                {isZh
+                                    ? '这里把处理解释整理成可复查的判断结论、依据和影响。通用执行步骤放在下方，作为处理记录。'
+                                    : 'This turns the processing explanation into reviewable conclusions, evidence, and impact. Generic steps stay below as execution record.'}
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[12px]">
+                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                                <p className="font-bold text-[#85868c] dark:text-white/45">{isZh ? '计划阶段' : 'Plan stage'}</p>
+                                <p className="mt-1 truncate font-extrabold text-[#111111] dark:text-white">{plan.planning_stage || '-'}</p>
+                            </div>
+                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                                <p className="font-bold text-[#85868c] dark:text-white/45">{isZh ? '笔记状态' : 'Note status'}</p>
+                                <p className="mt-1 truncate font-extrabold text-[#111111] dark:text-white">{noteStatusText(note, lang)}</p>
+                            </div>
                         </div>
                     </div>
+                </section>
 
-                    {/* back link */}
-                    <div className="mt-6 pt-4 border-t border-[#dedada] dark:border-white/[0.08] text-center">
-                        <Link to="/editor" className="text-xs text-on-surface-variant hover:text-on-surface transition-colors">
-                            {isZh ? '→ 打开编辑器查看笔记和转录' : '→ Open editor to view note and transcript'}
-                        </Link>
-                    </div>
+                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.36fr)_minmax(320px,0.64fr)]">
+                    <section className="min-w-0 space-y-4">
+                        <div className="flex items-end justify-between gap-3">
+                            <div>
+                                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{isZh ? '判断结论' : 'Judgments'}</p>
+                                <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                    {isZh ? '针对当前素材的分析' : 'Analysis for this material'}
+                                </h2>
+                            </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                            {judgmentCards.map((card) => <JudgmentCard key={card.key} card={card}/>)}
+                        </div>
+                    </section>
+
+                    <aside className="space-y-5 xl:border-l xl:border-[#dedada] xl:pl-5 xl:dark:border-white/[0.10]">
+                        <section>
+                            <div className="mb-3">
+                                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{isZh ? '执行记录' : 'Execution record'}</p>
+                                <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                    {isZh ? '真实经过的步骤' : 'Steps actually recorded'}
+                                </h2>
+                            </div>
+                            <div className="space-y-2">
+                                {executionSteps.map((step, index) => (
+                                    <div key={`${step.id}-${index}`} className="rounded-[14px] border border-[#dedada] bg-white p-3 dark:border-white/[0.10] dark:bg-white/[0.055]">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="min-w-0 truncate text-[13px] font-extrabold text-[#111111] dark:text-white" title={step.title}>{step.title}</p>
+                                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${statusTone(step.status)}`}>
+                                                {step.status === 'failed' ? (isZh ? '失败' : 'Failed') : step.status === 'pending' ? (isZh ? '等待' : 'Pending') : (isZh ? '完成' : 'Done')}
+                                            </span>
+                                        </div>
+                                        {(step.detail || step.duration != null) && (
+                                            <p className="mt-1 text-[12px] leading-5 text-[#676970] dark:text-white/58">
+                                                {[step.detail, step.duration != null ? `${Math.round(step.duration)}s` : ''].filter(Boolean).join(' · ')}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
+                                {!executionSteps.length && (
+                                    <p className="rounded-[14px] border border-[#dedada] bg-white p-3 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/58">
+                                        {isZh ? '当前任务包没有记录执行步骤。' : 'This task package has no execution steps recorded.'}
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+
+                        <section className="border-t border-[#dedada] pt-5 dark:border-white/[0.10]">
+                            <div className="mb-3">
+                                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{isZh ? '限制和下一步' : 'Limits and next step'}</p>
+                                <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                    {note.diagnosis?.title || (isZh ? '复查结果' : 'Review result')}
+                                </h2>
+                            </div>
+                            <div className="space-y-2 text-[13px] leading-5 text-[#676970] dark:text-white/60">
+                                {riskNotes.length > 0 ? riskNotes.map((item) => (
+                                    <p key={item} className="rounded-[14px] border border-orange-300/40 bg-orange-50 p-3 font-semibold text-orange-900 dark:border-orange-300/20 dark:bg-orange-300/10 dark:text-orange-100">
+                                        {item}
+                                    </p>
+                                )) : (
+                                    <p className="rounded-[14px] border border-[#dedada] bg-white p-3 font-semibold dark:border-white/[0.10] dark:bg-white/[0.055]">
+                                        {note.diagnosis?.next_action || (isZh ? '打开编辑器复查正文，必要时重生笔记。' : 'Open the editor to review the note, and regenerate if needed.')}
+                                    </p>
+                                )}
+                                {riskNotes.length > 0 && note.diagnosis?.next_action && (
+                                    <p className="rounded-[14px] border border-[#dedada] bg-white p-3 font-semibold dark:border-white/[0.10] dark:bg-white/[0.055]">
+                                        {note.diagnosis.next_action}
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+                    </aside>
                 </div>
             </div>
-        </div>
+        </main>
     );
 };
 

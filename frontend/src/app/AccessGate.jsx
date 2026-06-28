@@ -38,9 +38,9 @@ const AccessGate = ({children}) => {
             setGuestMode(nextGuestAllowed);
             if (data.bootstrap_required) setFormMode('register');
         } catch(_) {
-            setAuthMode('open');
-            setRequired(false);
-            setAuthenticated(true);
+            setAuthMode('accounts');
+            setRequired(true);
+            setAuthenticated(false);
             setUser(null);
             setGuestTrial(null);
             setGuestMode(false);

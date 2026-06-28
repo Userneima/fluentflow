@@ -221,27 +221,108 @@ def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
     assert "segment?.text_zh" in download
 
 
-def test_editor_explains_generation_reasons() -> None:
+def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
-    assert "noteModeReasonText" in source
-    assert "note_mode_plan_reason" in source
-    assert "chapter_coverage" in source
-    assert "note_mode_chapter_count" in source
-    assert "note_mode_evidence_count" in source
-    assert "note_mode_covered_important_evidence_count" in source
-    assert "promptPresetReasonText" in source
-    assert "subtitleReasonText" in source
     assert "summaryFailureNextStep" in source
-    assert "summaryCompactMeta" in source
     assert "agentWorkflowHref" in source
-    assert "查看 Agent 工作流" in source
-    assert "生成详情" in source
-    assert "summaryReasonItems.map" in source
+    assert "Agent 工作流" in source
+    assert "生成详情" not in source
+    assert "summaryCompactMeta" not in source
+    assert "summaryGenerationMeta" not in source
+    assert "summaryReasonItems" not in source
+    assert "prompt.activeHint" not in source
+    assert "noteModeText" not in source
+    assert "fixed bottom-16 right-8" not in source
+    assert "planNoteStrategy.reason" in processing
     assert "noteModePlanReason" in shared
     assert "chapter_coverage" in shared
     assert "完整覆盖笔记" in shared
+
+
+def test_editor_uses_compact_review_workbench_layout() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+
+    assert "转录原文" in source
+    assert "笔记正文" in source
+    assert "inline-flex h-10 items-center" in source
+    assert "h-[82px]" not in source
+    assert "w-[360px]" not in source
+    assert "当前结果没有时间戳分段，只能按纯文本编辑" not in source
+    assert "No timestamped segments. Retranscribe the source audio" in source
+    assert "flex justify-end border-t" in source
+    assert "生成详情" not in source
+    assert "生成中英对照" not in source
+    assert "Add Bilingual" not in source
+    assert "handleTranslateTranscript" not in source
+    assert "translatingTranscript" not in source
+    assert "translateJobSegments" not in source
+    assert "纯文本模式" not in source
+    assert "Plain text" not in source
+    assert "转录已保存" in source
+    assert "editRecords.length > 0" in source
+    assert "导出转录" in source
+
+
+def test_editor_destructive_top_actions_require_confirmation() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    legacy_i18n = Path("frontend/src/app/i18n.jsx").read_text(encoding="utf-8")
+    format_helpers = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
+    tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+
+    assert "const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false)" in source
+    assert "onClick={()=>setRegenerateConfirmOpen(true)}" in source
+    assert "edit.regenerateConfirmTitle" in source
+    assert "edit.regenerateConfirmDesc" in source
+    assert "edit.regenerateConfirmAction" in source
+    assert "onClick={handleRegenerate}" in source
+    assert "setRetranscribeConfirmOpen(true)" in source
+    assert "onClick={handleRetranscribe}" in source
+    assert "'edit.regenerate':'重生笔记'" in shared
+    assert "'edit.regenerateConfirmAction':'确认重生笔记'" in shared
+    assert "点击“重生笔记”" in source
+    assert "点击重新生成" not in shared
+    assert "export {I18nProvider, msgs, useI18n} from './shared.jsx';" in legacy_i18n
+    assert "点击“重新生成”" not in format_helpers
+    assert "重新生成摘要" not in tasks
+    assert "重新生成笔记" not in agent_trace
+
+
+def test_editor_agent_workflow_link_requires_real_task_id() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+
+    assert "const activeTaskId = result?.task_id || fallbackTaskIdRef.current" in source
+    assert "const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';" in source
+    assert "encodeURIComponent(activeTaskId)}/agent" not in source
+
+
+def test_agent_trace_uses_existing_api_fetch_helper() -> None:
+    source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+
+    assert "API_BASE, apiFetch, noteModeLabel, useI18n" in source
+    assert "apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
+    assert "request: apiRequest" not in source
+    assert "apiRequest(" not in source
+
+
+def test_agent_trace_prioritizes_material_specific_judgment() -> None:
+    source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+
+    assert "buildJudgmentCards" in source
+    assert "材料判断" in source
+    assert "笔记策略" in source
+    assert "复查点" in source
+    assert "转录信号" in source
+    assert "对结果的影响" in source
+    assert "executionSteps" in source
+    assert "tool_trace" in source
+    assert "THOUGHT_GENERATORS" not in source
+    assert "inner monologue" not in source
+    assert "内心独白" not in source
 
 
 def test_processing_page_is_agent_workflow_surface() -> None:
@@ -281,7 +362,19 @@ def test_processing_page_uses_compact_tool_header() -> None:
     assert "任务解释" in source
     assert "Page Header Density" in design_system
     assert "不要在应用内页面顶部放大面积品牌标题" in design_system
-    assert "打开编辑器重新生成" in source
+
+
+def test_processing_page_constrains_long_task_titles() -> None:
+    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+    design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
+
+    assert 'className="grid min-w-0 gap-7' in source
+    assert 'className="min-w-0 space-y-7"' in source
+    assert "min-w-0 max-w-full flex-1 overflow-hidden" in source
+    assert "max-w-full truncate font-headline" in source
+    assert "只给文本节点加 `truncate` 不够" in design_system
+    assert "minmax(0, 1fr)" in design_system
+    assert "打开编辑器重生笔记" in source
     assert 'to="/settings"' in source
     assert "ml-[var(--sidebar-offset)]" in source
     assert "saveCredentials" not in source
@@ -291,13 +384,69 @@ def test_processing_page_uses_compact_tool_header() -> None:
     assert "updateSettingNow" not in source
 
 
+def test_workflow_next_step_copy_is_action_oriented() -> None:
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+    tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+    design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
+
+    assert "复查结果" in processing
+    assert "查看运行状态" in processing
+    assert "重生笔记" in processing
+    assert "开始处理任务" in processing
+    assert "结果可以复查" not in processing
+    assert "任务正在运行" not in processing
+    assert "还没有可解释的任务" not in processing
+    assert "下一步：删除这条取消记录。" in tasks
+    assert "下一步：可以删除" not in tasks
+    assert "复查结果" in agent_trace
+    assert "打开编辑器复查正文" in agent_trace
+    assert "可以随时下载或导出" not in agent_trace
+    assert "Action-Oriented Copy" in design_system
+    assert "避免把行动标题写成状态判断句" in design_system
+
+
+def test_ui_copy_does_not_leak_internal_product_principles() -> None:
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+    design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
+
+    assert "按执行顺序展示本次任务经过的处理步骤。" in processing
+    assert "这不是多 Agent 表演" not in processing
+    assert "decorative multi-agent theater" not in processing
+    assert "证据摘要" in agent_trace
+    assert "可复查的判断结论、依据和影响" in agent_trace
+    assert "不适合直接喂给模型" not in agent_trace
+    assert "而不是按时间戳" not in agent_trace
+    assert "内心独白" not in agent_trace
+    assert "内部产品原则不能原样进入 UI" in design_system
+    assert "避免防御性文案和自证清白式表达" in design_system
+
+
 def test_sidebar_keeps_visible_login_entry_for_accounts_mode() -> None:
     source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
 
-    assert "showAccountLoginEntry" in source
+    assert "showAccountLoginEntry = (authMode === 'accounts' || guestMode) && !user" in source
+    assert "sidebarLoginActionTitle" in source
+    assert "sidebarLoginActionSubtitle" in source
     assert "anonymousEntryTitle" in source
     assert "登录账号" in source
+    assert "同步任务和额度" in source
     assert "AnonymousEntryIcon" in source
+    assert "onClick={() => openAuth('login')}" in source
+    assert "{showAccountLoginEntry && (" in source
+    assert "min-h-0 flex-1" in source
+    assert "overflow-y-auto" in source
+
+
+def test_auth_status_failure_keeps_login_path_visible() -> None:
+    source = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
+
+    assert "} catch(_) {" in source
+    assert "setAuthMode('accounts');" in source
+    assert "setRequired(true);" in source
+    assert "setAuthenticated(false);" in source
+    assert "setGuestMode(false);" in source
 
 
 def test_settings_copy_separates_preferences_from_agent_strategy() -> None:

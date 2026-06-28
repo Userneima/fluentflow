@@ -50,7 +50,6 @@ import {
     jobToHistoryEntry,
     larkExportRouteFromSettings,
     localExecutionHeaders,
-    noteModeLabel,
     pickDisplayTranscriptSegments,
     normalizeSttModel,
     normalizeSttProvider,
@@ -77,66 +76,12 @@ const jobOptionsForResult = (result) => (
         : {}
 );
 
-const noteModeReasonText = (result, lang) => {
-    const plannedReason = String(result?.note_mode_plan_reason || '').trim();
-    if (plannedReason) {
-        return plannedReason;
-    }
-    const requested = String(result?.requested_note_mode || '').trim();
-    const resolved = String(result?.resolved_note_mode || requested || '').trim();
-    if (!resolved) return '';
-    const wasAuto = !requested || requested === 'auto';
-    if (resolved === 'chapter_coverage') {
-        return wasAuto
-            ? (lang === 'zh' ? '材料较长或信息密度高，系统改用章节覆盖流程，先抽证据再按章节生成。' : 'The material is long or dense, so FluentFlow used chapter coverage: evidence first, then chapter writing.')
-            : (lang === 'zh' ? '来自本次 Agent 工作流：先抽取证据、规划章节，再检查重要遗漏。' : 'Chosen in this Agent workflow: extract evidence, plan chapters, then check important omissions.');
-    }
-    if (resolved === 'high_fidelity') {
-        return wasAuto
-            ? (lang === 'zh' ? '材料偏长，系统改用分块整理，重点是减少遗漏。' : 'The material is long, so the system used chunked coverage to reduce omissions.')
-            : (lang === 'zh' ? '来自本次 Agent 工作流，优先完整覆盖，速度会慢一些。' : 'Chosen in this Agent workflow. It prioritizes coverage and may take longer.');
-    }
-    if (resolved === 'direct') {
-        return wasAuto
-            ? (lang === 'zh' ? '材料长度适中，系统直接生成，速度更快。' : 'The material is short enough for direct generation, which is faster.')
-            : (lang === 'zh' ? '来自本次 Agent 工作流，适合较短或结构清楚的材料。' : 'Chosen in this Agent workflow. It fits shorter or clearly structured material.');
-    }
-    return lang === 'zh' ? '按本次 Agent 工作流生成。' : 'Generated from this Agent workflow.';
-};
-
-const promptPresetReasonText = (result, lang) => {
-    const preset = String(result?.prompt_preset || '').trim();
-    const label = String(result?.prompt_preset_label || '').trim();
-    if (!preset && !label) return '';
-    if (preset === 'default') {
-        return lang === 'zh' ? '使用默认课程笔记结构，保证输出格式稳定。' : 'Uses the default course-note structure for stable output.';
-    }
-    return lang === 'zh'
-        ? '来自 Agent 工作流，用来决定笔记结构、重点和限制。'
-        : 'Comes from Processing settings and controls note structure, focus, and constraints.';
-};
-
-const subtitleReasonText = (result, hasBilingualTranscript, lang) => {
-    const sourceLanguage = String(result?.source_language || result?.detected_language || '').toLowerCase();
-    if (hasBilingualTranscript || result?.subtitle_mode === 'bilingual_zh') {
-        return lang === 'zh'
-            ? '英文原文已保留，并附加中文对照，方便校对和做笔记。'
-            : 'The English source is preserved with Chinese alongside it for review and note-taking.';
-    }
-    if (sourceLanguage.startsWith('en')) {
-        return lang === 'zh'
-            ? '当前只有英文原文字幕，需要中文时可生成中英对照。'
-            : 'Only the English source subtitles are present. Add bilingual subtitles when Chinese is needed.';
-    }
-    return '';
-};
-
 const summaryFailureNextStep = (result, lang) => {
     if (!(result?.summary_status === 'failed' || result?.summary_error)) return '';
     const error = friendlyTaskError(result?.summary_error, lang);
     return lang === 'zh'
-        ? `原因：${error} 下一步：点击“重新生成”；如果还失败，先更换提示词或缩短材料。`
-        : `Reason: ${error} Next: click Regenerate; if it still fails, change the prompt or shorten the material.`;
+        ? `原因：${error} 下一步：点击“重生笔记”；如果还失败，先更换提示词或缩短材料。`
+        : `Reason: ${error} Next: click Regenerate note; if it still fails, change the prompt or shorten the material.`;
 };
 
 const Editor = () => {
@@ -154,15 +99,15 @@ const Editor = () => {
         addLarkExport,
         runtimeConfig,
     } = useApp();
-    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, translateJobSegments, getCredentialsStatus} = useApi();
+    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
-    const [translatingTranscript, setTranslatingTranscript] = useState(false);
     const [retranscribing, setRetranscribing] = useState(false);
     const [downloading, setDownloading] = useState(null);
     const [toast, setToast] = useState(null);
     const [larkUrl, setLarkUrl] = useState(null);
+    const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
     const [retranscribeConfirmOpen, setRetranscribeConfirmOpen] = useState(false);
     const summaryRef = useRef(null);
     const retranscribeInputRef = useRef(null);
@@ -436,97 +381,12 @@ const Editor = () => {
     const sttRealtimeFactor = result?.stt_realtime_factor || (durSec > 0 && sttElapsedSec > 0 ? sttElapsedSec / durSec : null);
     const sttProfile = result?.stt_model ? [isCloudSttProvider(result.stt_provider) ? (result.stt_provider_label || 'Cloud STT') : 'local', result.stt_model, result.stt_speed, result.stt_language].filter(Boolean).join(' / ') : '';
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
-    const resolvedNoteMode = result?.resolved_note_mode || result?.requested_note_mode || null;
-    const noteModeText = resolvedNoteMode ? noteModeLabel(resolvedNoteMode, lang) : null;
-    const promptPresetMeta = result?.prompt_preset || null;
-    const promptPresetMetaLabel = result?.prompt_preset_label
-        || (promptPresetMeta ? presetDisplayLabel(promptPresetMeta, loadSettings(), lang) : null);
-    const sourceLanguageMeta = result?.source_language || result?.detected_language || null;
-    const normalizedSourceLanguage = String(sourceLanguageMeta || '').toLowerCase();
-    const sourceLanguageLabel = normalizedSourceLanguage.startsWith('en')
-        ? (lang === 'zh' ? '英文' : 'English')
-        : normalizedSourceLanguage.startsWith('zh')
-            ? (lang === 'zh' ? '中文' : 'Chinese')
-            : (sourceLanguageMeta || (lang === 'zh' ? '未记录' : 'Not recorded'));
-    const subtitleModeLabel = result?.subtitle_mode === 'bilingual_zh'
-        ? (lang === 'zh' ? '中英双语' : 'Bilingual EN/ZH')
-        : (lang === 'zh' ? '原文字幕' : 'Source subtitles');
-    const summaryBasisLabel = normalizedSourceLanguage.startsWith('en')
-        ? (lang === 'zh' ? '英文原文生成中文摘要' : 'Chinese note from English source')
-        : (lang === 'zh' ? '原文生成摘要' : 'Source transcript');
-    const summaryGenerationMeta = [
-        {
-            label: lang === 'zh' ? '生成模式' : 'Note mode',
-            value: noteModeText || (lang === 'zh' ? '未记录' : 'Not recorded'),
-        },
-        {
-            label: lang === 'zh' ? '提示词模板' : 'Prompt template',
-            value: promptPresetMetaLabel || (lang === 'zh' ? '未记录' : 'Not recorded'),
-        },
-        {
-            label: lang === 'zh' ? '原音频语言' : 'Source language',
-            value: sourceLanguageLabel,
-        },
-        {
-            label: lang === 'zh' ? '字幕模式' : 'Subtitle mode',
-            value: subtitleModeLabel,
-        },
-        {
-            label: lang === 'zh' ? '摘要依据' : 'Summary basis',
-            value: summaryBasisLabel,
-        },
-        result?.note_mode_chunk_count ? {
-            label: lang === 'zh' ? '分块数' : 'Chunks',
-            value: String(result.note_mode_chunk_count),
-        } : null,
-        result?.note_mode_chapter_count ? {
-            label: lang === 'zh' ? '章节数' : 'Chapters',
-            value: String(result.note_mode_chapter_count),
-        } : null,
-        result?.note_mode_evidence_count ? {
-            label: lang === 'zh' ? '证据数' : 'Evidence',
-            value: String(result.note_mode_evidence_count),
-        } : null,
-        result?.note_mode_important_evidence_count ? {
-            label: lang === 'zh' ? '重要证据覆盖' : 'Important coverage',
-            value: `${result.note_mode_covered_important_evidence_count ?? 0}/${result.note_mode_important_evidence_count}`,
-        } : null,
-    ].filter(Boolean);
-    const summaryCompactMeta = [
-        {
-            label: lang === 'zh' ? '模式' : 'Mode',
-            value: noteModeText || (lang === 'zh' ? '未记录' : 'Not recorded'),
-        },
-        {
-            label: lang === 'zh' ? '模板' : 'Prompt',
-            value: promptPresetMetaLabel || (lang === 'zh' ? '未记录' : 'Not recorded'),
-        },
-        {
-            label: lang === 'zh' ? '语言' : 'Language',
-            value: sourceLanguageLabel,
-        },
-    ];
-    const summaryReasonItems = [
-        {
-            label: lang === 'zh' ? '模式原因' : 'Mode reason',
-            value: noteModeReasonText(result, lang),
-        },
-        {
-            label: lang === 'zh' ? '提示词原因' : 'Prompt reason',
-            value: promptPresetReasonText(result, lang),
-        },
-        {
-            label: lang === 'zh' ? '字幕原因' : 'Subtitle reason',
-            value: subtitleReasonText(result, hasBilingualTranscript, lang),
-        },
-    ].filter((item) => item.value);
-    const transcriptReason = subtitleReasonText(result, hasBilingualTranscript, lang);
     const summaryFailureHint = summaryFailureNextStep(result, lang);
     const resultTitle = resultDisplayTitle(result, {name: t('edit.title')});
     const resultDownloadName = result?.display_title || resultTitle || result?.filename;
     const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
     const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
-    const agentWorkflowHref = activeTaskId ? `/tasks/${encodeURIComponent(activeTaskId)}/agent` : '/processing';
+    const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';
     const playbackDuration = mediaDuration || durSec || 0;
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
@@ -753,9 +613,10 @@ const Editor = () => {
     };
 
     const handleRegenerate = async () => {
+        setRegenerateConfirmOpen(false);
         if(!transcript || regenerating) return;
         if(isGuestResult) {
-            showToast(lang === 'zh' ? '访客试用暂不支持重新生成，请重新上传一个文件试用。' : 'Guest trial cannot regenerate. Upload a new file to try again.', false);
+            showToast(lang === 'zh' ? '访客试用暂不支持重生笔记，请重新上传一个文件试用。' : 'Guest trial cannot regenerate notes. Upload a new file to try again.', false);
             return;
         }
         setRegenerating(true);
@@ -802,54 +663,6 @@ const Editor = () => {
             showToast(t('edit.regenDone'));
         } catch(err) { showToast(err.message, false); }
         finally { setRegenerating(false); }
-    };
-
-    const handleTranslateTranscript = async () => {
-        if(!result?.task_id || segments.length === 0 || translatingTranscript) return;
-        if(isGuestResult) {
-            showToast(lang === 'zh' ? '访客试用暂不支持生成中英对照。' : 'Guest trial cannot generate bilingual subtitles.', false);
-            return;
-        }
-        setTranslatingTranscript(true);
-        try {
-            if(transcriptUnsaved) {
-                const saveData = await saveTranscriptEdit(result.task_id, {
-                    transcript_text: transcript,
-                    segments,
-                    edit_records: editRecords,
-                }, resultJobOptions);
-                setTranscriptUnsaved(false);
-                setTranscriptDirty(true);
-                setTranscriptSaveStatus('saved');
-                if(saveData?.result) {
-                    setLastResult((prev) => (
-                        prev?.task_id === result.task_id ? {...prev, ...saveData.result} : prev
-                    ));
-                }
-            }
-            const settings = loadSettings();
-            const translationOptions = Object.keys(resultJobOptions).length
-                ? resultJobOptions
-                : {sttProvider: effectiveSttProvider(settings, runtimeConfig)};
-            const data = await translateJobSegments(result.task_id, {
-                segments,
-                aiProvider: settings.aiProvider || 'deepseek',
-                aiModel: settings.aiModel || null,
-            }, translationOptions);
-            if(data?.result) {
-                setLastResult((prev) => (
-                    prev?.task_id === result.task_id
-                        ? {...prev, ...data.result}
-                        : {...result, ...data.result}
-                ));
-            }
-            setTranscriptView('bilingual');
-            showToast(lang === 'zh' ? '中英对照已生成' : 'Bilingual subtitles added');
-        } catch(err) {
-            showToast((lang === 'zh' ? '生成中英对照失败：' : 'Bilingual generation failed: ') + (err?.message || ''), false);
-        } finally {
-            setTranslatingTranscript(false);
-        }
     };
 
     const runRetranscribe = async (file) => {
@@ -1079,6 +892,46 @@ const Editor = () => {
                 </button>
                                                 </div>
         )}
+        {regenerateConfirmOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
+                <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
+                    <div className="flex items-start gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
+                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white">
+                            <SvgIcon name="refresh" className=""/>
+                        </div>
+                        <div className="min-w-0">
+                            <h2 className="font-headline text-xl font-extrabold text-[#111111] dark:text-white">
+                                {t('edit.regenerateConfirmTitle')}
+                            </h2>
+                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
+                                {t('edit.regenerateConfirmDesc')}
+                            </p>
+                            <div className="mt-4 rounded-[16px] border border-[#e4e0e0] bg-[#f8f7fb] p-3 dark:border-white/[0.12] dark:bg-white/[0.06]">
+                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#777] dark:text-white/45">{lang === 'zh' ? '当前转录' : 'Current transcript'}</p>
+                                <p className="truncate text-sm font-bold text-[#111111] dark:text-white">{rawEditorTitle}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex flex-col-reverse gap-3 px-6 py-4 sm:flex-row sm:justify-end">
+                        <button
+                            type="button"
+                            onClick={()=>setRegenerateConfirmOpen(false)}
+                            className="rounded-[13px] bg-[#efeeee] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
+                        >
+                            {t('edit.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleRegenerate}
+                            className="inline-flex items-center justify-center gap-2 rounded-[13px] bg-[#111111] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
+                        >
+                            <SvgIcon name="refresh" className="text-base"/>
+                            {t('edit.regenerateConfirmAction')}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
         {retranscribeConfirmOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
                 <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
@@ -1206,10 +1059,10 @@ const Editor = () => {
                 if(file) handleMediaFileSelected(file);
             }}
         />
-        <main className="h-dvh overflow-hidden px-8 pb-4 pt-6">
-            <div className="max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-4">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-                                            <div className="min-w-0 pr-2">
+        <main className="h-dvh overflow-hidden px-8 pb-4 pt-5">
+            <div className="max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+                    <div className="min-w-0 pr-2">
                         <h1
                             className="max-w-[30ch] font-headline text-[clamp(1.55rem,1.8vw,2rem)] font-extrabold leading-tight text-[#111111] dark:text-white"
                             title={rawEditorTitle}
@@ -1217,34 +1070,52 @@ const Editor = () => {
                         >
                             {editorTitle}
                         </h1>
-	                        <p className="mt-1 max-w-[68ch] text-sm font-semibold leading-snug text-[#666] dark:text-white/60">
-	                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
-		                            {sttElapsedSec > 0 && <>{t('edit.sttElapsed')}: {fmtElapsed(sttElapsedSec)} {sttRealtimeFactor ? `(${fmtSttRelative(sttRealtimeFactor, lang)})` : ''} &bull; </>}
-		                            {sttProfile && <>STT: {sttProfile} &bull; </>}
-		                            {noteModeText && <>{t('work.summaryMode')}: {noteModeText} &bull; </>}
-		                            {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
+                        <p className="mt-1 max-w-[78ch] truncate text-sm font-semibold leading-snug text-[#666] dark:text-white/60">
+                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
+                            {sttElapsedSec > 0 && <>{t('edit.sttElapsed')}: {fmtElapsed(sttElapsedSec)} {sttRealtimeFactor ? `(${fmtSttRelative(sttRealtimeFactor, lang)})` : ''} &bull; </>}
+                            {sttProfile && <>STT: {sttProfile} &bull; </>}
+                            {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
                             <span className="text-[10px] font-bold uppercase tracking-wider text-[#111111] dark:text-white">{t('edit.confidence')}</span>
                         </p>
-                                            </div>
-                    <div className="grid grid-cols-4 gap-3 w-[360px] flex-shrink-0">
-	                        <button onClick={()=>setPromptOpen(true)} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[#e4e0e0] bg-white px-2 py-2 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
-	                            <SvgIcon name="tune" className="text-lg"/>
-	                            <span className="leading-tight text-center whitespace-normal break-keep">{t('prompt.collapsed')}</span>
-	                        </button>
-	                        <button onClick={handleRegenerate} disabled={isGuestResult||regenerating||!transcript} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[#e4e0e0] bg-white px-2 py-2 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
-                            <SvgIcon name={regenerating ? 'sync' : 'refresh'} className={`text-lg ${regenerating?'animate-spin':''}`}/>
-                            <span className="leading-tight text-center whitespace-normal break-keep">{t('edit.regenerate')}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={()=>setPromptOpen(true)}
+                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]"
+                        >
+                            <SvgIcon name="tune" className="text-[17px]"/>
+                            <span>{t('prompt.collapsed')}</span>
                         </button>
-	                        <button onClick={handleRetranscribe} disabled={isGuestResult||retranscribing||retranscribeBlockedByJob} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border border-[#d6dcff] bg-[#eef2ff] px-2 py-2 text-xs font-bold text-primary transition hover:bg-[#e7edff] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-[#e4e0e0] disabled:bg-white disabled:text-[#8a8a8a] disabled:opacity-100 disabled:hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:disabled:bg-white/[0.04] dark:disabled:text-white/35">
-                            <SvgIcon name={retranscribing ? 'sync' : 'record_voice_over'} className={`text-lg ${retranscribing?'animate-spin':''}`}/>
-                            <span className="leading-tight text-center whitespace-normal break-keep">{retranscribing ? t('edit.retranscribing') : t('edit.retranscribe')}</span>
+                        <button
+                            type="button"
+                            onClick={()=>setRegenerateConfirmOpen(true)}
+                            disabled={isGuestResult||regenerating||!transcript}
+                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]"
+                        >
+                            <SvgIcon name={regenerating ? 'sync' : 'refresh'} className={`text-[17px] ${regenerating?'animate-spin':''}`}/>
+                            <span>{regenerating ? t('edit.regenerating') : t('edit.regenerate')}</span>
                         </button>
-                        <button onClick={handleExportLark} disabled={isGuestResult||exporting||!summary} className="flex h-[82px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] bg-[#111111] px-2 py-2 text-xs font-bold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
-                            <SvgIcon name={exporting ? 'sync' : 'cloud_upload'} className={`text-lg ${exporting?'animate-spin':''}`}/>
-                            <span className="leading-tight text-center whitespace-normal break-keep">{t('edit.export')}</span>
+                        <button
+                            type="button"
+                            onClick={handleRetranscribe}
+                            disabled={isGuestResult||retranscribing||retranscribeBlockedByJob}
+                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                        >
+                            <SvgIcon name={retranscribing ? 'sync' : 'record_voice_over'} className={`text-[17px] ${retranscribing?'animate-spin':''}`}/>
+                            <span>{retranscribing ? t('edit.retranscribing') : t('edit.retranscribe')}</span>
                         </button>
-                                        </div>
-                                    </div>
+                        <button
+                            type="button"
+                            onClick={handleExportLark}
+                            disabled={isGuestResult||exporting||!summary}
+                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] bg-[#111111] px-4 text-xs font-extrabold text-white transition hover:bg-[#2a2a2a] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
+                        >
+                            <SvgIcon name={exporting ? 'sync' : 'cloud_upload'} className={`text-[17px] ${exporting?'animate-spin':''}`}/>
+                            <span>{t('edit.export')}</span>
+                        </button>
+                    </div>
+                </div>
 
                 <PromptTemplateDialog
                     open={promptOpen}
@@ -1274,61 +1145,40 @@ const Editor = () => {
                 />
 
                         <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
-                                <div className="border-b border-[#e4e0e0] p-4 dark:border-white/[0.12] sm:p-5">
-                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                <div className="border-b border-[#e4e0e0] px-4 py-3 dark:border-white/[0.12]">
+                                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2">
-                                                <SvgIcon name="subject" className="text-[20px] text-[#111111] dark:text-white"/>
-                                                <h2 className="truncate font-headline text-lg font-extrabold text-[#111111] dark:text-white">
-                                                    {t('edit.transcript')}
+                                                <SvgIcon name="subject" className="text-[18px] text-[#111111] dark:text-white"/>
+                                                <h2 className="truncate font-headline text-base font-extrabold text-[#111111] dark:text-white">
+                                                    {lang === 'zh' ? '转录原文' : 'Transcript'}
                                                 </h2>
                                             </div>
-                                            {(transcriptDirty || segments.length === 0 || transcriptSaveStatus !== 'idle') && (
-                                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-7 text-[11px] font-semibold leading-tight text-[#666] dark:text-white/60">
-                                                    {transcriptDirty && (
-                                                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
-                                                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                                                            {t('edit.editedTranscript')}
-                                                        </span>
-                                                    )}
-                                                    {segments.length === 0 && (
-                                                        <span className="inline-flex items-center gap-1 text-on-surface-variant">
-                                                            <span className="h-1.5 w-1.5 rounded-full bg-outline"></span>
-                                                            {lang==='zh'?'纯文本模式':'Plain text'}
-                                                        </span>
-                                                    )}
-                                                    {transcriptSaveStatus !== 'idle' && (
-                                                        <span className={`inline-flex items-center gap-1 ${
-                                                            transcriptSaveStatus === 'failed'
-                                                                ? 'text-error'
-                                                                : transcriptSaveStatus === 'saving'
-                                                                    ? 'text-primary'
-                                                                    : 'text-emerald-700 dark:text-emerald-300'
-                                                        }`}>
-                                                            <SvgIcon
-                                                                name={transcriptSaveStatus === 'saving'
-                                                                    ? 'sync'
-                                                                    : transcriptSaveStatus === 'failed'
-                                                                        ? 'error'
-                                                                        : 'check_circle'}
-                                                                className={`text-[13px] ${
-                                                                transcriptSaveStatus === 'saving' ? 'animate-spin' : ''
-                                                            }`}
-                                                            />
-                                                            {transcriptSaveStatus === 'saving'
-                                                                ? t('edit.transcriptSaving')
+                                            {(transcriptDirty || transcriptSaveStatus !== 'idle') && (
+                                                <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[11px] font-semibold leading-tight text-[#666] dark:text-white/60">
+                                                    <span className={`inline-flex h-6 items-center gap-1 rounded-[9px] px-2 ${
+                                                        transcriptSaveStatus === 'failed'
+                                                            ? 'bg-error-container text-error'
+                                                            : transcriptSaveStatus === 'saving'
+                                                                ? 'bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white'
+                                                                : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                                    }`}>
+                                                        <SvgIcon
+                                                            name={transcriptSaveStatus === 'saving'
+                                                                ? 'sync'
                                                                 : transcriptSaveStatus === 'failed'
-                                                                    ? t('edit.transcriptSaveFailed')
-                                                                    : t('edit.transcriptSaved')}
-                                                        </span>
-                                                    )}
+                                                                    ? 'error'
+                                                                    : 'check_circle'}
+                                                            className={`text-[13px] ${transcriptSaveStatus === 'saving' ? 'animate-spin' : ''}`}
+                                                        />
+                                                        {transcriptSaveStatus === 'saving'
+                                                            ? t('edit.transcriptSaving')
+                                                            : transcriptSaveStatus === 'failed'
+                                                                ? t('edit.transcriptSaveFailed')
+                                                                : (lang === 'zh' ? '转录已保存' : 'Transcript saved')}
+                                                    </span>
                                                 </div>
-                                            )}
-                                            {transcriptReason && (
-                                                <p className="mt-1 max-w-[56ch] pl-7 text-[11px] font-semibold leading-relaxed text-[#666] dark:text-white/60">
-                                                    {transcriptReason}
-                                                </p>
                                             )}
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -1358,35 +1208,22 @@ const Editor = () => {
                                                     </button>
                                                 </div>
                                             )}
-                                            <button
-                                                type="button"
-                                                onClick={handleTranslateTranscript}
-                                                disabled={isGuestResult || translatingTranscript || !result?.task_id || segments.length === 0}
-                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] border border-[#d6dcff] bg-[#eef2ff] px-3 text-xs font-bold text-primary transition hover:bg-[#e7edff] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:border-[#e4e0e0] disabled:bg-[#f8f7fb] disabled:text-[#8a8a8a] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:disabled:bg-white/[0.04] dark:disabled:text-white/35"
-                                            >
-                                                <SvgIcon name={translatingTranscript ? 'sync' : 'translate'} className={`text-[17px] ${translatingTranscript ? 'animate-spin' : ''}`}/>
-                                                <span>
-                                                    {translatingTranscript
-                                                        ? (lang === 'zh' ? '生成中' : 'Translating')
-                                                        : hasBilingualTranscript
-                                                            ? (lang === 'zh' ? '更新中英对照' : 'Refresh Bilingual')
-                                                            : (lang === 'zh' ? '生成中英对照' : 'Add Bilingual')}
-                                                </span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={()=>setEditRecordsOpen(true)}
-                                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
-                                            >
-                                                <SvgIcon name="edit_note" className="text-[17px]"/>
-                                                <span>{t('edit.editRecords')}</span>
-                                                <span className="tabular-nums text-primary">{editRecords.length}</span>
-                                            </button>
+                                            {editRecords.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={()=>setEditRecordsOpen(true)}
+                                                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                                                >
+                                                    <SvgIcon name="edit_note" className="text-[17px]"/>
+                                                    <span>{t('edit.editRecords')}</span>
+                                                    <span className="tabular-nums text-primary">{editRecords.length}</span>
+                                                </button>
+                                            )}
                                             <DropdownMenu
                                                 trigger={
                                                     <button className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3 text-xs font-bold text-white transition hover:bg-[#2a2a2a] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
                                                         <SvgIcon name="download" className="text-[17px]"/>
-                                                        {lang === 'zh' ? '导出' : t('dl.transcript')}
+                                                        {lang === 'zh' ? '导出转录' : t('dl.transcript')}
                                                     </button>
                                                 }
                                                 items={[
@@ -1400,7 +1237,7 @@ const Editor = () => {
                                         </div>
                                     </div>
                                 </div>
-                        <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-5">
+                        <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
                             {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
                                 <div
                                     key={`bilingual-${i}`}
@@ -1450,13 +1287,15 @@ const Editor = () => {
                                     </div>
                                         </div>
 	                            )) : (
-                                    <div className="min-h-full flex flex-col gap-3">
-                                        <div className="flex items-start gap-3 rounded-[16px] border border-[#d6dcff] bg-[#eef2ff] px-3.5 py-3 dark:border-white/[0.12] dark:bg-white/[0.08]">
-                                            <SvgIcon name="info" className="text-primary text-base mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10"/>
-                                            <p className="text-xs leading-relaxed text-on-surface-variant">
+                                    <div className="min-h-full flex flex-col gap-2">
+                                        <div className="flex items-center gap-2 rounded-[12px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.08]">
+                                            <SvgIcon name="info" className="text-primary text-[15px] flex-shrink-0"/>
+                                            <p className="truncate text-xs font-semibold text-on-surface-variant" title={lang==='zh'
+                                                ? '当前结果没有时间戳分段。重新转录原音频后会恢复逐段校对。'
+                                                : 'This result has no timestamped segments. Retranscribe the source audio to restore segment review.'}>
                                                 {lang==='zh'
-                                                    ? '当前结果没有时间戳分段，只能按纯文本编辑。常见原因是旧历史记录、纯文本导入，或任务结果没有成功写入后端。重新转录原音频后会恢复左侧时间戳分段。'
-                                                    : 'This result has no timestamped segments, so it is shown as plain text. This usually comes from old history, plain-text import, or a result that was not saved to the backend. Retranscribing the source audio restores timestamped segments.'}
+                                                    ? '当前结果没有时间戳分段。重新转录原音频后会恢复逐段校对。'
+                                                    : 'No timestamped segments. Retranscribe the source audio to restore segment review.'}
                                             </p>
                                         </div>
 	                                <textarea
@@ -1516,38 +1355,33 @@ const Editor = () => {
                                 </div>
                             </section>
 
-                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
-                                <div className="flex items-center justify-between border-b border-[#e4e0e0] bg-[#fbfbfb] p-5 dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                    <h2 className="flex items-center gap-2 font-headline text-lg font-extrabold text-[#111111] dark:text-white">
+                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                <div className="flex items-center justify-between border-b border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                    <h2 className="flex items-center gap-2 font-headline text-base font-extrabold text-[#111111] dark:text-white">
                                         <SvgIcon name="psychology" className="text-[#111111] dark:text-white"/>
-                                {t('edit.aiSummary')}
+                                        {lang === 'zh' ? '笔记正文' : 'Note'}
                                     </h2>
-                            <div className="flex items-center gap-2">
-                            <span className="rounded-full border border-[#e4e0e0] bg-white px-2.5 py-1 text-[10px] font-bold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                {t('prompt.activeHint')}{presetLabel(promptKey)}
-                            </span>
-                                <DropdownMenu
-                                    trigger={
-                                        <button disabled={!summary || !!downloading} className="flex items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-white px-2.5 py-1.5 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
-                                            <SvgIcon name={downloading ? 'sync' : 'download'} className={`text-sm ${downloading?'animate-spin':''}`}/>
-                                            {downloading ? t('dl.generating') : t('dl.summary')}
-                                    </button>
-                                    }
-                                    items={[
-                                        {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,resultDownloadName); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
-                                        {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,resultDownloadName); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
-                                        {divider:true},
-                                        {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
-                                            setDownloading('pdf');
-                                            try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
-                                            finally{setDownloading(null);}
-                                        }},
-                                        {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
-                                    ]}
-                                />
-                            </div>
+                                    <DropdownMenu
+                                        trigger={
+                                            <button disabled={!summary || !!downloading} className="flex items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-white px-2.5 py-1.5 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]">
+                                                <SvgIcon name={downloading ? 'sync' : 'download'} className={`text-sm ${downloading?'animate-spin':''}`}/>
+                                                {downloading ? t('dl.generating') : t('dl.summary')}
+                                        </button>
+                                        }
+                                        items={[
+                                            {icon:'description', label:t('dl.txt'), badge:'TXT', disabled:!summary, onClick:()=>{dlSummaryTxt(summary,resultDownloadName); recordDownload('summary_downloaded','txt'); showToast(t('dl.success'));}},
+                                            {icon:'markdown', label:t('dl.md'), badge:'MD', disabled:!summary, onClick:()=>{dlSummaryMd(summary,resultDownloadName); recordDownload('summary_downloaded','md'); showToast(t('dl.success'));}},
+                                            {divider:true},
+                                            {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
+                                                setDownloading('pdf');
+                                                try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                                finally{setDownloading(null);}
+                                            }},
+                                            {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
+                                        ]}
+                                    />
                                 </div>
-                                <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-8 text-[#111111] dark:text-white">
+                                <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-6 text-[#111111] dark:text-white">
 	                            {summary ? (
 	                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: simpleMd(summary)}}></div>
 	                            ) : result.summary_skipped ? (
@@ -1565,53 +1399,11 @@ const Editor = () => {
 	                                <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summaryPending')}</p>
 	                            )}
                                 </div>
-                                <div className="border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                    <div className="space-y-2">
-                                        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-                                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                                <span className="inline-flex h-7 items-center gap-1.5 rounded-[11px] bg-[#111111] px-2.5 text-[11px] font-extrabold text-white dark:bg-white dark:text-[#111111]">
-                                                    <SvgIcon name="verified" className="text-sm"/>
-                                                    {lang === 'zh' ? 'AI 生成' : 'AI generated'}
-                                                </span>
-                                                {summaryCompactMeta.map((item) => (
-                                                    <span key={item.label} className="inline-flex h-7 max-w-[14rem] items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2.5 text-[11px] font-semibold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                                        <span className="shrink-0 text-[#8a8a8a] dark:text-white/40">{item.label}</span>
-                                                        <span className="truncate text-[#111111] dark:text-white" title={item.value}>{item.value}</span>
-                                                    </span>
-                                                ))}
-                                            </div>
-                                            <Link to={agentWorkflowHref} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#dedada] bg-white px-3 text-[12px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
-                                                <SvgIcon name="route" className="text-sm"/>
-                                                {lang === 'zh' ? '查看 Agent 工作流' : 'View Agent workflow'}
-                                            </Link>
-                                        </div>
-                                        <details className="group rounded-[12px] border border-[#e4e0e0] bg-white px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-extrabold text-[#666] dark:text-white/60">
-                                                <span>{lang === 'zh' ? '生成详情' : 'Generation details'}</span>
-                                                <SvgIcon name="expand_more" className="text-base transition-transform group-open:rotate-180"/>
-                                            </summary>
-                                            <div className="mt-3 space-y-2">
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {summaryGenerationMeta.map((item) => (
-                                                        <span key={item.label} className="inline-flex min-h-7 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-[#fbfbfb] px-2.5 py-1 text-[11px] font-semibold text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                                            <span className="text-[#8a8a8a] dark:text-white/40">{item.label}</span>
-                                                            <span className="max-w-[16rem] truncate text-[#111111] dark:text-white" title={item.value}>{item.value}</span>
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                                {summaryReasonItems.length > 0 && (
-                                                    <div className="grid gap-1.5 md:grid-cols-3">
-                                                        {summaryReasonItems.map((item) => (
-                                                            <p key={item.label} className="rounded-[11px] border border-[#e4e0e0] bg-[#fbfbfb] px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-[#666] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                                                <span className="mr-1 text-[#8a8a8a] dark:text-white/40">{item.label}</span>
-                                                                <span>{item.value}</span>
-                                                            </p>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </details>
-                                    </div>
+                                <div className="flex justify-end border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                    <Link to={agentWorkflowHref} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#dedada] bg-white px-3 text-[12px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                                        <SvgIcon name="route" className="text-sm"/>
+                                        {lang === 'zh' ? 'Agent 工作流' : 'Agent workflow'}
+                                    </Link>
                                 </div>
                             </section>
                         </div>

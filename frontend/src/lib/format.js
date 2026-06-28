@@ -212,22 +212,22 @@ export const noteGenerationDiagnosis = (result={}, lang='zh') => {
             severity: 'neutral',
             title: zh ? '本次开启了仅转录模式' : 'Transcript-only mode was used',
             detail: zh ? '系统按设置跳过了 AI 笔记，转录和字幕已保留。' : 'The system skipped AI note generation by setting; transcript and subtitles are preserved.',
-            nextAction: zh ? '需要笔记时，打开结果并点击“重新生成”。' : 'Open the result and click Regenerate when you need a note.',
+            nextAction: zh ? '需要笔记时，打开结果并点击“重生笔记”。' : 'Open the result and click Regenerate note when you need a note.',
             canRegenerate: true,
         };
     }
     if(status === 'failed' || rawError) {
         let code = 'ai_note_failed';
         let title = zh ? 'AI 笔记生成失败' : 'AI note generation failed';
-        let nextAction = zh ? '打开结果后点击“重新生成”；如果仍失败，换一个笔记模式或缩短材料。' : 'Open the result and click Regenerate; if it still fails, change the note mode or shorten the material.';
+        let nextAction = zh ? '打开结果后点击“重生笔记”；如果仍失败，换一个笔记模式或缩短材料。' : 'Open the result and click Regenerate note; if it still fails, change the note mode or shorten the material.';
         if(errorText.includes('quota') || errorText.includes('balance') || errorText.includes('额度') || errorText.includes('余额')) {
             code = 'quota_insufficient';
             title = zh ? '额度不足，笔记未生成' : 'Insufficient balance for note generation';
-            nextAction = zh ? '补足额度后重新生成，或降低本次处理成本。' : 'Add balance, then regenerate, or lower the processing cost.';
+            nextAction = zh ? '补足额度后重生笔记，或降低本次处理成本。' : 'Add balance, then regenerate the note, or lower the processing cost.';
         } else if(errorText.includes('401') || errorText.includes('login') || errorText.includes('auth') || errorText.includes('account')) {
             code = 'auth_required';
             title = zh ? '账号状态阻止了笔记生成' : 'Account state blocked note generation';
-            nextAction = zh ? '重新登录后打开结果，再点击“重新生成”。' : 'Sign in again, reopen the result, then click Regenerate.';
+            nextAction = zh ? '重新登录后打开结果，再点击“重生笔记”。' : 'Sign in again, reopen the result, then click Regenerate note.';
         } else if(errorText.includes('404') || errorText.includes('job not found') || errorText.includes('not found')) {
             code = 'job_scope_mismatch';
             title = zh ? '任务归属不一致，笔记未生成' : 'Task scope mismatch blocked note generation';
@@ -235,7 +235,7 @@ export const noteGenerationDiagnosis = (result={}, lang='zh') => {
         } else if(errorText.includes('empty result') || errorText.includes('empty')) {
             code = 'empty_ai_note';
             title = zh ? 'AI 返回了空笔记' : 'AI returned an empty note';
-            nextAction = zh ? '点击“重新生成”；如果重复出现，换用直接生成模式或调整提示词。' : 'Click Regenerate; if it repeats, use direct mode or adjust the prompt.';
+            nextAction = zh ? '点击“重生笔记”；如果重复出现，换用直接生成模式或调整提示词。' : 'Click Regenerate note; if it repeats, use direct mode or adjust the prompt.';
         } else if(errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
             code = 'unsupported_note_mode';
             title = zh ? '笔记模式不受当前版本支持' : 'Note mode is not supported by this version';
@@ -259,7 +259,7 @@ export const noteGenerationDiagnosis = (result={}, lang='zh') => {
         severity: 'warning',
         title: zh ? '暂时没有可见笔记' : 'No visible note yet',
         detail: zh ? '转录已存在，但结果里没有记录明确的笔记状态。' : 'A transcript exists, but the result does not record a clear note status.',
-        nextAction: zh ? '打开结果点击“重新生成”；如果失败，再查看任务详情。' : 'Open the result and click Regenerate; check task details if it fails.',
+        nextAction: zh ? '打开结果点击“重生笔记”；如果失败，再查看任务详情。' : 'Open the result and click Regenerate note; check task details if it fails.',
         canRegenerate: true,
     };
 };

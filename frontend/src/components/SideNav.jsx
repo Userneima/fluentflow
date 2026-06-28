@@ -95,7 +95,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const versionDetail = [versionInfo.shortCommit, versionInfo.dirty ? 'dirty' : null].filter(Boolean).join(' · ');
     const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
     const ThemeIcon = isDark ? Sun : Moon;
-    const showAccountLoginEntry = authMode === 'accounts' && !user;
+    const showAccountLoginEntry = (authMode === 'accounts' || guestMode) && !user;
     const anonymousEntryTitle = showAccountLoginEntry
         ? (lang === 'zh' ? '登录账号' : 'Sign in')
         : (lang === 'zh' ? '访客试用' : 'Guest trial');
@@ -103,10 +103,12 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
         ? (canRegister ? (lang === 'zh' ? '创建账号或继续访客试用' : 'Create account or continue as guest') : (lang === 'zh' ? '进入账号菜单' : 'Open account menu'))
         : (lang === 'zh' ? '登录或创建账号' : 'Sign in or register');
     const AnonymousEntryIcon = showAccountLoginEntry ? LogIn : Hand;
+    const sidebarLoginActionTitle = lang === 'zh' ? '登录账号' : 'Sign in';
+    const sidebarLoginActionSubtitle = lang === 'zh' ? '同步任务和额度' : 'Sync jobs and balance';
 
     return (
         <aside className={`fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-[#e5e5e5] bg-[#fbfbfb] text-[#111111] transition-[width] duration-200 ease-out dark:border-white/[0.12] dark:bg-[#0a0a0a] dark:text-white/[0.92] ${collapsed ? 'w-[72px]' : 'w-56'}`}>
-            <div className={`flex h-full flex-col ${collapsed ? 'px-2.5 py-5' : 'px-4 py-5'}`}>
+            <div className={`flex h-full min-h-0 flex-col ${collapsed ? 'px-2.5 py-5' : 'px-4 py-5'}`}>
                 <div className={`flex items-center ${collapsed ? 'mb-8 flex-col gap-4' : 'mb-2 justify-between gap-2'}`}>
                     <Link
                         to="/"
@@ -133,7 +135,24 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                     </button>
                 </div>
 
-                <nav className={collapsed ? 'flex-1 space-y-3' : 'flex-1 space-y-1'}>
+                {showAccountLoginEntry && (
+                    <button
+                        type="button"
+                        onClick={() => openAuth('login')}
+                        className={`mb-3 flex shrink-0 items-center rounded-[16px] border border-[#d9d9d9] bg-white text-[#111111] shadow-[0_1px_2px_rgba(17,17,17,0.03)] transition hover:border-[#cfcfcf] hover:bg-[#f7f7f7] active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:border-white/[0.14] dark:bg-white/[0.08] dark:text-white dark:hover:border-white/[0.2] dark:hover:bg-white/[0.12] ${collapsed ? 'mx-auto size-12 justify-center p-0 rounded-[20px]' : 'w-full gap-3 px-3.5 py-2.5 text-left'}`}
+                        title={collapsed ? sidebarLoginActionTitle : undefined}
+                    >
+                        <LogIn className={`${collapsed ? 'size-[22px]' : 'size-5'} shrink-0`} strokeWidth={2.15}/>
+                        {!collapsed && (
+                            <span className="min-w-0">
+                                <span className="block truncate text-[14px] font-extrabold leading-5">{sidebarLoginActionTitle}</span>
+                                <span className="block truncate text-[11px] font-semibold leading-4 text-[#85868c] dark:text-white/55">{sidebarLoginActionSubtitle}</span>
+                            </span>
+                        )}
+                    </button>
+                )}
+
+                <nav className={collapsed ? 'min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden' : 'min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden'}>
                     {items.map((it) => {
                         const active = loc.pathname === it.path;
                         const Icon = it.icon;
@@ -206,7 +225,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                     </p>
                                 </div>
                             )}
-                            {!user && authMode === 'accounts' && (
+                            {showAccountLoginEntry && (
                                 <div className="mb-1">
                                     <button
                                         type="button"

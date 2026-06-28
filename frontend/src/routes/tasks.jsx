@@ -57,10 +57,10 @@ const taskNextStepText = (job, lang) => {
         summary_error: result.summary_error || job?.error_reason,
     }, lang);
     if (job?.status === 'cancelled') {
-        return lang === 'zh' ? '下一步：不用继续等，可以直接删除这条记录。' : 'Next: no need to wait. You can delete this record.';
+        return lang === 'zh' ? '下一步：删除这条取消记录。' : 'Next: delete this cancelled record.';
     }
     if (summaryFailed && hasTranscriptResult(result)) {
-        return noteDiagnosis.nextAction || (lang === 'zh' ? '下一步：打开结果，点击重新生成摘要；字幕不会丢。' : 'Next: open the result and regenerate the summary. The transcript is preserved.');
+        return noteDiagnosis.nextAction || (lang === 'zh' ? '下一步：打开结果，点击重生笔记；字幕不会丢。' : 'Next: open the result and regenerate the note. The transcript is preserved.');
     }
     if (job?.status !== 'failed') return '';
     if (errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
@@ -75,7 +75,7 @@ const taskNextStepText = (job, lang) => {
     if (job?.source_type === 'video_link') {
         return lang === 'zh' ? '下一步：删除失败记录，重新粘贴链接；如果仍失败，改用本地视频上传。' : 'Next: delete this failed record and paste the link again; upload the video file if it keeps failing.';
     }
-    return lang === 'zh' ? '下一步：可以删除这条失败记录，然后从开始页重新提交。' : 'Next: delete this failed record, then submit it again from Dashboard.';
+    return lang === 'zh' ? '下一步：删除这条失败记录，然后从开始页重新提交。' : 'Next: delete this failed record, then submit it again from Dashboard.';
 };
 
 const agentPlanSummary = (job, lang) => {
@@ -363,7 +363,7 @@ const Tasks = () => {
         if (taskState === TASK_STATE_QUEUED) return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
         if (taskState === TASK_STATE_RUNNING) return job.summary_status || stageLabel(job);
         if (taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job)) return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
-        if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '任务已取消，可以删除这条记录。' : 'Task cancelled. You can delete this record.';
+        if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '任务已取消。删除这条记录即可。' : 'Task cancelled. Delete this record when ready.';
         if (taskState === TASK_STATE_FAILED) return friendlyTaskError(job.error_reason, lang);
         return '-';
     };
