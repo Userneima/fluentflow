@@ -110,6 +110,14 @@ export const fmtElapsed = (sec) => {
         ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
         : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 };
+export const fmtDurationCompact = (sec) => {
+    const n = Math.max(0, Number(sec) || 0);
+    const h = Math.floor(n / 3600);
+    const m = Math.floor((n % 3600) / 60);
+    const s = Math.floor(n % 60);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
+};
 export const fmtFileSize = (mb) => {
     const n = Number(mb);
     if(!Number.isFinite(n) || n <= 0) return '-';
@@ -153,6 +161,109 @@ export const friendlyTaskError = (message, lang='zh') => {
     return raw;
 };
 
+export const noteGenerationDiagnosis = (result={}, lang='zh') => {
+    const summary = String(result?.summary_markdown || '').trim();
+    const status = String(result?.summary_status || '').trim().toLowerCase();
+    const stage = String(result?.stage || '').trim().toLowerCase();
+    const rawError = String(result?.summary_error || result?.error_reason || '').trim();
+    const errorText = rawError.toLowerCase();
+    const hasTranscript = !!String(result?.transcript_text || result?.transcript_text_preview || '').trim()
+        || (Array.isArray(result?.raw_segments) && result.raw_segments.length > 0)
+        || (Array.isArray(result?.display_segments) && result.display_segments.length > 0);
+    const zh = lang === 'zh';
+    const base = {
+        status: 'pending',
+        code: 'note_pending',
+        severity: 'info',
+        title: zh ? '笔记还在生成' : 'Note is still generating',
+        detail: zh ? '转录已进入摘要阶段，等待 AI 返回笔记。' : 'The transcript has entered the summary stage and is waiting for the AI note.',
+        nextAction: zh ? '稍等片刻；如果长时间没有变化，再刷新任务状态。' : 'Wait a moment; refresh the task status if it does not change.',
+        canRegenerate: false,
+    };
+
+    if(summary) {
+        return {
+            ...base,
+            status: 'completed',
+            code: 'note_completed',
+            severity: 'success',
+            title: zh ? '笔记已生成' : 'Note generated',
+            detail: zh ? '当前结果包含可用的 AI 笔记。' : 'This result contains an AI-generated note.',
+            nextAction: '',
+            canRegenerate: true,
+        };
+    }
+    if(!hasTranscript) {
+        return {
+            ...base,
+            status: 'unavailable',
+            code: 'transcript_missing',
+            severity: 'warning',
+            title: zh ? '还没有可用于生成笔记的转录' : 'No transcript available for note generation',
+            detail: zh ? '需要先完成转录，AI 才能生成笔记。' : 'Transcription must finish before the AI can generate a note.',
+            nextAction: zh ? '先等待或重新提交转录任务。' : 'Wait for transcription or submit the task again.',
+        };
+    }
+    if(result?.summary_skipped || status === 'skipped') {
+        return {
+            ...base,
+            status: 'skipped',
+            code: 'transcript_only_mode',
+            severity: 'neutral',
+            title: zh ? '本次开启了仅转录模式' : 'Transcript-only mode was used',
+            detail: zh ? '系统按设置跳过了 AI 笔记，转录和字幕已保留。' : 'The system skipped AI note generation by setting; transcript and subtitles are preserved.',
+            nextAction: zh ? '需要笔记时，打开结果并点击“重新生成”。' : 'Open the result and click Regenerate when you need a note.',
+            canRegenerate: true,
+        };
+    }
+    if(status === 'failed' || rawError) {
+        let code = 'ai_note_failed';
+        let title = zh ? 'AI 笔记生成失败' : 'AI note generation failed';
+        let nextAction = zh ? '打开结果后点击“重新生成”；如果仍失败，换一个笔记模式或缩短材料。' : 'Open the result and click Regenerate; if it still fails, change the note mode or shorten the material.';
+        if(errorText.includes('quota') || errorText.includes('balance') || errorText.includes('额度') || errorText.includes('余额')) {
+            code = 'quota_insufficient';
+            title = zh ? '额度不足，笔记未生成' : 'Insufficient balance for note generation';
+            nextAction = zh ? '补足额度后重新生成，或降低本次处理成本。' : 'Add balance, then regenerate, or lower the processing cost.';
+        } else if(errorText.includes('401') || errorText.includes('login') || errorText.includes('auth') || errorText.includes('account')) {
+            code = 'auth_required';
+            title = zh ? '账号状态阻止了笔记生成' : 'Account state blocked note generation';
+            nextAction = zh ? '重新登录后打开结果，再点击“重新生成”。' : 'Sign in again, reopen the result, then click Regenerate.';
+        } else if(errorText.includes('404') || errorText.includes('job not found') || errorText.includes('not found')) {
+            code = 'job_scope_mismatch';
+            title = zh ? '任务归属不一致，笔记未生成' : 'Task scope mismatch blocked note generation';
+            nextAction = zh ? '刷新任务列表后从同一条记录打开结果；如果仍失败，重新提交任务。' : 'Refresh the task list and open the same record; submit it again if it still fails.';
+        } else if(errorText.includes('empty result') || errorText.includes('empty')) {
+            code = 'empty_ai_note';
+            title = zh ? 'AI 返回了空笔记' : 'AI returned an empty note';
+            nextAction = zh ? '点击“重新生成”；如果重复出现，换用直接生成模式或调整提示词。' : 'Click Regenerate; if it repeats, use direct mode or adjust the prompt.';
+        } else if(errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
+            code = 'unsupported_note_mode';
+            title = zh ? '笔记模式不受当前版本支持' : 'Note mode is not supported by this version';
+            nextAction = zh ? '到设置页选择“自动”或“高保真”，再重新提交任务。' : 'Choose Auto or High fidelity in Settings, then submit again.';
+        }
+        return {
+            ...base,
+            status: 'failed',
+            code,
+            severity: 'error',
+            title,
+            detail: friendlyTaskError(rawError, lang),
+            nextAction,
+            canRegenerate: true,
+        };
+    }
+    if(status === 'pending' || stage === 'summary') return base;
+    return {
+        ...base,
+        code: 'note_missing_unknown',
+        severity: 'warning',
+        title: zh ? '暂时没有可见笔记' : 'No visible note yet',
+        detail: zh ? '转录已存在，但结果里没有记录明确的笔记状态。' : 'A transcript exists, but the result does not record a clear note status.',
+        nextAction: zh ? '打开结果点击“重新生成”；如果失败，再查看任务详情。' : 'Open the result and click Regenerate; check task details if it fails.',
+        canRegenerate: true,
+    };
+};
+
 export const sttStatusLabel = (status, t) => {
     const key = {
         starting: 'dash.sttStarting',
@@ -167,6 +278,9 @@ export const sttStatusLabel = (status, t) => {
         azure_batch_submitting: 'dash.sttAzureSubmit',
         azure_batch_waiting: 'dash.sttAzureWait',
         azure_batch_downloading: 'dash.sttAzureDownload',
+        elevenlabs_uploading: 'dash.sttAzureUpload',
+        elevenlabs_processing: 'dash.sttAzureWait',
+        elevenlabs_normalizing: 'dash.sttAzureDownload',
     }[status || ''];
     return key ? t(key) : t('dash.waitingSegment');
 };

@@ -1,14 +1,31 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useState, useRef, useCallback} from 'react';
 import {Link, useLocation} from 'react-router-dom';
-import {useApi, useAuth, useI18n} from '../app/shared.jsx';
+import {useApi, useAuth, useI18n, useSettings} from '../app/shared.jsx';
+import SvgIcon from './SvgIcon.jsx';
 
-/* ═══════════════ shared components ═══════════════ */
-const SideNav = () => {
+const FluentFlowLogo = () => (
+    <div className="relative flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#111111] text-white shadow-[0_18px_42px_-26px_rgba(17,17,17,.75)] [--ff-logo-line:#111111] dark:bg-white dark:text-[#111111] dark:[--ff-logo-line:#ffffff]">
+        <svg viewBox="0 0 64 64" className="size-[30px]" fill="none" aria-hidden="true">
+            <rect x="17" y="19" width="28" height="26" rx="8" fill="currentColor"/>
+            <rect x="43" y="25" width="8" height="14" rx="4" fill="currentColor"/>
+            <path d="M24 29h13M24 36h9" stroke="var(--ff-logo-line, #111111)" strokeWidth="4.2" strokeLinecap="round"/>
+        </svg>
+    </div>
+);
+
+const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const {t, lang, toggleLang} = useI18n();
     const {authMode, user, guestMode, canRegister, openAuth, logout} = useAuth();
     const {getAccountQuota} = useApi();
+    const {loadSettings, saveSettings} = useSettings();
     const [quota, setQuota] = useState(user?.quota || null);
+    const [isDark, setIsDark] = useState(() => {
+        try { return (JSON.parse(localStorage.getItem('fluentflow_settings') || '{}').theme || 'light') === 'dark'; } catch (_) { return false; }
+    });
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef(null);
     const loc = useLocation();
+
     useEffect(() => {
         let cancelled = false;
         setQuota(user?.quota || null);
@@ -25,111 +42,204 @@ const SideNav = () => {
             clearInterval(timer);
         };
     }, [authMode, user?.id, guestMode]);
+
+    const toggleTheme = useCallback(() => {
+        const next = !isDark;
+        setIsDark(next);
+        const s = loadSettings();
+        saveSettings({...s, theme: next ? 'dark' : 'light'});
+        document.documentElement.classList.toggle('dark', next);
+    }, [isDark, loadSettings, saveSettings]);
+
+    useEffect(() => {
+        if (!menuOpen) return;
+        const handler = (e) => {
+            if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [menuOpen]);
+
     const fullItems = [
-        {path:'/',icon:'dashboard',k:'nav.dashboard'},
-        {path:'/tasks',icon:'monitoring',k:'nav.tasks'},
-        {path:'/processing',icon:'tune',k:'nav.processing'},
-        {path:'/editor',icon:'subject',k:'nav.editor'},
-        ...(user?.role === 'admin' ? [{path:'/admin',icon:'admin_panel_settings',k:'nav.admin'}] : []),
-        {path:'/settings',icon:'settings',k:'nav.settings'},
+        {path:'/', icon:'grid', k:'nav.dashboard'},
+        {path:'/media-text', icon:'video', label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
+        {path:'/tasks', icon:'queue', k:'nav.tasks'},
+        {path:'/editor', icon:'subject', k:'nav.editor'},
+        ...(user?.role === 'admin' ? [{path:'/admin', icon:'shield', k:'nav.admin'}] : []),
+        {path:'/settings', icon:'settings', k:'nav.settings'},
     ];
     const items = guestMode ? fullItems.filter((item) => ['/', '/editor'].includes(item.path)) : fullItems;
     const quotaExempt = user?.role === 'admin' || quota?.unlimited || quota?.quota_exempt;
-            return (
-                <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-50 border-r border-slate-200 z-50">
-                    <div className="flex flex-col h-full p-4">
-                        <div className="flex items-center gap-3 px-4 py-6 mb-8">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-white shadow-lg">
-                        <span className="material-symbols-outlined" style={{fontVariationSettings:"'FILL' 1"}}>auto_videocam</span>
+    const displayName = user?.name || user?.email?.split('@')[0] || (lang === 'zh' ? '访客' : 'Guest');
+    const displayInitial = (displayName || 'F').trim().slice(0, 1).toUpperCase();
+
+    return (
+        <aside className={`fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-[#e5e5e5] bg-[#fbfbfb] text-[#111111] transition-[width] duration-200 ease-out dark:border-white/[0.12] dark:bg-[#0a0a0a] dark:text-white/[0.92] ${collapsed ? 'w-[72px]' : 'w-56'}`}>
+            <div className={`flex h-full flex-col ${collapsed ? 'px-2.5 py-5' : 'px-4 py-5'}`}>
+                <div className={`flex items-center ${collapsed ? 'mb-8 flex-col gap-4' : 'mb-2 justify-between gap-2'}`}>
+                    <Link
+                        to="/"
+                        className={`flex min-w-0 items-center rounded-[14px] transition hover:bg-surface-container-low focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${collapsed ? 'justify-center p-1.5' : 'gap-2.5 w-full px-2.5 py-2'}`}
+                        aria-label="FluentFlow"
+                        title={collapsed ? 'FluentFlow' : undefined}
+                    >
+                        <FluentFlowLogo/>
+                        {!collapsed && (
+                            <div className="min-w-0">
+                                <h1 className="truncate font-headline text-[16px] font-extrabold leading-tight">FluentFlow</h1>
+                                <p className="truncate text-[10px] font-bold text-on-surface-variant">{t('nav.subtitle')}</p>
                             </div>
-                            <div>
-                                <h1 className="text-xl font-bold text-slate-900 leading-tight font-headline">FluentFlow</h1>
-                        <p className="text-[10px] text-slate-500 font-medium tracking-widest uppercase">{t('nav.subtitle')}</p>
-                            </div>
-                        </div>
-                        <nav className="flex-1 space-y-1">
-                    {items.map(it => {
-                        const active = loc.pathname===it.path;
-                        return <Link key={it.path} to={it.path} className={`px-4 py-3 rounded-lg flex items-center gap-3 transition-colors text-sm tracking-tight ${active?'bg-blue-50 text-blue-700 font-semibold':'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'}`}>
-                            <span className="material-symbols-outlined">{it.icon}</span><span>{t(it.k)}</span>
-                        </Link>;
-                            })}
-                        </nav>
-                        <div className="mt-auto border-t ff-border-muted px-2 pt-3">
-                    {authMode === 'accounts' && user && (
-                        <div className="mb-3 rounded-lg bg-surface-container-lowest px-3 py-3 shadow-sm border ff-border-muted">
-                            <p className="truncate text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
-                                {lang==='zh'?'当前账号':'Account'}
-                            </p>
-                            <p className="mt-1 truncate text-sm font-semibold text-on-surface" title={user.email || ''}>
-                                {user.email}
-                            </p>
-                            {quota && (
-                                <div className="mt-3 rounded-md bg-surface-container-low px-3 py-2">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-xs font-semibold text-on-surface-variant">{quotaExempt ? (lang==='zh'?'额度豁免':'Quota exempt') : (lang==='zh'?'处理额度':'Balance')}</span>
-                                        <span className="text-sm font-bold text-primary">{quotaExempt ? (lang==='zh'?'无限':'Unlimited') : (quota.balance_units ?? 0)}</span>
-                                    </div>
+                        )}
+                    </Link>
+                    <button
+                        type="button"
+                        onClick={onToggle}
+                        className={`flex shrink-0 items-center justify-center text-[#5f6368] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:text-white/70 dark:hover:bg-white/[0.08] dark:hover:text-white ${collapsed ? 'size-10 rounded-[14px]' : 'h-8 w-8 rounded-xl'}`}
+                        aria-label={collapsed ? (lang === 'zh' ? '展开侧边栏' : 'Expand sidebar') : (lang === 'zh' ? '收起侧边栏' : 'Collapse sidebar')}
+                        title={collapsed ? (lang === 'zh' ? '展开侧边栏' : 'Expand sidebar') : (lang === 'zh' ? '收起侧边栏' : 'Collapse sidebar')}
+                    >
+                        <SvgIcon name={collapsed ? 'sidebar-expand' : 'sidebar-collapse'} className="size-[18px] stroke-[1.8]"/>
+                    </button>
+                </div>
+
+                <nav className={collapsed ? 'flex-1 space-y-3' : 'flex-1 space-y-1'}>
+                    {items.map((it) => {
+                        const active = loc.pathname === it.path;
+                        return (
+                            <Link
+                                key={it.path}
+                                to={it.path}
+                                title={collapsed ? (it.label || t(it.k)) : undefined}
+                                className={`flex items-center rounded-[16px] text-[14px] font-semibold tracking-normal transition ${
+                                    active
+                                        ? 'bg-[#e8e5e5] text-[#111111] dark:bg-white/[0.12] dark:text-white'
+                                        : 'text-[#111111] hover:bg-[#efeeee] dark:text-white/[0.72] dark:hover:bg-white/[0.08] dark:hover:text-white'
+                                } ${collapsed ? 'mx-auto size-12 justify-center p-0 rounded-[20px]' : 'gap-3 px-3.5 py-2.5'}`}
+                            >
+                                <SvgIcon name={it.icon} className={`${collapsed ? 'size-[22px]' : 'size-5'} shrink-0 stroke-[2.4]`}/>
+                                <span className={collapsed ? 'sr-only' : 'truncate'}>{it.label || t(it.k)}</span>
+                            </Link>
+                        );
+                    })}
+                </nav>
+
+                <div className={`relative mt-auto border-t border-[#e5e5e5] dark:border-white/[0.12] ${collapsed ? 'pt-5' : 'pt-4'}`} ref={menuRef}>
+                    {authMode === 'accounts' && user ? (
+                        <button
+                            type="button"
+                            onClick={() => setMenuOpen((v) => !v)}
+                            className={`w-full rounded-[14px] border border-[#e5e5e5] bg-white text-left shadow-[0_1px_2px_rgba(17,17,17,0.03)] transition hover:border-[#d9d9d9] hover:bg-[#f7f7f7] dark:border-white/[0.12] dark:bg-white/[0.06] dark:hover:border-white/[0.18] dark:hover:bg-white/[0.09] ${collapsed ? 'mx-auto flex size-12 justify-center px-0 py-2' : 'flex items-center gap-2.5 px-2.5 py-2'}`}
+                            title={collapsed ? displayName : undefined}
+                        >
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[#efeeee] text-xs font-extrabold text-[#111111] dark:bg-white/[0.12] dark:text-white">
+                                {displayInitial}
+                            </span>
+                            {!collapsed && (
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-[13px] font-semibold leading-4 text-[#111111] dark:text-white">{displayName}</span>
+                                    {quota && (
+                                        <span className="block truncate text-[11px] leading-4 text-[#85868c] dark:text-white/55">
+                                            {quotaExempt ? (lang === 'zh' ? '额度豁免' : 'Quota exempt') : `${quota.balance_units ?? 0}`}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setMenuOpen((v) => !v)}
+                            className={`w-full rounded-[14px] border border-[#e5e5e5] bg-white text-left shadow-[0_1px_2px_rgba(17,17,17,0.03)] transition hover:border-[#d9d9d9] hover:bg-[#f7f7f7] dark:border-white/[0.12] dark:bg-white/[0.06] dark:hover:border-white/[0.18] dark:hover:bg-white/[0.09] ${collapsed ? 'mx-auto flex size-12 justify-center px-0 py-2' : 'flex items-center gap-2.5 px-2.5 py-2'}`}
+                            title={collapsed ? (lang === 'zh' ? '访客试用' : 'Guest trial') : undefined}
+                        >
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[#efeeee] text-[#6b6c72] dark:bg-white/[0.12] dark:text-white/70">
+                                <SvgIcon name="wave" className="size-4"/>
+                            </span>
+                            {!collapsed && (
+                                <span className="min-w-0">
+                                    <span className="block truncate text-[13px] font-semibold leading-4 text-[#111111] dark:text-white">{lang === 'zh' ? '访客试用' : 'Guest trial'}</span>
+                                    <span className="block truncate text-[11px] leading-4 text-[#85868c] dark:text-white/55">{lang === 'zh' ? '登录或创建账号' : 'Sign in or register'}</span>
+                                </span>
+                            )}
+                        </button>
+                    )}
+
+                    {menuOpen && (
+                        <div className="absolute bottom-0 left-full z-50 ml-2 w-52 rounded-[14px] border border-[#e5e5e5] bg-white p-2 shadow-[0_12px_40px_-18px_rgba(17,17,17,.35)] dark:border-white/[0.12] dark:bg-[#101010]">
+                            {authMode === 'accounts' && user && (
+                                <div className="mb-1 rounded-[10px] bg-[#f4f3f3] px-3 py-2 dark:bg-white/[0.08]">
+                                    <p className="text-[11px] font-semibold text-[#777] dark:text-white/55">{lang === 'zh' ? '额度' : 'Balance'}</p>
+                                    <p className="mt-0.5 text-[13px] font-extrabold text-[#111111] dark:text-white">
+                                        {quotaExempt ? (lang === 'zh' ? '无限额度' : 'Unlimited') : (quota?.balance_units ?? 0)}
+                                    </p>
                                 </div>
                             )}
-                            <button
-                                type="button"
-                                onClick={logout}
-                                className="mt-2 inline-flex items-center gap-1.5 rounded-md px-0 text-xs font-semibold text-on-surface-variant transition hover:text-red-600"
-                            >
-                                <span className="material-symbols-outlined text-[16px]">logout</span>
-                                {lang==='zh'?'退出登录':'Sign out'}
-                            </button>
-                        </div>
-                    )}
-                    {guestMode && (
-                        <div className="mb-3 rounded-lg bg-surface-container-lowest px-3 py-3 shadow-sm border ff-border-muted">
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
-                                {lang==='zh'?'访客试用':'Guest trial'}
-                            </p>
-                            <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
-                                {lang==='zh'?'支持一次短视频真实转录与笔记生成。':'Run one short real transcription and note trial.'}
-                            </p>
-                            {authMode === 'accounts' && (
-                                <div className="mt-3 flex flex-col gap-2">
+                            {!user && authMode === 'accounts' && (
+                                <div className="mb-1">
                                     <button
                                         type="button"
-                                        onClick={()=>openAuth('login')}
-                                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-xs font-bold text-white transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                        onClick={() => { setMenuOpen(false); openAuth('login'); }}
+                                        className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                                     >
-                                        <span className="material-symbols-outlined text-[16px]">login</span>
-                                        {lang==='zh'?'登录账号':'Sign in'}
+                                        <SvgIcon name="logout" className="size-[18px] shrink-0 rotate-180 text-[#6b6c72] dark:text-white/70"/>
+                                        {lang === 'zh' ? '登录账号' : 'Sign in'}
                                     </button>
                                     {canRegister && (
                                         <button
                                             type="button"
-                                            onClick={()=>openAuth('register')}
-                                            className="inline-flex h-9 w-full items-center justify-center rounded-md bg-surface-container px-3 text-xs font-bold text-on-surface transition hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                                            onClick={() => { setMenuOpen(false); openAuth('register'); }}
+                                            className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
                                         >
-                                            {lang==='zh'?'创建账号':'Create account'}
+                                            <SvgIcon name="playlist-add" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                            {lang === 'zh' ? '创建账号' : 'Create account'}
                                         </button>
                                     )}
                                 </div>
                             )}
+                            <div className="flex flex-col gap-0.5">
+                                <button
+                                    type="button"
+                                    onClick={toggleLang}
+                                    className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
+                                >
+                                    <SvgIcon name="translate" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                    <span className="flex-1 text-left">{lang === 'zh' ? '界面语言' : 'Language'}</span>
+                                    <span className="text-[11px] font-bold text-[#6b6c72] dark:text-white/70">{lang === 'en' ? '中文' : 'EN'}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={toggleTheme}
+                                    className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
+                                >
+                                    <SvgIcon name={isDark ? 'sun' : 'moon'} className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                    <span className="flex-1 text-left">{isDark ? (lang === 'zh' ? '浅色模式' : 'Light mode') : (lang === 'zh' ? '暗色模式' : 'Dark mode')}</span>
+                                </button>
+                            </div>
+                            <div className="my-1 border-t border-[#e5e5e5] dark:border-white/[0.12]"/>
+                            <Link
+                                to="/about"
+                                onClick={() => setMenuOpen(false)}
+                                className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
+                            >
+                                <SvgIcon name="shield" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                {lang === 'zh' ? '关于与协议' : 'About & terms'}
+                            </Link>
+                            {authMode === 'accounts' && user && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setMenuOpen(false); logout(); }}
+                                    className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] hover:text-[#ff4f7a] dark:text-white dark:hover:bg-white/[0.08] dark:hover:text-[#ff7fa0]"
+                                >
+                                    <SvgIcon name="logout" className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70"/>
+                                    {lang === 'zh' ? '退出登录' : 'Sign out'}
+                                </button>
+                            )}
                         </div>
                     )}
-                    <button
-                        onClick={toggleLang}
-                        className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                        aria-label={lang==='zh'?'切换界面语言':'Switch interface language'}
-                    >
-                        <span className="material-symbols-outlined text-[20px] leading-none text-outline group-hover:text-on-surface-variant">translate</span>
-                        <span className="min-w-0 flex-1 truncate text-left">{lang==='zh'?'界面语言':'Language'}</span>
-                        <span className="min-w-8 rounded-md bg-primary/10 px-2 py-1 text-center text-[11px] font-bold leading-none text-primary">
-                            {lang==='en'?'中文':'EN'}
-                        </span>
-                    </button>
-                        </div>
-                    </div>
-                </aside>
-            );
-        };
-
-/* ═══════════════ Dashboard ═══════════════ */
+                </div>
+            </div>
+        </aside>
+    );
+};
 
 export default SideNav;

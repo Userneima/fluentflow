@@ -47,7 +47,7 @@ export default function PromptTemplateDialog({
                 <div className="flex items-start justify-between gap-4 border-b border-surface-container-highest px-5 py-4">
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-amber-600 text-lg">auto_fix_high</span>
+                            <span className="material-symbols-outlined text-purple-600 text-lg">auto_fix_high</span>
                             <span className="font-headline font-bold text-base text-on-surface">{t('prompt.label')}</span>
                         </div>
                         <p className="mt-1 text-xs font-medium text-on-surface-variant">{t('prompt.editHint')}</p>
@@ -67,33 +67,33 @@ export default function PromptTemplateDialog({
                             key.startsWith('user_') ? (
                                 <span key={key} className={`inline-flex items-center gap-0.5 rounded-full border text-xs font-semibold transition-all ${
                                     promptKey===key
-                                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:bg-purple-50 dark:hover:border-purple-400/50 dark:hover:bg-purple-400/10'
                                 }`}>
                                     <button type="button" onClick={()=>handlePromptKeyChange(key)}
-                                        className={`px-3 py-1.5 rounded-l-full ${promptKey===key?'':'hover:bg-amber-50/50'}`}>
+                                        className={`px-3 py-1.5 rounded-l-full ${promptKey===key?'':'hover:bg-purple-50/50 dark:hover:bg-purple-400/10'}`}>
                                         {presetLabel(key)}
                                     </button>
                                     <button type="button" title={t('set.deletePreset')} onClick={(e)=>handleDeleteUserPreset(key,e)}
-                                        className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-amber-700/30':'hover:bg-red-50 text-red-600'}`}>
+                                        className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-purple-700/30 dark:hover:bg-purple-400/20':'hover:bg-red-50 text-red-600'}`}>
                                         <span className="material-symbols-outlined text-[16px] leading-none">close</span>
                                     </button>
                                 </span>
                             ) : BUILTIN_EXTRA_PROMPT_KEYS.includes(key) ? (
                                 <span key={key} className={`inline-flex items-center gap-0.5 rounded-full border text-xs font-semibold transition-all ${
                                     promptKey===key
-                                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:bg-purple-50 dark:hover:border-purple-400/50 dark:hover:bg-purple-400/10'
                                 }`}>
                                     <button type="button" onClick={()=>handlePromptKeyChange(key)}
-                                        className={`px-3 py-1.5 rounded-l-full ${promptKey===key?'':'hover:bg-amber-50/50'}`}>
+                                        className={`px-3 py-1.5 rounded-l-full ${promptKey===key?'':'hover:bg-purple-50/50 dark:hover:bg-purple-400/10'}`}>
                                         {presetLabel(key)}
                                     </button>
                                     <button
                                         type="button"
                                         title={t('set.deleteBuiltinPrompt')}
                                         onClick={(e)=>{ e.stopPropagation(); e.preventDefault(); resetBuiltinExtra(key); }}
-                                        className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-amber-700/30':'hover:bg-red-50 text-red-600'}`}
+                                        className={`pr-1.5 py-1 rounded-r-full flex items-center justify-center ${promptKey===key?'hover:bg-purple-700/30 dark:hover:bg-purple-400/20':'hover:bg-red-50 text-red-600'}`}
                                     >
                                         <span className="material-symbols-outlined text-[16px] leading-none">close</span>
                                     </button>
@@ -102,8 +102,8 @@ export default function PromptTemplateDialog({
                                 <button key={key} onClick={()=>handlePromptKeyChange(key)}
                                     className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
                                         promptKey===key
-                                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                                        : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                                        ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:bg-purple-50 dark:hover:border-purple-400/50 dark:hover:bg-purple-400/10'
                                     }`}>
                                     {presetLabel(key)}
                                 </button>
@@ -114,7 +114,7 @@ export default function PromptTemplateDialog({
                         <div className="space-y-2">
                             <label className="text-xs font-medium text-on-surface-variant">{t('set.editCoursePrompt')}</label>
                             <textarea
-                                className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-purple-300/50 focus:border-purple-300 dark:focus:ring-purple-400/40 dark:focus:border-purple-400 resize-y"
                                 value={defaultPromptEdit}
                                 onChange={(e)=>handleDefaultPromptChange(e.target.value)}
                             />
@@ -123,7 +123,7 @@ export default function PromptTemplateDialog({
                         <div className="space-y-2">
                             <label className="text-xs font-medium text-on-surface-variant">{lang==='zh'?'编辑该预设':'Edit this preset'}</label>
                             <textarea
-                                className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-purple-300/50 focus:border-purple-300 dark:focus:ring-purple-400/40 dark:focus:border-purple-400 resize-y"
                                 value={userPresetEdit}
                                 onChange={(e)=>handleUserPresetChange(e.target.value)}
                             />
@@ -131,14 +131,14 @@ export default function PromptTemplateDialog({
                     ) : promptKey === 'custom' ? (
                         <div className="space-y-3">
                             <textarea
-                                className="w-full h-32 bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface placeholder-slate-400 focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                className="w-full h-32 bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface placeholder-slate-400 focus:ring-2 focus:ring-purple-300/50 focus:border-purple-300 dark:focus:ring-purple-400/40 dark:focus:border-purple-400 resize-y"
                                 placeholder={t('prompt.customPlaceholder')}
                                 value={customText}
                                 onChange={e=>handleCustomTextChange(e.target.value)}
                             />
                             <div className="flex flex-wrap items-end gap-2">
                                 <input type="text" className="flex-1 min-w-[160px] bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder={t('set.presetNamePh')} value={presetNameInput} onChange={e=>setPresetNameInput(e.target.value)} />
-                                <button type="button" onClick={saveCustomAsPresetFromEditor} className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition">
+                                <button type="button" onClick={saveCustomAsPresetFromEditor} className="px-4 py-2 bg-purple-600 text-white text-sm font-semibold rounded-lg hover:bg-purple-700 transition">
                                     {t('prompt.saveAsPreset')}
                                 </button>
                             </div>
@@ -150,7 +150,7 @@ export default function PromptTemplateDialog({
                                 <button type="button" onClick={()=>resetBuiltinExtra(promptKey)} className="text-xs font-semibold text-primary hover:underline">{t('set.deleteBuiltinPrompt')}</button>
                             </div>
                             <textarea
-                                className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-amber-300/50 focus:border-amber-300 resize-y"
+                                className="w-full min-h-[200px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm font-mono text-on-surface focus:ring-2 focus:ring-purple-300/50 focus:border-purple-300 dark:focus:ring-purple-400/40 dark:focus:border-purple-400 resize-y"
                                 value={builtinPromptValue({promptKey, autoTranscriptNotesEdit, meetingEdit, researchEdit, quickBulletsEdit})}
                                 onChange={(e)=>handleBuiltinExtraChange(promptKey, e.target.value)}
                             />

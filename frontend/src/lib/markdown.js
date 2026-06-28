@@ -167,6 +167,16 @@ export const simpleMd = (md) => {
             continue;
         }
 
+        const imageMatch = trimmed.match(/^!\[(.*?)\]\((.*?)\)$/);
+        if(imageMatch){
+            closeLists();
+            const alt = imageMatch[1] || '';
+            const src = imageMatch[2] || '';
+            html += `<figure class="my-3"><img src="${esc(src)}" alt="${esc(alt)}" class="rounded-lg max-w-full" loading="lazy"/><figcaption class="text-xs text-on-surface-variant mt-1">${esc(alt)}</figcaption></figure>`;
+            i += 1;
+            continue;
+        }
+
         if(trimmed === '---' || trimmed === '***' || trimmed === '___'){
             closeLists();
             html += '<hr class="my-4 border-slate-200"/>';
