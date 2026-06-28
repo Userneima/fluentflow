@@ -49,13 +49,16 @@ def test_processing_page_no_longer_exposes_settings_controls() -> None:
 
 def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
     settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
     assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in shared
     assert "allowedSttProviders: ['elevenlabs_scribe', 'local']" in shared
-    assert 'value="elevenlabs_scribe"' in settings
+    assert "const localAwareAllowed = publicMode || uniqueAllowed.includes('local')" in shared
+    assert "const localAwareAllowed = publicMode || uniqueAllowed.includes('local')" in job_morph
+    assert "sttProvider: 'elevenlabs_scribe'" in settings
     assert "ElevenLabs 云端转录" in processing
     assert "isCloudSttConfigured(sttProvider, status)" in editor
     assert "isAzureCloudProvider(sttProvider)" not in editor
@@ -449,13 +452,59 @@ def test_auth_status_failure_keeps_login_path_visible() -> None:
     assert "setGuestMode(false);" in source
 
 
-def test_settings_copy_separates_preferences_from_agent_strategy() -> None:
+def test_secondary_surfaces_use_current_ui_language() -> None:
+    access_gate = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
+    about = Path("frontend/src/routes/about.jsx").read_text(encoding="utf-8")
+    prompt_dialog = Path("frontend/src/components/PromptTemplateDialog.jsx").read_text(encoding="utf-8")
+    settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
+
+    for source in (access_gate, about, prompt_dialog):
+        assert "rounded-sm" not in source
+        assert "text-purple" not in source
+        assert "bg-purple" not in source
+        assert "border-slate" not in source
+        assert "text-slate" not in source
+
+    assert "min-h-dvh" in access_gate
+    assert "bg-[#f8f7fb]" in access_gate
+    assert "关于与协议" in about
+    assert "grid gap-3 px-5 py-5 md:grid-cols-[180px_minmax(0,1fr)]" in about
+    assert "presetChipClass" in prompt_dialog
+    assert "textAreaClass" in prompt_dialog
+    assert "dark:hover:bg-white/[0.88]" in prompt_dialog
+    assert "rounded-sm" not in settings
+    assert "hover:bg-blue" not in settings
+    assert "单次任务判断放在 Agent 工作流里解释" in settings
+
+
+def test_settings_page_stays_focused_on_real_settings() -> None:
     source = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
 
-    assert "长期偏好、凭证和模板维护" in source
-    assert "模板偏好" in source
+    assert "处理偏好" in source
+    assert "导出与集成" in source
+    assert "数据与隐私" in source
+    assert "系统维护" in source
+    assert "账号与额度" not in source
+    assert "笔记模板" not in source
+    assert "外观" not in source
+    assert "lg:grid-cols-[210px_minmax(0,1fr)]" not in source
+    assert "长期偏好、凭证和模板维护" not in source
+    assert "清除当前浏览器保存的本地历史记录，不会删除服务器任务" in source
+    assert "当前是线上云端环境，本地转录不可用" in source
+    assert "本机打开时可以选择本地或云端" in source
     assert "Agent 会根据内容自动选用最匹配的" not in source
     assert "Agent auto-selects the best match" not in source
+
+
+def test_settings_clear_history_requires_confirmation_dialog() -> None:
+    source = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
+
+    assert "clearConfirmOpen" in source
+    assert "confirmClearHistory" in source
+    assert 'role="dialog"' in source
+    assert "确认清除本地历史？" in source
+    assert "setClearArmed" not in source
+    assert "edit.clearConfirmAgain" not in source
 
 
 def test_tasks_show_actionable_next_step_for_failures() -> None:

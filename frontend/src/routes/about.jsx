@@ -41,33 +41,41 @@ const About = () => {
         },
     ];
     return (
-        <main className="ml-[var(--sidebar-offset)] min-h-screen bg-surface px-10 py-10 text-on-surface transition-[margin] duration-200 ease-out">
-            <div className="mx-auto max-w-4xl">
-                <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-on-surface-variant transition hover:text-on-surface">
-                    <SvgIcon name="arrow_back" className="text-[18px]"/>
-                    {zh ? '返回开始处理' : 'Back to Start'}
-                </Link>
-                <div className="mt-8 rounded-sm border ff-border-muted bg-surface-container-lowest p-8 shadow-sm">
-                    <p className="text-xs font-bold uppercase tracking-wider text-primary">FluentFlow</p>
-                    <h1 className="mt-2 font-headline text-3xl font-extrabold text-on-surface">
-                        {zh ? '关于与协议' : 'About & terms'}
-                    </h1>
-                    <p className="mt-3 max-w-2xl text-sm font-semibold leading-relaxed text-on-surface-variant">
-                        {zh
-                            ? '这里先放产品使用须知、数据边界和账号额度说明。正式公开版本可以在这里替换为完整服务条款与隐私政策。'
-                            : 'This page keeps product usage notes, data boundaries, and account balance semantics. A public release can replace it with full Terms of Service and Privacy Policy.'}
-                    </p>
-                    <div className="mt-8 grid gap-4">
-                        {sections.map((section) => (
-                            <section key={section.title} className="rounded-sm border border-outline-variant/45 bg-surface-container-low p-5">
-                                <h2 className="text-base font-extrabold text-on-surface">{section.title}</h2>
-                                <p className="mt-2 text-sm font-medium leading-relaxed text-on-surface-variant">
-                                    {section.body}
-                                </p>
-                            </section>
-                        ))}
+        <main className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] px-8 py-7 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
+            <div className="mx-auto max-w-[880px]">
+                <header className="mb-6 flex flex-col gap-4 border-b border-[#dedada] pb-5 dark:border-white/[0.12] md:flex-row md:items-end md:justify-between">
+                    <div className="min-w-0">
+                        <h1 className="font-headline text-2xl font-extrabold tracking-tight text-[#111111] dark:text-white">
+                            {zh ? '关于与协议' : 'About and terms'}
+                        </h1>
+                        <p className="mt-2 max-w-[62ch] text-sm font-semibold leading-relaxed text-[#676970] dark:text-white/58">
+                            {zh
+                                ? '这里说明 FluentFlow 的使用边界、数据处理方式、账号额度和结果责任。正式公开前可继续替换为完整法律文本。'
+                                : 'Product boundaries, data handling, account balance, and result responsibility live here. Full legal terms can replace this before public release.'}
+                        </p>
                     </div>
+                    <Link to="/" className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-sm font-extrabold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                        <SvgIcon name="arrow_back" className="text-[18px]"/>
+                        {zh ? '返回开始处理' : 'Back to start'}
+                    </Link>
+                </header>
+
+                <div className="overflow-hidden rounded-[22px] border border-[#dedada] bg-white dark:border-white/[0.12] dark:bg-white/[0.06]">
+                    {sections.map((section, index) => (
+                        <section key={section.title} className={`grid gap-3 px-5 py-5 md:grid-cols-[180px_minmax(0,1fr)] md:gap-8 ${index > 0 ? 'border-t border-[#ece8e8] dark:border-white/[0.10]' : ''}`}>
+                            <h2 className="text-sm font-extrabold text-[#111111] dark:text-white">{section.title}</h2>
+                            <p className="max-w-[68ch] text-sm font-semibold leading-relaxed text-[#676970] dark:text-white/58">
+                                {section.body}
+                            </p>
+                        </section>
+                    ))}
                 </div>
+
+                <p className="mt-4 text-xs font-semibold leading-relaxed text-[#85868c] dark:text-white/45">
+                    {zh
+                        ? '如果材料涉及商业机密、隐私、版权或专业决策，请先确认你有处理权限，并在使用结果前复查原文。'
+                        : 'For confidential, private, copyrighted, or high-stakes material, confirm you have permission and review the source before relying on results.'}
+                </p>
             </div>
         </main>
     );

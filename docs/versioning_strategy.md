@@ -67,6 +67,33 @@ When unrelated worktree changes exist, inspect the diff and stage intentionally.
 Do not use `git add .` unless the worktree has already been audited and every
 changed file belongs to the same commit purpose.
 
+## Documentation Checkpoint Before Commit
+
+Before creating a finished checkpoint commit, check whether the change needs
+progress documentation. This check is part of version management, not a
+separate optional cleanup.
+
+Update `docs/changelog.md` under `Unreleased` when the change affects:
+
+- user-visible behavior, copy, navigation, recovery actions, or UI layout;
+- deployment, startup, environment variables, storage, auth, quota, or data
+  retention;
+- persisted result/job schema, API contracts, background task semantics, or
+  rollback risk.
+
+Update `docs/private/product_iteration_log.md` when the change captures a
+product decision that future work should remember:
+
+- a page's responsibility changes;
+- a user flow is simplified, removed, or moved to another page;
+- a terminology decision should stay consistent across the product;
+- a tradeoff explains why the product did not take an obvious alternative.
+
+Do not document routine typo fixes, test-only refactors, formatting changes, or
+internal cleanup with no product meaning. If no documentation update is needed,
+say so in the final summary. If documentation is needed but intentionally
+deferred, call that out before committing.
+
 ## Development History Vs Mainline History
 
 Development speed and readable history have different needs. During exploration

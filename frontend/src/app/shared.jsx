@@ -535,10 +535,14 @@ export const normalizeRuntimeConfig = (config={}) => {
         ? config.allowed_stt_providers.map(normalizeSttProvider)
         : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
     const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'elevenlabs_scribe' || item === 'azure_batch' || item === 'local'))];
-    const fallbackAllowed = uniqueAllowed.length ? uniqueAllowed : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
+    const publicMode = !!config.public_mode;
+    const localAwareAllowed = publicMode || uniqueAllowed.includes('local')
+        ? uniqueAllowed
+        : [...uniqueAllowed, 'local'];
+    const fallbackAllowed = localAwareAllowed.length ? localAwareAllowed : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
     const defaultProvider = normalizeSttProvider(config.default_stt_provider || DEFAULT_STT_PROVIDER);
     return {
-        publicMode: !!config.public_mode,
+        publicMode,
         allowedSttProviders: fallbackAllowed,
         defaultSttProvider: fallbackAllowed.includes(defaultProvider) ? defaultProvider : fallbackAllowed[0],
         showMaintainerSettings: config.show_maintainer_settings !== false,
