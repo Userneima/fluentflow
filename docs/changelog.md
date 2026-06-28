@@ -63,12 +63,14 @@
 - 抖音/视频链接任务统一区分 `raw_title` / `display_title`：后台任务、最近历史、编辑器标题、Codex 导出和新生成的转录/摘要产物文件名都会优先显示去掉视频 ID 前缀后的标题。
 - 后台任务队列改为持久化任务步骤模型，上传、访客试用和视频链接任务会先写入可恢复的步骤记录，再由 worker 领取执行。
 - 笔记生成新增真实 `chapter_coverage` / “完整覆盖笔记”模式：先抽证据、规划章节、逐章生成，再做覆盖检查，适合超长或高价值材料。
+- Agent 工作流页从旧处理设置表单改为任务解释页：展示当前/最近任务、执行路线、Agent 判断、使用依据、下一步动作和折叠的高级详情；长期参数和凭证入口保留在设置页。
 
 ### 维护者变化
 
 - 新增产品版本管理基础：`VERSION` 作为唯一版本源，后端 `/version` 和前端构建配置会暴露版本、Git commit 与 schema 信息；CI 和部署流程新增 release gate，部署成功后会写入 release manifest 方便回滚和排障。
 - 新增 `scripts/prepare_release.py` 和 npm `release:prepare` / `release:check` 入口，用于发版前同步版本号、生成发布检查单，并把 changelog 归档保留为人工判断步骤。
 - 新增 `docs/versioning_strategy.md`，明确 App 版本、原子提交、schema version、changelog、tag/release 和回滚之间的职责边界；`AGENTS.md` 与 `CLAUDE.md` 会要求未来 Agent 按该策略拆分提交和记录变更。
+- `/processing` 删除重复的转录、摘要、飞书和凭证表单逻辑，改为只读 Agent workflow surface，并新增前端路由测试防止页面回退成设置表单。
 - `/assets/*` 静态资源在 SPA 兜底路由之前挂载，并新增测试防止 JS 资源再次被 `index.html` 吞掉。
 - 拆分后的路由页补齐从 `frontend/src/app/shared.jsx` 引入的共享 helper。
 - 本地运行产物默认迁移到系统应用数据目录；新增 `backend.core.runtime_paths` 统一管理路径，并提供 `scripts/migrate_runtime_storage.py` 显式迁移旧 repo 内数据。

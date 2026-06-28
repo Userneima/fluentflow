@@ -38,23 +38,25 @@ def test_frontend_asset_route_serves_javascript_not_spa_html() -> None:
     assert not response.text.lstrip().startswith("<!DOCTYPE html>")
 
 
-def test_processing_settings_no_longer_exposes_audio_language_control() -> None:
+def test_processing_page_no_longer_exposes_settings_controls() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
     assert "set.sttLanguage" not in source
     assert "settings.sttLanguage||\"auto\"" not in source
-    assert "音频语言" not in source
-    assert "Audio Language" not in source
+    assert "<select" not in source
+    assert "updateSettingNow" not in source
 
 
 def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
     assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in shared
     assert "allowedSttProviders: ['elevenlabs_scribe', 'local']" in shared
-    assert "value=\"elevenlabs_scribe\"" in processing
+    assert 'value="elevenlabs_scribe"' in settings
+    assert "ElevenLabs 云端转录" in processing
     assert "isCloudSttConfigured(sttProvider, status)" in editor
     assert "isAzureCloudProvider(sttProvider)" not in editor
 
@@ -164,17 +166,19 @@ def test_editor_lark_export_uses_local_execution_header_on_localhost() -> None:
     assert "isLocalLarkExportRoute(options.larkExportRoute)" in shared
 
 
-def test_processing_settings_uses_explicit_lark_export_routes() -> None:
-    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+def test_settings_page_uses_explicit_lark_export_routes() -> None:
+    settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
-    assert "larkExportRouteFromSettings(settings)" in source
-    assert "LARK_EXPORT_ROUTE_OPENAPI" in source
-    assert "LARK_EXPORT_ROUTE_LOCAL_CLI" in source
+    assert "larkExportRouteFromSettings(settings)" in settings
+    assert "LARK_EXPORT_ROUTE_OPENAPI" in settings
+    assert "LARK_EXPORT_ROUTE_LOCAL_CLI" in settings
+    assert "larkExportRouteFromSettings(settings)" not in processing
     assert "set.larkExportRoute" in shared
     assert "fd.append(\"lark_export_route\", larkRoute)" in shared
     assert "payloadOptions.lark_export_route = larkRoute" in shared
-    assert "id=\"workLarkViaCli\"" not in source
+    assert "id=\"workLarkViaCli\"" not in processing
 
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
@@ -234,6 +238,23 @@ def test_editor_explains_generation_reasons() -> None:
     assert "noteModePlanReason" in shared
     assert "chapter_coverage" in shared
     assert "完整覆盖笔记" in shared
+
+
+def test_processing_page_is_agent_workflow_surface() -> None:
+    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+
+    assert "Agent 工作流" in source
+    assert "执行路线" in source
+    assert "Agent 判断" in source
+    assert "使用依据" in source
+    assert "高级详情" in source
+    assert 'to="/settings"' in source
+    assert "ml-[var(--sidebar-offset)]" in source
+    assert "saveCredentials" not in source
+    assert "getCredentialsStatus" not in source
+    assert "secretDraft" not in source
+    assert "<select" not in source
+    assert "updateSettingNow" not in source
 
 
 def test_tasks_show_actionable_next_step_for_failures() -> None:
