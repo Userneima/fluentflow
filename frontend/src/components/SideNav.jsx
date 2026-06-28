@@ -95,6 +95,14 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const versionDetail = [versionInfo.shortCommit, versionInfo.dirty ? 'dirty' : null].filter(Boolean).join(' · ');
     const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
     const ThemeIcon = isDark ? Sun : Moon;
+    const showAccountLoginEntry = authMode === 'accounts' && !user;
+    const anonymousEntryTitle = showAccountLoginEntry
+        ? (lang === 'zh' ? '登录账号' : 'Sign in')
+        : (lang === 'zh' ? '访客试用' : 'Guest trial');
+    const anonymousEntrySubtitle = showAccountLoginEntry
+        ? (canRegister ? (lang === 'zh' ? '创建账号或继续访客试用' : 'Create account or continue as guest') : (lang === 'zh' ? '进入账号菜单' : 'Open account menu'))
+        : (lang === 'zh' ? '登录或创建账号' : 'Sign in or register');
+    const AnonymousEntryIcon = showAccountLoginEntry ? LogIn : Hand;
 
     return (
         <aside className={`fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-[#e5e5e5] bg-[#fbfbfb] text-[#111111] transition-[width] duration-200 ease-out dark:border-white/[0.12] dark:bg-[#0a0a0a] dark:text-white/[0.92] ${collapsed ? 'w-[72px]' : 'w-56'}`}>
@@ -174,15 +182,15 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                             type="button"
                             onClick={() => setMenuOpen((v) => !v)}
                             className={`w-full rounded-[14px] border border-[#e5e5e5] bg-white text-left shadow-[0_1px_2px_rgba(17,17,17,0.03)] transition hover:border-[#d9d9d9] hover:bg-[#f7f7f7] dark:border-white/[0.12] dark:bg-white/[0.06] dark:hover:border-white/[0.18] dark:hover:bg-white/[0.09] ${collapsed ? 'mx-auto flex size-12 justify-center px-0 py-2' : 'flex items-center gap-2.5 px-2.5 py-2'}`}
-                            title={collapsed ? (lang === 'zh' ? '访客试用' : 'Guest trial') : undefined}
+                            title={collapsed ? anonymousEntryTitle : undefined}
                         >
                             <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[#efeeee] text-[#6b6c72] dark:bg-white/[0.12] dark:text-white/70">
-                                <Hand className="size-4" strokeWidth={2.15}/>
+                                <AnonymousEntryIcon className="size-4" strokeWidth={2.15}/>
                             </span>
                             {!collapsed && (
                                 <span className="min-w-0">
-                                    <span className="block truncate text-[13px] font-semibold leading-4 text-[#111111] dark:text-white">{lang === 'zh' ? '访客试用' : 'Guest trial'}</span>
-                                    <span className="block truncate text-[11px] leading-4 text-[#85868c] dark:text-white/55">{lang === 'zh' ? '登录或创建账号' : 'Sign in or register'}</span>
+                                    <span className="block truncate text-[13px] font-semibold leading-4 text-[#111111] dark:text-white">{anonymousEntryTitle}</span>
+                                    <span className="block truncate text-[11px] leading-4 text-[#85868c] dark:text-white/55">{anonymousEntrySubtitle}</span>
                                 </span>
                             )}
                         </button>

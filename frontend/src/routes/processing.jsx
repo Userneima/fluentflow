@@ -107,28 +107,20 @@ const statusClass = (status) => {
     return 'border-[#dedada] bg-white text-[#777] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/55';
 };
 
-const Card = ({children, className = ''}) => (
-    <section className={`rounded-[18px] border border-[#dedada] bg-white p-5 shadow-[0_1px_2px_rgba(17,17,17,0.03)] dark:border-white/[0.12] dark:bg-white/[0.06] ${className}`}>
-        {children}
-    </section>
-);
-
 const SectionHeading = ({icon, title, desc}) => (
-    <div className="mb-4 flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[#efeeee] text-[#111111] dark:bg-white/[0.10] dark:text-white">
-            <SvgIcon name={icon} className="text-lg"/>
+    <div className="mb-4 border-b border-[#dedada] pb-3 dark:border-white/[0.10]">
+        <div className="flex items-center gap-2.5">
+            <SvgIcon name={icon} className="text-[18px] text-[#57585d] dark:text-white/58"/>
+            <h2 className="font-headline text-[15px] font-extrabold leading-tight text-[#111111] dark:text-white">{title}</h2>
         </div>
-        <div className="min-w-0">
-            <h2 className="font-headline text-[16px] font-extrabold leading-tight text-[#111111] dark:text-white">{title}</h2>
-            {desc && <p className="mt-1 text-[13px] leading-5 text-[#6f7177] dark:text-white/60">{desc}</p>}
-        </div>
+        {desc && <p className="mt-1.5 text-[13px] leading-5 text-[#6f7177] dark:text-white/60">{desc}</p>}
     </div>
 );
 
 const Metric = ({label, value}) => (
-    <div className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-        <p className="text-[11px] font-bold text-[#85868c] dark:text-white/45">{label}</p>
-        <p className="mt-1 truncate text-[14px] font-extrabold text-[#111111] dark:text-white" title={String(value || '-')}>{value || '-'}</p>
+    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 border-b border-[#dedada]/70 py-2.5 last:border-b-0 dark:border-white/[0.08]">
+        <p className="text-[12px] font-bold text-[#85868c] dark:text-white/45">{label}</p>
+        <p className="truncate text-[13px] font-extrabold text-[#111111] dark:text-white" title={String(value || '-')}>{value || '-'}</p>
     </div>
 );
 
@@ -276,39 +268,48 @@ const Processing = () => {
         : (isZh ? '打开编辑器' : 'Open editor');
 
     return (
-        <main className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] px-6 py-8 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
-            <div className="mx-auto max-w-7xl space-y-6">
-                <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="max-w-3xl">
-                        <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">FLUENTFLOW AGENT</p>
-                        <h1 className="mt-2 font-headline text-[34px] font-extrabold leading-tight text-[#111111] dark:text-white lg:text-[44px]">
-                            {isZh ? 'Agent 工作流' : 'Agent workflow'}
-                        </h1>
-                        <p className="mt-3 max-w-2xl text-[15px] leading-6 text-[#676970] dark:text-white/60">
-                            {isZh
-                                ? '这里不再让你手动调一堆参数，而是解释这次任务会怎么处理、依据什么判断、失败后下一步该做什么。'
-                                : 'This page explains how the task is handled, what evidence the Agent uses, and what to do next if something fails.'}
-                        </p>
+        <main className="ml-[var(--sidebar-offset)] h-dvh overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] transition-[margin] duration-200 ease-out hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
+            <div className="mx-auto max-w-7xl space-y-5">
+                <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#111111] text-white dark:bg-white dark:text-[#111111]">
+                            <SvgIcon name="route" className="text-lg"/>
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
+                                    {isZh ? 'Agent 工作流' : 'Agent workflow'}
+                                </h1>
+                                <span className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
+                                    {isZh ? '任务解释' : 'Task explanation'}
+                                </span>
+                            </div>
+                            <p className="mt-1 max-w-3xl text-[13px] leading-5 text-[#676970] dark:text-white/60">
+                                {isZh
+                                    ? '展示本次任务的处理路线、判断依据和失败恢复建议。'
+                                    : 'Shows this task route, judgment evidence, and recovery suggestions.'}
+                            </p>
+                        </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                        <Link to="/" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <Link to="/" className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
                             <SvgIcon name="upload_file" className="text-base"/>
                             {isZh ? '开始处理' : 'Start'}
                         </Link>
-                        <Link to="/settings" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#f4f3f3] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                        <Link to="/settings" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-3.5 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#f4f3f3] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
                             <SvgIcon name="settings" className="text-base"/>
                             {isZh ? '长期设置' : 'Settings'}
                         </Link>
                     </div>
                 </header>
 
-                <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-                    <div className="space-y-5">
-                        <Card>
+                <div className="grid gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.55fr)]">
+                    <div className="space-y-7">
+                        <section className="border-b border-[#dedada] pb-5 dark:border-white/[0.10]">
                             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                                 <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <span className="rounded-full border border-[#dedada] bg-[#f4f3f3] px-3 py-1 text-[12px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white/60">
+                                        <span className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
                                             {stageLabel(stage, lang)}
                                         </span>
                                         {active && (
@@ -317,7 +318,7 @@ const Processing = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <h2 className="mt-3 truncate font-headline text-[22px] font-extrabold text-[#111111] dark:text-white" title={title}>{title}</h2>
+                                    <h2 className="mt-3 truncate font-headline text-[21px] font-extrabold text-[#111111] dark:text-white" title={title}>{title}</h2>
                                     <p className="mt-2 text-[13px] leading-5 text-[#6f7177] dark:text-white/60">
                                         {active
                                             ? (isZh ? '这是当前正在执行的任务。' : 'This is the task currently running.')
@@ -334,23 +335,25 @@ const Processing = () => {
                                     </div>
                                 )}
                             </div>
-                        </Card>
+                        </section>
 
-                        <Card>
+                        <section>
                             <SectionHeading
                                 icon="route"
                                 title={isZh ? '执行路线' : 'Execution route'}
                                 desc={isZh ? '这不是多 Agent 表演，而是当前任务真实会经过的处理步骤。' : 'This is the real task route, not decorative multi-agent theater.'}
                             />
-                            <div className="space-y-3">
-                                {steps.map((step) => {
+                            <div>
+                                {steps.map((step, index) => {
                                     const status = stepStatus(step);
+                                    const isLast = index === steps.length - 1;
                                     return (
-                                        <div key={step.key} className="grid grid-cols-[44px_minmax(0,1fr)] gap-3">
-                                            <div className={`flex size-10 items-center justify-center rounded-[14px] border ${statusClass(status)}`}>
-                                                <SvgIcon name={status === 'done' ? 'check_circle' : step.icon} className="text-lg"/>
+                                        <div key={step.key} className="relative grid grid-cols-[44px_minmax(0,1fr)] gap-4">
+                                            {!isLast && <span className="absolute left-[21px] top-10 bottom-0 w-px bg-[#dedada] dark:bg-white/[0.12]"/>}
+                                            <div className={`relative z-10 flex size-10 items-center justify-center rounded-[14px] border ${statusClass(status)}`}>
+                                                <SvgIcon name={status === 'done' ? 'check_circle' : step.icon} className="text-[18px]"/>
                                             </div>
-                                            <div className="min-w-0 rounded-[14px] bg-[#f8f7fb] px-4 py-3 dark:bg-white/[0.05]">
+                                            <div className={`min-w-0 ${isLast ? 'pb-0' : 'border-b border-[#dedada]/70 pb-5 dark:border-white/[0.08]'}`}>
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <h3 className="text-[14px] font-extrabold text-[#111111] dark:text-white">{step.title}</h3>
                                                     <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${statusClass(status)}`}>
@@ -363,26 +366,26 @@ const Processing = () => {
                                     );
                                 })}
                             </div>
-                        </Card>
+                        </section>
                     </div>
 
-                    <div className="space-y-5">
-                        <Card>
+                    <aside className="space-y-7 xl:border-l xl:border-[#dedada] xl:pl-6 xl:dark:border-white/[0.10]">
+                        <section>
                             <SectionHeading
                                 icon="psychology"
                                 title={isZh ? 'Agent 判断' : 'Agent judgment'}
                                 desc={isZh ? '把真正影响结果的判断讲清楚，调参入口留在设置页。' : 'Explain the decisions that affect the result. Long-term controls stay in Settings.'}
                             />
-                            <div className="space-y-3">
+                            <div>
                                 <Metric label={isZh ? '转录路线' : 'Transcription route'} value={routeLabel(provider, lang)}/>
                                 <Metric label={isZh ? '执行工具' : 'Execution tool'} value={planExecution.transcription_tool || null}/>
                                 <Metric label={isZh ? '笔记策略' : 'Note strategy'} value={noteModeLabel(noteMode, lang)}/>
-                                <div className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                                    <p className="text-[11px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '策略原因' : 'Strategy reason'}</p>
+                                <div className="border-b border-[#dedada]/70 py-2.5 dark:border-white/[0.08]">
+                                    <p className="text-[12px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '策略原因' : 'Strategy reason'}</p>
                                     <p className="mt-1 text-[13px] leading-5 text-[#111111] dark:text-white/82">{noteReason}</p>
                                 </div>
-                                <div className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                                    <p className="text-[11px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '字幕处理' : 'Subtitle handling'}</p>
+                                <div className="py-2.5">
+                                    <p className="text-[12px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '字幕处理' : 'Subtitle handling'}</p>
                                     <p className="mt-1 text-[13px] leading-5 text-[#111111] dark:text-white/82">
                                         {String(sourceLanguage).toLowerCase().startsWith('en')
                                             ? (isZh ? '英文材料保留原文字幕，并生成中文参考；笔记基于原文理解后输出中文。' : 'English material keeps original subtitles and adds Chinese reference translations.')
@@ -390,28 +393,28 @@ const Processing = () => {
                                     </p>
                                 </div>
                                 {planRiskNotes.length > 0 && (
-                                    <div className="rounded-[14px] bg-[#fff7ed] px-4 py-3 text-[#9a3412] dark:bg-orange-400/10 dark:text-orange-100">
-                                        <p className="text-[11px] font-bold opacity-70">{isZh ? '风险提示' : 'Risk notes'}</p>
+                                    <div className="border-l-2 border-orange-400 py-1 pl-3 text-[#9a3412] dark:text-orange-100">
+                                        <p className="text-[12px] font-bold opacity-70">{isZh ? '风险提示' : 'Risk notes'}</p>
                                         <ul className="mt-1 space-y-1 text-[13px] font-semibold leading-5">
                                             {planRiskNotes.map((item) => <li key={item}>- {item}</li>)}
                                         </ul>
                                     </div>
                                 )}
                             </div>
-                        </Card>
+                        </section>
 
-                        <Card>
+                        <section>
                             <SectionHeading
                                 icon="fact_check"
                                 title={isZh ? '使用依据' : 'Evidence used'}
                                 desc={isZh ? '文件名只是弱信号，完成转录后以正文结构和长度为主。' : 'Filename is weak evidence. Transcript structure and length matter more after STT.'}
                             />
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                            <div>
                                 {evidence.map((item) => <Metric key={item.label} label={item.label} value={item.value}/>)}
                             </div>
                             {planEvidence.length > 0 && (
-                                <div className="mt-3 rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                                    <p className="text-[11px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '计划依据' : 'Plan evidence'}</p>
+                                <div className="mt-3">
+                                    <p className="text-[12px] font-bold text-[#85868c] dark:text-white/45">{isZh ? '计划依据' : 'Plan evidence'}</p>
                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                         {planEvidence.map((item) => (
                                             <span key={item} className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-bold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
@@ -421,9 +424,9 @@ const Processing = () => {
                                     </div>
                                 </div>
                             )}
-                        </Card>
+                        </section>
 
-                        <Card>
+                        <section className="border-t border-[#dedada] pt-5 dark:border-white/[0.10]">
                             <SectionHeading icon={summaryFailed ? 'error' : 'arrow_forward'} title={nextActionTitle} desc={nextActionDesc}/>
                             <div className="flex flex-wrap gap-2">
                                 {result && (
@@ -437,11 +440,11 @@ const Processing = () => {
                                     {isZh ? '后台任务' : 'Tasks'}
                                 </Link>
                             </div>
-                        </Card>
-                    </div>
+                        </section>
+                    </aside>
                 </div>
 
-                <Card>
+                <section className="border-t border-[#dedada] pt-4 dark:border-white/[0.10]">
                     <details>
                         <summary className="cursor-pointer list-none text-[14px] font-extrabold text-[#111111] dark:text-white">
                             {isZh ? '高级详情' : 'Advanced details'}
@@ -459,7 +462,7 @@ const Processing = () => {
                             <Metric label="Runtime default" value={runtimeConfig.defaultSttProvider}/>
                         </div>
                     </details>
-                </Card>
+                </section>
             </div>
         </main>
     );

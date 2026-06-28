@@ -258,6 +258,29 @@ def test_processing_page_is_agent_workflow_surface() -> None:
     assert "计划依据" in source
     assert "高级详情" in source
     assert "editorActionLabel" in source
+    assert "h-dvh overflow-y-auto" in source
+
+
+def test_processing_page_uses_timeline_not_card_stack() -> None:
+    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+
+    assert "const Card" not in source
+    assert "<Card" not in source
+    assert "xl:border-l" in source
+    assert "grid-cols-[44px_minmax(0,1fr)]" in source
+    assert "rounded-[14px] bg-[#f4f3f3] px-4 py-3" not in source
+
+
+def test_processing_page_uses_compact_tool_header() -> None:
+    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+    design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
+
+    assert "FLUENTFLOW AGENT" not in source
+    assert "text-[34px]" not in source
+    assert "lg:text-[44px]" not in source
+    assert "任务解释" in source
+    assert "Page Header Density" in design_system
+    assert "不要在应用内页面顶部放大面积品牌标题" in design_system
     assert "打开编辑器重新生成" in source
     assert 'to="/settings"' in source
     assert "ml-[var(--sidebar-offset)]" in source
@@ -266,6 +289,15 @@ def test_processing_page_is_agent_workflow_surface() -> None:
     assert "secretDraft" not in source
     assert "<select" not in source
     assert "updateSettingNow" not in source
+
+
+def test_sidebar_keeps_visible_login_entry_for_accounts_mode() -> None:
+    source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+
+    assert "showAccountLoginEntry" in source
+    assert "anonymousEntryTitle" in source
+    assert "登录账号" in source
+    assert "AnonymousEntryIcon" in source
 
 
 def test_settings_copy_separates_preferences_from_agent_strategy() -> None:
