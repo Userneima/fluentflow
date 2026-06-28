@@ -76,6 +76,13 @@ const jobOptionsForResult = (result) => (
         : {}
 );
 
+const isLikelyVideoFile = (fileOrName) => {
+    if (!fileOrName) return false;
+    if (typeof fileOrName === 'object' && fileOrName.type) return String(fileOrName.type).startsWith('video/');
+    const name = typeof fileOrName === 'string' ? fileOrName : fileOrName.name || '';
+    return /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(name);
+};
+
 const summaryFailureNextStep = (result, lang) => {
     if (!(result?.summary_status === 'failed' || result?.summary_error)) return '';
     const error = friendlyTaskError(result?.summary_error, lang);
@@ -175,12 +182,14 @@ const Editor = () => {
     const [transcriptDirty, setTranscriptDirty] = useState(false);
     const [transcriptUnsaved, setTranscriptUnsaved] = useState(false);
     const [mediaUrl, setMediaUrl] = useState('');
+    const [mediaKind, setMediaKind] = useState('audio');
     const [mediaLoading, setMediaLoading] = useState(false);
     const [mediaError, setMediaError] = useState('');
     const [mediaCurrentTime, setMediaCurrentTime] = useState(0);
     const [mediaDuration, setMediaDuration] = useState(0);
     const [mediaPlaying, setMediaPlaying] = useState(false);
     const [followPlayback, setFollowPlayback] = useState(true);
+    const [transcriptReviewMode, setTranscriptReviewMode] = useState('text');
     const [transcriptSaveStatus, setTranscriptSaveStatus] = useState('idle');
     const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
@@ -289,6 +298,7 @@ const Editor = () => {
     const loadMediaFile = useCallback((file) => {
         if (!file) return;
         const url = URL.createObjectURL(file);
+        setMediaKind(isLikelyVideoFile(file) ? 'video' : 'audio');
         setMediaUrl((prev) => {
             if (prev) URL.revokeObjectURL(prev);
             return url;
@@ -305,9 +315,35 @@ const Editor = () => {
         });
         setMediaError('');
         setMediaLoading(false);
+        setMediaKind('audio');
         if (!result) return () => { cancelled = true; };
         if (lastSourceFile) {
             loadMediaFile(lastSourceFile);
+            return () => { cancelled = true; };
+        }
+        if (result.task_id && result.source_file_available && !isGuestResult) {
+            setMediaLoading(true);
+            fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)
+                .then((file) => { if (!cancelled) loadMediaFile(file); })
+                .catch((sourceErr) => {
+                    if (!cancelled && result.artifacts?.playback_audio) {
+                        const playbackArtifact = result.artifacts.playback_audio;
+                        const fetchArtifact = isGuestResult ? fetchGuestTrialArtifactFile : fetchJobArtifactFile;
+                        fetchArtifact(result.task_id, 'playback_audio', playbackArtifact.filename || `${result.filename || 'source'}_audio.mp3`, resultJobOptions)
+                            .then((file) => { if (!cancelled) loadMediaFile(file); })
+                            .catch((err) => {
+                                if (!cancelled) {
+                                    setMediaError(err.message || sourceErr.message || 'Source file unavailable');
+                                    setMediaLoading(false);
+                                }
+                            });
+                        return;
+                    }
+                    if (!cancelled) {
+                        setMediaError(sourceErr.message || 'Source file unavailable');
+                        setMediaLoading(false);
+                    }
+                });
             return () => { cancelled = true; };
         }
         const playbackArtifact = result.artifacts?.playback_audio;
@@ -333,19 +369,8 @@ const Editor = () => {
                         setMediaError(err.message || 'Audio file unavailable');
                         setMediaLoading(false);
                     }
-                });
+            });
             return () => { cancelled = true; };
-        }
-        if (result.task_id && result.source_file_available && !isGuestResult) {
-            setMediaLoading(true);
-            fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)
-                .then((file) => { if (!cancelled) loadMediaFile(file); })
-                .catch((err) => {
-                    if (!cancelled) {
-                        setMediaError(err.message || 'Source file unavailable');
-                        setMediaLoading(false);
-                    }
-                });
         }
         return () => { cancelled = true; };
     }, [mediaSourceKey, isGuestResult, resultJobOptions]);
@@ -388,6 +413,8 @@ const Editor = () => {
     const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
     const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';
     const playbackDuration = mediaDuration || durSec || 0;
+    const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0;
+    const activeReviewMode = canUseVideoReview ? transcriptReviewMode : 'text';
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
             const found = visibleTranscriptSegments.findIndex((seg, index) => {
@@ -399,6 +426,18 @@ const Editor = () => {
             return found >= 0 ? found : -1;
         })()
         : -1;
+    const activeRawSegmentIndex = segments.length > 0
+        ? (() => {
+            const found = segments.findIndex((seg, index) => {
+            const start = Number(seg.start) || 0;
+            const nextStart = Number(segments[index + 1]?.start);
+            const end = Number(seg.end) || (Number.isFinite(nextStart) ? nextStart : start + 6);
+            return mediaCurrentTime >= start && mediaCurrentTime < end;
+            });
+            return found >= 0 ? found : 0;
+        })()
+        : -1;
+    const currentVideoSegment = activeRawSegmentIndex >= 0 ? segments[activeRawSegmentIndex] : null;
 
     useEffect(() => {
         if (!followPlayback || activeSegmentIndex < 0 || !mediaPlaying) return;
@@ -464,6 +503,12 @@ const Editor = () => {
         if (!media) return;
         if (media.paused) media.play().catch((err) => setMediaError(err.message || 'Playback failed'));
         else media.pause();
+    };
+
+    const handleVideoSegmentStep = (offset) => {
+        if (activeRawSegmentIndex < 0 || segments.length === 0) return;
+        const nextIndex = Math.min(segments.length - 1, Math.max(0, activeRawSegmentIndex + offset));
+        seekToSegment(segments[nextIndex]);
     };
 
     const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null), 3000); };
@@ -1182,6 +1227,34 @@ const Editor = () => {
                                             )}
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                            {segments.length > 0 && (
+                                                <div className="inline-flex h-9 overflow-hidden rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
+                                                    <button
+                                                        type="button"
+                                                        onClick={()=>setTranscriptReviewMode('text')}
+                                                        className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                                                            activeReviewMode === 'text'
+                                                                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                                                                : 'text-[#666] hover:bg-white hover:text-[#111111] dark:text-white/60 dark:hover:bg-white/[0.08] dark:hover:text-white'
+                                                        }`}
+                                                    >
+                                                        {lang === 'zh' ? '文本校对' : 'Text review'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={()=>canUseVideoReview && setTranscriptReviewMode('video')}
+                                                        disabled={!canUseVideoReview}
+                                                        title={!canUseVideoReview ? (lang === 'zh' ? '选择原视频并保留时间戳后可用' : 'Available after choosing source video with timestamps') : undefined}
+                                                        className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-35 ${
+                                                            activeReviewMode === 'video'
+                                                                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                                                                : 'text-[#666] hover:bg-white hover:text-[#111111] dark:text-white/60 dark:hover:bg-white/[0.08] dark:hover:text-white'
+                                                        }`}
+                                                    >
+                                                        {lang === 'zh' ? '视频复查' : 'Video review'}
+                                                    </button>
+                                                </div>
+                                            )}
                                             {hasBilingualTranscript && segments.length > 0 && (
                                                 <div className="inline-flex h-9 overflow-hidden rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                                     <button
@@ -1237,6 +1310,81 @@ const Editor = () => {
                                         </div>
                                     </div>
                                 </div>
+                        {activeReviewMode === 'video' && currentVideoSegment ? (
+                            <div className="min-h-0 flex-1 overflow-hidden p-4">
+                                <div className="flex h-full min-h-0 flex-col gap-3">
+                                    <video
+                                        ref={mediaRef}
+                                        src={mediaUrl || undefined}
+                                        controls
+                                        className="max-h-[min(42vh,360px)] w-full shrink-0 rounded-[18px] bg-black object-contain"
+                                        onTimeUpdate={(e)=>setMediaCurrentTime(e.currentTarget.currentTime || 0)}
+                                        onLoadedMetadata={(e)=>setMediaDuration(e.currentTarget.duration || durSec || 0)}
+                                        onPlay={()=>setMediaPlaying(true)}
+                                        onPause={()=>setMediaPlaying(false)}
+                                        onEnded={()=>setMediaPlaying(false)}
+                                    />
+                                    <div className="flex items-center gap-2 text-xs font-mono text-[#666] dark:text-white/55">
+                                        <span>{fmtTime(mediaCurrentTime)}</span>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max={Math.max(1, playbackDuration)}
+                                            step="0.1"
+                                            value={Math.min(mediaCurrentTime, Math.max(1, playbackDuration))}
+                                            onChange={(e)=>{
+                                                const next = Number(e.target.value) || 0;
+                                                if(mediaRef.current) mediaRef.current.currentTime = next;
+                                                setMediaCurrentTime(next);
+                                            }}
+                                            className="min-w-0 flex-1 accent-primary"
+                                            style={{background:`linear-gradient(90deg, #3B82F6 ${mediaProgress}%, var(--c-surface-container-highest) ${mediaProgress}%)`}}
+                                        />
+                                        <span>{fmtTime(playbackDuration || mediaCurrentTime)}</span>
+                                    </div>
+                                    <div className="min-h-0 rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] p-3 dark:border-white/[0.12] dark:bg-white/[0.05]">
+                                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                                            <span className="rounded-[10px] bg-[#eef2ff] px-2 py-1 font-mono text-[11px] font-bold tabular-nums text-primary dark:bg-white/[0.08] dark:text-white">
+                                                {fmtTime(currentVideoSegment.start || 0)}
+                                            </span>
+                                            <span className="text-xs font-bold text-[#666] dark:text-white/55">
+                                                {lang === 'zh' ? '当前字幕' : 'Current subtitle'}
+                                            </span>
+                                            <div className="ml-auto flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={()=>handleVideoSegmentStep(-1)}
+                                                    disabled={activeRawSegmentIndex <= 0}
+                                                    className="inline-flex h-8 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                                                >
+                                                    <SvgIcon name="arrow_back" className="text-[14px]"/>
+                                                    {lang === 'zh' ? '上一句' : 'Prev'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={()=>handleVideoSegmentStep(1)}
+                                                    disabled={activeRawSegmentIndex >= segments.length - 1}
+                                                    className="inline-flex h-8 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                                                >
+                                                    {lang === 'zh' ? '下一句' : 'Next'}
+                                                    <SvgIcon name="arrow-right" className="text-[14px]"/>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <textarea
+                                            data-transcript-segment="true"
+                                            value={currentVideoSegment.text || ''}
+                                            ref={(node)=>{ if(node) autoSizeTextarea(node); }}
+                                            onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(activeRawSegmentIndex, e.target.value); }}
+                                            onFocus={()=>setFollowPlayback(false)}
+                                            rows={2}
+                                            className="max-h-[9rem] min-h-[3.25rem] w-full resize-none overflow-y-auto border-none bg-transparent p-0 text-base font-semibold leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
                         <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
                             {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
                                 <div
@@ -1353,6 +1501,8 @@ const Editor = () => {
                                         </div>
                                     )}
                                 </div>
+                            </>
+                        )}
                             </section>
 
                             <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">

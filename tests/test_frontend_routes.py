@@ -278,6 +278,23 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "导出转录" in source
 
 
+def test_editor_video_review_keeps_current_subtitle_as_core_object() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
+
+    assert "const [transcriptReviewMode, setTranscriptReviewMode] = useState('text')" in source
+    assert "const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
+    assert "文本校对" in source
+    assert "视频复查" in source
+    assert "currentVideoSegment" in source
+    assert "当前字幕" in source
+    assert "handleVideoSegmentStep" in source
+    assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
+    assert "max-h-[min(42vh,360px)]" in source
+    assert "视频复查模式不是视频播放器页面" in design_system
+    assert "没有原视频、没有时间戳或只有音频时" in design_system
+
+
 def test_editor_destructive_top_actions_require_confirmation() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
