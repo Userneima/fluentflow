@@ -195,6 +195,8 @@ LOCAL_CLOUD_WORKSPACE_PATHS = {
     "/version",
     "/runtime-config",
     "/credentials/status",
+    "/account/import-history",
+    "/local-history/candidates",
     "/speaker-diarization/status",
 }
 
@@ -1561,6 +1563,16 @@ def _cleanup_task_source_files(task_id: str, metadata: dict[str, Any] | None = N
     source_dir = _source_storage_dir() / task_id
     if _remove_tree(source_dir):
         removed.append(str(source_dir))
+    removed.extend(_cleanup_video_source_temp_files(metadata).get("source_retention_removed_paths") or [])
+    return {
+        "source_retention_status": "deleted" if removed else "not_found",
+        "source_retention_removed_paths": removed,
+        "source_retention_cleaned_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _cleanup_video_source_temp_files(metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    removed: list[str] = []
 
     video_source = (metadata or {}).get("video_source")
     if isinstance(video_source, dict):
@@ -1614,6 +1626,13 @@ def _artifact_retention_days() -> int:
         return 30
 
 
+def _source_retention_days() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_SOURCE_RETENTION_DAYS", "7")), 0)
+    except ValueError:
+        return 7
+
+
 def _parse_job_time(value: Any) -> datetime | None:
     if not value:
         return None
@@ -1627,12 +1646,49 @@ def _parse_job_time(value: Any) -> datetime | None:
         return None
 
 
+def _source_retention_expiry(days: int) -> str:
+    return (
+        datetime.now(timezone.utc).astimezone() + timedelta(days=days)
+    ).isoformat(timespec="seconds")
+
+
+def _expire_retained_source_file(job: dict[str, Any], *, now: datetime | None = None) -> bool:
+    task_id = str(job.get("task_id") or "")
+    if not task_id:
+        return False
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    if not result.get("source_file_available"):
+        return False
+    expires_at = _parse_job_time(result.get("source_retention_expires_at"))
+    if expires_at is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    if expires_at > current.astimezone(timezone.utc):
+        return False
+    cleanup = _cleanup_task_source_files(task_id, job.get("metadata"))
+    next_result = {
+        **result,
+        "source_file_available": False,
+        "source_file_storage": None,
+        "source_retention_status": "expired",
+        "source_retention_cleaned_at": cleanup.get("source_retention_cleaned_at"),
+    }
+    update_job_result(
+        task_id,
+        next_result,
+        client_id=job.get("client_id"),
+        touch_updated_at=False,
+    )
+    return True
+
+
 def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
     if not client_id:
         return {"pruned_count": 0, "task_ids": []}
     keep_count = _history_retention_per_client()
     retention_days = _artifact_retention_days()
-    if keep_count <= 0 and retention_days <= 0:
+    source_retention_days = _source_retention_days()
+    if keep_count <= 0 and retention_days <= 0 and source_retention_days <= 0:
         return {"pruned_count": 0, "task_ids": []}
 
     cutoff = (
@@ -1642,10 +1698,14 @@ def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
     )
     jobs = list_jobs_for_retention(client_id=client_id)
     pruned_task_ids: list[str] = []
+    expired_source_count = 0
+    now = datetime.now(timezone.utc)
     for index, job in enumerate(jobs):
         task_id = str(job.get("task_id") or "")
         if not task_id or job.get("status") not in {"completed", "failed", "cancelled"}:
             continue
+        if _expire_retained_source_file(job, now=now):
+            expired_source_count += 1
         too_many = keep_count > 0 and index >= keep_count
         updated_at = _parse_job_time(job.get("updated_at") or job.get("created_at"))
         too_old = cutoff is not None and updated_at is not None and updated_at < cutoff
@@ -1655,7 +1715,11 @@ def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
 
     if pruned_task_ids:
         delete_jobs(pruned_task_ids, client_id=client_id)
-    return {"pruned_count": len(pruned_task_ids), "task_ids": pruned_task_ids}
+    return {
+        "pruned_count": len(pruned_task_ids),
+        "task_ids": pruned_task_ids,
+        "expired_source_count": expired_source_count,
+    }
 
 
 def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
@@ -1663,13 +1727,32 @@ def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], met
     artifacts = dict(next_result.get("artifacts") or {})
     if artifacts.get("playback_audio"):
         next_result["playback_audio_available"] = True
-    cleanup = _cleanup_task_source_files(task_id, metadata)
-    next_result["source_file_available"] = False
-    next_result.update({
-        key: value
-        for key, value in cleanup.items()
-        if key != "source_retention_removed_paths"
-    })
+    retention_days = _source_retention_days()
+    if retention_days <= 0:
+        cleanup = _cleanup_task_source_files(task_id, metadata)
+        next_result["source_file_available"] = False
+        next_result.update({
+            key: value
+            for key, value in cleanup.items()
+            if key != "source_retention_removed_paths"
+        })
+        return next_result
+
+    _cleanup_video_source_temp_files(metadata)
+    source = _find_source_file(task_id)
+    if source:
+        next_result.update({
+            "source_file_available": True,
+            "source_file_storage": "local",
+            "source_retention_status": "retained",
+            "source_retention_days": retention_days,
+            "source_retention_expires_at": _source_retention_expiry(retention_days),
+        })
+    else:
+        next_result.update({
+            "source_file_available": False,
+            "source_retention_status": "not_found",
+        })
     return next_result
 
 
@@ -2886,12 +2969,13 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
         return
 
     def on_progress(progress: VideoSourceProgress) -> None:
+        progress_value = _video_source_progress_value(progress)
         upsert_job(
             task_id=task_id,
             status="running",
             client_id=client_id,
             stage=progress.stage,
-            progress=_video_source_progress_value(progress),
+            progress=progress_value,
             summary_status=progress.message,
             metadata=_metadata(
                 route="/video-sources/jobs",
@@ -2902,6 +2986,16 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
                     "total_bytes": progress.total_bytes,
                 },
             ),
+        )
+        _publish_job_event_from_thread(
+            task_id,
+            {
+                "stage": progress.stage,
+                "progress": progress_value,
+                "message": progress.message,
+                "loaded_bytes": progress.loaded_bytes,
+                "total_bytes": progress.total_bytes,
+            },
         )
 
     try:
@@ -2977,6 +3071,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             source_file_size_mb=source_file_size_mb,
             metadata=metadata,
         )
+        _publish_job_event_from_thread(task_id, {"stage": "queued", "progress": 0})
         enqueue_item = {
             "task_id": task_id,
             "source_path": str(target_path),
@@ -3012,6 +3107,10 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
                 queue_options=options,
                 raw_error=str(exc),
             ),
+        )
+        _publish_job_event_from_thread(
+            task_id,
+            {"stage": "error", "progress": 100, "error": friendly_error},
         )
 
 
@@ -3218,6 +3317,7 @@ API_ROUTE_PREFIXES: set[str] = {
     "health",
     "hotword-libraries",
     "jobs",
+    "local-history",
     "ops",
     "process",
     "queue",

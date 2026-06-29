@@ -1,9 +1,30 @@
 export const fileNameStem = (name) => (name || "").replace(/\.[^/.]+$/, "") || "";
-export const stripGeneratedFilenamePrefix = (name) => String(name || '').replace(/^[0-9]{10,24}[-_]+/, '');
+export const stripGeneratedFilenamePrefix = (name) => String(name || '').replace(/^(?:[0-9]{10,24}|BV[a-zA-Z0-9]{8,})[-_]+/, '');
 export const displayTitleForUser = (value, fallback='') => {
     const clean = stripGeneratedFilenamePrefix(fileNameStem(value)).trim();
     if (clean) return clean;
     return stripGeneratedFilenamePrefix(fileNameStem(fallback)).trim();
+};
+export const videoLinkDisplayTitle = (value, lang='zh') => {
+    const raw = String(value || '').trim();
+    const match = raw.match(/https?:\/\/[^\s，。！？、'"“”‘’）)\]】]+/i);
+    if (!match) return displayTitleForUser(raw, raw) || (lang === 'zh' ? '视频链接' : 'Video link');
+    const url = match[0].replace(/[)）\]】"'“”‘’。，,]+$/g, '');
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+        const parts = parsed.pathname.split('/').filter(Boolean);
+        const bv = parts.find((part) => /^BV[a-zA-Z0-9]+$/.test(part));
+        if (host.includes('bilibili.com') || host === 'b23.tv') {
+            return bv
+                ? (lang === 'zh' ? `Bilibili 视频 ${bv}` : `Bilibili video ${bv}`)
+                : (lang === 'zh' ? 'Bilibili 视频' : 'Bilibili video');
+        }
+        if (host.includes('douyin.com')) return lang === 'zh' ? '抖音视频链接' : 'Douyin video link';
+        if (host.includes('youtube.com') || host.includes('youtu.be')) return lang === 'zh' ? 'YouTube 视频' : 'YouTube video';
+        if (host) return lang === 'zh' ? `${host} 视频链接` : `${host} video link`;
+    } catch(_) {}
+    return lang === 'zh' ? '视频链接' : 'Video link';
 };
 export const compactDisplayFilename = (name, maxChars=42) => {
     const value = displayTitleForUser(name, name) || String(name || '').trim();

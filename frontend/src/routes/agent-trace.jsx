@@ -1,325 +1,391 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Link, useParams, useNavigate} from 'react-router-dom';
-import {API_BASE, apiFetch, noteModeLabel, useI18n} from '../app/shared.jsx';
-import SvgIcon from '../components/SvgIcon.jsx';
+import {Link, useNavigate, useParams} from 'react-router-dom';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    CheckCircle2,
+    CircleDashed,
+    Clock3,
+    FileText,
+    GitBranch,
+    LoaderCircle,
+    Route,
+    XCircle,
+} from 'lucide-react';
+import {API_BASE, apiFetch, noteModeLabel, useApp, useI18n} from '../app/shared.jsx';
 
-const languageLabel = (value, lang) => {
-    const normalized = String(value || '').toLowerCase();
-    if (!normalized || normalized === 'auto') return lang === 'zh' ? '未记录' : 'Not recorded';
-    if (normalized.startsWith('en')) return lang === 'zh' ? '英文' : 'English';
-    if (normalized.startsWith('zh') || normalized.startsWith('cmn')) return lang === 'zh' ? '中文' : 'Chinese';
-    return value;
-};
-
-const materialTypeLabel = (type, lang) => {
+const statusText = (status, lang) => {
     const isZh = lang === 'zh';
     const labels = {
-        course_transcript_file: isZh ? '课程字幕文件' : 'Course transcript file',
-        course_material: isZh ? '课程材料' : 'Course material',
-        lecture_material: isZh ? '讲座材料' : 'Lecture material',
-        course_video_pending_content: isZh ? '待转录课程视频' : 'Course video pending transcript',
-        lecture_video_pending_content: isZh ? '待转录讲座视频' : 'Lecture video pending transcript',
+        completed: isZh ? '已完成' : 'Completed',
+        running: isZh ? '进行中' : 'Running',
+        pending: isZh ? '等待中' : 'Pending',
+        failed: isZh ? '失败' : 'Failed',
+        skipped: isZh ? '已跳过' : 'Skipped',
+        cancelled: isZh ? '已取消' : 'Cancelled',
     };
-    return labels[type] || type || (isZh ? '待判断' : 'Pending');
+    return labels[status] || status || (isZh ? '未记录' : 'Not recorded');
 };
 
-const confidenceLabel = (value, lang) => {
+const sourceText = (source, lang) => {
+    if (source === 'recorded') return lang === 'zh' ? '真实记录' : 'Recorded';
+    if (source === 'inferred') return lang === 'zh' ? '兼容推导' : 'Inferred';
+    return source || (lang === 'zh' ? '未记录' : 'Not recorded');
+};
+
+const confidenceText = (value, lang) => {
     const isZh = lang === 'zh';
     const labels = {
-        high: isZh ? '高' : 'High',
-        medium: isZh ? '中' : 'Medium',
-        low: isZh ? '低' : 'Low',
+        high: isZh ? '高置信度' : 'High confidence',
+        medium: isZh ? '中置信度' : 'Medium confidence',
+        low: isZh ? '低置信度' : 'Low confidence',
     };
-    return labels[value] || value || (isZh ? '未记录' : 'Not recorded');
-};
-
-const routeLabel = (plan, lang) => {
-    const tool = plan?.execution?.transcription_tool || '';
-    const scope = plan?.execution?.scope || '';
-    if (tool === 'transcript_parser') return lang === 'zh' ? '读取字幕文件' : 'Read transcript file';
-    if (tool === 'local_whisper') return lang === 'zh' ? '本地 faster-whisper' : 'Local faster-whisper';
-    if (tool === 'cloud_stt') return lang === 'zh' ? '云端转录' : 'Cloud STT';
-    if (scope === 'cloud') return lang === 'zh' ? '云端执行' : 'Cloud execution';
-    if (scope === 'local') return lang === 'zh' ? '本机执行' : 'Local execution';
-    return lang === 'zh' ? '按任务来源决定' : 'From task source';
-};
-
-const sourceTypeLabel = (value, lang) => {
-    const isZh = lang === 'zh';
-    const labels = {
-        video_link: isZh ? '视频链接' : 'Video link',
-        transcript_file: isZh ? '字幕文件' : 'Transcript file',
-        video: isZh ? '视频文件' : 'Video file',
-        audio: isZh ? '音频文件' : 'Audio file',
-    };
-    return labels[value] || value || (isZh ? '未知来源' : 'Unknown source');
-};
-
-const formatDuration = (seconds, lang) => {
-    const value = Number(seconds) || 0;
-    if (!value) return lang === 'zh' ? '未记录' : 'Not recorded';
-    const mins = Math.round(value / 60);
-    if (mins < 1) return lang === 'zh' ? `${Math.round(value)} 秒` : `${Math.round(value)} sec`;
-    if (mins < 60) return lang === 'zh' ? `${mins} 分钟` : `${mins} min`;
-    const hours = Math.floor(mins / 60);
-    const rest = mins % 60;
-    return lang === 'zh' ? `${hours} 小时 ${rest} 分钟` : `${hours}h ${rest}m`;
-};
-
-const compactList = (items, fallback, limit = 3) => {
-    const values = (Array.isArray(items) ? items : []).map((item) => String(item || '').trim()).filter(Boolean);
-    if (!values.length) return fallback;
-    return values.slice(0, limit).join('；');
-};
-
-const noteStatusText = (note, lang) => {
-    const status = note?.status || note?.diagnosis?.status || 'unavailable';
-    const isZh = lang === 'zh';
-    const labels = {
-        completed: isZh ? '笔记已生成' : 'Note generated',
-        pending: isZh ? '笔记生成中' : 'Note pending',
-        skipped: isZh ? '仅转录，未生成笔记' : 'Transcript only',
-        failed: isZh ? '笔记生成失败' : 'Note failed',
-        unavailable: isZh ? '没有可用笔记' : 'No note available',
-    };
-    return labels[status] || status;
-};
-
-const stageLabel = (step, lang) => {
-    if (step?.label) return step.label;
-    const id = String(step?.id || '');
-    const isZh = lang === 'zh';
-    const labels = {
-        resolve_link: isZh ? '解析链接' : 'Resolve link',
-        download_video: isZh ? '下载视频' : 'Download video',
-        save_source: isZh ? '保存来源' : 'Save source',
-        parse_subtitles: isZh ? '读取字幕' : 'Read subtitles',
-        extract_audio: isZh ? '提取音频' : 'Extract audio',
-        local_stt: isZh ? '本地转录' : 'Local STT',
-        cloud_stt: isZh ? '云端转录' : 'Cloud STT',
-        diarize_speakers: isZh ? '区分讲话人' : 'Diarize speakers',
-        cleanup_transcript: isZh ? '清理转录' : 'Clean transcript',
-        rebuild_paragraphs: isZh ? '整理段落' : 'Rebuild paragraphs',
-        generate_note: isZh ? '生成笔记' : 'Generate note',
-        save_artifacts: isZh ? '保存产物' : 'Save artifacts',
-        export_lark: isZh ? '导出飞书' : 'Export to Feishu',
-        regenerate_note: isZh ? '重生笔记' : 'Regenerate note',
-    };
-    return labels[id] || id || (isZh ? '处理步骤' : 'Processing step');
+    return labels[value] || value || '';
 };
 
 const statusTone = (status) => {
-    if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200';
-    if (status === 'pending') return 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50';
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200';
+    if (status === 'failed') return {
+        dot: 'border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+        badge: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+        Icon: XCircle,
+    };
+    if (status === 'running') return {
+        dot: 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200',
+        badge: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200',
+        Icon: LoaderCircle,
+    };
+    if (status === 'pending') return {
+        dot: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50',
+        badge: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50',
+        Icon: CircleDashed,
+    };
+    if (status === 'skipped' || status === 'cancelled') return {
+        dot: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100',
+        badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100',
+        Icon: AlertTriangle,
+    };
+    return {
+        dot: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+        badge: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+        Icon: CheckCircle2,
+    };
 };
 
-const evidenceWeightText = (policy, lang) => {
-    const transcriptWeight = policy?.transcript_content;
-    const filenameWeight = policy?.filename;
-    if (lang === 'zh') {
-        if (transcriptWeight === 'primary') return '以转录正文为主，文件名只作弱信号。';
-        if (transcriptWeight === 'pending') return '转录尚未完成，当前主要依赖来源、时长和文件名弱信号。';
-        if (filenameWeight === 'weak') return '文件名只作弱信号。';
-        return '依据来自当前任务包。';
-    }
-    if (transcriptWeight === 'primary') return 'Transcript content is primary; filename is only a weak signal.';
-    if (transcriptWeight === 'pending') return 'Transcript is pending, so this uses source, duration, and weak filename signals.';
-    if (filenameWeight === 'weak') return 'Filename is only a weak signal.';
-    return 'Evidence comes from this task package.';
+const compactValues = (items, limit = 5) => (
+    (Array.isArray(items) ? items : [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .slice(0, limit)
+);
+
+const stageLabel = (step, lang) => {
+    const id = String(step?.id || step?.tool || '');
+    const labels = {
+        source_fetch: lang === 'zh' ? '素材获取' : 'Source',
+        subtitle_parse: lang === 'zh' ? '字幕解析' : 'Subtitle parse',
+        audio_prepare: lang === 'zh' ? '音频准备' : 'Audio',
+        transcription: lang === 'zh' ? '语音转写' : 'Transcription',
+        subtitle_prepare: lang === 'zh' ? '字幕整理' : 'Subtitle prep',
+        note_generation: lang === 'zh' ? '笔记生成' : 'Note',
+        result_save: lang === 'zh' ? '结果保存' : 'Save',
+        feishu_export: lang === 'zh' ? '飞书导出' : 'Feishu',
+        resolve_link: lang === 'zh' ? '解析链接' : 'Resolve link',
+        download_video: lang === 'zh' ? '下载视频' : 'Download video',
+        save_source: lang === 'zh' ? '保存来源' : 'Save source',
+        parse_subtitles: lang === 'zh' ? '读取字幕' : 'Read subtitles',
+        extract_audio: lang === 'zh' ? '提取音频' : 'Extract audio',
+        local_stt: lang === 'zh' ? '本地转录' : 'Local STT',
+        cloud_stt: lang === 'zh' ? '云端转录' : 'Cloud STT',
+        generate_note: lang === 'zh' ? '生成笔记' : 'Generate note',
+        save_artifacts: lang === 'zh' ? '保存产物' : 'Save artifacts',
+        export_lark: lang === 'zh' ? '导出飞书' : 'Export Feishu',
+    };
+    return step?.title || step?.label || labels[id] || id || (lang === 'zh' ? '处理步骤' : 'Processing step');
 };
 
-function buildJudgmentCards(packageData, lang) {
-    const isZh = lang === 'zh';
+function fallbackDecisionEntries(packageData, lang) {
     const plan = packageData?.processing_plan || {};
     const material = plan.material || {};
-    const noteStrategy = plan.note_strategy || {};
-    const transcript = packageData?.transcript || {};
     const note = packageData?.note || {};
-    const source = packageData?.source || {};
-    const stats = note.stats || {};
-    const evidenceFallback = isZh ? '当前任务包没有记录更细的判断依据。' : 'This task package does not include more detailed evidence.';
-    const evidenceText = compactList(material.evidence, evidenceFallback);
-    const noteMode = noteStrategy.resolved_mode || note.resolved_mode || noteStrategy.selected_mode || note.requested_mode;
-    const chunkCount = stats.chunk_count || noteStrategy.chunk_count;
-    const evidenceCount = stats.evidence_count;
-    const covered = stats.covered_important_evidence_count;
-    const important = stats.important_evidence_count;
-    const coverage = important ? `${covered || 0}/${important}` : null;
-    const preview = String(transcript.preview || '').trim();
-
-    const cards = [
+    const noteMode = plan.note_strategy?.resolved_mode || note.resolved_mode || plan.note_strategy?.selected_mode || note.requested_mode || 'auto';
+    const fallback = [
         {
-            key: 'material',
-            icon: 'psychology',
-            title: isZh ? '材料判断' : 'Material judgment',
-            evidenceLabel: isZh ? '依据' : 'Evidence',
-            impactLabel: isZh ? '对结果的影响' : 'Impact on result',
-            conclusion: materialTypeLabel(material.type, lang),
-            meta: isZh ? `置信度：${confidenceLabel(material.confidence, lang)}` : `Confidence: ${confidenceLabel(material.confidence, lang)}`,
-            evidence: evidenceText,
-            impact: material.type?.includes('lecture')
-                ? (isZh ? '因此按讲座笔记处理，优先保留主题推进、论证和关键例子。' : 'Therefore it is treated as lecture notes, preserving topic flow, arguments, and examples.')
-                : (isZh ? '因此按课程笔记处理，优先保留结构、知识点和复习线索。' : 'Therefore it is treated as course notes, preserving structure, concepts, and review cues.'),
+            id: 'material_classification',
+            title: lang === 'zh' ? '判断材料类型' : 'Material classification',
+            status: material.type ? 'completed' : 'pending',
+            decision: material.type || (lang === 'zh' ? '待判断' : 'Pending'),
+            reason: plan.goal?.reason || (lang === 'zh' ? '根据来源、时长和正文线索判断材料用途。' : 'Judged from source, duration, and transcript signals.'),
+            evidence: compactValues(material.evidence),
+            impact: plan.goal?.reason || (lang === 'zh' ? '影响后续笔记结构和重点保留方式。' : 'Affects note structure and what gets preserved.'),
+            source: 'inferred',
+            confidence: material.confidence,
         },
         {
-            key: 'route',
-            icon: 'cloud_done',
-            title: isZh ? '转录路线' : 'Transcription route',
-            evidenceLabel: isZh ? '依据' : 'Evidence',
-            impactLabel: isZh ? '对结果的影响' : 'Impact on result',
-            conclusion: routeLabel(plan, lang),
-            meta: sourceTypeLabel(material.source_type || source.type, lang),
-            evidence: [
-                plan.execution?.transcription_tool ? `${isZh ? '工具' : 'Tool'}：${plan.execution.transcription_tool}` : '',
-                source.duration_seconds || material.duration_seconds ? `${isZh ? '时长' : 'Duration'}：${formatDuration(source.duration_seconds || material.duration_seconds, lang)}` : '',
-                languageLabel(transcript.source_language || transcript.detected_language || material.language, lang),
-            ].filter(Boolean).join(' · ') || evidenceFallback,
-            impact: plan.execution?.scope === 'cloud'
-                ? (isZh ? '云端路线适合对准确率要求更高的材料，前端不暴露个人密钥。' : 'Cloud route fits accuracy-sensitive material; personal keys are not exposed in the UI.')
-                : (isZh ? '本机路线适合私人材料、开发调试或云端不可用时兜底。' : 'Local route fits private material, development, or cloud fallback.'),
+            id: 'note_mode_selection',
+            title: lang === 'zh' ? '选择笔记生成方式' : 'Note mode selection',
+            status: noteMode ? 'completed' : 'pending',
+            decision: noteModeLabel(noteMode, lang),
+            reason: plan.note_strategy?.reason || (lang === 'zh' ? '按当前自动模式和材料信息选择。' : 'Chosen from automatic mode and material signals.'),
+            evidence: compactValues([
+                material.duration_seconds ? `${lang === 'zh' ? '时长' : 'Duration'}：${Math.round(Number(material.duration_seconds) / 60)} min` : '',
+                plan.note_strategy?.confidence ? `${lang === 'zh' ? '置信度' : 'Confidence'}：${plan.note_strategy.confidence}` : '',
+            ]),
+            impact: lang === 'zh' ? '影响生成速度、结构完整度和证据覆盖。' : 'Affects speed, structure, and evidence coverage.',
+            source: 'inferred',
+            confidence: plan.note_strategy?.confidence,
         },
         {
-            key: 'note',
-            icon: 'subject',
-            title: isZh ? '笔记策略' : 'Note strategy',
-            evidenceLabel: isZh ? '依据' : 'Evidence',
-            impactLabel: isZh ? '对结果的影响' : 'Impact on result',
-            conclusion: noteModeLabel(noteMode || 'auto', lang),
-            meta: [
-                chunkCount ? `${isZh ? '分块' : 'Chunks'}：${chunkCount}` : '',
-                evidenceCount ? `${isZh ? '证据' : 'Evidence'}：${evidenceCount}` : '',
-                coverage ? `${isZh ? '重点覆盖' : 'Coverage'}：${coverage}` : '',
-            ].filter(Boolean).join(' · ') || (isZh ? '未记录生成统计' : 'No generation stats recorded'),
-            evidence: noteStrategy.reason || note.diagnosis?.detail || (isZh ? '按转录长度、材料类型和当前模板选择笔记结构。' : 'Chosen from transcript length, material type, and active template.'),
-            impact: noteMode === 'high_fidelity' || noteMode === 'chapter_coverage'
-                ? (isZh ? '会牺牲一些速度，换取更完整的结构和重点覆盖。' : 'Trades speed for stronger structure and coverage.')
-                : (isZh ? '处理速度更快，适合长度适中或结构清楚的材料。' : 'Faster processing for shorter or clearly structured material.'),
-        },
-        {
-            key: 'review',
-            icon: note.status === 'failed' ? 'error' : 'verified',
-            title: isZh ? '复查点' : 'Review points',
-            evidenceLabel: isZh ? '依据' : 'Evidence',
-            impactLabel: isZh ? '下一步' : 'Next step',
-            conclusion: noteStatusText(note, lang),
-            meta: [
-                transcript.raw_segment_count ? `${isZh ? '原文段' : 'Raw segments'}：${transcript.raw_segment_count}` : '',
-                transcript.display_segment_count ? `${isZh ? '展示段' : 'Display segments'}：${transcript.display_segment_count}` : '',
-                note.markdown_chars ? `${isZh ? '笔记字数' : 'Note chars'}：${Number(note.markdown_chars).toLocaleString()}` : '',
-            ].filter(Boolean).join(' · ') || (isZh ? '没有记录复查统计' : 'No review stats recorded'),
-            evidence: note.diagnosis?.detail || evidenceWeightText(material.evidence_policy, lang),
-            impact: note.diagnosis?.next_action || (isZh ? '下一步在编辑器复查正文、下载字幕，必要时重生笔记。' : 'Next, review the note in Editor, download subtitles, or regenerate when needed.'),
+            id: 'note_generation_outcome',
+            title: lang === 'zh' ? '判断笔记生成结果' : 'Note result',
+            status: note.status || note.diagnosis?.status || 'pending',
+            decision: note.diagnosis?.title || (lang === 'zh' ? '等待结果' : 'Waiting for result'),
+            reason: note.diagnosis?.detail || '',
+            evidence: compactValues([
+                note.markdown_chars ? `${lang === 'zh' ? '笔记字数' : 'Note chars'}：${Number(note.markdown_chars).toLocaleString()}` : '',
+            ]),
+            impact: note.diagnosis?.next_action || '',
+            source: 'inferred',
         },
     ];
-
-    if (preview) {
-        cards.push({
-            key: 'preview',
-            icon: 'closed_caption',
-            title: isZh ? '转录信号' : 'Transcript signal',
-            evidenceLabel: isZh ? '依据' : 'Evidence',
-            impactLabel: isZh ? '对判断的影响' : 'Impact on judgment',
-            conclusion: isZh ? '正文已可用于判断' : 'Transcript is available for judgment',
-            meta: languageLabel(transcript.source_language || transcript.detected_language || material.language, lang),
-            evidence: preview.length > 180 ? `${preview.slice(0, 180)}...` : preview,
-            impact: evidenceWeightText(material.evidence_policy, lang),
-        });
-    }
-
-    return cards;
+    return fallback.filter((entry) => entry.title || entry.decision);
 }
 
-function buildExecutionSteps(packageData, lang) {
-    const traceSteps = Array.isArray(packageData?.tool_trace?.steps) ? packageData.tool_trace.steps : [];
-    if (traceSteps.length) {
-        return traceSteps.map((step) => ({
-            id: step.id || step.label,
-            title: stageLabel(step, lang),
-            status: step.status || 'done',
-            detail: step.error_reason || step.reason || step.tool || null,
-            duration: step.duration_seconds,
-        }));
-    }
-    const planSteps = Array.isArray(packageData?.processing_plan?.steps) ? packageData.processing_plan.steps : [];
-    return planSteps.map((step) => ({
-        id: step.id || step.label,
-        title: step.label || step.id,
-        status: 'done',
-        detail: step.reason || step.tool || null,
-        duration: null,
+function decisionEntries(packageData, lang) {
+    const entries = packageData?.decision_log?.entries;
+    if (Array.isArray(entries) && entries.length) return entries;
+    return fallbackDecisionEntries(packageData, lang);
+}
+
+function executionSteps(packageData, lang) {
+    const detailSteps = Array.isArray(packageData?.timeline) ? packageData.timeline : [];
+    if (detailSteps.length) return detailSteps.map((step) => ({
+        id: step.id,
+        title: stageLabel(step, lang),
+        status: step.status || 'pending',
+        detail: step.detail || step.error_reason || null,
+        source: step.source,
     }));
+    const traceSteps = Array.isArray(packageData?.tool_trace?.steps) ? packageData.tool_trace.steps : [];
+    if (traceSteps.length) return traceSteps.map((step) => ({
+        id: step.id || step.label,
+        title: stageLabel(step, lang),
+        status: step.status || 'completed',
+        detail: step.error_reason || step.reason || step.tool || null,
+        source: 'inferred',
+    }));
+    return [];
 }
 
-const JudgmentCard = ({card}) => (
-    <article className="min-w-0 rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
-        <div className="flex items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-[#f0f0f0] text-[#111111] dark:bg-white/[0.10] dark:text-white">
-                <SvgIcon name={card.icon} className="text-[18px]"/>
+const DecisionEntry = ({entry, index, isLast, lang}) => {
+    const tone = statusTone(entry.status);
+    const Icon = tone.Icon;
+    const evidence = compactValues(entry.evidence, 6);
+    const warnings = compactValues(entry.warnings, 3);
+    return (
+        <article className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
+            <div className="relative flex justify-center">
+                {!isLast && <div className="absolute top-11 h-[calc(100%-1rem)] w-px bg-[#dedada] dark:bg-white/[0.12]"/>}
+                <div className={`relative z-10 flex size-9 items-center justify-center rounded-[13px] border ${tone.dot}`}>
+                    <Icon className={`size-[18px] ${entry.status === 'running' ? 'animate-spin' : ''}`} strokeWidth={2.15}/>
+                </div>
             </div>
-            <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{card.title}</p>
-                <h2 className="mt-1 truncate font-headline text-[18px] font-extrabold leading-tight text-[#111111] dark:text-white" title={card.conclusion}>
-                    {card.conclusion}
-                </h2>
-                {card.meta && <p className="mt-1 text-[12px] font-bold text-[#676970] dark:text-white/55">{card.meta}</p>}
+            <div className="min-w-0 rounded-[18px] border border-[#dedada] bg-white p-4 shadow-[0_18px_44px_-38px_rgba(17,17,17,.42)] dark:border-white/[0.10] dark:bg-white/[0.055] dark:shadow-none">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-extrabold text-[#85868c] dark:text-white/45">
+                        {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${tone.badge}`}>
+                        {statusText(entry.status, lang)}
+                    </span>
+                    <span className="rounded-full border border-[#dedada] bg-[#f7f7f7] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.06] dark:text-white/55">
+                        {sourceText(entry.source, lang)}
+                    </span>
+                    {entry.confidence && (
+                        <span className="rounded-full border border-[#dedada] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.10] dark:text-white/55">
+                            {confidenceText(entry.confidence, lang)}
+                        </span>
+                    )}
+                </div>
+                <div className="mt-3 min-w-0">
+                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{entry.title}</p>
+                    <h2 className="mt-1 text-[18px] font-extrabold leading-snug text-[#111111] dark:text-white">
+                        {entry.decision || (lang === 'zh' ? '等待判断' : 'Pending decision')}
+                    </h2>
+                </div>
+                {entry.reason && (
+                    <p className="mt-3 text-[13px] font-semibold leading-6 text-[#2f3035] dark:text-white/78">
+                        {entry.reason}
+                    </p>
+                )}
+                {evidence.length > 0 && (
+                    <div className="mt-4">
+                        <p className="mb-2 text-[11px] font-extrabold text-[#85868c] dark:text-white/40">
+                            {lang === 'zh' ? '证据摘要' : 'Evidence summary'}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                            {evidence.map((item) => (
+                                <span key={item} className="rounded-[10px] border border-[#dedada] bg-[#fbfbfb] px-2.5 py-1 text-[12px] font-bold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                                    {item}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {entry.impact && (
+                    <div className="mt-4 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                        <span className="mr-1 font-extrabold text-[#111111] dark:text-white/82">{lang === 'zh' ? '影响：' : 'Impact: '}</span>
+                        {entry.impact}
+                    </div>
+                )}
+                {warnings.length > 0 && (
+                    <div className="mt-3 space-y-1.5">
+                        {warnings.map((item) => (
+                            <p key={item} className="rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2 text-[12px] font-bold leading-5 text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
+                                {item}
+                            </p>
+                        ))}
+                    </div>
+                )}
             </div>
+        </article>
+    );
+};
+
+const ExecutionStep = ({step, lang}) => {
+    const tone = statusTone(step.status);
+    return (
+        <div className="rounded-[14px] border border-[#dedada] bg-white p-3 dark:border-white/[0.10] dark:bg-white/[0.055]">
+            <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 truncate text-[13px] font-extrabold text-[#111111] dark:text-white" title={step.title}>
+                    {step.title}
+                </p>
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${tone.badge}`}>
+                    {statusText(step.status, lang)}
+                </span>
+            </div>
+            {step.detail && (
+                <p className="mt-1 text-[12px] leading-5 text-[#676970] dark:text-white/58">
+                    {step.detail}
+                </p>
+            )}
         </div>
-        <div className="mt-4 space-y-3 text-[13px] leading-5">
-            <div>
-                <p className="mb-1 text-[11px] font-extrabold text-[#85868c] dark:text-white/40">{card.evidenceLabel}</p>
-                <p className="text-[#2f3035] dark:text-white/78">{card.evidence}</p>
-            </div>
-            <div>
-                <p className="mb-1 text-[11px] font-extrabold text-[#85868c] dark:text-white/40">{card.impactLabel}</p>
-                <p className="text-[#2f3035] dark:text-white/78">{card.impact}</p>
-            </div>
-        </div>
-    </article>
+    );
+};
+
+const StatBlock = ({label, value}) => (
+    <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
+        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/45">{label}</p>
+        <p className="mt-1 truncate text-[14px] font-extrabold text-[#111111] dark:text-white">{value}</p>
+    </div>
+);
+
+const actionToneClass = (tone) => {
+    if (tone === 'danger') {
+        return 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200 dark:hover:bg-red-400/15';
+    }
+    if (tone === 'primary') {
+        return 'border-[#111111] bg-[#111111] text-white hover:bg-[#2a2a2a] dark:border-white dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]';
+    }
+    return 'border-[#dedada] bg-white text-[#111111] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]';
+};
+
+const visibleActions = (actions=[]) => (
+    (Array.isArray(actions) ? actions : [])
+        .filter((action) => action?.enabled !== false)
+        .filter((action) => ['open_result', 'regenerate_note', 'cancel', 'delete', 'resubmit'].includes(action.id))
 );
 
 const AgentTrace = () => {
     const {taskId} = useParams();
     const navigate = useNavigate();
     const {lang} = useI18n();
+    const {setLastResult} = useApp();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [packageData, setPackageData] = useState(null);
+    const [pageData, setPageData] = useState(null);
+    const [actionBusy, setActionBusy] = useState(null);
+    const [actionError, setActionError] = useState(null);
     const isZh = lang === 'zh';
 
-    useEffect(() => {
-        let stale = false;
-        const load = async () => {
-            setLoading(true);
-            setError(null);
+    const loadTaskDetail = async (staleRef={current:false}) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const detailResponse = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/detail`);
+            const detailData = await detailResponse.json().catch(() => ({}));
+            if (!detailResponse.ok) throw new Error(detailData?.detail || `HTTP ${detailResponse.status}`);
+            if (!staleRef.current) setPageData(detailData);
+        } catch (detailError) {
             try {
-                const r = await apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
-                const data = await r.json().catch(() => ({}));
-                if (!r.ok) throw new Error(data?.detail || `HTTP ${r.status}`);
-                if (!stale) setPackageData(data);
-            } catch (err) {
-                if (!stale) setError(err.message || String(err));
-            } finally {
-                if (!stale) setLoading(false);
+                const packageResponse = await apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
+                const packageData = await packageResponse.json().catch(() => ({}));
+                if (!packageResponse.ok) throw new Error(packageData?.detail || `HTTP ${packageResponse.status}`);
+                if (!staleRef.current) setPageData(packageData);
+            } catch (packageError) {
+                if (!staleRef.current) setError(packageError.message || detailError.message || String(packageError));
             }
-        };
-        load();
-        return () => { stale = true; };
+        } finally {
+            if (!staleRef.current) setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const staleRef = {current: false};
+        loadTaskDetail(staleRef);
+        return () => { staleRef.current = true; };
     }, [taskId]);
 
-    const title = packageData?.title || taskId;
-    const judgmentCards = useMemo(() => buildJudgmentCards(packageData, lang), [packageData, lang]);
-    const executionSteps = useMemo(() => buildExecutionSteps(packageData, lang), [packageData, lang]);
-    const plan = packageData?.processing_plan || {};
-    const note = packageData?.note || {};
-    const riskNotes = Array.isArray(plan.risk_notes) ? plan.risk_notes.filter(Boolean) : [];
+    const runAction = async (action) => {
+        if (!action || actionBusy) return;
+        setActionBusy(action.id);
+        setActionError(null);
+        try {
+            if (action.id === 'resubmit' || action.method === 'NAVIGATE') {
+                navigate(action.path || '/');
+                return;
+            }
+            if (action.id === 'open_result') {
+                const response = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`);
+                const job = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(job?.detail || `HTTP ${response.status}`);
+                if (job?.result) setLastResult(job.result);
+                navigate('/editor');
+                return;
+            }
+            const response = await apiFetch(`${API_BASE}${action.path}`, {method: action.method || 'POST'});
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data?.detail || `HTTP ${response.status}`);
+            if (action.id === 'delete') {
+                navigate('/tasks');
+                return;
+            }
+            if (action.id === 'regenerate_note' && data?.result) {
+                setLastResult(data.result);
+                navigate('/editor');
+                return;
+            }
+            await loadTaskDetail();
+        } catch (exc) {
+            setActionError(exc.message || String(exc));
+        } finally {
+            setActionBusy(null);
+        }
+    };
+
+    const title = pageData?.task?.title || pageData?.title || taskId;
+    const decisions = useMemo(() => decisionEntries(pageData, lang), [pageData, lang]);
+    const steps = useMemo(() => executionSteps(pageData, lang), [pageData, lang]);
+    const recordedCount = decisions.filter((entry) => entry.source === 'recorded').length;
+    const diagnosis = pageData?.diagnosis || pageData?.note?.diagnosis || {};
+    const taskStatus = pageData?.task?.status || pageData?.note?.status || '-';
+    const actions = visibleActions(pageData?.actions);
 
     if (loading) {
         return (
-            <main className="flex min-h-dvh flex-1 items-center justify-center bg-[#f8f7fb] p-8 dark:bg-[#101010]">
+            <main className="ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 items-center justify-center bg-[#f8f7fb] p-8 transition-[margin] duration-200 ease-out dark:bg-[#101010]">
                 <div className="flex items-center gap-2.5 text-sm font-semibold text-on-surface-variant">
-                    <SvgIcon name="sync" className="animate-spin text-base"/>
-                    {isZh ? '加载任务解释...' : 'Loading task explanation...'}
+                    <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
+                    {isZh ? '加载判断推进...' : 'Loading decision flow...'}
                 </div>
             </main>
         );
@@ -327,9 +393,10 @@ const AgentTrace = () => {
 
     if (error) {
         return (
-            <main className="flex min-h-dvh flex-1 flex-col items-center justify-center gap-4 bg-[#f8f7fb] p-8 dark:bg-[#101010]">
+            <main className="ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 flex-col items-center justify-center gap-4 bg-[#f8f7fb] p-8 transition-[margin] duration-200 ease-out dark:bg-[#101010]">
                 <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>
                 <button type="button" onClick={() => navigate('/tasks')} className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                    <ArrowLeft className="size-4" strokeWidth={2.15}/>
                     {isZh ? '返回任务列表' : 'Back to Tasks'}
                 </button>
             </main>
@@ -337,20 +404,21 @@ const AgentTrace = () => {
     }
 
     return (
-        <main className="min-h-dvh flex-1 overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
+        <main className="ml-[var(--sidebar-offset)] min-h-dvh flex-1 overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] transition-[margin] duration-200 ease-out hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
             <div className="mx-auto max-w-7xl space-y-5">
                 <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <Link to="/tasks" className="text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/55 dark:hover:text-white">
-                                {isZh ? '后台任务' : 'Tasks'}
+                            <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/55 dark:hover:text-white">
+                                <ArrowLeft className="size-3.5" strokeWidth={2.15}/>
+                                {isZh ? '任务记录' : 'Tasks'}
                             </Link>
                             <span className="text-[#a2a3a8] dark:text-white/35">/</span>
                             <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
-                                {isZh ? '素材处理解释' : 'Material explanation'}
+                                {isZh ? '判断推进' : 'Decision flow'}
                             </h1>
                             <span className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                {isZh ? '证据摘要' : 'Evidence summary'}
+                                {isZh ? 'Agent 工作流' : 'Agent workflow'}
                             </span>
                         </div>
                         <p className="mt-1 max-w-[72ch] truncate text-[13px] leading-5 text-[#676970] dark:text-white/60" title={title}>
@@ -359,84 +427,85 @@ const AgentTrace = () => {
                     </div>
                     <div className="flex flex-wrap gap-2 lg:justify-end">
                         <Link to="/editor" className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
-                            <SvgIcon name="open_in_new" className="text-base"/>
-                            {isZh ? '查看笔记' : 'View note'}
+                            <FileText className="size-4" strokeWidth={2.15}/>
+                            {isZh ? '查看结果' : 'View result'}
                         </Link>
                         <Link to="/tasks" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
-                            <SvgIcon name="monitoring" className="text-base"/>
-                            {isZh ? '任务记录' : 'Task record'}
+                            <Clock3 className="size-4" strokeWidth={2.15}/>
+                            {isZh ? '任务列表' : 'Task list'}
                         </Link>
                     </div>
                 </header>
 
                 <section className="rounded-[20px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.34fr)] lg:items-center">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.4fr)] lg:items-center">
                         <div className="min-w-0">
                             <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
-                                {isZh ? '本页展示什么' : 'What this page shows'}
+                                {isZh ? '判断记录' : 'Decision records'}
                             </p>
                             <h2 className="mt-1 font-headline text-[20px] font-extrabold text-[#111111] dark:text-white">
-                                {isZh ? '这条素材为什么被这样处理' : 'Why this material was processed this way'}
+                                {isZh ? '系统每一步为什么这样处理' : 'Why the system handled this task this way'}
                             </h2>
                             <p className="mt-2 max-w-[78ch] text-[13px] leading-5 text-[#676970] dark:text-white/60">
                                 {isZh
-                                    ? '这里把处理解释整理成可复查的判断结论、依据和影响。通用执行步骤放在下方，作为处理记录。'
-                                    : 'This turns the processing explanation into reviewable conclusions, evidence, and impact. Generic steps stay below as execution record.'}
+                                    ? '这里按时间顺序展示可复查的判断结论、依据和影响。执行记录放在右侧，用来对照任务实际进度。'
+                                    : 'This shows key decisions, evidence, and impact in order. The execution record sits on the side for progress context.'}
                             </p>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-[12px]">
-                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
-                                <p className="font-bold text-[#85868c] dark:text-white/45">{isZh ? '计划阶段' : 'Plan stage'}</p>
-                                <p className="mt-1 truncate font-extrabold text-[#111111] dark:text-white">{plan.planning_stage || '-'}</p>
-                            </div>
-                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
-                                <p className="font-bold text-[#85868c] dark:text-white/45">{isZh ? '笔记状态' : 'Note status'}</p>
-                                <p className="mt-1 truncate font-extrabold text-[#111111] dark:text-white">{noteStatusText(note, lang)}</p>
-                            </div>
+                        <div className="grid grid-cols-3 gap-2 text-[12px]">
+                            <StatBlock label={isZh ? '判断数' : 'Decisions'} value={decisions.length || '-'}/>
+                            <StatBlock label={isZh ? '真实记录' : 'Recorded'} value={recordedCount}/>
+                            <StatBlock label={isZh ? '任务状态' : 'Status'} value={statusText(taskStatus, lang)}/>
                         </div>
                     </div>
                 </section>
 
-                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.36fr)_minmax(320px,0.64fr)]">
+                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.24fr)_minmax(330px,0.76fr)]">
                     <section className="min-w-0 space-y-4">
-                        <div className="flex items-end justify-between gap-3">
-                            <div>
-                                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{isZh ? '判断结论' : 'Judgments'}</p>
-                                <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                                    {isZh ? '针对当前素材的分析' : 'Analysis for this material'}
-                                </h2>
-                            </div>
+                        <div>
+                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                                {isZh ? '判断推进流' : 'Decision stream'}
+                            </p>
+                            <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                {isZh ? '关键判断、依据和影响' : 'Key decisions, evidence, and impact'}
+                            </h2>
                         </div>
-                        <div className="grid gap-3 md:grid-cols-2">
-                            {judgmentCards.map((card) => <JudgmentCard key={card.key} card={card}/>)}
+                        <div className="space-y-3">
+                            {decisions.map((entry, index) => (
+                                <DecisionEntry
+                                    key={entry.id || `${entry.title}-${index}`}
+                                    entry={entry}
+                                    index={index}
+                                    isLast={index === decisions.length - 1}
+                                    lang={lang}
+                                />
+                            ))}
+                            {!decisions.length && (
+                                <div className="rounded-[18px] border border-[#dedada] bg-white p-6 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/58">
+                                    {isZh ? '当前任务还没有可展示的判断记录。' : 'No decision records are available for this task yet.'}
+                                </div>
+                            )}
                         </div>
                     </section>
 
                     <aside className="space-y-5 xl:border-l xl:border-[#dedada] xl:pl-5 xl:dark:border-white/[0.10]">
                         <section>
-                            <div className="mb-3">
-                                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{isZh ? '执行记录' : 'Execution record'}</p>
-                                <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                                    {isZh ? '真实经过的步骤' : 'Steps actually recorded'}
-                                </h2>
+                            <div className="mb-3 flex items-center gap-2">
+                                <Route className="size-4 text-[#676970] dark:text-white/55" strokeWidth={2.15}/>
+                                <div>
+                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                                        {isZh ? '执行记录' : 'Execution record'}
+                                    </p>
+                                    <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                        {isZh ? '任务实际进度' : 'Actual task progress'}
+                                    </h2>
+                                </div>
                             </div>
                             <div className="space-y-2">
-                                {executionSteps.map((step, index) => (
-                                    <div key={`${step.id}-${index}`} className="rounded-[14px] border border-[#dedada] bg-white p-3 dark:border-white/[0.10] dark:bg-white/[0.055]">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <p className="min-w-0 truncate text-[13px] font-extrabold text-[#111111] dark:text-white" title={step.title}>{step.title}</p>
-                                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${statusTone(step.status)}`}>
-                                                {step.status === 'failed' ? (isZh ? '失败' : 'Failed') : step.status === 'pending' ? (isZh ? '等待' : 'Pending') : (isZh ? '完成' : 'Done')}
-                                            </span>
-                                        </div>
-                                        {(step.detail || step.duration != null) && (
-                                            <p className="mt-1 text-[12px] leading-5 text-[#676970] dark:text-white/58">
-                                                {[step.detail, step.duration != null ? `${Math.round(step.duration)}s` : ''].filter(Boolean).join(' · ')}
-                                            </p>
-                                        )}
-                                    </div>
+                                {steps.map((step, index) => (
+                                    <ExecutionStep key={`${step.id}-${index}`} step={step} lang={lang}/>
                                 ))}
-                                {!executionSteps.length && (
+                                {!steps.length && (
                                     <p className="rounded-[14px] border border-[#dedada] bg-white p-3 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/58">
                                         {isZh ? '当前任务包没有记录执行步骤。' : 'This task package has no execution steps recorded.'}
                                     </p>
@@ -445,25 +514,48 @@ const AgentTrace = () => {
                         </section>
 
                         <section className="border-t border-[#dedada] pt-5 dark:border-white/[0.10]">
-                            <div className="mb-3">
-                                <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{isZh ? '限制和下一步' : 'Limits and next step'}</p>
-                                <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                                    {note.diagnosis?.title || (isZh ? '复查结果' : 'Review result')}
-                                </h2>
+                            <div className="mb-3 flex items-center gap-2">
+                                <GitBranch className="size-4 text-[#676970] dark:text-white/55" strokeWidth={2.15}/>
+                                <div>
+                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                                        {isZh ? '下一步' : 'Next step'}
+                                    </p>
+                                    <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                        {diagnosis.title || (isZh ? '复查结果' : 'Review result')}
+                                    </h2>
+                                </div>
                             </div>
                             <div className="space-y-2 text-[13px] leading-5 text-[#676970] dark:text-white/60">
-                                {riskNotes.length > 0 ? riskNotes.map((item) => (
-                                    <p key={item} className="rounded-[14px] border border-orange-300/40 bg-orange-50 p-3 font-semibold text-orange-900 dark:border-orange-300/20 dark:bg-orange-300/10 dark:text-orange-100">
-                                        {item}
-                                    </p>
-                                )) : (
+                                <p className={`rounded-[14px] border p-3 font-semibold ${
+                                    diagnosis.severity === 'error'
+                                        ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200'
+                                        : 'border-[#dedada] bg-white dark:border-white/[0.10] dark:bg-white/[0.055]'
+                                }`}>
+                                    {diagnosis.detail || diagnosis.next_action || (isZh ? '打开编辑器复查正文，必要时重生笔记。' : 'Open the editor to review the result, and regenerate the note if needed.')}
+                                </p>
+                                {diagnosis.next_action && diagnosis.next_action !== diagnosis.detail && (
                                     <p className="rounded-[14px] border border-[#dedada] bg-white p-3 font-semibold dark:border-white/[0.10] dark:bg-white/[0.055]">
-                                        {note.diagnosis?.next_action || (isZh ? '打开编辑器复查正文，必要时重生笔记。' : 'Open the editor to review the note, and regenerate if needed.')}
+                                        {diagnosis.next_action}
                                     </p>
                                 )}
-                                {riskNotes.length > 0 && note.diagnosis?.next_action && (
-                                    <p className="rounded-[14px] border border-[#dedada] bg-white p-3 font-semibold dark:border-white/[0.10] dark:bg-white/[0.055]">
-                                        {note.diagnosis.next_action}
+                                {actions.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                        {actions.map((action) => (
+                                            <button
+                                                key={action.id}
+                                                type="button"
+                                                disabled={!!actionBusy}
+                                                onClick={() => runAction(action)}
+                                                className={`inline-flex h-9 items-center rounded-[12px] border px-3 text-[12px] font-extrabold transition disabled:cursor-not-allowed disabled:opacity-55 ${actionToneClass(action.tone)}`}
+                                            >
+                                                {actionBusy === action.id ? (isZh ? '处理中...' : 'Working...') : action.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {actionError && (
+                                    <p className="rounded-[14px] border border-red-200 bg-red-50 p-3 font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
+                                        {actionError}
                                     </p>
                                 )}
                             </div>

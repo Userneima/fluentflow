@@ -34,8 +34,10 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
     enqueued: list[dict] = []
     jobs: list[dict] = []
+    published: list[tuple[str, dict]] = []
     monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
     monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(_H, "_publish_job_event_from_thread", lambda task_id, event: published.append((task_id, event)))
 
     _H._run_video_source_job({
         "task_id": "task-link",
@@ -62,12 +64,14 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     assert final_job["metadata"]["video_source"]["raw_title"] == "测试视频"
     assert final_job["metadata"]["video_source"]["display_title"] == "测试视频"
     assert Path(final_job["metadata"]["source_path"]).read_bytes() == b"downloaded video"
+    assert published[-1] == ("task-link", {"stage": "queued", "progress": 0})
 
 
 def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
     monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
     monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
-    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: None)
+    jobs: list[dict] = []
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
     started: list[dict] = []
     monkeypatch.setattr(_H, "_start_video_source_job", lambda item: started.append(item))
 
@@ -85,8 +89,62 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
         )
 
     assert response.status_code == 200
+    payload = response.json()
+    assert payload["job"]["status"] == "queued"
+    assert payload["job"]["stage"] == "queued"
+    assert payload["job"]["progress"] == 0
+    assert jobs[0]["status"] == "queued"
+    assert jobs[0]["stage"] == "queued"
+    assert jobs[0]["progress"] == 0
     assert started
     assert started[0]["options"] == {"stt_provider": "azure_batch"}
+
+
+def test_video_source_job_publishes_resolving_progress(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    source_file = tmp_path / "downloaded.mp4"
+    source_file.write_bytes(b"downloaded video")
+    saved = SavedVideoSource(
+        ok=True,
+        provider="direct",
+        source_url="https://v.douyinvod.com/play/?video_id=demo123",
+        download_url="https://v.douyinvod.com/play/?video_id=demo123&mime_type=video_mp4",
+        video_id="demo123",
+        raw_title="测试视频",
+        display_title="测试视频",
+        title="测试视频",
+        filename="demo123-测试视频.mp4",
+        file_path=str(source_file),
+        file_url="/video-sources/files/demo123.mp4",
+        metadata_path=str(tmp_path / "downloaded.source.json"),
+        size_bytes=source_file.stat().st_size,
+        downloaded_at="2026-06-06T00:00:00+08:00",
+    )
+
+    def fake_download(*args, **kwargs):
+        kwargs["on_progress"](_H.VideoSourceProgress(stage="resolving", message="正在解析分享链接", percent=8))
+        return saved
+
+    published: list[tuple[str, dict]] = []
+    monkeypatch.setattr(_H, "download_video_source", fake_download)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: None)
+    monkeypatch.setattr(_H, "_publish_job_event_from_thread", lambda task_id, event: published.append((task_id, event)))
+
+    _H._run_video_source_job({
+        "task_id": "task-link",
+        "input": "https://v.douyin.com/demo/",
+        "options": {"stt_provider": "azure_batch"},
+        "base_url": "http://testserver",
+    })
+
+    assert ("task-link", {
+        "stage": "resolving",
+        "progress": 8.0,
+        "message": "正在解析分享链接",
+        "loaded_bytes": None,
+        "total_bytes": None,
+    }) in published
 
 
 def test_start_video_source_job_writes_persistent_step(monkeypatch) -> None:

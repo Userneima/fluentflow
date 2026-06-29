@@ -37,6 +37,7 @@ const AppShell = () => {
                     <Route path="/admin" element={guestMode ? <Dashboard/> : <Admin/>}/>
                     <Route path="/settings" element={guestMode ? <Dashboard/> : <Settings/>}/>
                     <Route path="/about" element={<About/>}/>
+                    <Route path="/about/:page" element={<About/>}/>
                 </Routes>
             </div>
         </div>

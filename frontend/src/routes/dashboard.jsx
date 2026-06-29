@@ -53,6 +53,7 @@ import {
     useAuth,
     useI18n,
     useSettings,
+    videoLinkDisplayTitle,
 } from '../app/shared.jsx';
 import SvgIcon from '../components/SvgIcon.jsx';
 
@@ -140,8 +141,7 @@ const Dashboard = () => {
                 }
             }
         } catch(_) {}
-        if(h.status==='completed'){ setLastResult(historyEntryToResult(h)); navigate('/editor'); }
-        else navigate('/tasks');
+        navigate('/tasks');
     };
 
     const settleCompletedJob = (job, fallbackJob = currentJob) => {
@@ -616,6 +616,7 @@ const Dashboard = () => {
                 if (!(await ensureCloudReady(sttProvider))) return;
                 setVideoLinkSubmitting(true);
                 try {
+                    const pendingTitle = videoLinkDisplayTitle(input, lang);
                     const data = await createVideoSourceJob(input, {
                         exportToLark: settings.exportToLark||false,
                         larkExportRoute: larkExportRouteFromSettings(settings),
@@ -629,19 +630,29 @@ const Dashboard = () => {
                     });
                     const job = data?.job || {};
                     if(job.task_id) {
-                        const current = jobToCurrentJob({
+                        const pendingJob = {
                             ...job,
+                            source_filename: job.source_filename || pendingTitle,
+                            metadata: {
+                                ...(job.metadata || {}),
+                                raw_title: job.metadata?.raw_title || pendingTitle,
+                                display_title: job.metadata?.display_title || pendingTitle,
+                            },
+                        };
+                        const current = jobToCurrentJob({
+                            ...pendingJob,
                             progress: job.progress ?? 2,
                             created_at: job.created_at || new Date().toISOString(),
                         });
                         currentTaskRef.current = {
                             taskId: job.task_id,
-                            fileName: job.source_filename || input.slice(0, 80),
+                            fileName: current.fileName || pendingTitle,
                             sourceType: 'video_link',
                             fileSizeMb: null,
                         };
                         setCurrentJob({
                             ...current,
+                            fileName: current.fileName || pendingTitle,
                             sourceType: 'video_link',
                             resume: true,
                             skipSummary: !!settings.skipAiSummary,
@@ -902,7 +913,7 @@ const Dashboard = () => {
                                         </Link>
                                     ) : (
                                         <button onClick={handleCancel} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-600 hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
-                                            <SvgIcon name="cancel" className="h-4 w-4"/>{t('dash.cancel')}
+                                            <SvgIcon name="close" className="h-4 w-4"/>{t('dash.cancelTask')}
                                         </button>
                                     )}
                                 </div>

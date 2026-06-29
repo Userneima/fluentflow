@@ -10,7 +10,7 @@ const normalizeExecutionSttProvider = (provider) => {
     const value = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
     if (value === 'local') return 'local';
     if (value === 'cloud' || value === 'cloud_stt' || value === 'elevenlabs' || value === 'elevenlabs_scribe' || value === 'scribe' || value === 'scribe_v2') return 'elevenlabs_scribe';
-    if (value === 'azure_batch' || value === 'azure_fast') return 'azure_batch';
+    if (value === 'azure_batch') return 'azure_batch';
     return 'elevenlabs_scribe';
 };
 

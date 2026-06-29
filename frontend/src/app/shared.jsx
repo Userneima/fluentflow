@@ -15,10 +15,28 @@ import {
     compactDisplayFilename,
     displayTitleForUser,
     fileNameStem,
-    pickDisplayTranscriptSegments,
-    pickTranscriptSegments,
     stripGeneratedFilenamePrefix,
+    videoLinkDisplayTitle,
 } from '../lib/format.js';
+import {
+    accountJobsCacheKey,
+    readCachedAccountJobs,
+    writeCachedAccountJobs,
+    hasTranscriptResult,
+    jobVisibleInHistory,
+    jobToHistoryEntry,
+    jobToCurrentJob,
+} from '../lib/jobMappers.js';
+import {
+    DEFAULT_RUNTIME_CONFIG,
+    SENSITIVE_SETTING_KEYS,
+    isLocalLarkExportRoute,
+    normalizeLarkExportRoute,
+    normalizeRuntimeConfig,
+    normalizeSttProvider,
+    sanitizeSettings,
+    sensitivePatchFromSettings,
+} from '../lib/settingsModel.js';
 import { _dl } from '../lib/download.js';
 
 /** API 根路径：线上与后端同域时用相对路径；本地前端单独跑在其它端口时指向本机 8000。 */
@@ -104,404 +122,42 @@ export const clearGuestTrialSession = () => {
     setGuestTrialTaskId('');
 };
 
-export { fileNameStem, stripGeneratedFilenamePrefix, displayTitleForUser, compactDisplayFilename } from '../lib/format.js';
-export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
-export const LEGACY_REMOVED_SETTING_KEYS = ['hotwordLibrary', 'hotwordLibraries', 'reviewMode', 'reviewUseAi'];
-export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
-export const SUPPORTED_FRONTEND_NOTE_MODES = new Set(['auto', 'direct', 'high_fidelity', 'chapter_coverage']);
-export const LARK_EXPORT_ROUTE_OPENAPI = 'openapi';
-export const LARK_EXPORT_ROUTE_LOCAL_CLI = 'local_cli';
-export const normalizeLarkExportRoute = (value, legacyViaCli=false) => {
-    const route = String(value || '').trim();
-    if (route === LARK_EXPORT_ROUTE_LOCAL_CLI || route === 'lark_cli') return LARK_EXPORT_ROUTE_LOCAL_CLI;
-    if (route === LARK_EXPORT_ROUTE_OPENAPI || route === 'lark_openapi') return LARK_EXPORT_ROUTE_OPENAPI;
-    return legacyViaCli ? LARK_EXPORT_ROUTE_LOCAL_CLI : LARK_EXPORT_ROUTE_OPENAPI;
-};
-export const larkExportRouteFromSettings = (settings={}) => (
-    normalizeLarkExportRoute(settings.larkExportRoute, !!settings.larkViaCli)
-);
-export const isLocalLarkExportRoute = (route) => normalizeLarkExportRoute(route) === LARK_EXPORT_ROUTE_LOCAL_CLI;
-export const normalizeAiModel = (provider, model) => {
-    const p = provider === 'openai' ? 'openai' : 'deepseek';
-    const value = String(model || '').trim();
-    if (p === 'openai') {
-        return value && value.startsWith('gpt-') ? value : DEFAULT_OPENAI_MODEL;
-    }
-    return value && value !== 'deepseek-chat' ? value : DEFAULT_DEEPSEEK_MODEL;
-};
-export const sanitizeSettings = (settings={}) => {
-    const next = {...settings};
-    SENSITIVE_SETTING_KEYS.forEach((key) => delete next[key]);
-    LEGACY_REMOVED_SETTING_KEYS.forEach((key) => delete next[key]);
-    const provider = next.aiProvider === 'openai' ? 'openai' : 'deepseek';
-    next.aiProvider = provider;
-    next.aiModel = normalizeAiModel(provider, next.aiModel);
-    if (!SUPPORTED_FRONTEND_NOTE_MODES.has(next.noteMode)) {
-        next.noteMode = 'auto';
-    }
-    next.larkExportRoute = larkExportRouteFromSettings(next);
-    next.larkViaCli = isLocalLarkExportRoute(next.larkExportRoute);
-    return next;
-};
-export const sensitivePatchFromSettings = (settings={}) => ({
-    deepseek_api_key: settings.deepseekApiKey || '',
-    openai_api_key: settings.openaiApiKey || '',
-    lark_app_id: settings.larkAppId || '',
-    lark_app_secret: settings.larkAppSecret || '',
-    elevenlabs_api_key: settings.elevenLabsApiKey || '',
-    azure_speech_key: settings.azureSpeechKey || '',
-    azure_speech_endpoint: settings.azureSpeechEndpoint || '',
-    azure_blob_container_sas_url: settings.azureBlobContainerSasUrl || '',
-});
-export const minimizeHistoryEntry = (entry) => ({
-    ...entry,
-    transcriptText: entry.transcriptText ? String(entry.transcriptText).slice(0, 240) : '',
-    summary: entry.summary ? String(entry.summary).slice(0, 240) : '',
-    segments: entry.taskId ? [] : (entry.segments || []),
-    rawTranscriptText: null,
-    cleanedTranscriptText: null,
-    cleanedSegments: null,
-    rawSegments: null,
-});
-export const normalizeHistoryEntryTitles = (entry={}) => {
-    const rawFilename = entry.rawFilename || entry.source_filename || entry.result?.filename || entry.name || '';
-    const rawTitle = entry.rawTitle || entry.result?.raw_title || rawFilename || entry.name || 'Untitled';
-    const displayTitle = entry.displayTitle || entry.result?.display_title || displayTitleForUser(entry.name || rawTitle, rawFilename);
-    return {
-        ...entry,
-        name: displayTitle || entry.name || rawTitle,
-        displayTitle: displayTitle || entry.name || rawTitle,
-        rawTitle,
-        rawFilename,
-    };
-};
-export const accountJobsCacheKey = (accountId) => `fluentflow_account_jobs_cache_${accountId || 'local'}`;
-export const compactTextForCache = (value, maxChars=240) => (
-    value ? String(value).slice(0, maxChars) : ''
-);
-export const minimizeJobForCache = (job) => {
-    if (!job || typeof job !== 'object') return null;
-    const {__cacheOnly, ...persistedJob} = job;
-    const result = job.result && typeof job.result === 'object' ? job.result : null;
-    return {
-        ...persistedJob,
-        result: result ? {
-            ...result,
-            transcript_text_preview: result.transcript_text_preview || compactTextForCache(result.transcript_text),
-            transcript_text: compactTextForCache(result.transcript_text),
-            summary_markdown: compactTextForCache(result.summary_markdown),
-            segments: [],
-            cleaned_segments: null,
-            raw_segments: null,
-            translated_segments_zh: null,
-            raw_transcript_text: null,
-            cleaned_transcript_text: null,
-        } : result,
-    };
-};
-export const readCachedAccountJobs = (accountId) => {
-    try {
-        const parsed = JSON.parse(localStorage.getItem(accountJobsCacheKey(accountId)) || '{}');
-        const jobs = Array.isArray(parsed?.jobs) ? parsed.jobs : [];
-        return jobs.filter((job) => job && typeof job === 'object');
-    } catch(_) {
-        return [];
-    }
-};
-export const writeCachedAccountJobs = (accountId, jobs) => {
-    try {
-        const compactJobs = (Array.isArray(jobs) ? jobs : [])
-            .map(minimizeJobForCache)
-            .filter(Boolean)
-            .slice(0, 100);
-        localStorage.setItem(accountJobsCacheKey(accountId), JSON.stringify({
-            updatedAt: Date.now(),
-            jobs: compactJobs,
-        }));
-    } catch(_) {}
-};
-export const mergeCachedJobs = (...groups) => {
-    const seen = new Set();
-    const merged = [];
-    groups.flat().forEach((job) => {
-        if (!job || typeof job !== 'object') return;
-        const key = String(job.task_id || job.result?.task_id || '').trim();
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        merged.push(job);
-    });
-    return merged;
-};
-export const readBrowserHistoryEntries = () => {
-    try {
-        const raw = localStorage.getItem('fluentflow_history') || '[]';
-        const entries = JSON.parse(raw);
-        if (!Array.isArray(entries)) return [];
-        const normalized = entries.map(normalizeHistoryEntryTitles);
-        if (JSON.stringify(normalized) !== raw) {
-            localStorage.setItem('fluentflow_history', JSON.stringify(normalized.map(minimizeHistoryEntry)));
-        }
-        return normalized;
-    } catch(_) {
-        return [];
-    }
-};
-export const hasTranscriptResult = (result={}) => (
-    !!(
-        result
-        && (
-            String(result.transcript_text || '').trim()
-            || String(result.transcript_text_preview || '').trim()
-            || (Array.isArray(result.segments) && result.segments.length > 0)
-            || (Array.isArray(result.cleaned_segments) && result.cleaned_segments.length > 0)
-            || (Array.isArray(result.raw_segments) && result.raw_segments.length > 0)
-        )
-    )
-);
-export const historyStatusFromJob = (job={}) => {
-    const result = job.result || {};
-    if (hasTranscriptResult(result)) return 'completed';
-    if (job.status === 'queued' || job.status === 'running') return 'processing';
-    return job.status === 'completed' ? 'completed' : (job.status || 'failed');
-};
-export const jobVisibleInHistory = (job={}) => !!(job?.task_id || job?.result);
-export const resultDisplayTitle = (result={}, fallback={}) => {
-    const safeResult = result || {};
-    const safeFallback = fallback || {};
-    return displayTitleForUser(
-        safeResult.display_title || safeFallback.displayTitle || safeResult.raw_title || safeFallback.rawTitle || safeResult.filename || safeFallback.name,
-        safeResult.filename || safeFallback.rawFilename || safeFallback.name,
-    );
-};
-export const jobDisplayTitle = (job={}, lang='zh') => {
-    const result = job.result || {};
-    const metadata = job.metadata || {};
-    const videoSource = metadata.video_source || {};
-    const title = displayTitleForUser(
-        metadata.display_title
-            || videoSource.display_title
-            || result.display_title
-            || metadata.raw_title
-            || videoSource.raw_title
-            || videoSource.title
-            || result.raw_title
-            || job.source_filename
-            || result.filename,
-        job.source_filename || result.filename,
-    );
-    return title || (lang === 'zh' ? '未命名任务' : 'Untitled task');
-};
-export const resultToHistoryEntry = (result, fallback={}) => {
-    const durSec = result.audio_duration_seconds || 0;
-    const hasTranscript = hasTranscriptResult(result);
-    const displayTitle = resultDisplayTitle(result, fallback);
-    const rawTitle = result.raw_title || fallback.rawTitle || result.filename || fallback.name || 'Untitled';
-    const rawFilename = result.filename || fallback.rawFilename || fallback.name || '';
-    const segments = pickTranscriptSegments(result);
-    return {
-        id: fallback.id || Date.now(),
-        taskId: result.task_id || fallback.taskId,
-        name: displayTitle || rawTitle,
-        displayTitle: displayTitle || rawTitle,
-        rawTitle,
-        rawFilename,
-        timestamp: fallback.timestamp || Date.now(),
-        durationMin: Math.round(durSec/60*10)/10,
-        status: hasTranscript ? 'completed' : (fallback.status || (result.status === 'completed' ? 'completed' : (result.status || 'failed'))),
-        transcriptText: result.transcript_text||result.transcript_text_preview||'',
-        segments,
-        displaySegments: pickDisplayTranscriptSegments(result, segments),
-        summary: result.summary_markdown||'',
-        summarySkipped: !!result.summary_skipped,
-        summaryStatus: result.summary_status||null,
-        summaryError: result.summary_error||null,
-        larkUrl: result.lark_response?.url || null,
-        larkError: result.lark_error||null,
-        audioDurationSec: durSec,
-        sttElapsedSec: result.stt_elapsed_seconds||0,
-        sttRealtimeFactor: result.stt_realtime_factor||null,
-        sttProvider: result.stt_provider||null,
-        sttProviderLabel: result.stt_provider_label||null,
-        sttModel: result.stt_model||null,
-        sttSpeed: result.stt_speed||null,
-        sttLanguage: result.stt_language||null,
-        detectedLanguage: result.detected_language||null,
-        sourceLanguage: result.source_language||null,
-        subtitleMode: result.subtitle_mode||null,
-        bilingualSegments: Array.isArray(result.bilingual_segments) ? result.bilingual_segments : [],
-        translatedSegmentsZh: Array.isArray(result.translated_segments_zh) ? result.translated_segments_zh : [],
-        translationStatus: result.translation_status||null,
-        translationError: result.translation_error||null,
-        sourceFingerprint: result.source_fingerprint||null,
-        originalTaskId: result.original_task_id||fallback.originalTaskId||null,
-        rawTranscriptText: result.raw_transcript_text||null,
-        cleanedTranscriptText: result.cleaned_transcript_text||null,
-        cleanedSegments: result.cleaned_segments||null,
-        rawSegments: result.raw_segments||null,
-        transcriptCleanup: result.transcript_cleanup||null,
-        transcriptEdited: !!result.transcript_edited,
-        transcriptEditedAt: result.transcript_edited_at||null,
-        editedTranscriptPath: result.edited_transcript_path||null,
-        editedTranscriptSavedAt: result.edited_transcript_saved_at||null,
-        transcriptEditRecords: result.transcript_edit_records||[],
-        transcriptEditRecordsPath: result.transcript_edit_records_path||null,
-        artifacts: result.artifacts||null,
-        playbackAudioAvailable: !!result.playback_audio_available,
-        playbackAudioStorage: result.playback_audio_storage||null,
-        requestedNoteMode: result.requested_note_mode||fallback.requestedNoteMode||null,
-        resolvedNoteMode: result.resolved_note_mode||null,
-        noteModeChunkCount: result.note_mode_chunk_count||null,
-        noteModeSegmentCount: result.note_mode_segment_count||null,
-        noteModeEvidenceCount: result.note_mode_evidence_count||null,
-        noteModeChapterCount: result.note_mode_chapter_count||null,
-        noteModeImportantEvidenceCount: result.note_mode_important_evidence_count||null,
-        noteModeCoveredImportantEvidenceCount: result.note_mode_covered_important_evidence_count||null,
-        noteModeCoverageMissingCount: result.note_mode_coverage_missing_count||null,
-        noteModePlanReason: result.note_mode_plan_reason||null,
-        noteModePlanConfidence: result.note_mode_plan_confidence||null,
-        noteModePlanWarnings: Array.isArray(result.note_mode_plan_warnings) ? result.note_mode_plan_warnings : [],
-        noteModePlanProvider: result.note_mode_plan_provider||null,
-        noteModePlanModel: result.note_mode_plan_model||null,
-        noteModePlanFallback: result.note_mode_plan_fallback ?? null,
-        noteModePlanError: result.note_mode_plan_error||null,
-        noteModePlanSelectedMode: result.note_mode_plan_selected_mode||null,
-        promptPreset: result.prompt_preset||fallback.promptPreset||null,
-        promptPresetLabel: result.prompt_preset_label||fallback.promptPresetLabel||null,
-        source: result.source||fallback.source||null,
-        sourceFileAvailable: !!result.source_file_available,
-    };
-};
-export const jobToHistoryEntry = (job) => {
-    const result = job.result || {};
-    const entry = resultToHistoryEntry(result, {
-        taskId: job.task_id,
-        name: jobDisplayTitle(job),
-        displayTitle: jobDisplayTitle(job),
-        rawTitle: job.metadata?.raw_title || job.metadata?.video_source?.raw_title || job.source_filename,
-        rawFilename: job.source_filename,
-        timestamp: Date.parse(job.updated_at || job.created_at || '') || Date.now(),
-        status: historyStatusFromJob(job),
-        source: job.source_type,
-    });
-    return {
-        ...entry,
-        status: historyStatusFromJob(job),
-        summaryStatus: result.summary_status || job.summary_status || entry.summaryStatus,
-        summaryError: result.summary_error || job.error_reason || entry.summaryError,
-    };
-};
-export const jobToCurrentJob = (job) => ({
-    taskId: job.task_id,
-    fileName: jobDisplayTitle(job),
-    stage: job.stage || 'upload',
-    progress: job.progress ?? 0,
-    startedAt: Date.parse(job.created_at || '') || Date.now(),
-    sourceType: job.source_type || null,
-    fileSizeMb: job.source_file_size_mb || null,
-    resume: true,
-    sttProvider: job.metadata?.stt_provider || job.result?.stt_provider || null,
-    sttProgress: job.metadata?.stt_progress,
-    transcribedSeconds: job.metadata?.transcribed_seconds,
-    durationSeconds: job.metadata?.duration_seconds,
-    sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
-    sttStatus: job.metadata?.stt_status,
-    azureBatchAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb ?? job.metadata?.azure_batch_audio_size_mb,
-});
-export const historyEntryToResult = (h) => h ? ({
-    task_id: h.taskId,
-    source: h.source||null,
-    transcript_text: h.transcriptText,
-    segments: h.segments,
-    summary_markdown: h.summary,
-    summary_skipped: !!h.summarySkipped,
-    summary_status: h.summaryStatus||null,
-    summary_error: h.summaryError||null,
-    filename: h.rawFilename || h.name,
-    raw_title: h.rawTitle || h.rawFilename || h.name,
-    display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename),
-    audio_duration_seconds: h.audioDurationSec,
-    stt_elapsed_seconds: h.sttElapsedSec||0,
-    stt_realtime_factor: h.sttRealtimeFactor||null,
-    stt_provider: h.sttProvider||null,
-    stt_provider_label: h.sttProviderLabel||null,
-    stt_model: h.sttModel||null,
-    stt_speed: h.sttSpeed||null,
-    stt_language: h.sttLanguage||null,
-    detected_language: h.detectedLanguage||null,
-    source_language: h.sourceLanguage||null,
-    subtitle_mode: h.subtitleMode||null,
-    display_segments: h.displaySegments||[],
-    bilingual_segments: h.bilingualSegments||[],
-    translated_segments_zh: h.translatedSegmentsZh||[],
-    translation_status: h.translationStatus||null,
-    translation_error: h.translationError||null,
-    source_fingerprint: h.sourceFingerprint||null,
-    raw_transcript_text: h.rawTranscriptText||null,
-    cleaned_transcript_text: h.cleanedTranscriptText||null,
-    cleaned_segments: h.cleanedSegments||null,
-    raw_segments: h.rawSegments||null,
-    transcript_cleanup: h.transcriptCleanup||null,
-    transcript_edited: !!h.transcriptEdited,
-    transcript_edited_at: h.transcriptEditedAt||null,
-    edited_transcript_path: h.editedTranscriptPath||null,
-    edited_transcript_saved_at: h.editedTranscriptSavedAt||null,
-    transcript_edit_records: h.transcriptEditRecords||[],
-    transcript_edit_records_path: h.transcriptEditRecordsPath||null,
-    artifacts: h.artifacts||null,
-    playback_audio_available: !!h.playbackAudioAvailable,
-    playback_audio_storage: h.playbackAudioStorage||null,
-    requested_note_mode: h.requestedNoteMode||null,
-    resolved_note_mode: h.resolvedNoteMode||null,
-    note_mode_chunk_count: h.noteModeChunkCount||null,
-    note_mode_segment_count: h.noteModeSegmentCount||null,
-    note_mode_evidence_count: h.noteModeEvidenceCount||null,
-    note_mode_chapter_count: h.noteModeChapterCount||null,
-    note_mode_important_evidence_count: h.noteModeImportantEvidenceCount||null,
-    note_mode_covered_important_evidence_count: h.noteModeCoveredImportantEvidenceCount||null,
-    note_mode_coverage_missing_count: h.noteModeCoverageMissingCount||null,
-    note_mode_plan_reason: h.noteModePlanReason||null,
-    note_mode_plan_confidence: h.noteModePlanConfidence||null,
-    note_mode_plan_warnings: h.noteModePlanWarnings||[],
-    note_mode_plan_provider: h.noteModePlanProvider||null,
-    note_mode_plan_model: h.noteModePlanModel||null,
-    note_mode_plan_fallback: h.noteModePlanFallback ?? null,
-    note_mode_plan_error: h.noteModePlanError||null,
-    note_mode_plan_selected_mode: h.noteModePlanSelectedMode||null,
-    prompt_preset: h.promptPreset||null,
-    prompt_preset_label: h.promptPresetLabel||null,
-    source_file_available: !!h.sourceFileAvailable,
-    imported_from_local_history: h.source === 'imported_local_history' || h.source === 'browser_local_history' || String(h.taskId || '').startsWith('imported_'),
-}) : null;
+export { fileNameStem, stripGeneratedFilenamePrefix, displayTitleForUser, compactDisplayFilename, videoLinkDisplayTitle } from '../lib/format.js';
+export {
+    SENSITIVE_SETTING_KEYS,
+    LEGACY_REMOVED_SETTING_KEYS,
+    DEFAULT_DEEPSEEK_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    SUPPORTED_FRONTEND_NOTE_MODES,
+    NOTE_MODE_OPTIONS,
+    LARK_EXPORT_ROUTE_OPENAPI,
+    LARK_EXPORT_ROUTE_LOCAL_CLI,
+    normalizeLarkExportRoute,
+    larkExportRouteFromSettings,
+    isLocalLarkExportRoute,
+    normalizeAiModel,
+    sanitizeSettings,
+    sensitivePatchFromSettings,
+    noteModeLabel,
+    DEFAULT_STT_MODEL,
+    DEFAULT_STT_PROVIDER,
+    normalizeSttProvider,
+    isElevenLabsCloudProvider,
+    isAzureCloudProvider,
+    isCloudSttProvider,
+    isAzureSpeechConfigured,
+    isAzureBatchConfigured,
+    isCloudSttConfigured,
+    DEFAULT_RUNTIME_CONFIG,
+    normalizeRuntimeConfig,
+    effectiveSttProvider,
+    cloudSttMissingMessage,
+    azureSpeechMissingMessage,
+    normalizeSttModel,
+} from '../lib/settingsModel.js';
 export const createTaskId = () => (
     window.crypto?.randomUUID?.() ||
     `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-);
-export const NOTE_MODE_OPTIONS = [
-    {value: 'auto', labelEn: 'Auto', labelZh: '自动选择'},
-    {value: 'direct', labelEn: 'Direct context', labelZh: '直接上下文'},
-    {value: 'high_fidelity', labelEn: 'High-fidelity', labelZh: '高保真笔记'},
-    {value: 'chapter_coverage', labelEn: 'Chapter coverage', labelZh: '完整覆盖笔记'},
-];
-export const noteModeLabel = (mode, lang) => {
-    const found = NOTE_MODE_OPTIONS.find((item) => item.value === (mode || 'auto'));
-    return found ? (lang === 'zh' ? found.labelZh : found.labelEn) : (mode || 'auto');
-};
-
-export const DEFAULT_STT_MODEL = 'medium';
-export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe';
-export const normalizeSttProvider = (provider) => {
-    const value = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
-    if (value === 'local') return 'local';
-    if (value === 'cloud' || value === 'cloud_stt' || value === 'elevenlabs' || value === 'elevenlabs_scribe' || value === 'scribe' || value === 'scribe_v2') return 'elevenlabs_scribe';
-    if (value === 'azure_batch' || value === 'azure_fast') return 'azure_batch';
-    return DEFAULT_STT_PROVIDER;
-};
-export const isElevenLabsCloudProvider = (provider) => (
-    normalizeSttProvider(provider) === 'elevenlabs_scribe'
-);
-export const isAzureCloudProvider = (provider) => (
-    normalizeSttProvider(provider) === 'azure_batch'
 );
 export const localExecutionHeaders = (options={}) => (
     options.localExecution
@@ -517,64 +173,18 @@ export const isLocalHistoryResult = (result={}) => (
     result?.source === 'browser_local_history' ||
     String(result?.task_id || '').startsWith('imported_')
 );
-export const isAzureSpeechConfigured = (status) => (
-    !!status?.azure_speech_endpoint_configured && !!status?.azure_speech_key_configured
-);
-export const isAzureBatchConfigured = (status) => (
-    isAzureSpeechConfigured(status) && !!status?.azure_blob_container_sas_url_configured
-);
-export const DEFAULT_RUNTIME_CONFIG = {
-    publicMode: false,
-    allowedSttProviders: ['elevenlabs_scribe', 'local'],
-    defaultSttProvider: DEFAULT_STT_PROVIDER,
-    showMaintainerSettings: true,
-    guestTrial: {enabled: false},
-};
-export const normalizeRuntimeConfig = (config={}) => {
-    const allowed = Array.isArray(config.allowed_stt_providers)
-        ? config.allowed_stt_providers.map(normalizeSttProvider)
-        : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
-    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'elevenlabs_scribe' || item === 'azure_batch' || item === 'local'))];
-    const publicMode = !!config.public_mode;
-    const localAwareAllowed = publicMode || uniqueAllowed.includes('local')
-        ? uniqueAllowed
-        : [...uniqueAllowed, 'local'];
-    const fallbackAllowed = localAwareAllowed.length ? localAwareAllowed : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
-    const defaultProvider = normalizeSttProvider(config.default_stt_provider || DEFAULT_STT_PROVIDER);
-    return {
-        publicMode,
-        allowedSttProviders: fallbackAllowed,
-        defaultSttProvider: fallbackAllowed.includes(defaultProvider) ? defaultProvider : fallbackAllowed[0],
-        showMaintainerSettings: config.show_maintainer_settings !== false,
-        limits: config.limits || {},
-        guestTrial: config.guest_trial || config.limits?.guest_trial || DEFAULT_RUNTIME_CONFIG.guestTrial,
-    };
-};
-export const effectiveSttProvider = (settings={}, runtimeConfig=DEFAULT_RUNTIME_CONFIG) => {
-    const wanted = normalizeSttProvider(settings.sttProvider);
-    return runtimeConfig.allowedSttProviders.includes(wanted) ? wanted : runtimeConfig.defaultSttProvider;
-};
-export const cloudSttMissingMessage = (lang) => (
-    lang === 'zh'
-        ? '云端转录暂不可用，请联系产品维护者检查后台配置。'
-        : 'Cloud transcription is unavailable. Ask the product maintainer to check backend configuration.'
-);
-export const azureSpeechMissingMessage = cloudSttMissingMessage;
-export const normalizeSttModel = (model) => (
-    model === 'large-v3' || model === 'medium' ? model : DEFAULT_STT_MODEL
-);
 /* ═══════════════ i18n ═══════════════ */
 export const msgs = {
   en:{
     'nav.subtitle':'Video-to-Lark AI','nav.dashboard':'Start','nav.tasks':'Tasks','nav.processing':'Agent Workflow','nav.editor':'Editor','nav.settings':'Settings','nav.admin':'Admin','nav.newProject':'New Project','nav.search':'Search projects...','nav.projects':'Projects','nav.integrations':'Integrations',
     'status.ready':'System ready','status.idle':'Awaiting task','status.queued':'Queued','status.resolving':'Resolving link…','status.downloading':'Downloading video…','status.saving':'Saving video…','status.upload':'Uploading…','status.audio':'Extracting audio…','status.stt':'Transcribing…','status.translation':'Translating subtitles…','status.transcript_ready':'Transcript ready','status.summary':'AI summarizing…','status.export':'Exporting to Lark…','status.done':'Done','status.failed':'Failed',
     'dash.welcome':'Start a transcription.','dash.subtitle':'Upload media for transcription, or import an existing subtitle file to generate notes directly.','dash.totalMin':'Total Minutes','dash.noteGen':'Notes Generated','dash.minUnit':'min','dash.docUnit':'docs','dash.proTag':'Ready','dash.heroTitle':'Drop a video here to transcribe it.','dash.heroDesc':'FluentFlow extracts audio, transcribes it in the background, and prepares transcript, subtitles, and notes.','dash.selectFile':'Select Audio/Video','dash.selectSubtitle':'Import subtitles to notes','dash.subtitleHint':'Drop audio/video to transcribe, or import SRT/VTT/TXT/MD to generate notes directly.','dash.processing':'Processing…','dash.dragHint':'Drop audio/video to transcribe, or import SRT/VTT/TXT/MD to generate notes directly.','dash.linkPlaceholder':'Paste Douyin share text or a video link','dash.linkSubmit':'Fetch by link','dash.linkSubmitting':'Fetching…','dash.linkEmpty':'Paste a share text or video link first.','dash.linkQueued':'Video link is being fetched. Progress stays visible here and in Background tasks.','dash.viewTasks':'View tasks','dash.azureUploadHint':'Cloud transcription runs in the background. You can leave this page and watch it from Tasks.','dash.uploading':'Uploading and processing','dash.done':'Processing complete','dash.subtitleDone':'Note generated from subtitle file','dash.viewEditor':'View in Editor','dash.recent':'Recent Activity','dash.viewAll':'View All','dash.fileError':'Unsupported format. Please select a video or audio file.','dash.subtitleFileError':'Unsupported transcript file. Please select SRT, VTT, TXT, or MD.','dash.noActivity':'No activity yet. Completed jobs will appear here.','dash.justNow':'just now','dash.mAgo':'m ago','dash.hAgo':'h ago','dash.dAgo':'d ago',
-    'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.azureUploadAudio':'Cloud Audio','dash.pipeline':'Pipeline','dash.modelProfile':'Route','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'You can leave this page; progress continues under Tasks.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading local model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttAzure':'Cloud transcription in progress','dash.sttAzureUpload':'Uploading audio','dash.sttAzureSubmit':'Submitting cloud job','dash.sttAzureWait':'Waiting for cloud transcription','dash.sttAzureDownload':'Downloading cloud result','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once local transcription emits real segments.',
+    'dash.statusCompleted':'Completed','dash.statusFailed':'Failed','dash.statusProcessing':'Processing','dash.cancel':'Cancel','dash.cancelTask':'Cancel task','dash.activeTask':'Active Task','dash.elapsed':'Elapsed','dash.fileSize':'File Size','dash.azureUploadAudio':'Cloud Audio','dash.pipeline':'Pipeline','dash.modelProfile':'Route','dash.summaryMode':'Summary Mode','dash.summaryOn':'AI summary on','dash.summaryOff':'Transcript only','dash.exportOn':'Auto Lark export','dash.exportOff':'Manual export later','dash.currentStage':'Current Stage','dash.waitingForTranscript':'You can leave this page; progress continues under Tasks.','dash.transcribedTo':'Transcribed','dash.waitingSegment':'Waiting for first transcript segment','dash.progressUnknown':'Working','dash.sttMeasuring':'STT measuring','dash.sttStarting':'Starting transcription engine','dash.sttLoadingModel':'Loading local model','dash.sttChunking':'Preparing progress tracking','dash.sttPreparingAudio':'Preparing audio features','dash.sttWaitingFirst':'Waiting for the first transcript segment','dash.sttChunks':'Transcribing audio','dash.sttSegments':'Receiving transcript segments','dash.sttAzure':'Cloud transcription in progress','dash.sttAzureUpload':'Uploading audio','dash.sttAzureSubmit':'Submitting cloud job','dash.sttAzureWait':'Waiting for cloud transcription','dash.sttAzureDownload':'Downloading cloud result','dash.sttNoProgressHint':'The first transcript segment has not been produced yet. Progress will advance once local transcription emits real segments.',
     'tasks.title':'Background tasks','tasks.subtitle':'Track long-running transcription jobs without keeping the Start page open.','tasks.refresh':'Refresh','tasks.open':'Open result','tasks.delete':'Delete','tasks.deleteConfirm':'Delete this task record?','tasks.download':'Download','tasks.progress':'Progress','tasks.route':'Route','tasks.updated':'Updated','tasks.empty':'No background tasks yet. Start with an upload from Start.','tasks.queued':'Queued','tasks.running':'Running','tasks.completed':'Completed','tasks.failed':'Failed','tasks.error':'Failure reason','tasks.source':'Source','tasks.summary':'Summary','tasks.detail':'Stage detail','tasks.artifacts':'Outputs','tasks.outputsReady':'Ready outputs','tasks.noOutputs':'Outputs appear here after completion.','tasks.larkDoc':'Lark doc','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.bilingualSrt':'Bilingual SRT','tasks.bilingualVtt':'Bilingual VTT','tasks.md':'Summary',
     'proc.title':'Agent workflow','proc.subtitle':'See what the Agent will do, what it uses as evidence, and which preferences still come from Settings.','proc.noJob':'No active processing','proc.noJobDesc':'Upload a video from Start when you are ready.','proc.audioExtract':'Audio Extraction','proc.transcription':'Transcription','proc.aiSumm':'AI Summarization','proc.larkExport':'Lark Export','proc.waiting':'Waiting…','proc.running':'Running…','proc.done':'Done','proc.pipeline':'Pipeline Progress',
     'edit.title':'Editor','edit.noResult':'No results yet','edit.noResultDesc':'Process a video from the Dashboard, then view the transcript and summary here.','edit.transcript':'Full Transcript','edit.aiSummary':'AI Summary','edit.summaryPending':'AI summary is still generating.','edit.summarySkipped':'Transcript-only mode is enabled. Click Regenerate note when you need an AI summary.','edit.summaryFailed':'Transcript is saved, but AI summary failed. Click Regenerate note to try again.','edit.share':'Share','edit.export':'Export to Lark','edit.confidence':'AI Generated','edit.regenerate':'Regenerate note','edit.regenerating':'Regenerating…','edit.regenerateConfirmTitle':'Regenerate this note?','edit.regenerateConfirmDesc':'FluentFlow will regenerate the note from the current transcript and replace the note body. The transcript itself will not be retranscribed.','edit.regenerateConfirmAction':'Regenerate note','edit.retranscribe':'Retranscribe','edit.retranscribing':'Retranscribing…','edit.pickSourceAgain':'Choose source file','edit.retranscribeDone':'Retranscription complete','edit.retranscribeConfirmTitle':'Retranscribe this audio?','edit.retranscribeConfirmDesc':'FluentFlow will run STT again with the current Workbench settings and replace the transcript and summary for this result.','edit.retranscribeUnavailableTitle':'Source file is not available','edit.retranscribeUnavailableDesc':'Browsers cannot reopen a local file from history without your permission. Choose the original audio/video file to retranscribe it with current settings.','edit.retranscribeConfirmAction':'Start retranscription','edit.retranscribeChooseAction':'Choose original file','edit.cancel':'Cancel','edit.segments':'segments','edit.duration':'Duration','edit.sttElapsed':'Transcription time','edit.exportDone':'Export request sent','edit.exportFail':'Export failed','edit.regenDone':'Note regenerated','edit.clearHistory':'Clear History','edit.clearConfirm':'All history cleared','edit.clearConfirmAgain':'Click again to confirm','edit.copied':'Copied','edit.editedTranscript':'Edited transcript','edit.transcriptSaving':'Saving…','edit.transcriptSaved':'Saved','edit.transcriptSaveFailed':'Save failed','edit.editRecords':'Edit records','edit.editRecordsTitle':'Transcript edit records','edit.editRecordsDesc':'Each record keeps the changed sentence and nearby context. These records are saved locally with the edited transcript.','edit.editRecordsEmpty':'No changed segment has been recorded yet.','edit.before':'Before','edit.after':'After','edit.previousSentence':'Previous sentence','edit.nextSentence':'Next sentence','edit.followPlayback':'Follow playback','edit.audioUnavailable':'Choose the original audio/video to listen while editing.','edit.chooseAudio':'Choose source audio','edit.sourceLoading':'Loading source audio…',
     'prompt.label':'Prompt Template','prompt.select':'Select prompt style','prompt.customPlaceholder':'Enter your custom system prompt here...','prompt.expanded':'Collapse prompt','prompt.collapsed':'Change prompt','prompt.activeHint':'Active: ','prompt.editHint':'Edit prompt before regenerating','prompt.saveAsPreset':'Save custom as preset',
-    'dl.transcript':'Export Transcript','dl.summary':'Download Summary','dl.txt':'Plain Text (.txt)','dl.md':'Markdown (.md)','dl.srt':'Source subtitles (.srt)','dl.vtt':'Source WebVTT (.vtt)','dl.bilingualSrt':'Bilingual subtitles (.srt)','dl.bilingualVtt':'Bilingual WebVTT (.vtt)','dl.pdf':'PDF Document','dl.word':'Word Document (.docx)','dl.generating':'Generating…','dl.success':'Download started',
+    'dl.transcript':'Export Transcript','dl.summary':'Download Summary','dl.txt':'Plain Text (.txt)','dl.md':'Markdown (.md)','dl.srt':'Source subtitles (.srt)','dl.vtt':'Source WebVTT (.vtt)','dl.bilingualSrt':'Bilingual subtitles (.srt)','dl.bilingualVtt':'Bilingual WebVTT (.vtt)','dl.sourceVideo':'Source video','dl.pdf':'PDF Document','dl.word':'Word Document (.docx)','dl.generating':'Generating…','dl.success':'Download started',
     'set.title':'Settings','set.subtitle':'Keep template maintenance, export history, and app preferences here.','set.larkTitle':'Lark / Feishu Credentials','set.larkDesc':'Store credentials only. Export behavior now lives in Run Settings.','set.autoExport':'Auto-export to Lark after processing','set.larkExportRoute':'Lark export route','set.larkRouteOpenapi':'Feishu app export','set.larkRouteOpenapiHint':'Uses backend-configured Feishu OpenAPI credentials. Recommended for cloud product use.','set.larkRouteLocalCli':'Local identity export','set.larkRouteLocalCliHint':'Uses the local lark-cli login available to the backend process. Best for personal desktop automation.','set.larkViaCli':'Export via local lark-cli (My Library)','set.larkViaCliHint':'Uses your lark-cli login; App ID not required. Backend must run lark-cli on PATH.','set.larkHistory':'Export History','set.sttProvider':'Transcription Route','set.providerLocal':'Local transcription','set.providerAzureBatch':'Cloud transcription','set.sttModel':'STT Model','set.modelSel':'Model Selection','set.sttLanguage':'Audio Language','set.langAuto':'Auto detect','set.langZh':'Chinese','set.langEn':'English','set.sttSpeed':'Transcription Speed','set.speedFast':'Fast','set.speedBalanced':'Balanced','set.speedAccurate':'Accurate','set.optTiny':'tiny (Fastest)','set.optBase':'base','set.optSmall':'small (Not recommended)','set.optMedium':'medium (Minimum usable)','set.optLarge':'large-v3 (Most Accurate)','set.intelligence':'Intelligence','set.skipSummary':'Transcript-only mode','set.skipSummaryHint':'Skip AI summary after audio transcription. Subtitle import always generates a note.','set.provider':'Provider','set.aiModel':'AI Model','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'App Preferences','set.theme':'Interface Theme','set.light':'Light','set.dark':'Dark','set.saved':'Saved!','set.saveAll':'Save All Changes','set.promptTitle':'Prompt Template Library','set.promptDesc':'Edit reusable prompt templates here. Choose the active default in Run Settings.','set.defaultPrompt':'Default Prompt','set.templateToEdit':'Template to edit','set.editCoursePrompt':'Edit “Course Notes” system prompt','set.editBuiltinTemplate':'Edit this template','set.resetBuiltinPrompt':'Reset to built-in default','set.deleteBuiltinPrompt':'Delete this template category','set.deleteBuiltinPromptConfirm':'Delete this template category (remove it from the UI)?','set.myPresets':'Saved presets','set.presetNamePh':'Preset name','set.saveAsPreset':'Save as preset','set.deletePreset':'Delete','set.deletePresetConfirm':'Delete this saved preset?','set.presetSaved':'Preset saved',
     'work.defaults':'Run defaults','work.defaultsDesc':'These values are used by Dashboard uploads, subtitle imports, and editor reruns.','work.activePrompt':'Default prompt template','work.transcription':'Transcription','work.close':'Close','work.summary':'Summary AI','work.summaryMode':'Note generation mode','work.noteModeAuto':'Auto switches by transcript length: direct under about 20k chars, high-fidelity above it.','work.noteModeDirect':'Sends the transcript in one pass. Faster, best for shorter materials.','work.noteModeHighFidelity':'Extracts evidence in chunks, then writes and checks coverage. Slower, better for long courses.','work.export':'Feishu export','work.currentRun':'Current run','work.activeRunHint':'Dashboard now shows the detailed live progress. Workbench stays focused on run defaults.','work.viewProgress':'View progress','work.saved':'Saved automatically','work.credentialsLink':'Credentials stay in Settings',
   },
@@ -582,12 +192,12 @@ export const msgs = {
     'nav.subtitle':'视频转飞书 AI','nav.dashboard':'开始处理','nav.tasks':'后台任务','nav.processing':'Agent 工作流','nav.editor':'编辑器','nav.settings':'设置','nav.admin':'管理','nav.newProject':'新建项目','nav.search':'搜索项目…','nav.projects':'项目','nav.integrations':'集成',
     'status.ready':'系统就绪','status.idle':'等待任务','status.queued':'排队中','status.resolving':'解析链接中…','status.downloading':'下载视频中…','status.saving':'保存视频中…','status.upload':'上传中…','status.audio':'音频提取中…','status.stt':'转录中…','status.translation':'正在翻译字幕…','status.transcript_ready':'转录已完成','status.summary':'AI 摘要中…','status.export':'导出到飞书…','status.done':'完成','status.failed':'失败',
     'dash.welcome':'开始一次转录','dash.subtitle':'上传音视频做转录，也可以直接导入已有字幕生成笔记。','dash.totalMin':'累计时长','dash.noteGen':'已生成笔记','dash.minUnit':'分钟','dash.docUnit':'份','dash.proTag':'就绪','dash.heroTitle':'把视频拖到这里开始转录。','dash.heroDesc':'FluentFlow 会自动提取音频，在后台转录，并生成转录文本、字幕和结构化笔记。','dash.selectFile':'选择音视频','dash.selectSubtitle':'导入字幕生成笔记','dash.subtitleHint':'拖放音视频开始转录；也可导入 SRT/VTT/TXT/MD 直接生成笔记。','dash.processing':'处理中…','dash.dragHint':'拖放音视频开始转录；也可导入 SRT/VTT/TXT/MD 直接生成笔记。','dash.linkPlaceholder':'粘贴抖音分享文本或视频链接','dash.linkSubmit':'通过链接获取','dash.linkSubmitting':'获取中…','dash.linkEmpty':'请先粘贴分享文本或视频链接。','dash.linkQueued':'视频链接正在获取中，进度会同时显示在主页和后台任务。','dash.viewTasks':'查看后台','dash.azureUploadHint':'云端转录会在后台继续运行，你可以离开本页并在后台任务里查看进度。','dash.uploading':'正在上传并处理','dash.done':'处理完成','dash.subtitleDone':'已根据字幕文件生成笔记','dash.viewEditor':'在编辑器中查看','dash.recent':'最近活动','dash.viewAll':'查看全部','dash.fileError':'不支持的格式，请选择视频或音频文件。','dash.subtitleFileError':'不支持的字幕/转录文件，请选择 SRT、VTT、TXT 或 MD。','dash.noActivity':'暂无活动记录，完成的任务会显示在这里。','dash.justNow':'刚刚','dash.mAgo':'分钟前','dash.hAgo':'小时前','dash.dAgo':'天前',
-    'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.azureUploadAudio':'云端音频','dash.pipeline':'处理流水线','dash.modelProfile':'转录路线','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'你可以离开本页，进度会在后台任务中继续更新。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载本地模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttAzure':'云端转录中','dash.sttAzureUpload':'正在上传音频','dash.sttAzureSubmit':'正在提交云端任务','dash.sttAzureWait':'等待云端转录','dash.sttAzureDownload':'正在下载云端结果','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按本地转录真实返回的片段推进进度。',
+    'dash.statusCompleted':'已完成','dash.statusFailed':'失败','dash.statusProcessing':'处理中','dash.cancel':'取消','dash.cancelTask':'取消任务','dash.activeTask':'当前任务','dash.elapsed':'已用时间','dash.fileSize':'文件大小','dash.azureUploadAudio':'云端音频','dash.pipeline':'处理流水线','dash.modelProfile':'转录路线','dash.summaryMode':'摘要模式','dash.summaryOn':'生成 AI 摘要','dash.summaryOff':'仅转录','dash.exportOn':'自动导出飞书','dash.exportOff':'完成后手动导出','dash.currentStage':'当前阶段','dash.waitingForTranscript':'你可以离开本页，进度会在后台任务中继续更新。','dash.transcribedTo':'已转录','dash.waitingSegment':'等待第一段转录结果','dash.progressUnknown':'处理中','dash.sttMeasuring':'STT 计算中','dash.sttStarting':'正在启动转录引擎','dash.sttLoadingModel':'正在加载本地模型','dash.sttChunking':'正在准备进度追踪','dash.sttPreparingAudio':'正在准备音频特征','dash.sttWaitingFirst':'等待第一段转录结果','dash.sttChunks':'正在转录音频','dash.sttSegments':'正在接收转录片段','dash.sttAzure':'云端转录中','dash.sttAzureUpload':'正在上传音频','dash.sttAzureSubmit':'正在提交云端任务','dash.sttAzureWait':'等待云端转录','dash.sttAzureDownload':'正在下载云端结果','dash.sttNoProgressHint':'第一段转录结果还没有产出。后续会按本地转录真实返回的片段推进进度。',
     'tasks.title':'后台任务','tasks.subtitle':'长时间转录不需要停留在开始页，这里统一查看进度、失败原因和产物。','tasks.refresh':'刷新','tasks.open':'打开结果','tasks.delete':'删除','tasks.deleteConfirm':'删除这条任务记录？','tasks.download':'下载','tasks.progress':'进度','tasks.route':'路线','tasks.updated':'更新于','tasks.empty':'暂无后台任务。从开始处理页上传文件后会出现在这里。','tasks.queued':'排队中','tasks.running':'运行中','tasks.completed':'已完成','tasks.failed':'失败','tasks.error':'失败原因','tasks.source':'来源','tasks.summary':'摘要','tasks.detail':'阶段详情','tasks.artifacts':'结果产物','tasks.outputsReady':'可下载产物','tasks.noOutputs':'完成后会在这里显示下载入口。','tasks.larkDoc':'飞书文档','tasks.srt':'SRT','tasks.txt':'TXT','tasks.vtt':'VTT','tasks.bilingualSrt':'双语 SRT','tasks.bilingualVtt':'双语 VTT','tasks.md':'摘要',
     'proc.title':'Agent 工作流','proc.subtitle':'这里展示 Agent 会做什么、依据什么判断，以及哪些长期偏好来自设置页。','proc.noJob':'当前没有任务','proc.noJobDesc':'从开始处理页上传文件。','proc.audioExtract':'音频提取','proc.transcription':'语音转录','proc.aiSumm':'AI 摘要','proc.larkExport':'飞书导出','proc.waiting':'等待中…','proc.running':'运行中…','proc.done':'完成','proc.pipeline':'流水线进度',
     'edit.title':'编辑器','edit.noResult':'暂无结果','edit.noResultDesc':'从仪表盘处理一个视频后，在此查看转录和摘要。','edit.transcript':'完整转录','edit.aiSummary':'AI 摘要','edit.summaryPending':'AI 摘要仍在生成中。','edit.summarySkipped':'当前是仅转录模式，未生成 AI 摘要。需要时可点击重生笔记。','edit.summaryFailed':'转录已保存，但 AI 摘要失败。可以点击重生笔记再试一次。','edit.share':'分享','edit.export':'导出到飞书','edit.confidence':'AI 生成','edit.regenerate':'重生笔记','edit.regenerating':'重生中…','edit.regenerateConfirmTitle':'重生当前笔记？','edit.regenerateConfirmDesc':'FluentFlow 会基于当前转录重生笔记，并替换右侧笔记正文；不会重新转录音频。','edit.regenerateConfirmAction':'确认重生笔记','edit.retranscribe':'重新转录','edit.retranscribing':'重新转录中…','edit.pickSourceAgain':'选择原文件','edit.retranscribeDone':'重新转录完成','edit.retranscribeConfirmTitle':'重新转录当前音频？','edit.retranscribeConfirmDesc':'FluentFlow 会使用当前工作台设置重新执行 STT，并替换当前结果里的转录文本和摘要。','edit.retranscribeUnavailableTitle':'当前没有可直接重转的原文件','edit.retranscribeUnavailableDesc':'浏览器不会在历史记录里长期保留本地音视频文件权限。请选择原始音视频文件，再用当前设置重新转录。','edit.retranscribeConfirmAction':'确认重新转录','edit.retranscribeChooseAction':'选择原始文件','edit.cancel':'取消','edit.segments':'段','edit.duration':'时长','edit.sttElapsed':'转录耗时','edit.exportDone':'导出请求已发送','edit.exportFail':'导出失败','edit.regenDone':'笔记已重生','edit.clearHistory':'清除记录','edit.clearConfirm':'所有记录已清除','edit.clearConfirmAgain':'再次点击确认','edit.copied':'已复制','edit.editedTranscript':'已修改转录','edit.transcriptSaving':'保存中…','edit.transcriptSaved':'已保存','edit.transcriptSaveFailed':'保存失败','edit.editRecords':'修改记录','edit.editRecordsTitle':'转录稿修改记录','edit.editRecordsDesc':'每条记录会保留修改句子和相邻上下文，并随编辑稿一起保存到本地。','edit.editRecordsEmpty':'还没有记录到分段修改。','edit.before':'修改前','edit.after':'修改后','edit.previousSentence':'上一句','edit.nextSentence':'下一句','edit.followPlayback':'跟随播放','edit.audioUnavailable':'选择原始音视频后，可边听边校对。','edit.chooseAudio':'选择原音频','edit.sourceLoading':'正在读取原音频…',
     'prompt.label':'提示词模板','prompt.select':'选择提示词风格','prompt.customPlaceholder':'在此输入自定义系统提示词…','prompt.expanded':'收起提示词','prompt.collapsed':'更换提示词','prompt.activeHint':'当前：','prompt.editHint':'重生笔记前可编辑提示词','prompt.saveAsPreset':'将自定义保存为预设',
-    'dl.transcript':'导出转录文本','dl.summary':'下载摘要','dl.txt':'纯文本 (.txt)','dl.md':'Markdown (.md)','dl.srt':'原文字幕 (.srt)','dl.vtt':'原文 WebVTT (.vtt)','dl.bilingualSrt':'中英双语字幕 (.srt)','dl.bilingualVtt':'中英双语 WebVTT (.vtt)','dl.pdf':'PDF 文档','dl.word':'Word 文档 (.docx)','dl.generating':'生成中…','dl.success':'已开始下载',
+    'dl.transcript':'导出转录文本','dl.summary':'下载摘要','dl.txt':'纯文本 (.txt)','dl.md':'Markdown (.md)','dl.srt':'原文字幕 (.srt)','dl.vtt':'原文 WebVTT (.vtt)','dl.bilingualSrt':'中英双语字幕 (.srt)','dl.bilingualVtt':'中英双语 WebVTT (.vtt)','dl.sourceVideo':'原视频','dl.pdf':'PDF 文档','dl.word':'Word 文档 (.docx)','dl.generating':'生成中…','dl.success':'已开始下载',
     'set.title':'设置','set.subtitle':'这里只保留模板维护、导出历史和应用偏好。','set.larkTitle':'飞书凭证','set.larkDesc':'这里只保存连接凭证；是否自动导出等处理偏好由设置页维护。','set.autoExport':'处理完成后自动导出到飞书','set.larkExportRoute':'飞书导出路线','set.larkRouteOpenapi':'飞书应用导出','set.larkRouteOpenapiHint':'使用后台统一配置的飞书 OpenAPI 凭证，适合线上产品和普通用户。','set.larkRouteLocalCli':'本机身份导出','set.larkRouteLocalCliHint':'使用后端进程可调用的本机 lark-cli 和当前登录身份，适合个人桌面自动化。','set.larkViaCli':'用本机 lark-cli 导出到「我的文档库」','set.larkViaCliHint':'使用你已登录的 lark-cli，无需填 App 凭证；后端进程需能调用本机 PATH 上的 lark-cli。','set.larkHistory':'导出记录','set.sttProvider':'转录路线','set.providerLocal':'本地转录','set.providerAzureBatch':'云端转录','set.sttModel':'STT 模型','set.modelSel':'模型选择','set.sttLanguage':'音频语言','set.langAuto':'自动识别','set.langZh':'中文','set.langEn':'英文','set.sttSpeed':'转录速度','set.speedFast':'快速','set.speedBalanced':'均衡','set.speedAccurate':'高准确率','set.optTiny':'tiny（最快）','set.optBase':'base','set.optSmall':'small（不推荐）','set.optMedium':'medium（最低可用）','set.optLarge':'large-v3（最准确）','set.intelligence':'AI 智能','set.skipSummary':'仅转录模式','set.skipSummaryHint':'音视频转录后跳过 AI 摘要；字幕导入入口始终生成笔记。','set.provider':'服务商','set.aiModel':'AI 模型','set.openaiKey':'OpenAI API Key','set.deepseekKey':'DeepSeek API Key','set.prefs':'应用偏好','set.theme':'界面主题','set.light':'浅色','set.dark':'暗色','set.saved':'已保存！','set.saveAll':'保存所有更改','set.promptTitle':'提示词模板库','set.promptDesc':'在这里维护可复用提示词，并选择默认模板。','set.defaultPrompt':'默认提示词','set.templateToEdit':'要编辑的模板','set.editCoursePrompt':'编辑「课程笔记」系统提示词','set.editBuiltinTemplate':'编辑该模板内容','set.resetBuiltinPrompt':'恢复为内置默认','set.deleteBuiltinPrompt':'删除该模板类目','set.deleteBuiltinPromptConfirm':'确定删除该模板类目（从界面移除）？','set.myPresets':'已保存的预设','set.presetNamePh':'预设名称','set.saveAsPreset':'保存为预设','set.deletePreset':'删除','set.deletePresetConfirm':'确定删除该保存的预设？','set.presetSaved':'已保存预设',
     'work.defaults':'处理默认值','work.defaultsDesc':'仪表盘上传、字幕导入、编辑器重生笔记都会使用这些设置。','work.activePrompt':'默认提示词模板','work.transcription':'转录','work.close':'关闭','work.summary':'摘要 AI','work.summaryMode':'笔记生成模式','work.noteModeAuto':'按转录长度自动切换：约 2 万字以内直接生成，超过后用高保真模式。','work.noteModeDirect':'整段一次发送给模型，速度更快，适合较短材料。','work.noteModeHighFidelity':'先分段提取证据，再成文并检查覆盖率，耗时更久，适合长课程。','work.export':'飞书导出','work.currentRun':'当前任务','work.activeRunHint':'主页已经展示更完整的实时进度，工作台只保留本次运行参数。','work.viewProgress':'查看进度','work.saved':'自动保存','work.credentialsLink':'凭证仍在设置页',
   },
@@ -617,9 +227,7 @@ export const AppCtx = createContext();
 
 export const AppProvider = ({children}) => {
     const {authMode, user, guestMode} = useAuth();
-    const [history, setHistory] = useState(() => {
-        try { return readBrowserHistoryEntries(); } catch(_){ return []; }
-    });
+    const [history, setHistory] = useState([]);
     const [larkExports, setLarkExports] = useState(() => {
         try { return JSON.parse(localStorage.getItem('fluentflow_lark_exports')||'[]'); } catch(_){ return []; }
     });
@@ -648,8 +256,12 @@ export const AppProvider = ({children}) => {
                 });
             }
         } catch(_) {}
-        if (guestMode || (authMode === 'accounts' && !user?.id)) return;
-        const cachedJobs = readCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local');
+        const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
+        if (guestMode || (authMode === 'accounts' && !user?.id)) {
+            setHistory([]);
+            return;
+        }
+        const cachedJobs = readCachedAccountJobs(accountCacheId);
         if (cachedJobs.length) {
             const cachedEntries = cachedJobs
                 .filter(jobVisibleInHistory)
@@ -660,7 +272,7 @@ export const AppProvider = ({children}) => {
             .then((r) => r.ok ? r.json() : null)
             .then((data) => {
                 if (!Array.isArray(data?.jobs)) return;
-                writeCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local', data.jobs);
+                writeCachedAccountJobs(accountCacheId, data.jobs);
                 const entries = data.jobs
                     .filter(jobVisibleInHistory)
                     .map(jobToHistoryEntry);
@@ -673,14 +285,20 @@ export const AppProvider = ({children}) => {
         return () => { cancelled = true; };
     }, [authMode, user?.id, guestMode]);
 
-    const persistHistory = (h) => { setHistory(h); localStorage.setItem('fluentflow_history', JSON.stringify(h.map(minimizeHistoryEntry))); };
-    const addToHistory = (entry) => persistHistory([
-        entry,
-        ...history.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
-    ].slice(0, 100));
-    const clearHistory = () => { persistHistory([]); persistLarkExports([]); };
-
     const persistLarkExports = (e) => { setLarkExports(e); localStorage.setItem('fluentflow_lark_exports', JSON.stringify(e)); };
+    const addToHistory = (entry) => setHistory((current) => [
+        entry,
+        ...current.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
+    ].slice(0, 100));
+    const clearHistory = () => {
+        setHistory([]);
+        persistLarkExports([]);
+        try {
+            localStorage.removeItem('fluentflow_history');
+            localStorage.removeItem(accountJobsCacheKey(authMode === 'accounts' ? user?.id : 'local'));
+        } catch(_) {}
+    };
+
     const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
     const stats = {
         totalMinutes: Math.round(history.reduce((s,h) => s + (h.durationMin||0), 0)),
@@ -691,13 +309,13 @@ export const AppProvider = ({children}) => {
 };
 export const useApp = () => useContext(AppCtx);
 
+export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, mergeCachedJobs, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
+
 export { fmtTime, autoSizeTextarea, composeTranscriptText, normalizeTranscriptSegments, normalizeDisplaySegments, pickTranscriptSegments, pickTranscriptBaselineSegments, pickDisplayTranscriptSegments, buildTranscriptEditRecords, fmtElapsed, fmtFileSize, totalFileSizeMb, fmtBytes, fmtDateTime, friendlyTaskError, fmtSttRelative, sttStatusLabel, sttProgressFraction, isSttProgressUnmeasured, jobProgressLabel, timeAgo, noteGenerationDiagnosis } from '../lib/format.js';
 
 export { MD_TABLE_ALIGN_RE, splitMdTableRow, isPipeTableRow, looksLikeMdTable, looksLikeLoosePipeTable, renderTableHtml, simpleMd } from '../lib/markdown.js';
 
 export { _dl, _baseName, _fmtSrtTime, _fmtVttTime, dlTranscriptTxt, dlTranscriptSrt, dlTranscriptVtt, dlBilingualTranscriptSrt, dlBilingualTranscriptVtt, dlSummaryTxt, dlSummaryMd, dlSummaryWord, dlSummaryPdf, dlSummaryImage } from '../lib/download.js';
-
-export { isCloudSttConfigured, isCloudSttProvider } from './jobMorph.js';
 
 const dropdownIconMap = {
     download: Download,

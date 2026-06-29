@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from backend.core.video_source import display_title_for_source_input
 import backend.core.server_helpers as H
 
 router = APIRouter()
@@ -32,7 +33,7 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
 
     options = H._queue_options_from_mapping(payload.get("options") if isinstance(payload.get("options"), dict) else {})
     task_id_value = H._new_task_id()
-    raw_title = title or input_text[:80]
+    raw_title = title or display_title_for_source_input(input_text, input_text[:80])
     display_name = H.display_title_for_user(raw_title, raw_title)
     metadata = H._metadata(
         route="/video-sources/jobs",
@@ -46,16 +47,16 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
         event_name="video_source_submitted",
         source_type="video_link",
         source_filename=display_name,
-        stage="resolving",
+        stage="queued",
         success=True,
         metadata=metadata,
     )
     H.upsert_job(
         task_id=task_id_value,
-        status="running",
+        status="queued",
         client_id=client_id,
-        stage="resolving",
-        progress=2,
+        stage="queued",
+        progress=0,
         source_type="video_link",
         source_filename=display_name,
         metadata=metadata,
@@ -72,8 +73,9 @@ async def create_video_source_job(request: Request, payload: dict[str, Any] = Bo
         "ok": True,
         "job": {
             "task_id": task_id_value,
-            "status": "running",
-            "stage": "resolving",
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0,
             "source_type": "video_link",
             "source_filename": display_name,
             "metadata": metadata,

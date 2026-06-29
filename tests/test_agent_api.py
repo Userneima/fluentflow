@@ -95,6 +95,8 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["note"]["diagnosis"]["code"] == "note_completed"
     assert package["processing_plan"]["processing_plan_version"] == "1"
     assert package["processing_plan"]["material"]["source_type"] == "video_link"
+    assert package["decision_log"]["decision_log_version"] == "1"
+    assert any(entry["id"] == "note_generation_outcome" for entry in package["decision_log"]["entries"])
     assert package["artifacts"]["summary_md"]["url"] == "/jobs/task-agent/artifacts/summary_md"
     assert package["visual"]["available"] is True
     assert package["visual"]["candidate_frame_count"] == 1

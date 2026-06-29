@@ -469,12 +469,7 @@ const MediaText = () => {
                 return;
             }
         } catch (_) {}
-        if (item.status === 'completed') {
-            setLastResult(historyEntryToResult(item));
-            navigate('/editor');
-        } else {
-            navigate('/tasks');
-        }
+        navigate('/tasks');
     };
 
     return (
@@ -496,11 +491,12 @@ const MediaText = () => {
                 </div>
 
                 <section
-                    className="relative overflow-hidden rounded-[24px] border border-[#dedada] bg-white p-8 shadow-[0_26px_70px_-46px_rgba(17,17,17,.5)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none"
+                    className="relative overflow-hidden rounded-[24px] border border-[#dedada] bg-white p-8 shadow-[0_26px_70px_-46px_rgba(17,17,17,.5)] dark:border-white/[0.12] dark:bg-[#1d1f22] dark:shadow-none"
                     onDrop={handleDrop}
                     onDragOver={(e) => e.preventDefault()}
                 >
-                    <div className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-[radial-gradient(circle_at_20%_30%,rgba(151,231,211,.38),transparent_0_24%,transparent_48%)]"/>
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_14%,rgba(0,174,236,.14),transparent_32%),radial-gradient(circle_at_82%_10%,rgba(255,0,51,.08),transparent_28%),radial-gradient(circle_at_44%_105%,rgba(151,231,211,.12),transparent_34%)] dark:bg-[radial-gradient(circle_at_18%_14%,rgba(0,174,236,.18),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(255,0,51,.12),transparent_30%),radial-gradient(circle_at_42%_108%,rgba(151,231,211,.12),transparent_36%)]"/>
+                    <div className="pointer-events-none absolute inset-0 bg-white/72 dark:bg-[#1d1f22]/78"/>
                     <div className="relative z-10">
                         <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                             <div className="inline-flex rounded-[18px] border border-[#dedada] bg-[#f4f3f3] p-1 dark:border-white/[0.12] dark:bg-white/[0.08]">

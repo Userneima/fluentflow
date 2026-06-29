@@ -242,6 +242,7 @@ def update_job_result(
     result: dict[str, Any],
     db_path: Path | str = DEFAULT_DB_PATH,
     client_id: str | None = None,
+    touch_updated_at: bool = True,
 ) -> dict[str, Any] | None:
     if not task_id:
         return None
@@ -258,10 +259,16 @@ def update_job_result(
             row = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
         if row is None:
             return None
-        conn.execute(
-            "UPDATE jobs SET updated_at = ?, result_json = ? WHERE task_id = ?",
-            (now, _result_json_dumps(result), task_id),
-        )
+        if touch_updated_at:
+            conn.execute(
+                "UPDATE jobs SET updated_at = ?, result_json = ? WHERE task_id = ?",
+                (now, _result_json_dumps(result), task_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE jobs SET result_json = ? WHERE task_id = ?",
+                (_result_json_dumps(result), task_id),
+            )
         updated = conn.execute("SELECT * FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
     return _row_to_dict(updated) if updated else None
 
@@ -566,12 +573,13 @@ def migrate_job_display_titles(db_path: Path | str = DEFAULT_DB_PATH) -> int:
                 or row["source_filename"]
                 or ""
             ).strip()
-            display_title = str(
+            display_candidate = str(
                 metadata_dict.get("display_title")
                 or video_source.get("display_title")
                 or result_dict.get("display_title")
-                or display_title_for_user(raw_title, row["source_filename"])
+                or raw_title
             ).strip()
+            display_title = display_title_for_user(display_candidate, row["source_filename"]).strip()
             if not display_title:
                 continue
 

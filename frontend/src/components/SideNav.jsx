@@ -3,11 +3,14 @@ import {Link, useLocation} from 'react-router-dom';
 import {
     Activity,
     FilePenLine,
+    FileText,
     Hand,
+    History,
     Languages,
     LayoutGrid,
     LogIn,
     LogOut,
+    ChevronRight,
     Moon,
     PanelLeftClose,
     PanelLeftOpen,
@@ -20,9 +23,9 @@ import {
 } from 'lucide-react';
 import {useApi, useAuth, useI18n, useSettings} from '../app/shared.jsx';
 
-const FluentFlowLogo = () => (
-    <div className="relative flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#111111] text-white shadow-[0_18px_42px_-26px_rgba(17,17,17,.75)] [--ff-logo-line:#111111] dark:bg-white dark:text-[#111111] dark:[--ff-logo-line:#ffffff]">
-        <svg viewBox="0 0 64 64" className="size-[30px]" fill="none" aria-hidden="true">
+const FluentFlowLogo = ({compact = false}) => (
+    <div className={`relative flex shrink-0 items-center justify-center bg-[#111111] text-white shadow-[0_18px_42px_-26px_rgba(17,17,17,.75)] [--ff-logo-line:#111111] dark:bg-white dark:text-[#111111] dark:[--ff-logo-line:#ffffff] ${compact ? 'size-6 rounded-[9px]' : 'size-10 rounded-[14px]'}`}>
+        <svg viewBox="0 0 64 64" className={compact ? 'size-[18px]' : 'size-[30px]'} fill="none" aria-hidden="true">
             <rect x="17" y="19" width="28" height="26" rx="8" fill="currentColor"/>
             <rect x="43" y="25" width="8" height="14" rx="4" fill="currentColor"/>
             <path d="M24 29h13M24 36h9" stroke="var(--ff-logo-line, #111111)" strokeWidth="4.2" strokeLinecap="round"/>
@@ -40,6 +43,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
         try { return (JSON.parse(localStorage.getItem('fluentflow_settings') || '{}').theme || 'light') === 'dark'; } catch (_) { return false; }
     });
     const [menuOpen, setMenuOpen] = useState(false);
+    const [legalMenuOpen, setLegalMenuOpen] = useState(false);
     const menuRef = useRef(null);
     const loc = useLocation();
 
@@ -77,6 +81,10 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
         return () => document.removeEventListener('mousedown', handler);
     }, [menuOpen]);
 
+    useEffect(() => {
+        if (!menuOpen) setLegalMenuOpen(false);
+    }, [menuOpen]);
+
     const fullItems = [
         {path:'/', icon:LayoutGrid, k:'nav.dashboard'},
         {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
@@ -105,18 +113,23 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const AnonymousEntryIcon = showAccountLoginEntry ? LogIn : Hand;
     const sidebarLoginActionTitle = lang === 'zh' ? '登录账号' : 'Sign in';
     const sidebarLoginActionSubtitle = lang === 'zh' ? '同步任务和额度' : 'Sync jobs and balance';
+    const legalLinks = [
+        {path: '/about/service', icon: FileText, label: lang === 'zh' ? '服务条款' : 'Terms'},
+        {path: '/about/privacy', icon: ShieldCheck, label: lang === 'zh' ? '隐私政策' : 'Privacy'},
+        {path: '/about/changelog', icon: History, label: lang === 'zh' ? '版本更新' : 'Changelog'},
+    ];
 
     return (
         <aside className={`fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-[#e5e5e5] bg-[#fbfbfb] text-[#111111] transition-[width] duration-200 ease-out dark:border-white/[0.12] dark:bg-[#0a0a0a] dark:text-white/[0.92] ${collapsed ? 'w-[72px]' : 'w-56'}`}>
             <div className={`flex h-full min-h-0 flex-col ${collapsed ? 'px-2.5 py-5' : 'px-4 py-5'}`}>
-                <div className={`flex items-center ${collapsed ? 'mb-8 flex-col gap-4' : 'mb-2 justify-between gap-2'}`}>
+                <div className={`flex h-16 items-center ${collapsed ? 'mb-3 flex-col justify-center gap-1' : 'mb-3 justify-between gap-2'}`}>
                     <Link
                         to="/"
-                        className={`flex min-w-0 items-center rounded-[14px] transition hover:bg-surface-container-low focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${collapsed ? 'justify-center p-1.5' : 'gap-2.5 w-full px-2.5 py-2'}`}
+                        className={`flex min-w-0 items-center rounded-[14px] transition hover:bg-surface-container-low focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${collapsed ? 'h-8 w-10 justify-center p-0' : 'gap-2.5 w-full px-2.5 py-2'}`}
                         aria-label="FluentFlow"
                         title={collapsed ? 'FluentFlow' : undefined}
                     >
-                        <FluentFlowLogo/>
+                        <FluentFlowLogo compact={collapsed}/>
                         {!collapsed && (
                             <div className="min-w-0">
                                 <h1 className="truncate font-headline text-[16px] font-extrabold leading-tight">FluentFlow</h1>
@@ -127,11 +140,11 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                     <button
                         type="button"
                         onClick={onToggle}
-                        className={`flex shrink-0 items-center justify-center text-[#5f6368] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:text-white/70 dark:hover:bg-white/[0.08] dark:hover:text-white ${collapsed ? 'size-10 rounded-[14px]' : 'h-8 w-8 rounded-xl'}`}
+                        className={`flex shrink-0 items-center justify-center text-[#5f6368] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:text-white/70 dark:hover:bg-white/[0.08] dark:hover:text-white ${collapsed ? 'h-5 w-10 rounded-[10px]' : 'h-8 w-8 rounded-xl'}`}
                         aria-label={collapsed ? (lang === 'zh' ? '展开侧边栏' : 'Expand sidebar') : (lang === 'zh' ? '收起侧边栏' : 'Collapse sidebar')}
                         title={collapsed ? (lang === 'zh' ? '展开侧边栏' : 'Expand sidebar') : (lang === 'zh' ? '收起侧边栏' : 'Collapse sidebar')}
                     >
-                        <CollapseIcon className="size-[18px]" strokeWidth={1.9}/>
+                        <CollapseIcon className={collapsed ? 'size-[14px]' : 'size-[18px]'} strokeWidth={1.9}/>
                     </button>
                 </div>
 
@@ -142,7 +155,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                         className={`mb-3 flex shrink-0 items-center rounded-[16px] border border-[#d9d9d9] bg-white text-[#111111] shadow-[0_1px_2px_rgba(17,17,17,0.03)] transition hover:border-[#cfcfcf] hover:bg-[#f7f7f7] active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:border-white/[0.14] dark:bg-white/[0.08] dark:text-white dark:hover:border-white/[0.2] dark:hover:bg-white/[0.12] ${collapsed ? 'mx-auto size-12 justify-center p-0 rounded-[20px]' : 'w-full gap-3 px-3.5 py-2.5 text-left'}`}
                         title={collapsed ? sidebarLoginActionTitle : undefined}
                     >
-                        <LogIn className={`${collapsed ? 'size-[22px]' : 'size-5'} shrink-0`} strokeWidth={2.15}/>
+                        <LogIn className="size-5 shrink-0" strokeWidth={2.15}/>
                         {!collapsed && (
                             <span className="min-w-0">
                                 <span className="block truncate text-[14px] font-extrabold leading-5">{sidebarLoginActionTitle}</span>
@@ -152,7 +165,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                     </button>
                 )}
 
-                <nav className={collapsed ? 'min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden' : 'min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden'}>
+                <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden">
                     {items.map((it) => {
                         const active = loc.pathname === it.path;
                         const Icon = it.icon;
@@ -165,9 +178,9 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                     active
                                         ? 'bg-[#e8e5e5] text-[#111111] dark:bg-white/[0.12] dark:text-white'
                                         : 'text-[#111111] hover:bg-[#efeeee] dark:text-white/[0.72] dark:hover:bg-white/[0.08] dark:hover:text-white'
-                                } ${collapsed ? 'mx-auto size-12 justify-center p-0 rounded-[20px]' : 'gap-3 px-3.5 py-2.5'}`}
+                                } ${collapsed ? 'mx-auto h-10 w-12 justify-center rounded-[16px] p-0' : 'gap-3 px-3.5 py-2.5'}`}
                             >
-                                <Icon className={`${collapsed ? 'size-[22px]' : 'size-5'} shrink-0`} strokeWidth={2.15}/>
+                                <Icon className="size-5 shrink-0" strokeWidth={2.15}/>
                                 <span className={collapsed ? 'sr-only' : 'truncate'}>{it.label || t(it.k)}</span>
                             </Link>
                         );
@@ -267,14 +280,36 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                 </button>
                             </div>
                             <div className="my-1 border-t border-[#e5e5e5] dark:border-white/[0.12]"/>
-                            <Link
-                                to="/about"
-                                onClick={() => setMenuOpen(false)}
-                                className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
-                            >
-                                <ShieldCheck className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
-                                {lang === 'zh' ? '关于与协议' : 'About & terms'}
-                            </Link>
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setLegalMenuOpen((value) => !value)}
+                                    aria-expanded={legalMenuOpen}
+                                    className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08] ${legalMenuOpen ? 'bg-[#efeeee] dark:bg-white/[0.08]' : ''}`}
+                                >
+                                    <FileText className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
+                                    <span className="flex-1 text-left">{lang === 'zh' ? '关于与协议' : 'About & terms'}</span>
+                                    <ChevronRight className="size-4 shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
+                                </button>
+                                {legalMenuOpen && (
+                                    <div className="absolute left-full top-0 z-[60] ml-3 w-52 rounded-[14px] border border-[#e5e5e5] bg-white p-2 shadow-[0_12px_40px_-18px_rgba(17,17,17,.35)] dark:border-white/[0.12] dark:bg-[#101010]">
+                                        {legalLinks.map((item) => {
+                                            const Icon = item.icon;
+                                            return (
+                                                <Link
+                                                    key={item.path}
+                                                    to={item.path}
+                                                    onClick={() => setMenuOpen(false)}
+                                                    className="flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
+                                                >
+                                                    <Icon className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
+                                                    <span>{item.label}</span>
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                             {authMode === 'accounts' && user && (
                                 <button
                                     type="button"

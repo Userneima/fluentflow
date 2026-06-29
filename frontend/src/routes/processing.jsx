@@ -3,9 +3,9 @@ import {Link} from 'react-router-dom';
 import SvgIcon from '../components/SvgIcon.jsx';
 import {
     effectiveSttProvider,
+    displayTitleForUser,
     fmtElapsed,
     fmtFileSize,
-    historyEntryToResult,
     isCloudSttProvider,
     noteModeLabel,
     useApp,
@@ -126,14 +126,12 @@ const Metric = ({label, value}) => (
 
 const Processing = () => {
     const {lang} = useI18n();
-    const {currentJob, history, lastResult, runtimeConfig} = useApp();
+    const {currentJob, lastResult, runtimeConfig} = useApp();
     const {loadSettings} = useSettings();
     const settings = useMemo(() => loadSettings(), [loadSettings]);
     const isZh = lang === 'zh';
 
-    const latestHistory = useMemo(() => history.find((item) => item.status === 'completed') || history[0] || null, [history]);
-    const fallbackResult = useMemo(() => latestHistory ? historyEntryToResult(latestHistory) : null, [latestHistory]);
-    const result = lastResult || fallbackResult || null;
+    const result = lastResult || null;
     const processingPlan = result?.processing_plan || null;
     const planMaterial = processingPlan?.material || {};
     const planExecution = processingPlan?.execution || {};
@@ -142,7 +140,8 @@ const Processing = () => {
     const planRiskNotes = Array.isArray(processingPlan?.risk_notes) ? processingPlan.risk_notes.filter(Boolean) : [];
     const planSteps = Array.isArray(processingPlan?.steps) ? processingPlan.steps : [];
     const active = currentJob && currentJob.stage !== 'done' ? currentJob : null;
-    const title = active?.fileName || result?.display_title || result?.filename || latestHistory?.displayTitle || latestHistory?.name || (isZh ? '等待任务' : 'Waiting for task');
+    const rawTitle = active?.fileName || result?.display_title || result?.filename || '';
+    const title = displayTitleForUser(rawTitle, result?.filename || rawTitle) || (isZh ? '等待任务' : 'Waiting for task');
     const stage = active?.stage || (result ? 'done' : 'queued');
     const stageRank = STAGE_ORDER[stage] ?? 0;
     const provider = active?.sttProvider || result?.stt_provider || effectiveSttProvider(settings, runtimeConfig);
@@ -156,7 +155,7 @@ const Processing = () => {
                 ? result.segments.length
                 : null;
     const transcriptChars = result?.transcript_text ? result.transcript_text.length : null;
-    const durationSeconds = result?.audio_duration_seconds || active?.durationSeconds || latestHistory?.audioDurationSec || null;
+    const durationSeconds = result?.audio_duration_seconds || active?.durationSeconds || null;
     const progress = Math.max(0, Math.min(100, Number(active?.progress) || (result ? 100 : 0)));
     const noteReason = planNoteStrategy.reason || result?.note_mode_plan_reason
         || (settings.noteMode && settings.noteMode !== 'auto'
@@ -245,7 +244,7 @@ const Processing = () => {
         {label: isZh ? '时长' : 'Duration', value: durationSeconds ? fmtElapsed(durationSeconds) : null},
         {label: isZh ? '转录长度' : 'Transcript length', value: transcriptChars ? `${transcriptChars.toLocaleString()} ${isZh ? '字' : 'chars'}` : null},
         {label: isZh ? '字幕段数' : 'Segments', value: segmentCount ? `${segmentCount}` : null},
-        {label: isZh ? '文件大小' : 'File size', value: fmtFileSize(active?.fileSizeMb || latestHistory?.fileSizeMb)},
+        {label: isZh ? '文件大小' : 'File size', value: fmtFileSize(active?.fileSizeMb)},
         {label: isZh ? '提示词模板' : 'Prompt', value: promptLabel},
     ];
 
@@ -270,39 +269,6 @@ const Processing = () => {
     return (
         <main className="ml-[var(--sidebar-offset)] h-dvh overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] transition-[margin] duration-200 ease-out hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
             <div className="mx-auto max-w-7xl space-y-5">
-                <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex min-w-0 items-start gap-3">
-                        <div className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#111111] text-white dark:bg-white dark:text-[#111111]">
-                            <SvgIcon name="route" className="text-lg"/>
-                        </div>
-                        <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
-                                    {isZh ? 'Agent 工作流' : 'Agent workflow'}
-                                </h1>
-                                <span className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                    {isZh ? '任务解释' : 'Task explanation'}
-                                </span>
-                            </div>
-                            <p className="mt-1 max-w-3xl text-[13px] leading-5 text-[#676970] dark:text-white/60">
-                                {isZh
-                                    ? '展示本次任务的处理路线、判断依据和失败恢复建议。'
-                                    : 'Shows this task route, judgment evidence, and recovery suggestions.'}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2 lg:justify-end">
-                        <Link to="/" className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
-                            <SvgIcon name="upload_file" className="text-base"/>
-                            {isZh ? '开始处理' : 'Start'}
-                        </Link>
-                        <Link to="/settings" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-3.5 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#f4f3f3] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
-                            <SvgIcon name="settings" className="text-base"/>
-                            {isZh ? '长期设置' : 'Settings'}
-                        </Link>
-                    </div>
-                </header>
-
                 <div className="grid min-w-0 gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.55fr)]">
                     <div className="min-w-0 space-y-7">
                         <section className="min-w-0 overflow-hidden border-b border-[#dedada] pb-5 dark:border-white/[0.10]">

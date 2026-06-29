@@ -9,6 +9,7 @@ from backend.core.result_schema import canonical_display_segments, canonical_raw
 from backend.core.processing_plan import build_processing_plan, ensure_processing_plan
 from backend.core.title_display import display_title_for_user
 from backend.core.tool_trace import build_tool_trace
+from backend.core.decision_log import build_decision_log
 
 
 AGENT_TASK_PACKAGE_VERSION = "1"
@@ -317,5 +318,6 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
     }
     package["processing_plan"] = result.get("processing_plan") or build_processing_plan(result, job=job, metadata=metadata)
     package["tool_trace"] = build_tool_trace(result, job=job)
+    package["decision_log"] = build_decision_log(result, job=job, metadata=metadata)
     package["next_actions"] = _next_actions(job, diagnosis)
     return package

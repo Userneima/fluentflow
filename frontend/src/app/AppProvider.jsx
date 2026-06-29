@@ -5,9 +5,7 @@ import {
     sanitizeSettings,
     sensitivePatchFromSettings,
     SENSITIVE_SETTING_KEYS,
-    minimizeHistoryEntry,
-    readBrowserHistoryEntries,
-    historyStatusFromJob,
+    accountJobsCacheKey,
     jobVisibleInHistory,
     normalizeRuntimeConfig,
     DEFAULT_RUNTIME_CONFIG,
@@ -22,9 +20,7 @@ const AppCtx = createContext();
 
 export const AppProvider = ({children}) => {
     const {authMode, user, guestMode} = useAuth();
-    const [history, setHistory] = useState(() => {
-        try { return readBrowserHistoryEntries(); } catch(_){ return []; }
-    });
+    const [history, setHistory] = useState([]);
     const [larkExports, setLarkExports] = useState(() => {
         try { return JSON.parse(localStorage.getItem('fluentflow_lark_exports')||'[]'); } catch(_){ return []; }
     });
@@ -53,8 +49,12 @@ export const AppProvider = ({children}) => {
                 });
             }
         } catch(_) {}
-        if (guestMode || (authMode === 'accounts' && !user?.id)) return;
-        const cachedJobs = readCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local');
+        const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
+        if (guestMode || (authMode === 'accounts' && !user?.id)) {
+            setHistory([]);
+            return;
+        }
+        const cachedJobs = readCachedAccountJobs(accountCacheId);
         if (cachedJobs.length) {
             const cachedEntries = cachedJobs
                 .filter(jobVisibleInHistory)
@@ -67,7 +67,7 @@ export const AppProvider = ({children}) => {
             .then((r) => r.ok ? r.json() : null)
             .then((data) => {
                 if (!Array.isArray(data?.jobs)) return;
-                writeCachedAccountJobs(authMode === 'accounts' ? user?.id : 'local', data.jobs);
+                writeCachedAccountJobs(accountCacheId, data.jobs);
                 const entries = data.jobs
                     .filter(jobVisibleInHistory)
                     .map(jobToHistoryEntry);
@@ -80,14 +80,20 @@ export const AppProvider = ({children}) => {
         return () => { cancelled = true; };
     }, [authMode, user?.id, guestMode]);
 
-    const persistHistory = (h) => { setHistory(h); localStorage.setItem('fluentflow_history', JSON.stringify(h.map(minimizeHistoryEntry))); };
-    const addToHistory = (entry) => persistHistory([
-        entry,
-        ...history.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
-    ].slice(0, 100));
-    const clearHistory = () => { persistHistory([]); persistLarkExports([]); };
-
     const persistLarkExports = (e) => { setLarkExports(e); localStorage.setItem('fluentflow_lark_exports', JSON.stringify(e)); };
+    const addToHistory = (entry) => setHistory((current) => [
+        entry,
+        ...current.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
+    ].slice(0, 100));
+    const clearHistory = () => {
+        setHistory([]);
+        persistLarkExports([]);
+        try {
+            localStorage.removeItem('fluentflow_history');
+            localStorage.removeItem(accountJobsCacheKey(authMode === 'accounts' ? user?.id : 'local'));
+        } catch(_) {}
+    };
+
     const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
     const stats = {
         totalMinutes: Math.round(history.reduce((s,h) => s + (h.durationMin||0), 0)),

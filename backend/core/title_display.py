@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-GENERATED_VIDEO_ID_PREFIX_RE = re.compile(r"^\d{10,24}[-_]+(?=.)")
+GENERATED_VIDEO_ID_PREFIX_RE = re.compile(r"^(?:\d{10,24}|BV[a-zA-Z0-9]{8,})[-_]+(?=.)")
 
 
 def strip_extension(value: Any) -> str:

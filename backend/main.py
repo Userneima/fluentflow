@@ -44,6 +44,7 @@ from backend.routers.video_sources import router as video_sources_router
 from backend.routers.processing import router as processing_router
 from backend.routers.config import router as config_router
 from backend.routers.events import router as events_router
+from backend.routers.agent import router as agent_router
 from backend.routers.spa import router as spa_router
 from backend.routers.misc import router as misc_router
 
@@ -56,6 +57,7 @@ app.include_router(video_sources_router)
 app.include_router(processing_router)
 app.include_router(config_router)
 app.include_router(events_router)
+app.include_router(agent_router)
 app.include_router(misc_router)
 
 # ── Static Files (SPA fallback is handled by routers/spa.py) ───

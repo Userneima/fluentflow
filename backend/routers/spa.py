@@ -24,7 +24,7 @@ def favicon() -> Response:
 def serve_frontend_index() -> FileResponse:
     if not H.FRONTEND_INDEX.exists():
         raise HTTPException(status_code=404, detail="Frontend index not found")
-    return FileResponse(str(H.FRONTEND_INDEX))
+    return FileResponse(str(H.FRONTEND_INDEX), headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/{client_path:path}", include_in_schema=False)

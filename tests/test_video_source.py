@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import backend.core.video_source as video_source
 
 
@@ -31,6 +33,166 @@ def test_miuistore_link_parser_prefers_mp4_link() -> None:
     assert video_source.choose_miuistore_video_url(links) == "https://v.douyinvod.com/play/?mime_type=video_mp4"
 
 
+def test_choose_yt_dlp_media_pairs_bilibili_video_and_audio() -> None:
+    info = {
+        "formats": [
+            {
+                "url": "https://upos.example/video-low.m4s",
+                "vcodec": "avc1",
+                "acodec": "none",
+                "ext": "mp4",
+                "height": 360,
+                "filesize": 1_000,
+            },
+            {
+                "url": "https://upos.example/video-high.m4s",
+                "vcodec": "avc1",
+                "acodec": "none",
+                "ext": "mp4",
+                "height": 720,
+                "filesize": 2_000,
+            },
+            {
+                "url": "https://upos.example/audio.m4s",
+                "vcodec": "none",
+                "acodec": "mp4a",
+                "ext": "m4a",
+                "abr": 128,
+            },
+        ],
+    }
+
+    video_url, audio_url = video_source.choose_yt_dlp_media(info)
+
+    assert video_url == "https://upos.example/video-high.m4s"
+    assert audio_url == "https://upos.example/audio.m4s"
+
+
+def test_choose_yt_dlp_media_prefers_combined_stream_when_available() -> None:
+    info = {
+        "formats": [
+            {
+                "url": "https://upos.example/video-only.m4s",
+                "vcodec": "avc1",
+                "acodec": "none",
+                "ext": "mp4",
+                "height": 1080,
+            },
+            {
+                "url": "https://upos.example/combined.mp4",
+                "vcodec": "avc1",
+                "acodec": "mp4a",
+                "ext": "mp4",
+                "height": 720,
+            },
+            {
+                "url": "https://upos.example/audio.m4s",
+                "vcodec": "none",
+                "acodec": "mp4a",
+                "ext": "m4a",
+            },
+        ],
+    }
+
+    video_url, audio_url = video_source.choose_yt_dlp_media(info)
+
+    assert video_url == "https://upos.example/combined.mp4"
+    assert audio_url is None
+
+
+def test_bilibili_url_detection_covers_public_submission_shapes() -> None:
+    assert video_source.is_bilibili_url("https://www.bilibili.com/video/BV1xx411c7mD/")
+    assert video_source.is_bilibili_url("https://www.bilibili.com/video/BV1xx411c7mD/?p=2")
+    assert video_source.is_bilibili_url("https://b23.tv/abc123")
+    assert not video_source.is_bilibili_url("https://www.youtube.com/watch?v=demo")
+
+
+def test_run_yt_dlp_adds_bilibili_headers(monkeypatch) -> None:
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = "{}"
+        stderr = ""
+
+    def fake_run(args, capture_output=True, text=True, timeout=90):
+        captured["args"] = args
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        captured["timeout"] = timeout
+        return FakeResult()
+
+    monkeypatch.setattr(video_source.subprocess, "run", fake_run)
+
+    video_source.run_yt_dlp("https://www.bilibili.com/video/BVdemo/")
+
+    args = captured["args"]
+    assert "Referer:https://www.bilibili.com/" in args
+    assert "Origin:https://www.bilibili.com" in args
+    assert any(value.startswith("User-Agent:Mozilla/5.0") for value in args)
+    assert args[-1] == "https://www.bilibili.com/video/BVdemo/"
+
+
+def test_miuistore_field_parser_accepts_extra_value_classes() -> None:
+    html = """
+    <div class='col text-md-end col-label'>视频标题：</div>
+    <div class='col col-value col-title'>测试 B 站视频</div>
+    """
+
+    assert video_source.parse_miuistore_field(html, "视频标题") == "测试 B 站视频"
+
+
+def test_resolve_video_stops_bilibili_after_yt_dlp_failure(monkeypatch) -> None:
+    def fail_if_called(url: str, timeout: float = 45) -> str:
+        raise AssertionError(f"miuistore should not be called for Bilibili: {url}")
+
+    monkeypatch.setattr(video_source, "resolve_with_yt_dlp", lambda url: None)
+    monkeypatch.setattr(video_source, "fetch_text", fail_if_called)
+
+    with pytest.raises(RuntimeError, match="B 站链接暂时只能通过 yt-dlp 解析"):
+        video_source.resolve_video("https://www.bilibili.com/video/BVdemo/?p=2")
+
+
+def test_video_source_pending_title_ignores_bilibili_tracking_query() -> None:
+    title = video_source.display_title_for_source_input(
+        "https://www.bilibili.com/video/BV1JBoEBbEH7/?spm_id_from=333.337.search-card.all.click&vd_source=demo"
+    )
+
+    assert title == "Bilibili 视频 BV1JBoEBbEH7"
+    assert "spm_id_from" not in title
+    assert "vd_source" not in title
+
+
+def test_bilibili_download_uses_bilibili_referer_for_upos_stream(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    class FakeResponse:
+        headers = {"content-length": "5"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            if captured.get("read"):
+                return b""
+            captured["read"] = True
+            return b"video"
+
+    def fake_urlopen(request, timeout: float = 120):
+        captured["referer"] = request.headers.get("Referer")
+        return FakeResponse()
+
+    monkeypatch.setattr(video_source.urllib.request, "urlopen", fake_urlopen)
+
+    size = video_source.download_file("https://upos-sz-mirrorcos.bilivideo.com/video.m4s", tmp_path / "video.m4s")
+
+    assert size == 5
+    assert captured["referer"] == "https://www.bilibili.com/"
+
+
 def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path, monkeypatch) -> None:
     resolved = video_source.ResolvedVideo(
         provider="direct",
@@ -56,6 +218,40 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
     assert Path(saved.file_path).is_file()
     assert Path(saved.metadata_path).is_file()
     assert (tmp_path / "视频链接相关信息.md").read_text(encoding="utf-8").strip()
+
+
+def test_download_video_source_merges_split_bilibili_streams(tmp_path, monkeypatch) -> None:
+    resolved = video_source.ResolvedVideo(
+        provider="yt-dlp",
+        source_url="https://www.bilibili.com/video/BVdemo/",
+        download_url="https://upos.example/video.m4s",
+        audio_url="https://upos.example/audio.m4s",
+        referer="https://www.bilibili.com/",
+        video_id="BVdemo",
+        title="B 站视频",
+    )
+    merged = {}
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+
+    def fake_merge(video_url: str, audio_url: str, file_path: Path, *, referer=None) -> int:
+        merged["video_url"] = video_url
+        merged["audio_url"] = audio_url
+        merged["referer"] = referer
+        file_path.write_bytes(b"merged")
+        return 6
+
+    monkeypatch.setattr(video_source, "merge_media_parts", fake_merge)
+
+    saved = video_source.download_video_source("https://www.bilibili.com/video/BVdemo/", video_dir=tmp_path)
+
+    assert merged == {
+        "video_url": "https://upos.example/video.m4s",
+        "audio_url": "https://upos.example/audio.m4s",
+        "referer": "https://www.bilibili.com/",
+    }
+    assert saved.provider == "yt-dlp"
+    assert saved.audio_url == "https://upos.example/audio.m4s"
+    assert Path(saved.file_path).read_bytes() == b"merged"
 
 
 def test_download_video_source_splits_raw_and_display_title(tmp_path, monkeypatch) -> None:

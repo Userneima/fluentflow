@@ -86,7 +86,7 @@ ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 
 | `faster_whisper_version` | faster-whisper 包版本。 |
 | `ctranslate2_version` | ctranslate2 包版本。 |
 | `ffmpeg_version` | FFmpeg 版本首行。 |
-| `stt_provider` | `elevenlabs_scribe`、`local`、legacy `azure_batch` 或兼容旧链路的 `azure_fast`。报告必须按 provider 分组比较。 |
+| `stt_provider` | `elevenlabs_scribe`、`local` 或 legacy `azure_batch`。报告必须按 provider 分组比较。 |
 | `stt_provider_label` | 面向阅读的转录服务名称。 |
 | `stt_language` | 用户选择的语言配置；`auto` 表示交给 STT provider 自动识别。 |
 | `detected_language` | STT 服务返回的检测语言。 |
@@ -95,8 +95,8 @@ ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 
 | `azure_batch_audio_size_mb` | Legacy Azure Batch 上传 Blob 前，FFmpeg 预处理后的 MP3 大小。 |
 | `azure_batch_duration_seconds` | Legacy Azure Batch 上传前的音频时长估计。 |
 | `azure_batch_status` | Legacy Azure Batch 轮询返回的任务状态，例如 `NotStarted`、`Running`、`Succeeded`。 |
-| `azure_fast_inline_audio_size_mb` | Azure Fast 旧链路 inline 上传前，FFmpeg 预处理后的上传音频大小。 |
-| `azure_fast_inline_duration_seconds` | Azure Fast 旧链路 inline 上传前的音频时长。 |
+| `azure_fast_inline_audio_size_mb` | 历史字段，仅旧 Azure Fast inline 任务可能存在；当前新任务不再写入。 |
+| `azure_fast_inline_duration_seconds` | 历史字段，仅旧 Azure Fast inline 任务可能存在；当前新任务不再写入。 |
 | `audio_output_format` | `audio_extracted` 事件中的 STT 音频格式。本地路径为 `wav`，云端路径为 `mp3`。 |
 | `stt_realtime_factor` | `stt_elapsed_seconds / source_duration_seconds`。例如 `0.2` 表示转写耗时约为原音频时长的 20%。该值按本次 STT 阶段耗时计算，冷启动时会包含模型加载时间。 |
 | `model_cache_hit` | Whisper 模型是否已在后端进程内缓存。 |

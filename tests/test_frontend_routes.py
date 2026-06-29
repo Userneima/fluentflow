@@ -15,6 +15,7 @@ def test_client_routes_fall_back_to_frontend_index() -> None:
     response = client.get("/processing")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
     assert "FluentFlow" in response.text
     assert 'type="module"' in response.text
     assert 'src="/assets/' in response.text
@@ -38,6 +39,34 @@ def test_frontend_asset_route_serves_javascript_not_spa_html() -> None:
     assert not response.text.lstrip().startswith("<!DOCTYPE html>")
 
 
+def test_video_link_pending_task_title_uses_platform_not_tracking_query() -> None:
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
+
+    assert "videoLinkDisplayTitle(input, lang)" in dashboard
+    assert "display_title: job.metadata?.display_title || pendingTitle" in dashboard
+    assert "Bilibili 视频" in fmt
+    assert "spm_id_from" not in fmt
+    assert "videoLinkDisplayTitle" in shared
+
+
+def test_dashboard_cancel_task_uses_close_icon_not_disabled_icon() -> None:
+    source = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+
+    assert '<SvgIcon name="close" className="h-4 w-4"/>{t(\'dash.cancelTask\')}' in source
+    assert '<SvgIcon name="cancel" className="h-4 w-4"/>{t(\'dash.cancel\')}' not in source
+
+
+def test_media_text_entry_panel_uses_subtle_diffuse_color() -> None:
+    source = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+
+    assert "radial-gradient(circle_at_18%_14%,rgba(0,174,236,.14)" in source
+    assert "radial-gradient(circle_at_82%_10%,rgba(255,0,51,.08)" in source
+    assert "bg-white/72 dark:bg-[#1d1f22]/78" in source
+    assert "dark:bg-white/[0.06]" not in source.split("onDrop={handleDrop}", 1)[0].split("<section", 1)[-1]
+
+
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
@@ -50,14 +79,16 @@ def test_processing_page_no_longer_exposes_settings_controls() -> None:
 def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
     job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
     settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
-    assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in shared
-    assert "allowedSttProviders: ['elevenlabs_scribe', 'local']" in shared
-    assert "const localAwareAllowed = publicMode || uniqueAllowed.includes('local')" in shared
-    assert "const localAwareAllowed = publicMode || uniqueAllowed.includes('local')" in job_morph
+    assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in settings_model
+    assert "allowedSttProviders: ['elevenlabs_scribe', 'local']" in settings_model
+    assert "const localAwareAllowed = publicMode || uniqueAllowed.includes('local')" in settings_model
+    assert "from '../lib/settingsModel.js'" in shared
+    assert "from '../lib/settingsModel.js'" in job_morph
     assert "sttProvider: 'elevenlabs_scribe'" in settings
     assert "ElevenLabs 云端转录" in processing
     assert "isCloudSttConfigured(sttProvider, status)" in editor
@@ -87,36 +118,79 @@ def test_dashboard_homepage_copy_matches_recording_product_positioning() -> None
 def test_tasks_open_cached_result_without_backend_detail_request() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
     assert "isCachedOnlyTask" in source
     assert "isCachedOnlyTask(job) && job.result" in source
     assert "err.status === 404 && job.result" in source
     assert "err.status = r.status" in shared
-    assert "const {__cacheOnly, ...persistedJob} = job" in shared
+    assert "const {__cacheOnly, ...persistedJob} = job" in mapper
 
 
 def test_tasks_strip_generated_video_prefix_from_video_source_title() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
-    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
     fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
 
     assert "jobDisplayTitle" in source
-    assert r"/^[0-9]{10,24}[-_]+/" in fmt
-    assert "metadata.display_title" in shared
-    assert "videoSource.display_title" in shared
-    assert "result.display_title" in shared
-    assert "displayTitleForUser(" in shared
+    assert r"/^(?:[0-9]{10,24}|BV[a-zA-Z0-9]{8,})[-_]+/" in fmt
+    assert "metadata.display_title" in mapper
+    assert "videoSource.display_title" in mapper
+    assert "result.display_title" in mapper
+    assert "displayTitleForUser(" in mapper
 
 
-def test_history_entries_preserve_raw_filename_and_display_title() -> None:
+def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
+    app_provider = Path("frontend/src/app/AppProvider.jsx").read_text(encoding="utf-8")
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
-    assert "normalizeHistoryEntryTitles" in shared
-    assert "readBrowserHistoryEntries()" in shared
-    assert "displayTitle: displayTitle || rawTitle" in shared
-    assert "rawFilename" in shared
-    assert "filename: h.rawFilename || h.name" in shared
-    assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in shared
+    assert "readBrowserHistoryEntries" not in shared
+    assert "readBrowserHistoryEntries" not in app_provider
+    assert "localStorage.setItem('fluentflow_history'" not in shared
+    assert "localStorage.setItem('fluentflow_history'" not in app_provider
+    assert "const [history, setHistory] = useState([])" in shared
+    assert "const [history, setHistory] = useState([])" in app_provider
+    assert "readCachedAccountJobs(accountCacheId)" in shared
+    assert "writeCachedAccountJobs(accountCacheId, data.jobs)" in shared
+    assert "rawFilename" in mapper
+    assert "filename: h.rawFilename || h.name" in mapper
+    assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in mapper
+    assert "setLastResult(historyEntryToResult(h)); navigate('/editor');" in dashboard
+    assert "setLastResult(historyEntryToResult(item));" in media_text
+    assert "historyEntryToResult(history.find" not in editor
+    assert "historyEntryToResult(latestHistory)" not in processing
+    assert "latestHistory" not in processing
+
+
+def test_frontend_job_mapping_lives_in_dedicated_module() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
+
+    assert "from '../lib/jobMappers.js'" in shared
+    assert "from '../lib/jobMappers.js'" in job_morph
+    assert "export const resultToHistoryEntry" not in shared
+    assert "export const resultToHistoryEntry" not in job_morph
+    assert "export const resultToHistoryEntry" in mapper
+    assert "normalizeResultPayload" in mapper
+
+
+def test_frontend_settings_model_lives_in_dedicated_module() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
+
+    assert "from '../lib/settingsModel.js'" in shared
+    assert "from '../lib/settingsModel.js'" in job_morph
+    assert "export const sanitizeSettings" not in shared
+    assert "export const sanitizeSettings" not in job_morph
+    assert "export const sanitizeSettings" in settings_model
+    assert "export const normalizeSttProvider" in settings_model
 
 
 def test_frontend_no_longer_prompts_for_local_history_import() -> None:
@@ -135,6 +209,7 @@ def test_frontend_no_longer_prompts_for_local_history_import() -> None:
 
 def test_frontend_no_longer_exposes_hotword_review_ui_or_payload() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
@@ -149,11 +224,23 @@ def test_frontend_no_longer_exposes_hotword_review_ui_or_payload() -> None:
     assert "Hotword library" not in shared
     assert "Subtitle review" not in shared
     assert "LEGACY_REMOVED_SETTING_KEYS" in shared
-    assert "hotwordLibrary" in shared
-    assert "reviewUseAi" in shared
+    assert "hotwordLibrary" in settings_model
+    assert "reviewUseAi" in settings_model
     combined_routes = "\n".join([dashboard, editor, processing])
     assert "hotword" not in combined_routes.lower()
     assert "reviewMode" not in combined_routes
+
+
+def test_frontend_no_longer_accepts_azure_fast_provider() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
+    local_execution = Path("frontend/src/lib/localExecution.js").read_text(encoding="utf-8")
+    processing_plan = Path("backend/core/processing_plan.py").read_text(encoding="utf-8")
+
+    assert "azure_fast" not in shared
+    assert "azure_fast" not in job_morph
+    assert "azure_fast" not in local_execution
+    assert '"azure_fast"' not in processing_plan
 
 
 def test_tasks_route_does_not_use_source_filename_as_display_title() -> None:
@@ -219,14 +306,14 @@ def test_subtitle_import_is_a_note_generation_action() -> None:
 
 def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
-    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
     fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
     download = Path("frontend/src/lib/download.js").read_text(encoding="utf-8")
 
     assert "中英对照" in source
     assert "原始字幕" in source
     assert "pickDisplayTranscriptSegments(result, segments)" in source
-    assert "displaySegments: pickDisplayTranscriptSegments(result" in shared
+    assert "displaySegments: result.display_segments || []" in mapper
     assert "export const pickDisplayTranscriptSegments" in fmt
     assert "bilingualTranscriptSegments" in source
     assert "visibleTranscriptView === 'bilingual'" in source
@@ -236,7 +323,8 @@ def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
 def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
-    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
 
     assert "summaryFailureNextStep" in source
     assert "agentWorkflowHref" in source
@@ -249,9 +337,9 @@ def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     assert "noteModeText" not in source
     assert "fixed bottom-16 right-8" not in source
     assert "planNoteStrategy.reason" in processing
-    assert "noteModePlanReason" in shared
-    assert "chapter_coverage" in shared
-    assert "完整覆盖笔记" in shared
+    assert "noteModePlanReason" in mapper
+    assert "chapter_coverage" in settings_model
+    assert "完整覆盖笔记" in settings_model
 
 
 def test_editor_visual_evidence_stays_inline_and_secondary() -> None:
@@ -283,6 +371,13 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "转录原文" in source
     assert "笔记正文" in source
     assert "inline-flex h-10 items-center" in source
+    assert "max-w-[18em] truncate whitespace-nowrap font-headline" in source
+    assert "{rawEditorTitle}" in source
+    assert "title={rawEditorTitle}" in source
+    assert "const editorTitle = compactDisplayFilename" not in source
+    assert "formatElapsedMinuteSecond(sttElapsedSec)" in source
+    assert "formatSttOriginalRatio(sttRealtimeFactor, lang)" in source
+    assert "STT:" not in source
     assert "h-[82px]" not in source
     assert "w-[360px]" not in source
     assert "当前结果没有时间戳分段，只能按纯文本编辑" not in source
@@ -302,7 +397,13 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "标题旁状态标签" in design_system
     assert "必须小于标题字号" in design_system
     assert "editRecords.length > 0" in source
-    assert "导出转录" in source
+    assert "导出转录" not in source
+    assert "lang === 'zh' ? '导出' : 'Export'" in source
+    assert "const canDownloadSourceVideo = !!(" in source
+    assert "const handleDownloadSourceVideo = async () =>" in source
+    assert "fetchJobSourceFile(result.task_id" in source
+    assert "label:t('dl.sourceVideo')" in source
+    assert "source_video_downloaded" in source
     assert "inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3" in source
     assert "inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3" in source
 
@@ -315,6 +416,14 @@ def test_editor_video_review_keeps_current_subtitle_as_core_object() -> None:
     assert "const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
     assert "文本校对" in source
     assert "视频复查" in source
+    assert "grid min-h-[52px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3" in source
+    assert "grid min-h-[54px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3" in source
+    assert "flex h-full min-h-[38px] items-center justify-start font-mono text-xs tabular-nums" in source
+    assert "min-h-[1.75rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-medium leading-snug" in source
+    assert "w-14 flex-shrink-0 pt-2 text-left font-mono" not in source
+    assert "inline-flex h-9 items-center gap-1 rounded-[13px]" in source
+    assert "inline-flex h-full items-center justify-center rounded-[10px]" in source
+    assert "disabled:hover:bg-transparent" in source
     assert "currentVideoSegment" in source
     assert "当前字幕" in source
     assert "handleVideoSegmentStep" in source
@@ -361,22 +470,39 @@ def test_editor_agent_workflow_link_requires_real_task_id() -> None:
 def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
-    assert "API_BASE, apiFetch, noteModeLabel, useI18n" in source
+    assert "API_BASE, apiFetch, noteModeLabel, useApp, useI18n" in source
+    assert "apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/detail`)" in source
     assert "apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
+    assert "visibleActions(pageData?.actions)" in source
+    assert "runAction(action)" in source
+    assert "setLastResult(job.result)" in source
+    assert "setLastResult(data.result)" in source
     assert "request: apiRequest" not in source
     assert "apiRequest(" not in source
+
+
+def test_agent_trace_respects_sidebar_offset_in_all_states() -> None:
+    source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+
+    assert source.count("ml-[var(--sidebar-offset)]") >= 3
+    assert source.count("transition-[margin] duration-200 ease-out") >= 3
+    assert "ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 items-center justify-center" in source
+    assert "ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 flex-col items-center justify-center" in source
+    assert "ml-[var(--sidebar-offset)] min-h-dvh flex-1 overflow-y-auto" in source
 
 
 def test_agent_trace_prioritizes_material_specific_judgment() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
-    assert "buildJudgmentCards" in source
-    assert "材料判断" in source
-    assert "笔记策略" in source
-    assert "复查点" in source
-    assert "转录信号" in source
-    assert "对结果的影响" in source
+    assert "decision_log" in source
+    assert "decisionEntries" in source
+    assert "fallbackDecisionEntries" in source
+    assert "判断推进流" in source
+    assert "关键判断、依据和影响" in source
+    assert "真实记录" in source
+    assert "兼容推导" in source
     assert "executionSteps" in source
+    assert "timeline" in source
     assert "tool_trace" in source
     assert "THOUGHT_GENERATORS" not in source
     assert "inner monologue" not in source
@@ -386,7 +512,6 @@ def test_agent_trace_prioritizes_material_specific_judgment() -> None:
 def test_processing_page_is_agent_workflow_surface() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
-    assert "Agent 工作流" in source
     assert "执行路线" in source
     assert "Agent 判断" in source
     assert "使用依据" in source
@@ -414,10 +539,15 @@ def test_processing_page_uses_compact_tool_header() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
+    assert "<header" not in source
+    assert "Agent 工作流" not in source
+    assert "任务解释" not in source
+    assert "展示本次任务的处理路线、判断依据和失败恢复建议。" not in source
+    assert "{isZh ? '开始处理' : 'Start'}" not in source
+    assert "{isZh ? '长期设置' : 'Settings'}" not in source
     assert "FLUENTFLOW AGENT" not in source
     assert "text-[34px]" not in source
     assert "lg:text-[44px]" not in source
-    assert "任务解释" in source
     assert "Page Header Density" in design_system
     assert "不要在应用内页面顶部放大面积品牌标题" in design_system
 
@@ -433,7 +563,7 @@ def test_processing_page_constrains_long_task_titles() -> None:
     assert "只给文本节点加 `truncate` 不够" in design_system
     assert "minmax(0, 1fr)" in design_system
     assert "打开编辑器重生笔记" in source
-    assert 'to="/settings"' in source
+    assert 'to="/settings"' not in source
     assert "ml-[var(--sidebar-offset)]" in source
     assert "saveCredentials" not in source
     assert "getCredentialsStatus" not in source
@@ -497,6 +627,23 @@ def test_sidebar_keeps_visible_login_entry_for_accounts_mode() -> None:
     assert "overflow-y-auto" in source
 
 
+def test_sidebar_collapse_keeps_navigation_vertical_rhythm() -> None:
+    source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+
+    assert "const FluentFlowLogo = ({compact = false})" in source
+    assert "compact ? 'size-6 rounded-[9px]' : 'size-10 rounded-[14px]'" in source
+    assert "compact ? 'size-[18px]' : 'size-[30px]'" in source
+    assert "flex h-16 items-center" in source
+    assert "mb-3 flex-col justify-center gap-1" in source
+    assert "'h-8 w-10 justify-center p-0'" in source
+    assert "'h-5 w-10 rounded-[10px]'" in source
+    assert "min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden" in source
+    assert "mx-auto h-10 w-12 justify-center rounded-[16px] p-0" in source
+    assert '<Icon className="size-5 shrink-0" strokeWidth={2.15}/>' in source
+    assert "mb-8 flex-col gap-4" not in source
+    assert "size-[22px]" not in source
+
+
 def test_auth_status_failure_keeps_login_path_visible() -> None:
     source = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
 
@@ -530,6 +677,32 @@ def test_secondary_surfaces_use_current_ui_language() -> None:
     assert "rounded-sm" not in settings
     assert "hover:bg-blue" not in settings
     assert "单次任务判断放在 Agent 工作流里解释" in settings
+
+
+def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
+    app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
+    side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+    about = Path("frontend/src/routes/about.jsx").read_text(encoding="utf-8")
+    legal_submenu = side_nav.split("legalMenuOpen && (", 1)[1].split("{authMode === 'accounts' && user && (", 1)[0]
+
+    assert '<Route path="/about/:page" element={<About/>}/>' in app_shell
+    assert "to={`/about/${item.key}`}" in about
+    assert "服务条款" in about
+    assert "隐私政策" in about
+    assert "版本更新" in about
+    assert "import('../../../docs/changelog.md?raw')" in about
+    assert "docs/changelog.md" in about
+    assert "法律、医疗、投资、考试报名" in about
+    assert "本地历史不会删除服务器任务" in about
+    assert "const [legalMenuOpen, setLegalMenuOpen] = useState(false)" in side_nav
+    assert "aria-expanded={legalMenuOpen}" in side_nav
+    assert "onClick={() => setLegalMenuOpen((value) => !value)}" in side_nav
+    assert "absolute left-full top-0" in side_nav
+    assert "ChevronRight" in side_nav
+    assert "{path: '/about/service'" in side_nav
+    assert "{path: '/about/privacy'" in side_nav
+    assert "{path: '/about/changelog'" in side_nav
+    assert "ChevronRight" not in legal_submenu
 
 
 def test_settings_page_stays_focused_on_real_settings() -> None:
@@ -713,6 +886,43 @@ def test_running_job_can_be_cancelled(monkeypatch) -> None:
     assert updated[0]["error_reason"] == "user_cancelled"
     assert published[0][1]["stage"] == "error"
     assert logged == ["task_cancelled"]
+
+
+def test_job_detail_endpoint_returns_processing_timeline(monkeypatch) -> None:
+    monkeypatch.setattr(
+        _H,
+        "get_job",
+        lambda task_id, client_id=None: {
+            "task_id": task_id,
+            "status": "running",
+            "client_id": client_id,
+            "stage": "stt",
+            "progress": 42,
+            "source_type": "video",
+            "source_filename": "demo.mp4",
+            "metadata": {"queue_options": {"stt_provider": "local", "stt_model": "medium"}},
+            "result": {},
+        },
+    )
+    monkeypatch.setattr(
+        _H,
+        "list_job_steps",
+        lambda task_id, limit=100: [{
+            "task_id": task_id,
+            "step_type": "transcription",
+            "status": "running",
+            "started_at": "2026-01-01T00:00:00+00:00",
+        }],
+    )
+
+    response = TestClient(app).get("/jobs/task-running/detail", headers={"X-FluentFlow-Client-Id": "client-a"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task"]["task_id"] == "task-running"
+    assert any(step["id"] == "transcription" and step["status"] == "running" for step in payload["timeline"])
+    assert payload["actions"][0]["id"] == "cancel"
+    assert payload["data_quality"]["has_recorded_steps"] is True
 
 
 def test_manual_lark_export_does_not_require_stored_job(monkeypatch) -> None:

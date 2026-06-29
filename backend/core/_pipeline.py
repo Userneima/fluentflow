@@ -518,6 +518,15 @@ def _cleanup_task_source_files(task_id: str, metadata: dict[str, Any] | None = N
     source_dir = _source_storage_dir() / task_id
     if _remove_tree(source_dir):
         removed.append(str(source_dir))
+    removed.extend(_cleanup_video_source_temp_files(metadata).get("source_retention_removed_paths") or [])
+    return {
+        "source_retention_status": "deleted" if removed else "not_found",
+        "source_retention_removed_paths": removed,
+        "source_retention_cleaned_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    }
+
+def _cleanup_video_source_temp_files(metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    removed: list[str] = []
     video_source = (metadata or {}).get("video_source")
     if isinstance(video_source, dict):
         for key in ("file_path", "metadata_path"):
@@ -564,12 +573,54 @@ def _artifact_retention_days() -> int:
     except ValueError:
         return 30
 
+def _source_retention_days() -> int:
+    try:
+        return max(int(os.environ.get("FLUENTFLOW_SOURCE_RETENTION_DAYS", "7")), 0)
+    except ValueError:
+        return 7
+
+def _source_retention_expiry(days: int) -> str:
+    return (
+        datetime.now(timezone.utc).astimezone() + timedelta(days=days)
+    ).isoformat(timespec="seconds")
+
+def _expire_retained_source_file(job: dict[str, Any], *, now: datetime | None = None) -> bool:
+    task_id = str(job.get("task_id") or "")
+    if not task_id:
+        return False
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    if not result.get("source_file_available"):
+        return False
+    expires_at = _parse_job_time(result.get("source_retention_expires_at"))
+    if expires_at is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    if expires_at > current.astimezone(timezone.utc):
+        return False
+    cleanup = _cleanup_task_source_files(task_id, job.get("metadata"))
+    next_result = {
+        **result,
+        "source_file_available": False,
+        "source_file_storage": None,
+        "source_retention_status": "expired",
+        "source_retention_cleaned_at": cleanup.get("source_retention_cleaned_at"),
+    }
+    from backend.core.job_store import update_job_result
+    update_job_result(
+        task_id,
+        next_result,
+        client_id=job.get("client_id"),
+        touch_updated_at=False,
+    )
+    return True
+
 def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
     if not client_id:
         return {"pruned_count": 0, "task_ids": []}
     keep_count = _history_retention_per_client()
     retention_days = _artifact_retention_days()
-    if keep_count <= 0 and retention_days <= 0:
+    source_retention_days = _source_retention_days()
+    if keep_count <= 0 and retention_days <= 0 and source_retention_days <= 0:
         return {"pruned_count": 0, "task_ids": []}
     cutoff = (
         datetime.now(timezone.utc) - timedelta(days=retention_days)
@@ -579,10 +630,14 @@ def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
     from backend.core.job_store import delete_jobs, list_jobs_for_retention
     jobs = list_jobs_for_retention(client_id=client_id)
     pruned_task_ids: list[str] = []
+    expired_source_count = 0
+    now = datetime.now(timezone.utc)
     for index, job in enumerate(jobs):
         task_id = str(job.get("task_id") or "")
         if not task_id or job.get("status") not in {"completed", "failed", "cancelled"}:
             continue
+        if _expire_retained_source_file(job, now=now):
+            expired_source_count += 1
         too_many = keep_count > 0 and index >= keep_count
         updated_at = _parse_job_time(job.get("updated_at") or job.get("created_at"))
         too_old = cutoff is not None and updated_at is not None and updated_at < cutoff
@@ -591,20 +646,43 @@ def _enforce_history_retention(client_id: str | None) -> dict[str, Any]:
             pruned_task_ids.append(task_id)
     if pruned_task_ids:
         delete_jobs(pruned_task_ids, client_id=client_id)
-    return {"pruned_count": len(pruned_task_ids), "task_ids": pruned_task_ids}
+    return {
+        "pruned_count": len(pruned_task_ids),
+        "task_ids": pruned_task_ids,
+        "expired_source_count": expired_source_count,
+    }
 
 def _finalize_completed_result_storage(task_id: str, result: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
     next_result = dict(result)
     artifacts = dict(next_result.get("artifacts") or {})
     if artifacts.get("playback_audio"):
         next_result["playback_audio_available"] = True
-    cleanup = _cleanup_task_source_files(task_id, metadata)
-    next_result["source_file_available"] = False
-    next_result.update({
-        key: value
-        for key, value in cleanup.items()
-        if key != "source_retention_removed_paths"
-    })
+    retention_days = _source_retention_days()
+    if retention_days <= 0:
+        cleanup = _cleanup_task_source_files(task_id, metadata)
+        next_result["source_file_available"] = False
+        next_result.update({
+            key: value
+            for key, value in cleanup.items()
+            if key != "source_retention_removed_paths"
+        })
+        return next_result
+
+    _cleanup_video_source_temp_files(metadata)
+    source = _find_source_file(task_id)
+    if source:
+        next_result.update({
+            "source_file_available": True,
+            "source_file_storage": "local",
+            "source_retention_status": "retained",
+            "source_retention_days": retention_days,
+            "source_retention_expires_at": _source_retention_expiry(retention_days),
+        })
+    else:
+        next_result.update({
+            "source_file_available": False,
+            "source_retention_status": "not_found",
+        })
     from backend.core.tool_trace import build_tool_trace
     next_result["tool_trace"] = build_tool_trace(next_result, job={"task_id": task_id, "status": "completed"})
     return next_result

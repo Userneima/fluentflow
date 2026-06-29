@@ -219,6 +219,42 @@ def test_migrate_job_display_titles_backfills_legacy_video_jobs(tmp_path: Path) 
     assert job["result"]["display_title"] == "四大核心Skill架构与配置指南详解"
 
 
+def test_migrate_job_display_titles_cleans_existing_bilibili_display_title(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="task-bili",
+        status="completed",
+        source_type="video",
+        source_filename="BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案.mp4",
+        result={
+            "task_id": "task-bili",
+            "filename": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案.mp4",
+            "raw_title": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案",
+            "display_title": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案",
+            "transcript_text": "text",
+        },
+        metadata={
+            "route": "/video-sources/jobs",
+            "raw_title": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案",
+            "display_title": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案",
+            "video_source": {
+                "raw_title": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案",
+                "display_title": "BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案",
+            },
+        },
+        db_path=db,
+    )
+
+    assert migrate_job_display_titles(db_path=db) == 1
+    job = get_job("task-bili", db_path=db)
+
+    assert job is not None
+    assert job["metadata"]["display_title"] == "5步用AI从零打造IP吉祥物全案"
+    assert job["metadata"]["video_source"]["display_title"] == "5步用AI从零打造IP吉祥物全案"
+    assert job["result"]["display_title"] == "5步用AI从零打造IP吉祥物全案"
+
+
 def test_migrate_job_display_titles_does_not_rewrite_existing_clean_title(tmp_path: Path) -> None:
     db = tmp_path / "jobs.sqlite"
 

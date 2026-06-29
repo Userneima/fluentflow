@@ -246,7 +246,7 @@ def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
     with TestClient(main.app) as client:
         response = client.get("/local-history/candidates?limit=20")
 
-    assert response.status_code == 404
+    assert response.status_code == 410
 
 
 def test_public_cloud_filters_explicit_local_provider(monkeypatch) -> None:

@@ -296,4 +296,4 @@ def test_account_import_history_endpoint_is_removed(monkeypatch, tmp_path) -> No
         response = client.post("/account/import-history", json={"entries": []})
 
     assert register.status_code == 200
-    assert response.status_code == 404
+    assert response.status_code == 410

@@ -128,5 +128,5 @@ def account_quota(request: Request) -> dict[str, Any]:
 
 
 @router.post("/account/import-history", include_in_schema=False)
-def removed_account_import_history() -> None:
-    raise HTTPException(status_code=404, detail="Local history import has been removed")
+def account_import_history_removed() -> None:
+    raise HTTPException(status_code=410, detail="Local history import has been removed")

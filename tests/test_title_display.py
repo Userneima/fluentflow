@@ -10,6 +10,13 @@ def test_display_title_removes_generated_video_id_prefix() -> None:
     )
 
 
+def test_display_title_removes_bilibili_bv_prefix() -> None:
+    assert (
+        display_title_for_user("BV1JBoEBbEH7-5步用AI从零打造IP吉祥物全案.mp4")
+        == "5步用AI从零打造IP吉祥物全案"
+    )
+
+
 def test_display_title_does_not_remove_short_date_prefix() -> None:
     assert strip_generated_video_prefix("20260624-会议记录.mp4") == "20260624-会议记录"
 

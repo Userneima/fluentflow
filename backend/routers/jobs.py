@@ -14,8 +14,14 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.task_detail import build_task_detail
 
 router = APIRouter()
+
+
+@router.get("/local-history/candidates", include_in_schema=False)
+def local_history_import_removed() -> None:
+    raise HTTPException(status_code=410, detail="Local history import has been removed")
 
 
 def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -26,17 +32,21 @@ def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.get("/local-history/candidates", include_in_schema=False)
-def removed_local_history_candidates() -> None:
-    raise HTTPException(status_code=404, detail="Local history import has been removed")
-
-
 @router.get("/jobs/{task_id}")
 def get_job_detail(request: Request, task_id: str) -> dict[str, Any]:
     job = H.get_job(task_id, client_id=H._request_client_scope(request))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@router.get("/jobs/{task_id}/detail")
+def get_job_processing_detail(request: Request, task_id: str) -> dict[str, Any]:
+    job = H.get_job(task_id, client_id=H._request_client_scope(request))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    steps = H.list_job_steps(task_id=task_id, limit=100)
+    return build_task_detail(job, job_steps=steps)
 
 
 

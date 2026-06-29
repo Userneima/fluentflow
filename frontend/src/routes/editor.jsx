@@ -15,7 +15,6 @@ import SvgIcon from '../components/SvgIcon.jsx';
 import {
     API_BASE,
     cloudSttMissingMessage,
-    compactDisplayFilename,
     createTaskId,
     effectiveSttProvider,
     autoSizeTextarea,
@@ -30,9 +29,7 @@ import {
     dlTranscriptSrt,
     dlTranscriptTxt,
     dlTranscriptVtt,
-    fmtElapsed,
     fmtFileSize,
-    fmtSttRelative,
     fmtTime,
     friendlyTaskError,
     apiFetch,
@@ -40,7 +37,6 @@ import {
     fileNameStem,
     getGuestTrialTaskId,
     getGuestTrialToken,
-    historyEntryToResult,
     isCloudSttConfigured,
     isCloudSttProvider,
     isLocalHistoryResult,
@@ -91,6 +87,31 @@ const summaryFailureNextStep = (result, lang) => {
         : `Reason: ${error} Next: click Regenerate note; if it still fails, change the prompt or shorten the material.`;
 };
 
+const formatElapsedMinuteSecond = (seconds) => {
+    const n = Math.max(0, Math.floor(Number(seconds) || 0));
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return `${String(m).padStart(2, '0')}m${String(s).padStart(2, '0')}s`;
+};
+
+const formatSttOriginalRatio = (factor, lang) => {
+    const n = Number(factor);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    const pct = Math.max(1, Math.round(n * 100));
+    return lang === 'zh' ? `原 ${pct}%` : `${pct}% of original`;
+};
+
+const downloadBrowserFile = (file, fallbackName = 'download') => {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file?.name || fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+};
+
 const Editor = () => {
     const {t, lang} = useI18n();
     const {guestMode} = useAuth();
@@ -99,7 +120,6 @@ const Editor = () => {
         setLastResult,
         lastSourceFile,
         setLastSourceFile,
-        history,
         addToHistory,
         currentJob,
         setCurrentJob,
@@ -162,7 +182,7 @@ const Editor = () => {
         }
     }, [promptOpen]);
 
-    const result = lastResult || (!currentJob ? historyEntryToResult(history.find(h=>h.status==='completed')) : null);
+    const result = lastResult;
     const isGuestResult = !!(guestMode && result?.task_id && result.task_id === getGuestTrialTaskId());
     const resultSegmentCount = pickTranscriptSegments(result).length;
     const resultTextLength = (result?.transcript_text || '').length;
@@ -411,15 +431,20 @@ const Editor = () => {
     const durSec = result?.audio_duration_seconds || 0;
     const sttElapsedSec = result?.stt_elapsed_seconds || 0;
     const sttRealtimeFactor = result?.stt_realtime_factor || (durSec > 0 && sttElapsedSec > 0 ? sttElapsedSec / durSec : null);
-    const sttProfile = result?.stt_model ? [isCloudSttProvider(result.stt_provider) ? (result.stt_provider_label || 'Cloud STT') : 'local', result.stt_model, result.stt_speed, result.stt_language].filter(Boolean).join(' / ') : '';
+    const sttElapsedLabel = sttElapsedSec > 0
+        ? `${t('edit.sttElapsed')} ${formatElapsedMinuteSecond(sttElapsedSec)}${sttRealtimeFactor ? (lang === 'zh' ? `（${formatSttOriginalRatio(sttRealtimeFactor, lang)}）` : ` (${formatSttOriginalRatio(sttRealtimeFactor, lang)})`) : ''}`
+        : '';
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
     const summaryFailureHint = summaryFailureNextStep(result, lang);
     const resultTitle = resultDisplayTitle(result, {name: t('edit.title')});
     const resultDownloadName = resultTitle || result?.filename;
     const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
-    const editorTitle = compactDisplayFilename(rawEditorTitle, 42);
     const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';
     const playbackDuration = mediaDuration || durSec || 0;
+    const canDownloadSourceVideo = !!(
+        isLikelyVideoFile(lastSourceFile || result?.filename)
+        && (lastSourceFile || (result?.task_id && result?.source_file_available))
+    );
     const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0;
     const activeReviewMode = canUseVideoReview ? transcriptReviewMode : 'text';
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
@@ -923,6 +948,22 @@ const Editor = () => {
             metadata: {format},
         });
     };
+    const handleDownloadSourceVideo = async () => {
+        if (!canDownloadSourceVideo || downloading) return;
+        setDownloading('source_video');
+        try {
+            const file = lastSourceFile && isLikelyVideoFile(lastSourceFile)
+                ? lastSourceFile
+                : await fetchJobSourceFile(result.task_id, result.filename || `${resultDownloadName}.mp4`, resultJobOptions);
+            downloadBrowserFile(file, result.filename || `${resultDownloadName}.mp4`);
+            recordDownload('source_video_downloaded', 'video');
+            showToast(t('dl.success'));
+        } catch (err) {
+            showToast(err.message || (lang === 'zh' ? '原视频不可用' : 'Source video unavailable'), false);
+        } finally {
+            setDownloading(null);
+        }
+    };
     const mediaProgress = playbackDuration > 0 ? Math.min(100, Math.max(0, mediaCurrentTime / playbackDuration * 100)) : 0;
 
     return (
@@ -1116,19 +1157,17 @@ const Editor = () => {
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
                     <div className="min-w-0 pr-2">
                         <h1
-                            className="max-w-[30ch] font-headline text-[clamp(1.55rem,1.8vw,2rem)] font-extrabold leading-tight text-[#111111] dark:text-white"
+                            className="max-w-[18em] truncate whitespace-nowrap font-headline text-[clamp(1.55rem,1.8vw,2rem)] font-extrabold leading-tight text-[#111111] dark:text-white"
                             title={rawEditorTitle}
                             aria-label={rawEditorTitle}
                         >
-                            {editorTitle}
+                            {rawEditorTitle}
                         </h1>
-                        <p className="mt-1 max-w-[78ch] truncate text-sm font-semibold leading-snug text-[#666] dark:text-white/60">
-                            {durSec > 0 && <>{t('edit.duration')}: {fmtTime(durSec)} &bull; </>}
-                            {sttElapsedSec > 0 && <>{t('edit.sttElapsed')}: {fmtElapsed(sttElapsedSec)} {sttRealtimeFactor ? `(${fmtSttRelative(sttRealtimeFactor, lang)})` : ''} &bull; </>}
-                            {sttProfile && <>STT: {sttProfile} &bull; </>}
-                            {segments.length > 0 && <>{segments.length} {t('edit.segments')} &bull; </>}
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#111111] dark:text-white">{t('edit.confidence')}</span>
-                        </p>
+                        {sttElapsedLabel && (
+                            <p className="mt-1 truncate text-sm font-semibold leading-snug text-[#666] dark:text-white/60">
+                                {sttElapsedLabel}
+                            </p>
+                        )}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                         <button
@@ -1233,11 +1272,11 @@ const Editor = () => {
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                             {segments.length > 0 && (
-                                                <div className="inline-flex h-9 overflow-hidden rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
+                                                <div className="inline-flex h-9 items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                                     <button
                                                         type="button"
                                                         onClick={()=>setTranscriptReviewMode('text')}
-                                                        className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                                                        className={`inline-flex h-full items-center justify-center rounded-[10px] px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                                                             activeReviewMode === 'text'
                                                                 ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
                                                                 : 'text-[#666] hover:bg-white hover:text-[#111111] dark:text-white/60 dark:hover:bg-white/[0.08] dark:hover:text-white'
@@ -1250,7 +1289,7 @@ const Editor = () => {
                                                         onClick={()=>canUseVideoReview && setTranscriptReviewMode('video')}
                                                         disabled={!canUseVideoReview}
                                                         title={!canUseVideoReview ? (lang === 'zh' ? '选择原视频并保留时间戳后可用' : 'Available after choosing source video with timestamps') : undefined}
-                                                        className={`inline-flex items-center justify-center px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-35 ${
+                                                        className={`inline-flex h-full items-center justify-center rounded-[10px] px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:text-[#9a9a9a] disabled:hover:bg-transparent disabled:hover:text-[#9a9a9a] dark:disabled:text-white/28 dark:disabled:hover:text-white/28 ${
                                                             activeReviewMode === 'video'
                                                                 ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
                                                                 : 'text-[#666] hover:bg-white hover:text-[#111111] dark:text-white/60 dark:hover:bg-white/[0.08] dark:hover:text-white'
@@ -1301,7 +1340,7 @@ const Editor = () => {
                                                 trigger={
                                                     <button className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] bg-[#111111] px-3 text-xs font-bold text-white transition hover:bg-[#2a2a2a] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
                                                         <SvgIcon name="download" className="text-[17px]"/>
-                                                        {lang === 'zh' ? '导出转录' : t('dl.transcript')}
+                                                        {lang === 'zh' ? '导出' : 'Export'}
                                                     </button>
                                                 }
                                                 items={[
@@ -1310,6 +1349,7 @@ const Editor = () => {
                                                     {icon:'closed_caption', label:t('dl.vtt'), badge:'VTT', disabled:segments.length===0, onClick:()=>{dlTranscriptVtt(segments,resultDownloadName); recordDownload('transcript_downloaded','vtt'); showToast(t('dl.success'));}},
                                                     {icon:'translate', label:t('dl.bilingualSrt'), badge:'双语 SRT', disabled:!hasBilingualTranscript, onClick:()=>{dlBilingualTranscriptSrt(bilingualTranscriptSegments,null,resultDownloadName); recordDownload('transcript_downloaded','bilingual_srt'); showToast(t('dl.success'));}},
                                                     {icon:'translate', label:t('dl.bilingualVtt'), badge:'双语 VTT', disabled:!hasBilingualTranscript, onClick:()=>{dlBilingualTranscriptVtt(bilingualTranscriptSegments,null,resultDownloadName); recordDownload('transcript_downloaded','bilingual_vtt'); showToast(t('dl.success'));}},
+                                                    {icon:'video', label:t('dl.sourceVideo'), badge:'MP4', disabled:!canDownloadSourceVideo || downloading === 'source_video', onClick:handleDownloadSourceVideo},
                                                 ]}
                                             />
                                         </div>
@@ -1390,26 +1430,26 @@ const Editor = () => {
                             </div>
                         ) : (
                             <>
-                        <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+                        <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
                             {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
                                 <div
                                     key={`bilingual-${i}`}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                    className={`flex gap-4 rounded-[16px] px-3 py-3 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
+                                    className={`grid min-h-[54px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-[16px] px-3 py-2 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={()=>seekToSegment(seg)}
-                                        className={`w-24 flex-shrink-0 pt-1 text-left font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#777] hover:text-primary dark:text-white/45'}`}
+                                        className={`flex h-full min-h-[38px] flex-col items-start justify-center font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#777] hover:text-primary dark:text-white/45'}`}
                                     >
                                         <span className="block">{fmtTime(seg.start)}</span>
                                         <span className="mt-0.5 block text-[10px] opacity-70">{fmtTime(seg.end)}</span>
                                     </button>
                                     <div className="min-w-0 flex-1">
-                                        <p className="whitespace-pre-wrap text-sm font-medium leading-relaxed text-[#111111] dark:text-white">
+                                        <p className="whitespace-pre-wrap text-sm font-medium leading-snug text-[#111111] dark:text-white">
                                             {seg.text}
                                         </p>
-                                        <p className="mt-2 border-l-2 border-primary/25 pl-3 text-sm font-medium leading-relaxed text-[#666] dark:text-white/65">
+                                        <p className="mt-1.5 border-l-2 border-primary/25 pl-3 text-sm font-medium leading-snug text-[#666] dark:text-white/65">
                                             {seg.text_zh}
                                         </p>
                                     </div>
@@ -1418,16 +1458,16 @@ const Editor = () => {
                                 <div
                                     key={i}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                    className={`group flex gap-4 rounded-[16px] px-2 py-2 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
+                                    className={`group grid min-h-[52px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-[16px] px-3 py-1.5 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={()=>seekToSegment(seg)}
-                                        className={`w-14 flex-shrink-0 pt-2 text-left font-mono text-xs transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#8a8a8a] hover:text-primary dark:text-white/40'}`}
+                                        className={`flex h-full min-h-[38px] items-center justify-start font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#8a8a8a] hover:text-primary dark:text-white/40'}`}
                                     >
                                         {fmtTime(seg.start)}
                                     </button>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex min-w-0 flex-1 items-center">
                                         <textarea
                                             data-transcript-segment="true"
                                             value={seg.text || ''}
@@ -1435,7 +1475,7 @@ const Editor = () => {
                                             onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
                                             onFocus={()=>setFollowPlayback(false)}
                                             rows={1}
-                                            className="min-h-[2rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-medium leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
+                                            className="min-h-[1.75rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-medium leading-snug text-[#111111] focus:ring-0 dark:text-white"
                                         />
                                     </div>
                                         </div>

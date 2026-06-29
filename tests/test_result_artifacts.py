@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,7 +8,11 @@ from fastapi.testclient import TestClient
 
 import backend.main as main
 from backend.core import job_store
-from backend.core.server_helpers import _attach_playback_audio_artifact, _attach_result_artifacts
+from backend.core.server_helpers import (
+    _attach_playback_audio_artifact,
+    _attach_result_artifacts,
+    _finalize_completed_result_storage,
+)
 import backend.core.server_helpers as _H
 
 
@@ -115,6 +120,99 @@ def test_attach_result_artifacts_adds_schema_version_when_nothing_to_write(tmp_p
 
     assert next_result == {**result, "result_schema_version": "2"}
     assert not (tmp_path / "task_empty").exists()
+
+
+def test_completed_result_retains_source_video_for_review(tmp_path, monkeypatch) -> None:
+    source_dir = tmp_path / "sources"
+    task_source_dir = source_dir / "task_video"
+    task_source_dir.mkdir(parents=True)
+    source_file = task_source_dir / "source.mp4"
+    source_file.write_bytes(b"video")
+    temp_download = tmp_path / "download-cache.mp4"
+    temp_download.write_bytes(b"duplicate")
+
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(source_dir))
+    monkeypatch.delenv("FLUENTFLOW_SOURCE_RETENTION_DAYS", raising=False)
+
+    result = _finalize_completed_result_storage(
+        "task_video",
+        {"filename": "lesson.mp4", "source_file_available": True},
+        {"video_source": {"file_path": str(temp_download)}},
+    )
+
+    assert result["source_file_available"] is True
+    assert result["source_file_storage"] == "local"
+    assert result["source_retention_status"] == "retained"
+    assert result["source_retention_days"] == 7
+    assert result["source_retention_expires_at"]
+    assert source_file.is_file()
+    assert not temp_download.exists()
+
+
+def test_completed_result_can_delete_source_video_when_retention_disabled(tmp_path, monkeypatch) -> None:
+    source_dir = tmp_path / "sources"
+    task_source_dir = source_dir / "task_delete_source"
+    task_source_dir.mkdir(parents=True)
+    source_file = task_source_dir / "source.mp4"
+    source_file.write_bytes(b"video")
+
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(source_dir))
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_RETENTION_DAYS", "0")
+
+    result = _finalize_completed_result_storage(
+        "task_delete_source",
+        {"filename": "lesson.mp4", "source_file_available": True},
+        {},
+    )
+
+    assert result["source_file_available"] is False
+    assert result["source_retention_status"] == "deleted"
+    assert not source_file.exists()
+
+
+def test_history_retention_expires_only_source_video_not_result(tmp_path, monkeypatch) -> None:
+    source_dir = tmp_path / "sources"
+    task_source_dir = source_dir / "task_expired_source"
+    task_source_dir.mkdir(parents=True)
+    source_file = task_source_dir / "source.mp4"
+    source_file.write_bytes(b"video")
+    expired_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    updates: list[dict] = []
+    deleted: list[str] = []
+
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(source_dir))
+    monkeypatch.setenv("FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT", "100")
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_RETENTION_DAYS", "30")
+    monkeypatch.setattr(
+        _H,
+        "list_jobs_for_retention",
+        lambda client_id=None: [{
+            "task_id": "task_expired_source",
+            "client_id": client_id,
+            "status": "completed",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "metadata": {},
+            "result": {
+                "task_id": "task_expired_source",
+                "summary_markdown": "# Note",
+                "source_file_available": True,
+                "source_retention_expires_at": expired_at,
+            },
+        }],
+    )
+    monkeypatch.setattr(_H, "delete_jobs", lambda task_ids, client_id=None: deleted.extend(task_ids))
+    monkeypatch.setattr(_H, "update_job_result", lambda task_id, result, **kwargs: updates.append({"task_id": task_id, "result": result, **kwargs}))
+
+    report = _H._enforce_history_retention("client-a")
+
+    assert report["expired_source_count"] == 1
+    assert report["pruned_count"] == 0
+    assert deleted == []
+    assert not source_file.exists()
+    assert updates[0]["result"]["summary_markdown"] == "# Note"
+    assert updates[0]["result"]["source_file_available"] is False
+    assert updates[0]["result"]["source_retention_status"] == "expired"
+    assert updates[0]["touch_updated_at"] is False
 
 
 def test_playback_audio_artifact_survives_result_artifact_refresh(tmp_path, monkeypatch) -> None:
