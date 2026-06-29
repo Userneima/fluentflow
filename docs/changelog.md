@@ -80,6 +80,7 @@
 - Agent 工作流页遇到“转录已完成但摘要失败”时，下一步按钮会直接提示“打开编辑器重生笔记”。
 - 前端任务/历史记录映射抽到 `frontend/src/lib/jobMappers.js`，设置、转录路线和云端配置判断抽到 `frontend/src/lib/settingsModel.js`，避免 `shared.jsx` 与旧兼容文件继续各维护一份标题、缓存和设置规则。
 - Agent 任务的“重生笔记”和“导出飞书”动作抽到 `backend/core/agent_task_actions.py`，router 只保留请求入口，降低后续新增恢复动作时复制业务逻辑的风险。
+- 新增日常变更管控检查 `npm run change:check` / `npm run change:check:staged`：提交前会提示产品代码是否缺少 changelog、是否误带本地数据或生成产物，并把正式 release gate 与日常 checkpoint 区分开。
 - Agent 工作流页去掉大卡片堆叠，改为任务摘要、时间线主体和右侧判断清单，页面信息密度更高。
 - 首页主标题从“今天想创作些什么呢”改为“今天想记录些什么呢”，让入口语义更贴近转录、整理和复查学习资料。
 - 输入视频链接后的当前任务标题会先显示平台和视频 ID，不再把 B 站 `spm_id_from` / `vd_source` 等跟踪参数当标题；取消任务按钮改用更明确的关闭图标和“取消任务”文案。

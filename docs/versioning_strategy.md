@@ -67,6 +67,22 @@ When unrelated worktree changes exist, inspect the diff and stage intentionally.
 Do not use `git add .` unless the worktree has already been audited and every
 changed file belongs to the same commit purpose.
 
+Before committing a finished work unit, use the daily change-control check on
+the staged files:
+
+```bash
+npm run change:check:staged
+```
+
+This check does not replace judgment. It makes routine risks visible:
+
+- private/runtime paths accidentally staged;
+- product-impacting files staged without `docs/changelog.md`;
+- generated or dependency paths appearing in a commit;
+- version files moving only partially.
+
+Warnings mean "review the boundary"; failures mean "do not commit yet."
+
 Default behavior:
 
 - A normal checkpoint commit does not require a separate user prompt when the
@@ -105,6 +121,12 @@ Do not document routine typo fixes, test-only refactors, formatting changes, or
 internal cleanup with no product meaning. If no documentation update is needed,
 say so in the final summary. If documentation is needed but intentionally
 deferred, call that out before committing.
+
+The change-control script intentionally cannot know whether a refactor has
+product meaning. If it warns about a missing changelog and the change is truly
+internal, it is acceptable to leave the changelog unchanged, but the final
+summary should say that the warning was reviewed and why no changelog entry was
+needed.
 
 ## Development History Vs Mainline History
 
@@ -227,9 +249,15 @@ Before tagging:
 npm run build:frontend
 PYTHONPATH=. venv/bin/pytest tests/test_versioning.py -q
 git diff --check
+npm run change:check
 npm run release:check
 python3 scripts/check_release_gate.py --require-clean --require-tag --require-changelog-version
 ```
+
+`npm run change:check` is a daily hygiene check. The final release gate remains
+`scripts/check_release_gate.py --require-clean --require-tag
+--require-changelog-version`, because a real release should be clean, tagged,
+and represented in the changelog.
 
 ## Rollback Rules
 

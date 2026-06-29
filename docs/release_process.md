@@ -74,6 +74,7 @@ Deployment automation should copy the manifest next to the running service and k
 Run these before tagging:
 
 ```bash
+npm run change:check
 npm run build:frontend
 PYTHONPATH=. venv/bin/pytest tests/test_versioning.py -q
 git diff --check
@@ -85,6 +86,10 @@ When the release gate script exists, use it as the primary command and keep the 
 npm run release:check
 python3 scripts/check_release_gate.py --require-clean --require-tag --require-changelog-version
 ```
+
+`npm run change:check` is deliberately earlier than the release gate. It helps
+catch "this is still a mixed development checkpoint" before a maintainer spends
+time preparing tags, manifests, and deployment notes.
 
 ## Deployment Record
 

@@ -33,6 +33,8 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Do not bump `VERSION` for ordinary fixes. Bump the app version only when preparing a coherent release.
 - User-visible behavior changes belong in `docs/changelog.md` under `Unreleased`; shipped release sections are prepared during release.
 - Persistent data/API/result-shape changes must update the relevant schema or migration documentation and keep old data readable.
+- Before creating a finished local commit, run `npm run change:check:staged` after staging the intended files. Treat warnings as review prompts; fix failures before committing.
+- Before preparing or tagging a release, run the release flow in `docs/release_process.md`; do not treat a checkpoint commit as a product version.
 
 ## Privacy Boundary
 
