@@ -536,7 +536,7 @@ try:
         reserve_units,
     )
     from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-    from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
+    from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
 except ImportError:
     from core.audio_handler import extract_compressed_mp3, extract_stt_wav
     from core.local_stt import transcribe_audio, get_or_load_model
@@ -601,7 +601,7 @@ except ImportError:
         reserve_units,
     )
     from core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-    from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source
+    from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
 
 
 SESSION_COOKIE_NAME = "fluentflow_session"
@@ -1153,6 +1153,12 @@ def _friendly_error_message(error: Any) -> str:
         return "云端上传到 Blob 失败。请检查 SAS URL 是否仍有效、是否允许写入，以及网络是否稳定。"
     if "queued processing request failed" in lowered:
         return "后台任务调用转录接口失败。请重试；如果连续出现，请重启后端服务并检查上传大小限制。"
+    if "http error 403" in lowered or "视频下载失败：403" in raw or "forbidden" in lowered:
+        return "平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、配置浏览器 cookies，或上传本地视频。"
+    if "http error 429" in lowered or "too many requests" in lowered:
+        return "平台请求过于频繁，暂时限制了视频或字幕获取。请稍后重试，或上传本地视频/字幕文件。"
+    if "视频下载超时" in raw or "timed out" in lowered or "timeout" in lowered:
+        return "视频下载时间过长，可能是视频较大或当前网络较慢。笔记会优先尝试使用字幕；如仍失败，请稍后重试或上传本地视频。"
     if "no position encodings are defined" in lowered:
         return "本地说话人区分模型无法处理当前音频长度。请关闭说话人区分，或切换云端转录。"
     if "downloaded video is too large" in lowered or "file is too large" in lowered:
@@ -2891,6 +2897,39 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
             raise RuntimeError(f"Queued processing request failed: HTTP {response.status_code} {response.text[:800]}")
 
 
+def _submit_transcript_source_file(
+    *,
+    task_id: str,
+    source_path: Path,
+    filename: str,
+    options: dict[str, Any],
+    base_url: str,
+    client_id: str | None,
+) -> None:
+    fields = {
+        **options,
+        "task_id": task_id,
+    }
+    headers = {"X-FluentFlow-Internal-Queue-Token": INTERNAL_QUEUE_TOKEN}
+    if client_id:
+        headers["X-FluentFlow-Client-Id"] = client_id
+    tokens = _configured_access_tokens()
+    if tokens:
+        headers["X-FluentFlow-Access-Token"] = tokens[0]
+    data_fields = {k: str(v) for k, v in fields.items() if v is not None and str(v) != ""}
+    content_type = mimetypes.guess_type(filename)[0] or "text/plain"
+    with httpx.Client(timeout=_queue_timeout_seconds()) as client:
+        with open(source_path, "rb") as f:
+            response = client.post(
+                f"{base_url}/summarize-transcript-file",
+                data=data_fields,
+                files={"file": (filename, f, content_type)},
+                headers=headers,
+            )
+        if response.is_error:
+            raise RuntimeError(f"Queued transcript summary request failed: HTTP {response.status_code} {response.text[:800]}")
+
+
 def _queue_options_from_form(
     *,
     export_to_lark: Optional[str],
@@ -2977,7 +3016,10 @@ def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str
 def _public_video_source_metadata(saved: SavedVideoSource) -> dict[str, Any]:
     return {
         "provider": saved.provider,
+        "media_type": getattr(saved, "media_type", "video") or "video",
         "source_url": saved.source_url,
+        "duration_seconds": getattr(saved, "duration_seconds", None),
+        "estimated_size_bytes": getattr(saved, "estimated_size_bytes", None),
         "video_id": saved.video_id,
         "raw_title": getattr(saved, "raw_title", None) or saved.title,
         "display_title": getattr(saved, "display_title", None) or display_title_for_user(saved.title, saved.filename),
@@ -2988,6 +3030,7 @@ def _public_video_source_metadata(saved: SavedVideoSource) -> dict[str, Any]:
         "metadata_path": saved.metadata_path,
         "size_bytes": saved.size_bytes,
         "downloaded_at": saved.downloaded_at,
+        "asset_strategy": getattr(saved, "asset_strategy", None),
     }
 
 
@@ -3068,7 +3111,8 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             exclude_task_id=task_id,
         )
         source_path = Path(saved.file_path)
-        target_path = _copy_source_file(task_id, ".mp4", source_path)
+        source_suffix = source_path.suffix or Path(saved.filename).suffix or ".mp4"
+        target_path = _copy_source_file(task_id, source_suffix, source_path)
         source_fingerprint = _source_fingerprint_for_path(target_path, saved.filename)
         source_file_size_mb = _path_size_mb(target_path)
         duration_estimate_sec = _media_duration_seconds(target_path)
@@ -3077,6 +3121,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             skip_summary=_truthy_form(options.get("skip_summary")),
             estimate_only=True,
         )
+        media_type = getattr(saved, "media_type", "video") or "video"
         metadata = _metadata(
             route="/video-sources/jobs",
             queue_options=options,
@@ -3085,8 +3130,9 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             raw_title=getattr(saved, "raw_title", None) or saved.title,
             display_title=getattr(saved, "display_title", None) or display_title_for_user(saved.title, saved.filename),
             video_source=_public_video_source_metadata(saved),
+            asset_strategy=getattr(saved, "asset_strategy", None),
         )
-        quota_reservation = _reserve_task_quota(
+        quota_reservation = None if media_type == "transcript" else _reserve_task_quota(
             client_id=client_id,
             task_id=task_id,
             estimate=quota_estimate,
@@ -3097,7 +3143,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
         log_event(
             task_id=task_id,
             event_name="video_source_downloaded",
-            source_type="video",
+            source_type="transcript_file" if media_type == "transcript" else "video",
             source_filename=saved.filename,
             source_file_size_mb=source_file_size_mb,
             stage="queued",
@@ -3110,12 +3156,22 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             client_id=client_id,
             stage="queued",
             progress=0,
-            source_type="video",
+            source_type="transcript_file" if media_type == "transcript" else "video",
             source_filename=saved.filename,
             source_file_size_mb=source_file_size_mb,
             metadata=metadata,
         )
         _publish_job_event_from_thread(task_id, {"stage": "queued", "progress": 0})
+        if media_type == "transcript":
+            _submit_transcript_source_file(
+                task_id=task_id,
+                source_path=target_path,
+                filename=saved.filename,
+                options=options,
+                base_url=base_url,
+                client_id=client_id,
+            )
+            return
         enqueue_item = {
             "task_id": task_id,
             "source_path": str(target_path),
@@ -3131,6 +3187,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
     except Exception as exc:
         logger.exception("Video source job failed for %s", task_id)
         friendly_error = _friendly_error_message(exc)
+        failure_reason = video_source_failure_reason(exc)
         _release_task_quota(
             client_id=client_id,
             task_id=task_id,
@@ -3150,6 +3207,17 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
                 route="/video-sources/jobs",
                 queue_options=options,
                 raw_error=str(exc),
+                asset_strategy={
+                    "transcript_asset": {"status": "unavailable"},
+                    "playback_asset": {
+                        "status": "available" if input_text else "unavailable",
+                        "playback_mode": "external_url" if input_text else "unavailable",
+                        "source_url": input_text or None,
+                    },
+                    "visual_asset": {"status": "unavailable"},
+                    "download_status": "failed",
+                    "failure_reason": failure_reason,
+                },
             ),
         )
         _publish_job_event_from_thread(

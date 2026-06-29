@@ -60,11 +60,73 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     assert final_job["stage"] == "queued"
     assert final_job["source_type"] == "video"
     assert final_job["metadata"]["video_source"]["provider"] == "direct"
+    assert final_job["metadata"]["video_source"]["asset_strategy"] is None
     assert final_job["metadata"]["display_title"] == "测试视频"
     assert final_job["metadata"]["video_source"]["raw_title"] == "测试视频"
     assert final_job["metadata"]["video_source"]["display_title"] == "测试视频"
     assert Path(final_job["metadata"]["source_path"]).read_bytes() == b"downloaded video"
     assert published[-1] == ("task-link", {"stage": "queued", "progress": 0})
+
+
+def test_video_source_job_submits_youtube_captions_to_transcript_route(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    source_file = tmp_path / "downloaded.srt"
+    source_file.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
+    saved = SavedVideoSource(
+        ok=True,
+        provider="yt-dlp",
+        source_url="https://www.youtube.com/watch?v=demo123",
+        download_url="https://www.youtube.com/watch?v=demo123",
+        video_id="demo123",
+        raw_title="YouTube Demo",
+        display_title="YouTube Demo",
+        title="YouTube Demo",
+        filename="demo123-YouTube Demo.srt",
+        file_path=str(source_file),
+        file_url="/video-sources/files/demo123-YouTube%20Demo.srt",
+        metadata_path=str(tmp_path / "downloaded.source.json"),
+        size_bytes=source_file.stat().st_size,
+        downloaded_at="2026-06-06T00:00:00+08:00",
+        media_type="transcript",
+        asset_strategy={
+            "transcript_asset": {"status": "completed"},
+            "playback_asset": {"playback_mode": "external_url"},
+            "visual_asset": {"status": "unavailable"},
+            "download_status": "skipped",
+            "failure_reason": None,
+        },
+    )
+    submitted: list[dict] = []
+    jobs: list[dict] = []
+    monkeypatch.setattr(_H, "download_video_source", lambda *args, **kwargs: saved)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: (_ for _ in ()).throw(AssertionError("transcript source should not enqueue media transcription")))
+    monkeypatch.setattr(_H, "_submit_transcript_source_file", lambda **kwargs: submitted.append(kwargs))
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(_H, "_publish_job_event_from_thread", lambda *args, **kwargs: None)
+
+    _H._run_video_source_job({
+        "task_id": "task-link",
+        "input": "https://youtu.be/demo123",
+        "options": {"note_mode": "auto"},
+        "base_url": "http://testserver",
+    })
+
+    assert submitted == [{
+        "task_id": "task-link",
+        "source_path": tmp_path / "sources" / "task-link" / "source.srt",
+        "filename": "demo123-YouTube Demo.srt",
+        "options": {"note_mode": "auto"},
+        "base_url": "http://testserver",
+        "client_id": None,
+    }]
+    final_job = jobs[-1]
+    assert final_job["source_type"] == "transcript_file"
+    assert final_job["metadata"]["video_source"]["media_type"] == "transcript"
+    assert final_job["metadata"]["asset_strategy"]["transcript_asset"]["status"] == "completed"
+    assert final_job["metadata"]["asset_strategy"]["playback_asset"]["playback_mode"] == "external_url"
+    assert Path(final_job["metadata"]["source_path"]).suffix == ".srt"
+    assert Path(final_job["metadata"]["source_path"]).read_text(encoding="utf-8").startswith("1\n")
 
 
 def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:

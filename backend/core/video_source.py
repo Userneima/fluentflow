@@ -46,6 +46,8 @@ class ResolvedVideo:
     thumbnail_url: str | None = None
     audio_url: str | None = None
     referer: str | None = None
+    duration_seconds: float | None = None
+    estimated_size_bytes: int | None = None
 
 
 @dataclass
@@ -64,6 +66,10 @@ class SavedVideoSource:
     metadata_path: str
     size_bytes: int
     downloaded_at: str
+    media_type: str = "video"
+    asset_strategy: dict[str, Any] | None = None
+    duration_seconds: float | None = None
+    estimated_size_bytes: int | None = None
     audio_url: str | None = None
     referer: str | None = None
 
@@ -144,12 +150,13 @@ def display_title_for_source_input(input_text: str, fallback: str = "") -> str:
     return display_title_for_user(fallback or input_text, fallback or input_text) or "视频链接"
 
 
-def resolve_filename(video: ResolvedVideo, requested_title: str | None = None) -> tuple[str, str, str, str]:
+def resolve_filename(video: ResolvedVideo, requested_title: str | None = None, extension: str = ".mp4") -> tuple[str, str, str, str]:
     video_id = sanitize_filename_part(video.video_id or video_id_from_url(video.source_url)) or stable_id(video.source_url)
     raw_title = sanitize_filename_part(requested_title or video.title or f"视频-{video_id}") or f"视频-{video_id}"
     display_title = display_title_for_user(raw_title, raw_title) or raw_title
     filename_title = sanitize_filename_part(display_title) or raw_title
-    return video_id, raw_title, display_title, f"{video_id}-{filename_title}.mp4"
+    safe_extension = extension if extension.startswith(".") else f".{extension}"
+    return video_id, raw_title, display_title, f"{video_id}-{filename_title}{safe_extension}"
 
 
 def decode_html(value: str) -> str:
@@ -190,6 +197,14 @@ def is_bilibili_url(url: str) -> bool:
     try:
         host = (urllib.parse.urlparse(url).hostname or "").lower()
         return host.endswith("bilibili.com") or host == "b23.tv"
+    except Exception:
+        return False
+
+
+def is_youtube_url(url: str) -> bool:
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+        return host == "youtu.be" or host.endswith("youtube.com")
     except Exception:
         return False
 
@@ -237,8 +252,7 @@ def run_yt_dlp(url: str) -> dict[str, Any]:
         args.insert(3, "--cookies-from-browser")
         args.insert(4, cookies_from_browser)
     try:
-        host = (urllib.parse.urlparse(url).hostname or "").lower()
-        if host == "youtu.be" or "youtube.com" in host:
+        if is_youtube_url(url):
             url_arg = args.pop()
             args.extend(["--extractor-args", "youtube:player_client=android", url_arg])
     except Exception:
@@ -309,6 +323,26 @@ def choose_yt_dlp_media(info: dict[str, Any]) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _number_or_none(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def estimate_yt_dlp_size_bytes(info: dict[str, Any]) -> int | None:
+    direct = _number_or_none(info.get("filesize") or info.get("filesize_approx"))
+    if direct:
+        return int(direct)
+    sizes = []
+    for item in info.get("formats") or []:
+        size = _number_or_none(item.get("filesize") or item.get("filesize_approx"))
+        if size:
+            sizes.append(int(size))
+    return max(sizes) if sizes else None
+
+
 def resolve_with_yt_dlp(url: str) -> ResolvedVideo | None:
     try:
         info = run_yt_dlp(url)
@@ -324,6 +358,8 @@ def resolve_with_yt_dlp(url: str) -> ResolvedVideo | None:
             thumbnail_url=info.get("thumbnail"),
             audio_url=audio_url,
             referer="https://www.bilibili.com/" if is_bilibili_url(info.get("webpage_url") or url) else None,
+            duration_seconds=_number_or_none(info.get("duration")),
+            estimated_size_bytes=estimate_yt_dlp_size_bytes(info),
         )
     except Exception:
         return None
@@ -480,7 +516,128 @@ def merge_media_parts(video_url: str, audio_url: str, file_path: Path, *, refere
     return file_path.stat().st_size
 
 
-def download_yt_dlp_media(url: str, file_path: Path, on_progress: ProgressCallback | None = None) -> int:
+def _yt_dlp_cookies_args() -> list[str]:
+    cookies_from_browser = os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "").strip()
+    return ["--cookies-from-browser", cookies_from_browser] if cookies_from_browser else []
+
+
+def youtube_caption_languages() -> str:
+    return (os.environ.get("FLUENTFLOW_YOUTUBE_SUB_LANGS") or "en,zh-Hans,zh-Hant,zh").strip()
+
+
+def youtube_caption_language_candidates() -> list[str]:
+    return [
+        item.strip()
+        for item in youtube_caption_languages().split(",")
+        if item.strip()
+    ] or ["en"]
+
+
+def download_timeout_seconds(
+    *,
+    duration_seconds: float | None = None,
+    estimated_size_bytes: int | None = None,
+) -> int:
+    override = os.environ.get("FLUENTFLOW_YT_DLP_DOWNLOAD_TIMEOUT_SECONDS")
+    if override:
+        try:
+            return max(int(float(override)), 60)
+        except ValueError:
+            pass
+    try:
+        max_timeout = max(int(float(os.environ.get("FLUENTFLOW_YT_DLP_MAX_TIMEOUT_SECONDS", "3600"))), 300)
+    except ValueError:
+        max_timeout = 3600
+    budgets = [900]
+    if duration_seconds:
+        budgets.append(180 + int(float(duration_seconds) * 0.22))
+    if estimated_size_bytes:
+        budgets.append(180 + int(int(estimated_size_bytes) / (256 * 1024)))
+    return min(max(budgets), max_timeout)
+
+
+def video_source_failure_reason(error: Any) -> str:
+    text = str(error or "").lower()
+    if "http error 403" in text or "forbidden" in text or "视频下载失败：403" in text:
+        return "forbidden"
+    if "http error 429" in text or "too many requests" in text:
+        return "rate_limited"
+    if "timed out" in text or "timeout" in text or "视频下载超时" in text:
+        return "timeout"
+    if "too large" in text or "文件过大" in text or "file is too large" in text:
+        return "too_large"
+    if "没有可用字幕" in text or "no subtitles" in text or "no captions" in text:
+        return "no_captions"
+    return "unknown"
+
+
+def download_youtube_captions(
+    url: str,
+    file_path: Path,
+    on_progress: ProgressCallback | None = None,
+) -> int:
+    parse_http_url(url)
+    if not is_youtube_url(url):
+        raise RuntimeError("YouTube captions are only available for YouTube URLs")
+    on_progress and on_progress(VideoSourceProgress(
+        stage="downloading",
+        message="正在获取 YouTube 字幕",
+        percent=None,
+        loaded_bytes=None,
+        total_bytes=None,
+    ))
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    errors: list[str] = []
+    for language in youtube_caption_language_candidates():
+        with tempfile.TemporaryDirectory(prefix="fluentflow-youtube-captions-") as temp_dir:
+            output_template = str(Path(temp_dir) / "captions.%(ext)s")
+            args = [
+                sys.executable,
+                "-m",
+                "yt_dlp",
+                "--skip-download",
+                "--no-playlist",
+                "--write-subs",
+                "--write-auto-subs",
+                "--sub-langs",
+                language,
+                "--sub-format",
+                "srt",
+                "-o",
+                output_template,
+                "--extractor-args",
+                "youtube:player_client=android",
+                *_yt_dlp_cookies_args(),
+                url,
+            ]
+            result = subprocess.run(args, capture_output=True, text=True, timeout=120)
+            candidates = sorted(Path(temp_dir).glob("captions*.srt"))
+            if result.returncode == 0 and candidates:
+                shutil.move(str(candidates[0]), file_path)
+                break
+            errors.append((result.stderr or result.stdout or f"{language}: yt-dlp 字幕下载失败，退出码 {result.returncode}").strip())
+    if not file_path.is_file():
+        detail = errors[-1] if errors else "这个 YouTube 视频没有可用字幕"
+        raise RuntimeError(detail or "这个 YouTube 视频没有可用字幕")
+    size_bytes = file_path.stat().st_size
+    on_progress and on_progress(VideoSourceProgress(
+        stage="downloading",
+        message="YouTube 字幕获取完成",
+        percent=100,
+        loaded_bytes=size_bytes,
+        total_bytes=size_bytes,
+    ))
+    return size_bytes
+
+
+def download_yt_dlp_media(
+    url: str,
+    file_path: Path,
+    on_progress: ProgressCallback | None = None,
+    *,
+    duration_seconds: float | None = None,
+    estimated_size_bytes: int | None = None,
+) -> int:
     parse_http_url(url)
     on_progress and on_progress(VideoSourceProgress(
         stage="downloading",
@@ -504,15 +661,22 @@ def download_yt_dlp_media(url: str, file_path: Path, on_progress: ProgressCallba
         "best[ext=mp4]/best",
         "-o",
         str(file_path),
+        *_yt_dlp_cookies_args(),
     ]
     try:
-        host = (urllib.parse.urlparse(url).hostname or "").lower()
-        if host == "youtu.be" or "youtube.com" in host:
+        if is_youtube_url(url):
             args.extend(["--extractor-args", "youtube:player_client=android"])
     except Exception:
         pass
     args.append(url)
-    result = subprocess.run(args, capture_output=True, text=True, timeout=900)
+    timeout = download_timeout_seconds(
+        duration_seconds=duration_seconds,
+        estimated_size_bytes=estimated_size_bytes,
+    )
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"视频下载超时：视频可能较大或当前网络较慢，已等待 {timeout} 秒。") from exc
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "").strip() or f"yt-dlp 下载失败，退出码 {result.returncode}")
     size_bytes = file_path.stat().st_size
@@ -550,6 +714,58 @@ def write_json_metadata(file_path: Path, metadata: dict[str, Any]) -> Path:
     return metadata_path
 
 
+def build_asset_strategy(
+    *,
+    media_type: str,
+    source_url: str,
+    file_path: Path,
+    file_url: str,
+    filename: str,
+    caption_failure_reason: str | None = None,
+) -> dict[str, Any]:
+    if media_type == "transcript":
+        return {
+            "transcript_asset": {
+                "status": "completed",
+                "kind": "subtitle",
+                "source": "youtube_captions",
+                "filename": filename,
+                "file_path": str(file_path),
+                "file_url": file_url,
+            },
+            "playback_asset": {
+                "status": "available",
+                "playback_mode": "external_url",
+                "source_url": source_url,
+            },
+            "visual_asset": {
+                "status": "unavailable",
+                "reason": "local_video_not_downloaded",
+            },
+            "download_status": "skipped",
+            "failure_reason": None,
+        }
+    return {
+        "transcript_asset": {
+            "status": "pending",
+            "kind": "stt_from_media",
+        },
+        "playback_asset": {
+            "status": "completed",
+            "playback_mode": "local_file",
+            "filename": filename,
+            "file_path": str(file_path),
+            "file_url": file_url,
+        },
+        "visual_asset": {
+            "status": "pending",
+            "source": "local_video",
+        },
+        "download_status": "completed",
+        "failure_reason": caption_failure_reason,
+    }
+
+
 def download_video_source(
     input_text: str,
     *,
@@ -566,8 +782,11 @@ def download_video_source(
     video_dir.mkdir(parents=True, exist_ok=True)
     on_progress and on_progress(VideoSourceProgress(stage="resolving", message="正在解析分享链接", percent=8))
     resolved = resolve_video(normalized)
-    video_id, raw_title, display_title, filename = resolve_filename(resolved, title)
+    media_type = "transcript" if resolved.provider == "yt-dlp" and is_youtube_url(resolved.source_url) else "video"
+    extension = ".srt" if media_type == "transcript" else ".mp4"
+    video_id, raw_title, display_title, filename = resolve_filename(resolved, title, extension=extension)
     file_path = video_dir / filename
+    caption_failure_reason: str | None = None
     downloaded_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     try:
         size_bytes = file_path.stat().st_size
@@ -599,29 +818,63 @@ def download_video_source(
                 total_bytes=size_bytes,
             ))
         else:
-            if resolved.provider == "yt-dlp":
-                size_bytes = download_yt_dlp_media(resolved.source_url, file_path, on_progress)
+            if media_type == "transcript":
+                try:
+                    size_bytes = download_youtube_captions(resolved.source_url, file_path, on_progress)
+                except Exception as exc:
+                    caption_failure_reason = video_source_failure_reason(exc)
+                    media_type = "video"
+                    video_id, raw_title, display_title, filename = resolve_filename(resolved, title)
+                    file_path = video_dir / filename
+                    size_bytes = download_yt_dlp_media(
+                        resolved.source_url,
+                        file_path,
+                        on_progress,
+                        duration_seconds=resolved.duration_seconds,
+                        estimated_size_bytes=resolved.estimated_size_bytes,
+                    )
+            elif resolved.provider == "yt-dlp":
+                size_bytes = download_yt_dlp_media(
+                    resolved.source_url,
+                    file_path,
+                    on_progress,
+                    duration_seconds=resolved.duration_seconds,
+                    estimated_size_bytes=resolved.estimated_size_bytes,
+                )
             elif resolved.referer:
                 size_bytes = download_file(resolved.download_url, file_path, on_progress, referer=resolved.referer)
             else:
                 size_bytes = download_file(resolved.download_url, file_path, on_progress)
 
     on_progress and on_progress(VideoSourceProgress(stage="saving", message="正在保存视频信息", percent=96))
+    file_url = f"/video-sources/files/{urllib.parse.quote(filename)}"
+    asset_strategy = build_asset_strategy(
+        media_type=media_type,
+        source_url=resolved.source_url,
+        file_path=file_path,
+        file_url=file_url,
+        filename=filename,
+        caption_failure_reason=caption_failure_reason,
+    )
     metadata = {
         "provider": resolved.provider,
         "source_url": resolved.source_url,
         "download_url": resolved.download_url,
         "audio_url": resolved.audio_url,
         "referer": resolved.referer,
+        "duration_seconds": resolved.duration_seconds,
+        "estimated_size_bytes": resolved.estimated_size_bytes,
         "video_id": video_id,
         "raw_title": raw_title,
         "display_title": display_title,
         "title": display_title,
         "filename": filename,
         "file_path": str(file_path),
-        "file_url": f"/video-sources/files/{urllib.parse.quote(filename)}",
+        "file_url": file_url,
         "size_bytes": size_bytes,
         "downloaded_at": downloaded_at,
+        "media_type": media_type,
+        "asset_strategy": asset_strategy,
     }
     metadata_path = write_json_metadata(file_path, metadata)
     write_source_info(video_dir, display_title, resolved.source_url)

@@ -77,6 +77,14 @@ def test_media_text_top_actions_stay_on_one_row_when_narrow() -> None:
     assert "dash.viewTasks" in source
 
 
+def test_frontend_explains_video_link_download_failures() -> None:
+    source = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
+
+    assert "平台拒绝下载当前视频" in source
+    assert "平台请求过于频繁" in source
+    assert "视频下载时间过长" in source
+
+
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 

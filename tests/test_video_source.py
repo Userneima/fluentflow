@@ -100,6 +100,27 @@ def test_choose_yt_dlp_media_prefers_combined_stream_when_available() -> None:
     assert audio_url is None
 
 
+def test_download_timeout_scales_with_duration_and_size(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_YT_DLP_DOWNLOAD_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("FLUENTFLOW_YT_DLP_MAX_TIMEOUT_SECONDS", "3600")
+
+    short_budget = video_source.download_timeout_seconds(duration_seconds=120, estimated_size_bytes=20 * 1024 * 1024)
+    long_budget = video_source.download_timeout_seconds(duration_seconds=5400, estimated_size_bytes=250 * 1024 * 1024)
+
+    assert short_budget == 900
+    assert long_budget > short_budget
+    assert long_budget <= 3600
+
+
+def test_estimate_yt_dlp_size_uses_largest_available_format() -> None:
+    assert video_source.estimate_yt_dlp_size_bytes({
+        "formats": [
+            {"filesize_approx": 100},
+            {"filesize": 250},
+        ],
+    }) == 250
+
+
 def test_bilibili_url_detection_covers_public_submission_shapes() -> None:
     assert video_source.is_bilibili_url("https://www.bilibili.com/video/BV1xx411c7mD/")
     assert video_source.is_bilibili_url("https://www.bilibili.com/video/BV1xx411c7mD/?p=2")
@@ -154,6 +175,67 @@ def test_run_yt_dlp_adds_youtube_android_client(monkeypatch) -> None:
     assert "--extractor-args" in args
     assert "youtube:player_client=android" in args
     assert args[-1] == "https://youtu.be/demo123"
+
+
+def test_download_youtube_captions_uses_auto_srt_subtitles(tmp_path, monkeypatch) -> None:
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, capture_output=True, text=True, timeout=120):
+        captured["args"] = args
+        captured["timeout"] = timeout
+        output_template = args[args.index("-o") + 1]
+        Path(output_template.replace("%(ext)s", "en.srt")).write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nHello\n",
+            encoding="utf-8",
+        )
+        return FakeResult()
+
+    monkeypatch.setenv("FLUENTFLOW_YOUTUBE_SUB_LANGS", "en")
+    monkeypatch.setattr(video_source.subprocess, "run", fake_run)
+
+    size = video_source.download_youtube_captions(
+        "https://youtu.be/demo123",
+        tmp_path / "demo123.srt",
+    )
+
+    args = captured["args"]
+    assert size > 0
+    assert "--write-auto-subs" in args
+    assert "--write-subs" in args
+    assert args[args.index("--sub-langs") + 1] == "en"
+    assert args[args.index("--sub-format") + 1] == "srt"
+    assert "youtube:player_client=android" in args
+    assert (tmp_path / "demo123.srt").read_text(encoding="utf-8").startswith("1\n")
+
+
+def test_download_youtube_captions_stops_after_first_success(tmp_path, monkeypatch) -> None:
+    calls = []
+
+    class FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, capture_output=True, text=True, timeout=120):
+        calls.append(args[args.index("--sub-langs") + 1])
+        output_template = args[args.index("-o") + 1]
+        Path(output_template.replace("%(ext)s", "en.srt")).write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nHello\n",
+            encoding="utf-8",
+        )
+        return FakeResult()
+
+    monkeypatch.setenv("FLUENTFLOW_YOUTUBE_SUB_LANGS", "en,zh-Hant")
+    monkeypatch.setattr(video_source.subprocess, "run", fake_run)
+
+    video_source.download_youtube_captions("https://youtu.be/demo123", tmp_path / "demo123.srt")
+
+    assert calls == ["en"]
 
 
 def test_miuistore_field_parser_accepts_extra_value_classes() -> None:
@@ -246,16 +328,71 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
 def test_download_video_source_uses_yt_dlp_for_yt_dlp_provider(tmp_path, monkeypatch) -> None:
     resolved = video_source.ResolvedVideo(
         provider="yt-dlp",
+        source_url="https://video.example/watch/demo123",
+        download_url="https://cdn.example/video.mp4",
+        video_id="demo123",
+        title="Video Demo",
+    )
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "download_file", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("download_file should not be used")))
+
+    def fake_download_yt_dlp_media(url, file_path, on_progress=None, **kwargs):
+        assert url == "https://video.example/watch/demo123"
+        file_path.write_bytes(b"video")
+        return 5
+
+    monkeypatch.setattr(video_source, "download_yt_dlp_media", fake_download_yt_dlp_media)
+
+    saved = video_source.download_video_source("https://video.example/watch/demo123", video_dir=tmp_path)
+
+    assert saved.filename == "demo123-Video Demo.mp4"
+    assert saved.media_type == "video"
+    assert Path(saved.file_path).read_bytes() == b"video"
+
+
+def test_download_video_source_prefers_youtube_captions(tmp_path, monkeypatch) -> None:
+    resolved = video_source.ResolvedVideo(
+        provider="yt-dlp",
         source_url="https://www.youtube.com/watch?v=demo123",
         download_url="https://googlevideo.example/video.mp4",
         video_id="demo123",
         title="YouTube Demo",
     )
     monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
-    monkeypatch.setattr(video_source, "download_file", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("download_file should not be used")))
+    monkeypatch.setattr(video_source, "download_yt_dlp_media", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("media download should not be used")))
 
-    def fake_download_yt_dlp_media(url, file_path, on_progress=None):
+    def fake_download_captions(url, file_path, on_progress=None):
         assert url == "https://www.youtube.com/watch?v=demo123"
+        file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
+        return file_path.stat().st_size
+
+    monkeypatch.setattr(video_source, "download_youtube_captions", fake_download_captions)
+
+    saved = video_source.download_video_source("https://youtu.be/demo123", video_dir=tmp_path)
+
+    assert saved.provider == "yt-dlp"
+    assert saved.media_type == "transcript"
+    assert saved.filename == "demo123-YouTube Demo.srt"
+    assert saved.asset_strategy["transcript_asset"]["source"] == "youtube_captions"
+    assert saved.asset_strategy["playback_asset"]["playback_mode"] == "external_url"
+    assert saved.asset_strategy["download_status"] == "skipped"
+    assert Path(saved.file_path).suffix == ".srt"
+    assert saved.size_bytes > 0
+
+
+def test_download_video_source_falls_back_when_youtube_captions_missing(tmp_path, monkeypatch) -> None:
+    resolved = video_source.ResolvedVideo(
+        provider="yt-dlp",
+        source_url="https://www.youtube.com/watch?v=demo123",
+        download_url="https://googlevideo.example/video.mp4",
+        video_id="demo123",
+        title="YouTube Demo",
+    )
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "download_youtube_captions", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("no captions")))
+
+    def fake_download_yt_dlp_media(url, file_path, on_progress=None, **kwargs):
+        assert file_path.suffix == ".mp4"
         file_path.write_bytes(b"video")
         return 5
 
@@ -263,7 +400,10 @@ def test_download_video_source_uses_yt_dlp_for_yt_dlp_provider(tmp_path, monkeyp
 
     saved = video_source.download_video_source("https://youtu.be/demo123", video_dir=tmp_path)
 
+    assert saved.media_type == "video"
     assert saved.filename == "demo123-YouTube Demo.mp4"
+    assert saved.asset_strategy["playback_asset"]["playback_mode"] == "local_file"
+    assert saved.asset_strategy["failure_reason"] == "no_captions"
     assert Path(saved.file_path).read_bytes() == b"video"
 
 

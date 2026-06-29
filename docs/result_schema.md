@@ -194,6 +194,18 @@ The Job Payload wraps a result with task execution metadata:
 | `metadata` | Worker/runtime metadata. |
 | `result` | Result Payload v2. |
 
+Video-link jobs may include `metadata.asset_strategy`:
+
+| Field | Meaning |
+| --- | --- |
+| `transcript_asset` | How the note input was or will be obtained, such as YouTube captions or STT from media. |
+| `playback_asset` | Playback availability: `playback_mode` may be `local_file`, `embedded_url`, `external_url`, or `unavailable`. |
+| `visual_asset` | Whether local video is available for screenshots/visual evidence. |
+| `download_status` | Video download state, such as `skipped`, `pending`, `running`, `completed`, `slow`, or `failed`. |
+| `failure_reason` | Stable machine reason when download/caption preparation fails, such as `timeout`, `forbidden`, `rate_limited`, `too_large`, `no_captions`, or `unknown`. |
+
+For YouTube links, the note path may complete from captions while playback falls back to `external_url`. UI and Agent surfaces should not treat a missing local video file as a failed note task.
+
 `cached_only` is a frontend state, not a backend persistence state. It means the browser has enough cached result data to open a task even when the backend task row is unavailable.
 
 ## Agent Task Package v1
