@@ -114,8 +114,8 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
     assert "当前阶段、处理配置和判断依据会在这里同步更新" in overview
-    assert "to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`}" in processing
-    assert "return <Navigate" not in processing
+    assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in processing
+    assert "return <Navigate to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace/>;" in processing
 
 
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
@@ -132,7 +132,6 @@ def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
     settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
     settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
-    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
     assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in settings_model
@@ -141,7 +140,6 @@ def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     assert "from '../lib/settingsModel.js'" in shared
     assert "from '../lib/settingsModel.js'" in job_morph
     assert "sttProvider: 'elevenlabs_scribe'" in settings
-    assert "ElevenLabs 云端转录" in processing
     assert "isCloudSttConfigured(sttProvider, status)" in editor
     assert "isAzureCloudProvider(sttProvider)" not in editor
 
@@ -387,7 +385,7 @@ def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     assert "prompt.activeHint" not in source
     assert "noteModeText" not in source
     assert "fixed bottom-16 right-8" not in source
-    assert "planNoteStrategy.reason" in processing
+    assert "to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace" in processing
     assert "noteModePlanReason" in mapper
     assert "chapter_coverage" in settings_model
     assert "完整覆盖笔记" in settings_model
@@ -581,18 +579,15 @@ def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
 def test_processing_page_is_agent_workflow_surface() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
-    assert "执行路线" in source
-    assert "Agent 判断" in source
-    assert "使用依据" in source
-    assert "processing_plan" in source
-    assert "note_strategy" in source
-    assert "planSteps" in source
-    assert "planEvidence" in source
-    assert "计划依据" in source
-    assert "高级详情" in source
-    assert "editorActionLabel" in source
-    assert "查看任务详情" in source
-    assert "h-dvh overflow-y-auto" in source
+    assert "const {currentJob, lastResult, history} = useApp()" in source
+    assert "recentTaskIdFromHistory(history)" in source
+    assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in source
+    assert "return <Navigate to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace/>;" in source
+    assert "选择一个任务查看处理详情" in source
+    assert "提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。" in source
+    assert 'to="/media-text?mode=media"' in source
+    assert 'to="/tasks"' in source
+    assert "min-h-dvh" in source
 
 
 def test_processing_page_uses_timeline_not_card_stack() -> None:
@@ -600,8 +595,10 @@ def test_processing_page_uses_timeline_not_card_stack() -> None:
 
     assert "const Card" not in source
     assert "<Card" not in source
-    assert "xl:border-l" in source
-    assert "grid-cols-[44px_minmax(0,1fr)]" in source
+    assert "执行路线" not in source
+    assert "Agent 判断" not in source
+    assert "processing_plan" not in source
+    assert "planSteps" not in source
     assert "rounded-[14px] bg-[#f4f3f3] px-4 py-3" not in source
 
 
@@ -610,10 +607,10 @@ def test_processing_page_uses_compact_tool_header() -> None:
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "<header" not in source
-    assert "Agent 工作流" not in source
+    assert "Agent 工作流" in source
     assert "任务解释" not in source
     assert "展示本次任务的处理路线、判断依据和失败恢复建议。" not in source
-    assert "{isZh ? '开始处理' : 'Start'}" not in source
+    assert "{isZh ? '开始处理' : 'Start'}" in source
     assert "{isZh ? '长期设置' : 'Settings'}" not in source
     assert "FLUENTFLOW AGENT" not in source
     assert "text-[34px]" not in source
@@ -626,13 +623,12 @@ def test_processing_page_constrains_long_task_titles() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
-    assert 'className="grid min-w-0 gap-7' in source
-    assert 'className="min-w-0 space-y-7"' in source
-    assert "min-w-0 max-w-full flex-1 overflow-hidden" in source
-    assert "max-w-full truncate font-headline" in source
+    assert "max-w-4xl" in source
+    assert "text-[24px]" in source
+    assert "md:text-[28px]" in source
     assert "只给文本节点加 `truncate` 不够" in design_system
     assert "minmax(0, 1fr)" in design_system
-    assert "打开编辑器重生笔记" in source
+    assert "打开编辑器重生笔记" not in source
     assert 'to="/settings"' not in source
     assert "ml-[var(--sidebar-offset)]" in source
     assert "saveCredentials" not in source
@@ -648,10 +644,9 @@ def test_workflow_next_step_copy_is_action_oriented() -> None:
     agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
-    assert "复查结果" in processing
-    assert "查看运行状态" in processing
-    assert "重生笔记" in processing
-    assert "开始处理任务" in processing
+    assert "开始处理" in processing
+    assert "任务列表" in processing
+    assert "查看处理详情" in processing
     assert "结果可以复查" not in processing
     assert "任务正在运行" not in processing
     assert "还没有可解释的任务" not in processing
@@ -669,7 +664,8 @@ def test_ui_copy_does_not_leak_internal_product_principles() -> None:
     agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
-    assert "按执行顺序展示本次任务经过的处理步骤。" in processing
+    assert "按执行顺序展示本次任务经过的处理步骤。" not in processing
+    assert "提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。" in processing
     assert "这不是多 Agent 表演" not in processing
     assert "decorative multi-agent theater" not in processing
     assert "证据摘要" in agent_trace
