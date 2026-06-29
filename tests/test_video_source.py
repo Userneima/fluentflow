@@ -133,6 +133,29 @@ def test_run_yt_dlp_adds_bilibili_headers(monkeypatch) -> None:
     assert args[-1] == "https://www.bilibili.com/video/BVdemo/"
 
 
+def test_run_yt_dlp_adds_youtube_android_client(monkeypatch) -> None:
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = "{}"
+        stderr = ""
+
+    def fake_run(args, capture_output=True, text=True, timeout=90):
+        captured["args"] = args
+        return FakeResult()
+
+    monkeypatch.setattr(video_source.subprocess, "run", fake_run)
+
+    video_source.run_yt_dlp("https://youtu.be/demo123")
+
+    args = captured["args"]
+    assert args[0] == video_source.sys.executable
+    assert "--extractor-args" in args
+    assert "youtube:player_client=android" in args
+    assert args[-1] == "https://youtu.be/demo123"
+
+
 def test_miuistore_field_parser_accepts_extra_value_classes() -> None:
     html = """
     <div class='col text-md-end col-label'>视频标题：</div>
@@ -218,6 +241,30 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
     assert Path(saved.file_path).is_file()
     assert Path(saved.metadata_path).is_file()
     assert (tmp_path / "视频链接相关信息.md").read_text(encoding="utf-8").strip()
+
+
+def test_download_video_source_uses_yt_dlp_for_yt_dlp_provider(tmp_path, monkeypatch) -> None:
+    resolved = video_source.ResolvedVideo(
+        provider="yt-dlp",
+        source_url="https://www.youtube.com/watch?v=demo123",
+        download_url="https://googlevideo.example/video.mp4",
+        video_id="demo123",
+        title="YouTube Demo",
+    )
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "download_file", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("download_file should not be used")))
+
+    def fake_download_yt_dlp_media(url, file_path, on_progress=None):
+        assert url == "https://www.youtube.com/watch?v=demo123"
+        file_path.write_bytes(b"video")
+        return 5
+
+    monkeypatch.setattr(video_source, "download_yt_dlp_media", fake_download_yt_dlp_media)
+
+    saved = video_source.download_video_source("https://youtu.be/demo123", video_dir=tmp_path)
+
+    assert saved.filename == "demo123-YouTube Demo.mp4"
+    assert Path(saved.file_path).read_bytes() == b"video"
 
 
 def test_download_video_source_merges_split_bilibili_streams(tmp_path, monkeypatch) -> None:

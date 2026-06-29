@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -230,11 +231,18 @@ def resolve_direct_video(url: str) -> ResolvedVideo | None:
 
 
 def run_yt_dlp(url: str) -> dict[str, Any]:
-    args = ["python3", "-m", "yt_dlp", "--dump-single-json", "--skip-download", "--no-playlist", url]
+    args = [sys.executable, "-m", "yt_dlp", "--dump-single-json", "--skip-download", "--no-playlist", url]
     cookies_from_browser = os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "").strip()
     if cookies_from_browser:
         args.insert(3, "--cookies-from-browser")
         args.insert(4, cookies_from_browser)
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+        if host == "youtu.be" or "youtube.com" in host:
+            url_arg = args.pop()
+            args.extend(["--extractor-args", "youtube:player_client=android", url_arg])
+    except Exception:
+        pass
     if is_bilibili_url(url):
         url_arg = args.pop()
         args.extend([
@@ -472,6 +480,58 @@ def merge_media_parts(video_url: str, audio_url: str, file_path: Path, *, refere
     return file_path.stat().st_size
 
 
+def download_yt_dlp_media(url: str, file_path: Path, on_progress: ProgressCallback | None = None) -> int:
+    parse_http_url(url)
+    on_progress and on_progress(VideoSourceProgress(
+        stage="downloading",
+        message="正在下载视频",
+        percent=None,
+        loaded_bytes=None,
+        total_bytes=None,
+    ))
+    max_bytes = max_video_bytes()
+    args = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "--no-playlist",
+        "--no-part",
+        "--force-overwrites",
+        "--no-progress",
+        "--max-filesize",
+        str(max_bytes),
+        "-f",
+        "best[ext=mp4]/best",
+        "-o",
+        str(file_path),
+    ]
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+        if host == "youtu.be" or "youtube.com" in host:
+            args.extend(["--extractor-args", "youtube:player_client=android"])
+    except Exception:
+        pass
+    args.append(url)
+    result = subprocess.run(args, capture_output=True, text=True, timeout=900)
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "").strip() or f"yt-dlp 下载失败，退出码 {result.returncode}")
+    size_bytes = file_path.stat().st_size
+    if size_bytes > max_bytes:
+        try:
+            file_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise RuntimeError(f"视频文件过大，当前限制为 {round(max_bytes / 1024 / 1024)}MB")
+    on_progress and on_progress(VideoSourceProgress(
+        stage="downloading",
+        message="视频下载完成",
+        percent=100,
+        loaded_bytes=size_bytes,
+        total_bytes=size_bytes,
+    ))
+    return size_bytes
+
+
 def write_source_info(video_dir: Path, title: str, source_url: str) -> None:
     metadata_path = video_dir / SOURCE_INFO_FILE
     try:
@@ -539,7 +599,9 @@ def download_video_source(
                 total_bytes=size_bytes,
             ))
         else:
-            if resolved.referer:
+            if resolved.provider == "yt-dlp":
+                size_bytes = download_yt_dlp_media(resolved.source_url, file_path, on_progress)
+            elif resolved.referer:
                 size_bytes = download_file(resolved.download_url, file_path, on_progress, referer=resolved.referer)
             else:
                 size_bytes = download_file(resolved.download_url, file_path, on_progress)
