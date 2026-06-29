@@ -18,12 +18,17 @@ SECRET_ENV_KEYS = (
     "FLUENTFLOW_ACCESS_TOKENS",
     "FLUENTFLOW_ALLOWED_STT_PROVIDERS",
     "FLUENTFLOW_DEFAULT_STT_PROVIDER",
+    "FLUENTFLOW_KEYFRAME_EXTRACTION",
+    "FLUENTFLOW_KEYFRAME_PROVIDER",
+    "FLUENTFLOW_KEYFRAME_WORKER_URL",
+    "AI_PROVIDER",
     "AZURE_SPEECH_ENDPOINT",
     "AZURE_SPEECH_KEY",
     "AZURE_BLOB_CONTAINER_SAS_URL",
     "ELEVENLABS_API_KEY",
     "DEEPSEEK_API_KEY",
     "OPENAI_API_KEY",
+    "QWEN_API_KEY",
     "LARK_APP_ID",
     "LARK_APP_SECRET",
     "FLUENTFLOW_SOURCE_DIR",
@@ -100,6 +105,47 @@ def test_deployment_readiness_passes_core_cloud_configuration(monkeypatch, tmp_p
     assert _status_by_name(payload, "elevenlabs_credentials") == "pass"
     assert "elevenlabs-key" not in str(payload)
     assert "deepseek-key" not in str(payload)
+
+
+def test_deployment_readiness_passes_visual_note_screenshots_with_qwen(monkeypatch, tmp_path: Path) -> None:
+    _clear_env(monkeypatch)
+    _isolate_machine_state(monkeypatch, tmp_path)
+    _set_storage_dirs(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.setenv("FLUENTFLOW_ACCESS_TOKEN", "beta-code")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_KEYFRAME_EXTRACTION", "1")
+    monkeypatch.setenv("FLUENTFLOW_KEYFRAME_PROVIDER", "local_ffmpeg")
+    monkeypatch.setenv("AI_PROVIDER", "qwen")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "elevenlabs-key")
+    monkeypatch.setenv("QWEN_API_KEY", "qwen-key")
+
+    payload = run_checks(require_visual_evidence=True)
+
+    assert payload["status"] in {"pass", "warn"}
+    assert _status_by_name(payload, "visual_note_screenshots") == "pass"
+    assert "qwen-key" not in str(payload)
+
+
+def test_deployment_readiness_requires_qwen_for_visual_note_screenshots(monkeypatch, tmp_path: Path) -> None:
+    _clear_env(monkeypatch)
+    _isolate_machine_state(monkeypatch, tmp_path)
+    _set_storage_dirs(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.setenv("FLUENTFLOW_ACCESS_TOKEN", "beta-code")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_KEYFRAME_EXTRACTION", "1")
+    monkeypatch.setenv("FLUENTFLOW_KEYFRAME_PROVIDER", "local_ffmpeg")
+    monkeypatch.setenv("AI_PROVIDER", "deepseek")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "elevenlabs-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+
+    payload = run_checks(require_visual_evidence=True)
+
+    assert payload["status"] == "fail"
+    assert _status_by_name(payload, "visual_note_screenshots") == "fail"
 
 
 def test_deployment_readiness_blocks_local_provider_in_public_mode(monkeypatch, tmp_path: Path) -> None:

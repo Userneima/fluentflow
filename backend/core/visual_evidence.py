@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*$")
@@ -39,6 +40,14 @@ def _artifact_by_filename(frame_artifacts: list[dict[str, Any]]) -> dict[str, di
     return indexed
 
 
+def _image_target_name(target: str) -> str:
+    parsed = urlparse(_text(target))
+    query_file = parse_qs(parsed.query).get("file", [""])[0]
+    if query_file:
+        return Path(unquote(query_file)).name
+    return Path(unquote(parsed.path or target)).name
+
+
 def build_visual_evidence_from_note_images(
     markdown: str,
     frame_artifacts: list[dict[str, Any]],
@@ -57,7 +66,7 @@ def build_visual_evidence_from_note_images(
 
     for match in _IMAGE_RE.finditer(markdown or ""):
         alt_text = _plain_markdown(match.group(1))
-        image_name = Path(_text(match.group(2))).name
+        image_name = _image_target_name(match.group(2))
         artifact = artifact_index.get(image_name)
         if not alt_text or not artifact:
             continue

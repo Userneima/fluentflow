@@ -58,3 +58,18 @@ def test_rewrite_note_image_references_to_artifact_urls() -> None:
 
     assert "![流程图](/jobs/task/artifacts/frame?file=scene_0001.jpg)" in rewritten
     assert "![未知](missing.jpg)" in rewritten
+
+
+def test_build_visual_evidence_from_rewritten_artifact_url() -> None:
+    payload = build_visual_evidence_from_note_images(
+        "## 核心概念\n\n![流程图](/jobs/task/artifacts/frame?file=scene_0001.jpg)\n",
+        [
+            {
+                "filename": "frames/scene_0001.jpg",
+                "url": "/jobs/task/artifacts/frame?file=scene_0001.jpg",
+            }
+        ],
+    )
+
+    assert payload["visual_evidence_status"] == "completed"
+    assert payload["visual_evidence"][0]["artifact_url"] == "/jobs/task/artifacts/frame?file=scene_0001.jpg"

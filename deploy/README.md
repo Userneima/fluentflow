@@ -103,6 +103,8 @@ FLUENTFLOW_STALE_JOB_SECONDS=90000
 ```bash
 FLUENTFLOW_KEYFRAME_EXTRACTION=1
 FLUENTFLOW_KEYFRAME_PROVIDER=local_ffmpeg
+AI_PROVIDER=qwen
+QWEN_API_KEY=...
 ```
 
 后续如果把截图任务拆到独立 Worker，再切换为：
@@ -113,6 +115,8 @@ FLUENTFLOW_KEYFRAME_WORKER_URL=https://your-worker/keyframes
 ```
 
 没有配置 Worker URL 时系统会跳过关键帧抽取，不会阻塞转录和笔记生成。关键帧图片属于任务产物，跟随 `FLUENTFLOW_ARTIFACT_RETENTION_DAYS` 清理；如果未来写入 OSS，笔记和 Agent 任务包里只能暴露 OSS/下载 URL，不能暴露服务器本地路径。
+
+ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插图需要 Qwen 多模态摘要链路：`AI_PROVIDER=qwen` 且 `QWEN_API_KEY` 已配置。只配置 DeepSeek 或 OpenAI 时，普通文字笔记仍可生成，但视频关键截图不会自动进入笔记。
 
 如果暂时不想启用账号系统，也可以不配置 `FLUENTFLOW_AUTH_MODE`，让用户直接打开产品；此时后端仍会按设备、IP 和全站总量拦截异常提交，但任务历史无法跨设备找回。封闭 Beta 才需要额外设置 `FLUENTFLOW_ACCESS_TOKEN`。
 
@@ -157,6 +161,18 @@ set +a
 ```
 
 所有 `FAIL` 都需要先处理。飞书导出如果暂时不开放，可以接受 `lark_export` 的 `WARN`。
+
+如果本次上线目标包括“笔记自动带视频关键截图”，使用更严格的检查：
+
+```bash
+./venv/bin/python scripts/check_deployment_readiness.py --require-visual-evidence
+```
+
+再跑一次不依赖外部 API 的截图链路烟测，确认服务器上的 FFmpeg 能抽帧，且图片能进入 visual evidence 结果结构：
+
+```bash
+./venv/bin/python scripts/smoke_visual_evidence.py --output-dir /tmp/fluentflow-visual-smoke
+```
 
 ## 6. systemd
 

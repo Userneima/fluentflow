@@ -102,12 +102,33 @@ FluentFlow 的截图能力分成本地和云端 provider：
 - `FLUENTFLOW_KEYFRAME_PROVIDER=cloud_ffmpeg_worker`：预留给独立 Worker；Worker 需要能读取源视频，生成图片，并把图片写回 OSS 或产物目录。未配置 `FLUENTFLOW_KEYFRAME_WORKER_URL` 时会跳过，不影响转录和笔记。
 - `FLUENTFLOW_KEYFRAME_EXTRACTION=0`：完全关闭截图抽帧。
 
+自动把截图写入笔记还需要多模态摘要链路。当前后端只把 Qwen 视为可用多模态 provider，因此服务器需要同时配置：
+
+```bash
+AI_PROVIDER=qwen
+QWEN_API_KEY=...
+```
+
+ElevenLabs 只负责转录，不会看视频画面；只配置 DeepSeek / OpenAI 时可以生成文字笔记，但不会自动把视频关键截图插入笔记。
+
 如果使用本机/服务器 FFmpeg，先确认：
 
 ```bash
 ffmpeg -version
 ffprobe -version
 du -sh /var/lib/fluentflow/artifacts
+```
+
+上线前可用严格自检确认插图链路：
+
+```bash
+./venv/bin/python scripts/check_deployment_readiness.py --require-visual-evidence
+```
+
+如果严格自检通过，再跑本地 FFmpeg 抽帧烟测：
+
+```bash
+./venv/bin/python scripts/smoke_visual_evidence.py --output-dir /tmp/fluentflow-visual-smoke
 ```
 
 关键帧图片属于任务产物，受 `FLUENTFLOW_ARTIFACT_RETENTION_DAYS` 清理策略影响。公开视频部署时不应把本地文件路径写入笔记或 Agent 任务包，图片应通过 `/jobs/{task_id}/artifacts/frame?file=...` 或后续 OSS URL 访问。
