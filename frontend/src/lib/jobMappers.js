@@ -61,6 +61,22 @@ export const writeCachedAccountJobs = (accountId, jobs) => {
     } catch(_) {}
 };
 
+export const cacheJobRecord = (accountId, job) => {
+    if (!job || typeof job !== 'object' || !job.task_id) return null;
+    const now = new Date().toISOString();
+    const nextJob = {
+        ...job,
+        created_at: job.created_at || now,
+        updated_at: job.updated_at || now,
+    };
+    const current = readCachedAccountJobs(accountId);
+    writeCachedAccountJobs(accountId, [
+        nextJob,
+        ...current.filter((item) => item?.task_id !== nextJob.task_id),
+    ]);
+    return nextJob;
+};
+
 export const mergeCachedJobs = (...groups) => {
     const seen = new Set();
     const merged = [];
@@ -148,6 +164,7 @@ export const resultToHistoryEntry = (sourceResult, fallback={}) => {
         summarySkipped: !!result.summary_skipped,
         summaryStatus: result.summary_status||null,
         summaryError: result.summary_error||null,
+        errorReason: result.error_reason||fallback.errorReason||null,
         larkUrl: result.lark_response?.url || null,
         larkError: result.lark_error||null,
         audioDurationSec: durSec,
@@ -227,6 +244,7 @@ export const jobToHistoryEntry = (sourceJob) => {
         taskState: job.task_state,
         summaryStatus: result.summary_status || job.summary_status || entry.summaryStatus,
         summaryError: result.summary_error || job.error_reason || entry.summaryError,
+        errorReason: job.error_reason || result.error_reason || entry.errorReason,
     };
 };
 
@@ -249,6 +267,8 @@ export const jobToCurrentJob = (sourceJob) => {
         sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
         sttStatus: job.metadata?.stt_status,
         azureBatchAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb ?? job.metadata?.azure_batch_audio_size_mb,
+        summaryError: job.result?.summary_error || job.error_reason || null,
+        errorReason: job.error_reason || job.result?.error_reason || null,
     };
 };
 

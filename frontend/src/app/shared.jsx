@@ -309,7 +309,7 @@ export const AppProvider = ({children}) => {
 };
 export const useApp = () => useContext(AppCtx);
 
-export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, mergeCachedJobs, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
+export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, cacheJobRecord, mergeCachedJobs, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
 
 export { fmtTime, autoSizeTextarea, composeTranscriptText, normalizeTranscriptSegments, normalizeDisplaySegments, pickTranscriptSegments, pickTranscriptBaselineSegments, pickDisplayTranscriptSegments, buildTranscriptEditRecords, fmtElapsed, fmtFileSize, totalFileSizeMb, fmtBytes, fmtDateTime, friendlyTaskError, fmtSttRelative, sttStatusLabel, sttProgressFraction, isSttProgressUnmeasured, jobProgressLabel, timeAgo, noteGenerationDiagnosis } from '../lib/format.js';
 

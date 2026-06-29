@@ -6,6 +6,7 @@ import {
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
+    cacheJobRecord,
     cloudSttMissingMessage,
     createTaskId,
     effectiveSttProvider,
@@ -19,6 +20,7 @@ import {
     isCloudSttProvider,
     jobProgressLabel,
     jobToCurrentJob,
+    jobToHistoryEntry,
     larkExportRouteFromSettings,
     normalizeSttModel,
     resultToHistoryEntry,
@@ -31,6 +33,7 @@ import {
     useAuth,
     useI18n,
     useSettings,
+    videoLinkDisplayTitle,
 } from '../app/shared.jsx';
 import SvgIcon from '../components/SvgIcon.jsx';
 
@@ -47,7 +50,7 @@ const platformItems = [
 
 const MediaText = () => {
     const {t, lang} = useI18n();
-    const {guestMode, guestTrial} = useAuth();
+    const {authMode, guestMode, guestTrial, user} = useAuth();
     const {
         history,
         addToHistory,
@@ -84,6 +87,7 @@ const MediaText = () => {
     const fileInputRef = useRef(null);
     const subtitleInputRef = useRef(null);
     const abortRef = useRef(null);
+    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -130,6 +134,35 @@ const MediaText = () => {
             setLastResult(ev.result);
             setProcessingResult(ev.result);
         }
+    };
+
+    const persistFailedVideoLinkJob = (job, rawMessage, input) => {
+        const taskId = job?.task_id;
+        const errorText = friendlyTaskError(rawMessage || job?.error_reason || 'Video link task failed.', lang);
+        if (!taskId) return errorText;
+        const now = new Date().toISOString();
+        const displayTitle = job?.metadata?.display_title || job?.source_filename || videoLinkDisplayTitle(input, lang);
+        const failedJob = cacheJobRecord(cacheAccountId, {
+            ...job,
+            task_id: taskId,
+            status: 'failed',
+            task_state: 'failed',
+            stage: 'failed',
+            progress: 100,
+            source_type: job?.source_type || 'video_link',
+            source_filename: job?.source_filename || displayTitle || input.slice(0, 80),
+            error_reason: errorText,
+            metadata: {
+                ...(job?.metadata || {}),
+                display_title: displayTitle,
+                raw_input: input,
+            },
+            created_at: job?.created_at || now,
+            updated_at: now,
+        });
+        if (failedJob) addToHistory(jobToHistoryEntry(failedJob));
+        setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
+        return errorText;
     };
 
     const settleResult = (result, {taskId, fileName, source = 'media'} = {}) => {
@@ -345,7 +378,10 @@ const MediaText = () => {
                         navigate('/editor');
                     })
                     .catch((err) => {
-                        if (err.name !== 'AbortError') setUploadError(err.message || 'Video link task failed.');
+                        if (err.name !== 'AbortError') {
+                            const errorText = persistFailedVideoLinkJob(job, err.message, input);
+                            setUploadError(lang === 'zh' ? `${errorText} 已保存在后台任务。` : `${errorText} Saved in background tasks.`);
+                        }
                     })
                     .finally(() => {
                         if (abortRef.current === ac) abortRef.current = null;

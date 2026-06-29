@@ -85,6 +85,25 @@ def test_frontend_explains_video_link_download_failures() -> None:
     assert "视频下载时间过长" in source
 
 
+def test_video_link_failures_are_preserved_in_background_tasks() -> None:
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
+
+    assert "export const cacheJobRecord" in mapper
+    assert "cacheJobRecord" in shared
+    assert "cacheJobRecord" in job_morph
+    assert "persistFailedVideoLinkJob" in media_text
+    assert "persistFailedTaskJob" in dashboard
+    assert "已保存在后台任务" in media_text
+    assert "已保存在后台任务" in dashboard
+    assert "taskFailureDetail" in tasks
+    assert "job.error_reason || job.result?.summary_error" in tasks
+
+
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 

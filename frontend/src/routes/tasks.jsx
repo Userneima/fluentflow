@@ -322,6 +322,15 @@ const Tasks = () => {
         if (taskState === TASK_STATE_RUNNING) return job.summary_status || stageLabel(job);
         return '-';
     };
+    const taskFailureDetail = (job) => {
+        const taskState = normalizeTaskState(job);
+        if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '用户已取消这个任务。' : 'This task was cancelled by the user.';
+        if (taskState !== TASK_STATE_FAILED) return '';
+        const raw = job.error_reason || job.result?.summary_error || job.result?.error_reason || job.metadata?.raw_error || '';
+        return raw
+            ? friendlyTaskError(raw, lang)
+            : (lang === 'zh' ? '任务处理失败，但后端没有返回具体原因。' : 'The task failed, but no detailed reason was returned.');
+    };
     const artifactButtons = [
         ['transcript_srt', t('tasks.srt')],
         ['transcript_txt', t('tasks.txt')],
@@ -403,6 +412,7 @@ const Tasks = () => {
                             const canOpen = hasTranscriptResult(result) || (!!result && (taskState === TASK_STATE_COMPLETED || taskState === TASK_STATE_CACHED_ONLY));
                             const planSummary = agentPlanSummary(job, lang);
                             const displayTitle = jobDisplayTitle(job, lang);
+                            const failureDetail = taskFailureDetail(job);
                             const downloadItems = [
                                 ...availableArtifacts.map(([kind, label]) => ({icon:'download', label, badge:kind.endsWith('vtt')?'VTT':kind.endsWith('srt')?'SRT':kind.endsWith('txt')?'TXT':kind.endsWith('md')?'MD':kind, onClick:()=>downloadArtifact(job,kind)})),
                                 ...(larkUrl ? [{divider:true},{icon:'open_in_new', label:t('tasks.larkDoc'), onClick:()=>window.open(larkUrl,'_blank','noopener')}] : []),
@@ -436,6 +446,11 @@ const Tasks = () => {
                                                     {liveStageDetail(job)}
                                                 </p>
                                             </div>
+                                            )}
+                                            {failureDetail && (
+                                                <p className="mt-2 rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-relaxed text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+                                                    {failureDetail}
+                                                </p>
                                             )}
                                         </div>
                                         <div className="flex items-center gap-1.5 flex-shrink-0">

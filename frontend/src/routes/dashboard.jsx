@@ -12,6 +12,7 @@ import {
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
+    cacheJobRecord,
     cloudSttMissingMessage,
     clearGuestTrialSession,
     compactDisplayFilename,
@@ -59,7 +60,7 @@ import SvgIcon from '../components/SvgIcon.jsx';
 
 const Dashboard = () => {
     const {t, lang} = useI18n();
-    const {guestMode, guestTrial, user} = useAuth();
+    const {authMode, guestMode, guestTrial, user} = useAuth();
     const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
@@ -75,6 +76,7 @@ const Dashboard = () => {
     const [videoLinkInput, setVideoLinkInput] = useState('');
     const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
     const [queueSubmitting, setQueueSubmitting] = useState(false);
+    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -190,6 +192,35 @@ const Dashboard = () => {
         }
     };
 
+    const persistFailedTaskJob = (job, rawMessage, fallback={}) => {
+        const taskId = job?.task_id || fallback.taskId;
+        const errorText = friendlyTaskError(rawMessage || job?.error_reason || 'Task failed.', lang);
+        if (!taskId || fallback.guestTrial) return errorText;
+        const now = new Date().toISOString();
+        const failedJob = cacheJobRecord(cacheAccountId, {
+            ...job,
+            task_id: taskId,
+            status: 'failed',
+            task_state: 'failed',
+            stage: 'failed',
+            progress: 100,
+            source_type: job?.source_type || fallback.sourceType || 'video',
+            source_filename: job?.source_filename || fallback.fileName || 'Untitled task',
+            source_file_size_mb: job?.source_file_size_mb ?? fallback.fileSizeMb ?? null,
+            error_reason: errorText,
+            metadata: {
+                ...(job?.metadata || {}),
+                display_title: job?.metadata?.display_title || fallback.fileName || job?.source_filename,
+                stt_provider: job?.metadata?.stt_provider || fallback.sttProvider || null,
+            },
+            created_at: job?.created_at || (fallback.startedAt ? new Date(fallback.startedAt).toISOString() : now),
+            updated_at: now,
+        });
+        if (failedJob) addToHistory(jobToHistoryEntry(failedJob));
+        setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
+        return errorText;
+    };
+
     useEffect(() => {
         if(!currentJob?.taskId || currentJob.stage === 'done') return;
         let stale = false;
@@ -229,19 +260,8 @@ const Dashboard = () => {
                         abortRef.current = null;
                     }
                     currentTaskRef.current = null;
-                    setUploadError(job.error_reason || 'Task failed.');
-                    if(!currentJob.guestTrial) {
-                        addToHistory({
-                            id: Date.now(),
-                            taskId: job.task_id || currentJob.taskId,
-                            name: jobDisplayTitle(job) || currentJob.fileName,
-                            rawFilename: job.source_filename || currentJob.fileName,
-                            timestamp: Date.now(),
-                            durationMin: 0,
-                            status: 'failed',
-                        });
-                    }
-                    setCurrentJob(null);
+                    const errorText = persistFailedTaskJob(job, job.error_reason, currentJob);
+                    setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在后台任务。` : `${errorText} Saved in background tasks.`));
                 }
             } catch(err) {
                 if(!stale && err?.status === 404) {
@@ -287,7 +307,15 @@ const Dashboard = () => {
                     setCurrentJob((prev) => prev?.taskId === currentJob.taskId ? null : prev);
                     return;
                 }
-                setUploadError(err.message || 'Failed to resume task.');
+                currentTaskRef.current = null;
+                const errorText = persistFailedTaskJob({
+                    task_id: currentJob.taskId,
+                    source_filename: currentJob.fileName,
+                    source_type: currentJob.sourceType,
+                    source_file_size_mb: currentJob.fileSizeMb,
+                    metadata: {stt_provider: currentJob.sttProvider},
+                }, err.message || 'Failed to resume task.', currentJob);
+                setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在后台任务。` : `${errorText} Saved in background tasks.`));
             }
         }).finally(() => {
             if(abortRef.current === ac) abortRef.current = null;
