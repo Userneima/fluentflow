@@ -137,10 +137,21 @@ const enPrivacySections = [
 
 const parseChangelog = (markdown) => (
     markdown
-        .split('\n')
-        .filter((line) => line.startsWith('## '))
-        .slice(0, 8)
-        .map((line) => line.replace(/^##\s+/, '').trim())
+        .split(/\n(?=##\s+)/)
+        .map((block) => {
+            const lines = block.split('\n');
+            const titleLine = lines.find((line) => line.startsWith('## '));
+            if (!titleLine) return null;
+            const title = titleLine.replace(/^##\s+/, '').trim();
+            const items = lines
+                .filter((line) => line.startsWith('- '))
+                .map((line) => line.replace(/^-\s+/, '').trim())
+                .filter(Boolean)
+                .slice(0, 4);
+            return {title, items};
+        })
+        .filter(Boolean)
+        .slice(0, 6)
 );
 
 const SectionList = ({sections}) => (
@@ -162,15 +173,20 @@ const SectionList = ({sections}) => (
 
 const ChangelogPage = ({zh}) => {
     const [releases, setReleases] = useState([]);
+    const [loadState, setLoadState] = useState('loading');
 
     useEffect(() => {
         let active = true;
         import('../../../docs/changelog.md?raw')
             .then((mod) => {
-                if (active) setReleases(parseChangelog(mod.default || ''));
+                if (!active) return;
+                setReleases(parseChangelog(mod.default || ''));
+                setLoadState('ready');
             })
             .catch(() => {
-                if (active) setReleases([]);
+                if (!active) return;
+                setReleases([]);
+                setLoadState('error');
             });
         return () => { active = false; };
     }, []);
@@ -195,12 +211,25 @@ const ChangelogPage = ({zh}) => {
                 <h2 className="mb-4 text-sm font-extrabold text-[#111111] dark:text-white">{zh ? '最近记录' : 'Recent entries'}</h2>
                 <div className="space-y-3">
                     {releases.length > 0 ? releases.map((release) => (
-                        <div key={release} className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">{release}</p>
+                        <div key={release.title} className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
+                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">{release.title}</p>
+                            {release.items.length > 0 && (
+                                <ul className="mt-2 space-y-1.5">
+                                    {release.items.map((item) => (
+                                        <li key={item} className="text-sm font-semibold leading-relaxed text-[#676970] dark:text-white/58">
+                                            {item}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
                     )) : (
                         <div className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">{zh ? '正在读取更新记录' : 'Loading changelog'}</p>
+                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">
+                                {loadState === 'error'
+                                    ? (zh ? '暂时无法读取更新记录' : 'Unable to load changelog')
+                                    : (zh ? '正在读取更新记录' : 'Loading changelog')}
+                            </p>
                         </div>
                     )}
                 </div>
@@ -232,7 +261,7 @@ const About = () => {
         : (zh ? privacySections : enPrivacySections);
 
     return (
-        <main className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] px-8 py-7 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
+        <main className="ml-[var(--sidebar-offset)] h-dvh overflow-y-auto bg-[#f8f7fb] px-8 py-7 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
             <div className="mx-auto max-w-[940px]">
                 <header className="mb-6 flex flex-col gap-4 border-b border-[#dedada] pb-5 dark:border-white/[0.12] md:flex-row md:items-end md:justify-between">
                     <div className="min-w-0">

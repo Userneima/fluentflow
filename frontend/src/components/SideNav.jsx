@@ -21,7 +21,7 @@ import {
     UserPlus,
     Video,
 } from 'lucide-react';
-import {useApi, useAuth, useI18n, useSettings} from '../app/shared.jsx';
+import {API_BASE, useApi, useAuth, useI18n, useSettings} from '../app/shared.jsx';
 
 const FluentFlowLogo = ({compact = false}) => (
     <div className={`relative flex shrink-0 items-center justify-center bg-[#111111] text-white shadow-[0_18px_42px_-26px_rgba(17,17,17,.75)] [--ff-logo-line:#111111] dark:bg-white dark:text-[#111111] dark:[--ff-logo-line:#ffffff] ${compact ? 'size-6 rounded-[9px]' : 'size-10 rounded-[14px]'}`}>
@@ -44,6 +44,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     });
     const [menuOpen, setMenuOpen] = useState(false);
     const [legalMenuOpen, setLegalMenuOpen] = useState(false);
+    const [agentAccessOpen, setAgentAccessOpen] = useState(false);
     const menuRef = useRef(null);
     const loc = useLocation();
 
@@ -85,6 +86,15 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
         if (!menuOpen) setLegalMenuOpen(false);
     }, [menuOpen]);
 
+    useEffect(() => {
+        if (!agentAccessOpen) return;
+        const handler = (e) => {
+            if (e.key === 'Escape') setAgentAccessOpen(false);
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [agentAccessOpen]);
+
     const fullItems = [
         {path:'/', icon:LayoutGrid, k:'nav.dashboard'},
         {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
@@ -118,6 +128,11 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
         {path: '/about/privacy', icon: ShieldCheck, label: lang === 'zh' ? '隐私政策' : 'Privacy'},
         {path: '/about/changelog', icon: History, label: lang === 'zh' ? '版本更新' : 'Changelog'},
     ];
+    const apiBaseLabel = API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
+    const codexScriptExample = 'python scripts/codex_transcribe_link.py "https://..."';
+    const mcpServerExample = 'python3 scripts/fluentflow_mcp_server.py';
+    const mcpCheckExample = 'npm run mcp:check:e2e';
+    const agentPackagePath = '/agent/v1/tasks/{task_id}/package';
 
     return (
         <aside className={`fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-[#e5e5e5] bg-[#fbfbfb] text-[#111111] transition-[width] duration-200 ease-out dark:border-white/[0.12] dark:bg-[#0a0a0a] dark:text-white/[0.92] ${collapsed ? 'w-[72px]' : 'w-56'}`}>
@@ -280,6 +295,14 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                                 </button>
                             </div>
                             <div className="my-1 border-t border-[#e5e5e5] dark:border-white/[0.12]"/>
+                            <button
+                                type="button"
+                                onClick={() => { setMenuOpen(false); setAgentAccessOpen(true); }}
+                                className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-semibold text-[#111111] transition hover:bg-[#efeeee] dark:text-white dark:hover:bg-white/[0.08]"
+                            >
+                                <SlidersHorizontal className="size-[18px] shrink-0 text-[#6b6c72] dark:text-white/70" strokeWidth={2.15}/>
+                                <span className="flex-1 text-left">{lang === 'zh' ? 'Agent 接入' : 'Agent access'}</span>
+                            </button>
                             <div className="relative">
                                 <button
                                     type="button"
@@ -333,6 +356,89 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
                     )}
                 </div>
             </div>
+            {agentAccessOpen && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#111111]/35 px-4 py-6 backdrop-blur-[2px] dark:bg-[#050505]/65" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setAgentAccessOpen(false); }}>
+                    <section
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="agent-access-title"
+                        className="flex max-h-[min(760px,calc(100dvh-48px))] w-full max-w-[720px] flex-col overflow-hidden rounded-[18px] border border-[#dedada] bg-white text-[#111111] shadow-[0_24px_80px_-28px_rgba(17,17,17,.45)] dark:border-white/[0.14] dark:bg-[#101010] dark:text-white/[0.92]"
+                    >
+                        <header className="flex items-start justify-between gap-4 border-b border-[#e5e5e5] px-5 py-4 dark:border-white/[0.12]">
+                            <div className="min-w-0">
+                                <p className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#85868c] dark:text-white/50">Agent API</p>
+                                <h2 id="agent-access-title" className="mt-1 text-[18px] font-extrabold leading-6">{lang === 'zh' ? 'Agent 接入' : 'Agent access'}</h2>
+                                <p className="mt-1 max-w-[58ch] text-[13px] font-medium leading-5 text-[#686a70] dark:text-white/60">
+                                    {lang === 'zh'
+                                        ? '给 Claude Code、Codex 或自动化脚本使用的稳定数据入口。MCP Server 基于同一套 Agent API 封装。'
+                                        : 'Stable data access for Claude Code, Codex, and automation scripts. The MCP Server wraps the same Agent API.'}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setAgentAccessOpen(false)}
+                                className="h-9 shrink-0 rounded-[12px] border border-[#dedada] px-3 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px dark:border-white/[0.14] dark:text-white dark:hover:bg-white/[0.08]"
+                            >
+                                {lang === 'zh' ? '关闭' : 'Close'}
+                            </button>
+                        </header>
+                        <div className="min-h-0 overflow-y-auto px-5 py-4">
+                            <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                                <div className="text-[12px] font-extrabold text-[#686a70] dark:text-white/55">{lang === 'zh' ? '当前可用' : 'Available now'}</div>
+                                <div className="space-y-3">
+                                    <div className="rounded-[14px] border border-[#e5e5e5] bg-[#faf9f9] p-4 dark:border-white/[0.12] dark:bg-white/[0.05]">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="rounded-full bg-[#111111] px-2.5 py-1 text-[11px] font-extrabold text-white dark:bg-white dark:text-[#111111]">API</span>
+                                            <h3 className="text-[14px] font-extrabold leading-5">{lang === 'zh' ? 'Agent API 数据链路' : 'Agent API data path'}</h3>
+                                        </div>
+                                        <dl className="mt-3 grid gap-2 text-[12px] leading-5">
+                                            <div className="grid gap-1 md:grid-cols-[96px_minmax(0,1fr)]">
+                                                <dt className="font-bold text-[#85868c] dark:text-white/45">{lang === 'zh' ? '后端地址' : 'Base URL'}</dt>
+                                                <dd className="min-w-0 break-all font-mono text-[12px] text-[#111111] dark:text-white">{apiBaseLabel}</dd>
+                                            </div>
+                                            <div className="grid gap-1 md:grid-cols-[96px_minmax(0,1fr)]">
+                                                <dt className="font-bold text-[#85868c] dark:text-white/45">{lang === 'zh' ? '任务包' : 'Package'}</dt>
+                                                <dd className="min-w-0 break-all font-mono text-[12px] text-[#111111] dark:text-white">{agentPackagePath}</dd>
+                                            </div>
+                                            <div className="grid gap-1 md:grid-cols-[96px_minmax(0,1fr)]">
+                                                <dt className="font-bold text-[#85868c] dark:text-white/45">{lang === 'zh' ? 'Codex 脚本' : 'Codex script'}</dt>
+                                                <dd className="min-w-0 break-all font-mono text-[12px] text-[#111111] dark:text-white">{codexScriptExample}</dd>
+                                            </div>
+                                            <div className="grid gap-1 md:grid-cols-[96px_minmax(0,1fr)]">
+                                                <dt className="font-bold text-[#85868c] dark:text-white/45">{lang === 'zh' ? 'MCP Server' : 'MCP Server'}</dt>
+                                                <dd className="min-w-0 break-all font-mono text-[12px] text-[#111111] dark:text-white">{mcpServerExample}</dd>
+                                            </div>
+                                            <div className="grid gap-1 md:grid-cols-[96px_minmax(0,1fr)]">
+                                                <dt className="font-bold text-[#85868c] dark:text-white/45">{lang === 'zh' ? '检查' : 'Check'}</dt>
+                                                <dd className="min-w-0 break-all font-mono text-[12px] text-[#111111] dark:text-white">{mcpCheckExample}</dd>
+                                            </div>
+                                        </dl>
+                                    </div>
+                                </div>
+
+                                <div className="text-[12px] font-extrabold text-[#686a70] dark:text-white/55">{lang === 'zh' ? 'MCP 工具' : 'MCP tools'}</div>
+                                <div className="rounded-[14px] border border-[#e5e5e5] p-4 dark:border-white/[0.12]">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="rounded-full bg-[#f0eeee] px-2.5 py-1 text-[11px] font-extrabold text-[#686a70] dark:bg-white/[0.08] dark:text-white/65">MCP</span>
+                                        <h3 className="text-[14px] font-extrabold leading-5">{lang === 'zh' ? '本地 stdio MCP Server' : 'Local stdio MCP Server'}</h3>
+                                    </div>
+                                    <p className="mt-2 text-[13px] font-medium leading-5 text-[#686a70] dark:text-white/60">
+                                        {lang === 'zh'
+                                            ? '配置后，外部 Agent 可以直接调用提交、等待、取任务包、重生笔记、导出和失败解释工具。'
+                                            : 'After configuration, external agents can submit, wait, read packages, regenerate notes, export results, and diagnose failures.'}
+                                    </p>
+                                    <div className="mt-3 grid gap-2 text-[12px] font-semibold leading-5 text-[#4f5359] dark:text-white/60 md:grid-cols-2">
+                                        <span>{lang === 'zh' ? '提交视频链接' : 'Submit video links'}</span>
+                                        <span>{lang === 'zh' ? '等待任务完成' : 'Wait for completion'}</span>
+                                        <span>{lang === 'zh' ? '读取任务包' : 'Read task package'}</span>
+                                        <span>{lang === 'zh' ? '解释失败原因' : 'Explain failures'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            )}
         </aside>
     );
 };
