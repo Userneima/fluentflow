@@ -551,9 +551,11 @@ def test_agent_trace_prioritizes_material_specific_judgment() -> None:
     assert "关键判断、依据和影响" in source
     assert "真实记录" in source
     assert "兼容推导" in source
-    assert "executionSteps" in source
-    assert "timeline" in source
-    assert "tool_trace" in source
+    assert "TaskProgressOverview" in source
+    assert "执行记录" not in source
+    assert "Actual task progress" not in source
+    assert "ExecutionStep" not in source
+    assert "executionSteps" not in source
     assert "THOUGHT_GENERATORS" not in source
     assert "inner monologue" not in source
     assert "内心独白" not in source

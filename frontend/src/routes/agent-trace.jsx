@@ -9,7 +9,6 @@ import {
     FileText,
     GitBranch,
     LoaderCircle,
-    Route,
     XCircle,
 } from 'lucide-react';
 import {API_BASE, apiFetch, noteModeLabel, useApp, useI18n} from '../app/shared.jsx';
@@ -112,31 +111,6 @@ const rangeText = (item, lang) => {
     return lang === 'zh' ? '未记录' : 'Not recorded';
 };
 
-const stageLabel = (step, lang) => {
-    const id = String(step?.id || step?.tool || '');
-    const labels = {
-        source_fetch: lang === 'zh' ? '素材获取' : 'Source',
-        subtitle_parse: lang === 'zh' ? '字幕解析' : 'Subtitle parse',
-        audio_prepare: lang === 'zh' ? '音频准备' : 'Audio',
-        transcription: lang === 'zh' ? '语音转写' : 'Transcription',
-        subtitle_prepare: lang === 'zh' ? '字幕整理' : 'Subtitle prep',
-        note_generation: lang === 'zh' ? '笔记生成' : 'Note',
-        result_save: lang === 'zh' ? '结果保存' : 'Save',
-        feishu_export: lang === 'zh' ? '飞书导出' : 'Feishu',
-        resolve_link: lang === 'zh' ? '解析链接' : 'Resolve link',
-        download_video: lang === 'zh' ? '下载视频' : 'Download video',
-        save_source: lang === 'zh' ? '保存来源' : 'Save source',
-        parse_subtitles: lang === 'zh' ? '读取字幕' : 'Read subtitles',
-        extract_audio: lang === 'zh' ? '提取音频' : 'Extract audio',
-        local_stt: lang === 'zh' ? '本地转录' : 'Local STT',
-        cloud_stt: lang === 'zh' ? '云端转录' : 'Cloud STT',
-        generate_note: lang === 'zh' ? '生成笔记' : 'Generate note',
-        save_artifacts: lang === 'zh' ? '保存产物' : 'Save artifacts',
-        export_lark: lang === 'zh' ? '导出飞书' : 'Export Feishu',
-    };
-    return step?.title || step?.label || labels[id] || id || (lang === 'zh' ? '处理步骤' : 'Processing step');
-};
-
 function fallbackDecisionEntries(packageData, lang) {
     const plan = packageData?.processing_plan || {};
     const material = plan.material || {};
@@ -188,26 +162,6 @@ function decisionEntries(packageData, lang) {
     const entries = packageData?.decision_log?.entries;
     if (Array.isArray(entries) && entries.length) return entries;
     return fallbackDecisionEntries(packageData, lang);
-}
-
-function executionSteps(packageData, lang) {
-    const detailSteps = Array.isArray(packageData?.timeline) ? packageData.timeline : [];
-    if (detailSteps.length) return detailSteps.map((step) => ({
-        id: step.id,
-        title: stageLabel(step, lang),
-        status: step.status || 'pending',
-        detail: step.detail || step.error_reason || null,
-        source: step.source,
-    }));
-    const traceSteps = Array.isArray(packageData?.tool_trace?.steps) ? packageData.tool_trace.steps : [];
-    if (traceSteps.length) return traceSteps.map((step) => ({
-        id: step.id || step.label,
-        title: stageLabel(step, lang),
-        status: step.status || 'completed',
-        detail: step.error_reason || step.reason || step.tool || null,
-        source: 'inferred',
-    }));
-    return [];
 }
 
 const DecisionEntry = ({entry, index, isLast, lang}) => {
@@ -282,27 +236,6 @@ const DecisionEntry = ({entry, index, isLast, lang}) => {
                 )}
             </div>
         </article>
-    );
-};
-
-const ExecutionStep = ({step, lang}) => {
-    const tone = statusTone(step.status);
-    return (
-        <div className="rounded-[14px] border border-[#dedada] bg-white p-3 dark:border-white/[0.10] dark:bg-white/[0.055]">
-            <div className="flex items-center justify-between gap-3">
-                <p className="min-w-0 truncate text-[13px] font-extrabold text-[#111111] dark:text-white" title={step.title}>
-                    {step.title}
-                </p>
-                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${tone.badge}`}>
-                    {statusText(step.status, lang)}
-                </span>
-            </div>
-            {step.detail && (
-                <p className="mt-1 text-[12px] leading-5 text-[#676970] dark:text-white/58">
-                    {step.detail}
-                </p>
-            )}
-        </div>
     );
 };
 
@@ -505,7 +438,6 @@ const AgentTrace = () => {
 
     const title = pageData?.task?.title || pageData?.title || taskId;
     const decisions = useMemo(() => decisionEntries(pageData, lang), [pageData, lang]);
-    const steps = useMemo(() => executionSteps(pageData, lang), [pageData, lang]);
     const chapterCoverage = useMemo(() => chapterCoverageData(pageData), [pageData]);
     const recordedCount = decisions.filter((entry) => entry.source === 'recorded').length;
     const diagnosis = pageData?.diagnosis || pageData?.note?.diagnosis || {};
@@ -582,8 +514,8 @@ const AgentTrace = () => {
                             </h2>
                             <p className="mt-2 max-w-[78ch] text-[13px] leading-5 text-[#676970] dark:text-white/60">
                                 {isZh
-                                    ? '这里按时间顺序展示可复查的判断结论、依据和影响。执行记录放在右侧，用来对照任务实际进度。'
-                                    : 'This shows key decisions, evidence, and impact in order. The execution record sits on the side for progress context.'}
+                                    ? '这里展示可复查的判断结论、依据和影响。实时阶段和处理配置已经收敛到顶部。'
+                                    : 'This shows reviewable decisions, evidence, and impact. Live stage and route context are consolidated above.'}
                             </p>
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-[12px]">
@@ -596,7 +528,7 @@ const AgentTrace = () => {
 
                 <ChapterCoverageEvidence coverage={chapterCoverage} lang={lang}/>
 
-                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.24fr)_minmax(330px,0.76fr)]">
+                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.55fr)]">
                     <section className="min-w-0 space-y-4">
                         <div>
                             <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
@@ -626,30 +558,6 @@ const AgentTrace = () => {
 
                     <aside className="space-y-5 xl:border-l xl:border-[#dedada] xl:pl-5 xl:dark:border-white/[0.10]">
                         <section>
-                            <div className="mb-3 flex items-center gap-2">
-                                <Route className="size-4 text-[#676970] dark:text-white/55" strokeWidth={2.15}/>
-                                <div>
-                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
-                                        {isZh ? '执行记录' : 'Execution record'}
-                                    </p>
-                                    <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                                        {isZh ? '任务实际进度' : 'Actual task progress'}
-                                    </h2>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                {steps.map((step, index) => (
-                                    <ExecutionStep key={`${step.id}-${index}`} step={step} lang={lang}/>
-                                ))}
-                                {!steps.length && (
-                                    <p className="rounded-[14px] border border-[#dedada] bg-white p-3 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/58">
-                                        {isZh ? '当前任务包没有记录执行步骤。' : 'This task package has no execution steps recorded.'}
-                                    </p>
-                                )}
-                            </div>
-                        </section>
-
-                        <section className="border-t border-[#dedada] pt-5 dark:border-white/[0.10]">
                             <div className="mb-3 flex items-center gap-2">
                                 <GitBranch className="size-4 text-[#676970] dark:text-white/55" strokeWidth={2.15}/>
                                 <div>
