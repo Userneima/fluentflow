@@ -31,16 +31,6 @@
 
 后续尚未准备发布的变更继续记录在这里。只有已经落地、验证并准备对外说明的内容，才移动到具体版本段落。
 
-### 用户可见变化
-
-- Agent 接入面板支持创建、查看和撤销 API Key；新建 Key 会自动填入 Claude Code / Codex 的 MCP 配置示例。
-- 本地和云端 Agent/MCP 接入统一使用 API Key，明文 Key 只在创建成功后显示一次。
-
-### 维护者变化
-
-- 新增 SQLite API Key 存储，服务端只保存哈希，并允许 `X-FluentFlow-Access-Token` 或 `Authorization: Bearer` 携带 Key 调用 `/agent/v1`。
-- `/agent/v1` 纳入后端 API 路由前缀和账号鉴权边界，API Key 会绑定到账号 scope 或本地 client scope。
-
 ## v0.2.0｜2026-06-29｜Agent 工作流与云端转录基础版
 
 ### 用户可见变化
@@ -60,6 +50,8 @@
 - 视频关键截图会经过密度、重复画面和低价值页面过滤；封面、目录、纯标题页和过渡帧不会挤占笔记。
 - 下载 Markdown、PDF、Word 时会保留已选截图；飞书 OpenAPI 导出会尝试把本地截图上传为文档图片块。
 - Agent 工作流页从旧处理设置表单改为任务解释页，展示当前素材的材料判断、路线选择、笔记策略、影响和复查点。
+- Agent 接入面板支持创建、查看和撤销 API Key；新建 Key 会自动填入 Claude Code / Codex 的 MCP 配置示例。
+- 本地和云端 Agent/MCP 接入统一使用 API Key，明文 Key 只在创建成功后显示一次。
 - 编辑器 AI 摘要底部下线“生成详情”和重复元信息，解释入口收敛到“查看 Agent 工作流”。
 - 登录 / 访问门禁、关于与协议、提示词模板弹窗和设置维护区统一到当前 FluentFlow 中性工作流 UI 语言。
 - 左下角“关于与协议”补齐服务条款、隐私政策和版本更新入口；版本更新页读取项目 changelog 并展示具体条目。
@@ -67,11 +59,14 @@
 - 首页主标题从“今天想创作些什么呢”改为“今天想记录些什么呢”，更贴近转录、整理和复查学习资料。
 - 输入视频链接后的当前任务标题会先显示平台和视频 ID，不再把 B 站跟踪参数当标题；取消任务按钮文案更明确。
 - Bilibili 链接解析不再使用 miuistore 第三方兜底；解析失败时提示上传本地视频或配置浏览器 cookies 后重试。
+- 视频转写与总结页顶部操作区在较窄宽度下保持单行排布，避免模式切换和查看后台按钮互相挤压。
 
 ### 维护者变化
 
 - 新增 `/agent/v1` Agent 数据链路，支持提交链接/转录文本、等待任务、获取任务包、读取诊断、重生笔记和导出飞书。
 - 新增本地 MCP Server 和检查脚本，让 Claude Code、Codex 等外部 Agent 可以通过稳定 API 操作 FluentFlow。
+- 新增 SQLite API Key 存储，服务端只保存哈希，并允许 `X-FluentFlow-Access-Token` 或 `Authorization: Bearer` 携带 Key 调用 `/agent/v1`。
+- `/agent/v1` 纳入后端 API 路由前缀和账号鉴权边界，API Key 会绑定到账号 scope 或本地 client scope。
 - 新增 Agent / MCP parity 规则：未来修改用户工作流时，需要同步判断 Agent API、MCP 工具、任务包字段、schema、文档和测试是否更新。
 - 前端任务/历史映射抽到 `frontend/src/lib/jobMappers.js`，设置、转录路线和云端配置判断抽到 `frontend/src/lib/settingsModel.js`。
 - Agent 任务的“重生笔记”和“导出飞书”动作抽到 `backend/core/agent_task_actions.py`，router 只保留请求入口。
