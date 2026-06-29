@@ -80,8 +80,10 @@ def _extract_scene_frames(
         "-q:v", "2",
         str(output_pattern),
     ]
-    completed = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+    completed = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=120)
     frames = sorted(output_dir.glob("scene_*.jpg"))
+    if int(getattr(completed, "returncode", 0) or 0) != 0 and not frames:
+        return []
     duration = _video_duration_seconds(video_path)
     timestamps = _parse_showinfo_timestamps(completed.stderr or "")
     frame_records: list[tuple[Path, float]] = []
@@ -151,6 +153,48 @@ def _extract_timepoint_frames(
     return results
 
 
+def _fallback_timestamps(duration: float, max_frames: int) -> list[float]:
+    if duration <= 0 or max_frames <= 0:
+        return []
+    count = 1 if duration < 2 else min(max_frames, 5)
+    if count == 1:
+        return [round(max(0.0, duration / 2), 1)]
+    return [round(duration * (index + 1) / (count + 1), 1) for index in range(count)]
+
+
+def _extract_fallback_frames(
+    video_path: str,
+    output_dir: Path,
+    *,
+    max_frames: int,
+) -> list[dict[str, Any]]:
+    """Extract evenly spaced frames when scene and transcript cues find nothing."""
+    duration = _video_duration_seconds(video_path)
+    results: list[dict[str, Any]] = []
+    for index, ts in enumerate(_fallback_timestamps(duration, max_frames), start=1):
+        output = output_dir / f"fallback_{index:04d}.jpg"
+        cmd = [
+            _ffmpeg_path(),
+            "-y",
+            "-ss", str(ts),
+            "-i", str(video_path),
+            "-frames:v", "1",
+            "-q:v", "2",
+            str(output),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+        except subprocess.CalledProcessError:
+            continue
+        if output.is_file():
+            results.append({
+                "path": str(output),
+                "timestamp_seconds": ts,
+                "source": "fallback",
+            })
+    return results
+
+
 def _deduplicate_frames(
     scene_frames: list[dict[str, Any]],
     timepoint_frames: list[dict[str, Any]],
@@ -215,7 +259,17 @@ def extract_candidate_frames(
         except Exception as exc:
             logger.warning("Timepoint frame extraction failed: %s", exc)
 
-    return _deduplicate_frames(scene_frames, timepoint_frames, min_gap_seconds=min_gap_seconds)
+    fallback_frames: list[dict[str, Any]] = []
+    if not scene_frames and not timepoint_frames:
+        try:
+            fallback_frames = _extract_fallback_frames(video_path, output_dir, max_frames=max_scene_frames)
+        except Exception as exc:
+            logger.warning("Fallback frame extraction failed: %s", exc)
+
+    merged = _deduplicate_frames(scene_frames, timepoint_frames, min_gap_seconds=min_gap_seconds)
+    if fallback_frames and not merged:
+        return _deduplicate_frames([], fallback_frames, min_gap_seconds=min_gap_seconds)
+    return merged
 
 
 __all__ = ["extract_candidate_frames"]
