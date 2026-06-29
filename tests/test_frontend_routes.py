@@ -67,6 +67,16 @@ def test_media_text_entry_panel_uses_subtle_diffuse_color() -> None:
     assert "dark:bg-white/[0.06]" not in source.split("onDrop={handleDrop}", 1)[0].split("<section", 1)[-1]
 
 
+def test_media_text_top_actions_stay_on_one_row_when_narrow() -> None:
+    source = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+
+    assert 'className="mb-7 flex items-center justify-between gap-3"' in source
+    assert "lg:flex-row" not in source.split("{mode === 'media' &&", 1)[0]
+    assert "shrink-0 items-center justify-center whitespace-nowrap" in source
+    assert "视频生成笔记" in source
+    assert "dash.viewTasks" in source
+
+
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 

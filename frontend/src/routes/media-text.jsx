@@ -498,20 +498,20 @@ const MediaText = () => {
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_14%,rgba(0,174,236,.14),transparent_32%),radial-gradient(circle_at_82%_10%,rgba(255,0,51,.08),transparent_28%),radial-gradient(circle_at_44%_105%,rgba(151,231,211,.12),transparent_34%)] dark:bg-[radial-gradient(circle_at_18%_14%,rgba(0,174,236,.18),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(255,0,51,.12),transparent_30%),radial-gradient(circle_at_42%_108%,rgba(151,231,211,.12),transparent_36%)]"/>
                     <div className="pointer-events-none absolute inset-0 bg-white/72 dark:bg-[#1d1f22]/78"/>
                     <div className="relative z-10">
-                        <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                            <div className="inline-flex rounded-[18px] border border-[#dedada] bg-[#f4f3f3] p-1 dark:border-white/[0.12] dark:bg-white/[0.08]">
+                        <div className="mb-7 flex items-center justify-between gap-3">
+                            <div className="inline-flex min-w-0 shrink rounded-[18px] border border-[#dedada] bg-[#f4f3f3] p-1 dark:border-white/[0.12] dark:bg-white/[0.08]">
                                 {['media', 'subtitle'].map((item) => (
                                     <button
                                         key={item}
                                         type="button"
                                         onClick={() => setSearchParams({mode: item})}
-                                        className={`h-10 rounded-[14px] px-4 text-sm font-extrabold transition ${mode === item ? 'bg-white text-[#111111] shadow-sm dark:bg-white/[0.16] dark:text-white' : 'text-[#777] hover:text-[#111111] dark:text-white/55 dark:hover:text-white'}`}
+                                        className={`h-10 min-w-0 whitespace-nowrap rounded-[14px] px-3 text-[13px] font-extrabold transition sm:px-4 sm:text-sm ${mode === item ? 'bg-white text-[#111111] shadow-sm dark:bg-white/[0.16] dark:text-white' : 'text-[#777] hover:text-[#111111] dark:text-white/55 dark:hover:text-white'}`}
                                     >
                                         {item === 'media' ? (lang === 'zh' ? '视频生成笔记' : 'Media notes') : (lang === 'zh' ? '字幕生成笔记' : 'Subtitle notes')}
                                     </button>
                                 ))}
                             </div>
-                            <Link to="/tasks" className="inline-flex h-11 items-center justify-center rounded-[16px] bg-[#efeeee] px-4 text-sm font-extrabold text-[#111111] hover:bg-[#e8e5e5] dark:bg-white/[0.12] dark:text-white dark:hover:bg-white/[0.18]">
+                            <Link to="/tasks" className="inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[16px] bg-[#efeeee] px-4 text-sm font-extrabold text-[#111111] hover:bg-[#e8e5e5] dark:bg-white/[0.12] dark:text-white dark:hover:bg-white/[0.18]">
                                 {t('dash.viewTasks')}
                             </Link>
                         </div>
