@@ -298,7 +298,7 @@ flowchart TB
 
 ## 推荐数据模型
 
-第一版可以不新增数据库表，先把中间结果作为 job metadata 或 artifact JSON 存储。待流程稳定后再决定是否建表。
+第一版不新增数据库表。中间结果先随 Result Payload 保存为 `chapter_coverage`，作为 Chapter Coverage Evidence Table v1。待流程稳定后再决定是否拆成独立 artifact 或数据库表。
 
 建议产物：
 
@@ -311,7 +311,7 @@ flowchart TB
 | `chapter_notes.json` | 每章 Markdown 和 used_evidence_ids。 |
 | `coverage_report.json` | 覆盖矩阵和遗漏点。 |
 
-这些文件默认不展示给普通用户，但可用于调试、质量评估和未来高级模式。
+当前已先把 `segments`、`evidence`、`chapters`、`missing_important_evidence_ids` 收敛进 `chapter_coverage` 字段，并在 Agent 工作流页展示轻量证据表。若任务保留了带时间戳的字幕段落，后端会把字符范围绑定成 `start_seconds` / `end_seconds`。独立文件仍可作为后续导出或调试形态。
 
 ## API 和后端影响
 
@@ -364,7 +364,7 @@ chapter_coverage
 - 证据数：128
 - 高重要性覆盖：40 / 42
 
-第一版不需要展示完整证据表。可以只在维护者调试或未来高级详情里展示。
+第一版已经在 Agent 工作流页展示轻量证据表：章节、证据数、重点覆盖和前若干条证据。编辑器正文仍保持干净，不直接塞入完整矩阵。
 
 ## 事件日志影响
 
@@ -412,7 +412,7 @@ chapter_coverage
 任务：
 
 - 新增 `chapter_coverage` note_mode。
-- 后端保存中间 artifact JSON。
+- 后端保存 `chapter_coverage` 证据表。
 - 任务结果返回章节数、证据数、覆盖信息。
 - 前端工作台允许手动选择。
 
@@ -428,8 +428,8 @@ chapter_coverage
 
 任务：
 
-- 工作台补充清晰文案。
-- 编辑器显示简要覆盖信息。
+- Agent 工作流页展示轻量证据表。
+- 已完成：每个证据和章节尽量绑定字幕时间范围；无可靠时间戳时保留字符范围。
 - 长字幕自动推荐该模式，但不强制切换。
 - 失败时回退到现有 `high_fidelity`，并明确提示。
 

@@ -107,7 +107,7 @@ class TestAiSummarizer(unittest.TestCase):
 
         def fake_chat(_client, _model, system, _user, **_kwargs):
             if "长字幕证据抽取助手" in system:
-                return '[{"source_segment_ids":[],"type":"argument","text":"重要观点","importance":5,"keywords":["观点"]}]'
+                return '[{"source_segment_ids":["S001"],"type":"argument","text":"重要观点","importance":5,"keywords":["观点"]}]'
             if "章节规划助手" in system:
                 return '[{"title":"核心观点","purpose":"整理主要观点","used_evidence_ids":["E001"]}]'
             if "章节笔记写作助手" in system:
@@ -132,6 +132,11 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertGreater(result.evidence_count or 0, 0)
         self.assertEqual(result.chapter_count, 1)
         self.assertEqual(result.important_evidence_count, result.covered_important_evidence_count)
+        self.assertEqual(result.chapter_coverage["chapter_coverage_version"], "1")
+        self.assertEqual(result.chapter_coverage["evidence"][0]["evidence_id"], "E001")
+        self.assertEqual(result.chapter_coverage["evidence"][0]["covered_by_chapter_ids"], ["CH01"])
+        self.assertIn("E001", result.chapter_coverage["chapters"][0]["evidence_ids"])
+        self.assertEqual(result.chapter_coverage["segments"][0]["segment_id"], "S001")
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")

@@ -78,6 +78,39 @@ const compactValues = (items, limit = 5) => (
         .slice(0, limit)
 );
 
+const chapterCoverageData = (pageData) => {
+    const detailCoverage = pageData?.chapter_coverage;
+    if (detailCoverage && typeof detailCoverage === 'object') return detailCoverage;
+    const packageCoverage = pageData?.note?.chapter_coverage;
+    if (packageCoverage && typeof packageCoverage === 'object') return packageCoverage;
+    return null;
+};
+
+const formatSeconds = (value) => {
+    const total = Math.max(0, Math.floor(Number(value) || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
+const rangeText = (item, lang) => {
+    const startSeconds = Number(item?.start_seconds);
+    const endSeconds = Number(item?.end_seconds);
+    if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds > startSeconds) {
+        return `${formatSeconds(startSeconds)}-${formatSeconds(endSeconds)}`;
+    }
+    const start = Number(item?.char_start);
+    const end = Number(item?.char_end);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        return lang === 'zh' ? `字符 ${start}-${end}` : `Chars ${start}-${end}`;
+    }
+    const ids = compactValues(item?.source_segment_ids, 3);
+    if (ids.length) return ids.join(', ');
+    return lang === 'zh' ? '未记录' : 'Not recorded';
+};
+
 const stageLabel = (step, lang) => {
     const id = String(step?.id || step?.tool || '');
     const labels = {
@@ -279,6 +312,91 @@ const StatBlock = ({label, value}) => (
     </div>
 );
 
+const ChapterCoverageEvidence = ({coverage, lang}) => {
+    if (!coverage) return null;
+    const isZh = lang === 'zh';
+    const summary = coverage.summary || {};
+    const chapters = Array.isArray(coverage.chapters) ? coverage.chapters : [];
+    const evidence = Array.isArray(coverage.evidence) ? coverage.evidence : [];
+    if (!evidence.length && !chapters.length) return null;
+    const visibleEvidence = evidence.slice(0, 12);
+    const hiddenCount = Math.max(evidence.length - visibleEvidence.length, 0);
+    return (
+        <section className="border-y border-[#dedada] py-5 dark:border-white/[0.10]">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                        {isZh ? 'Chapter Coverage 证据表' : 'Chapter coverage evidence'}
+                    </p>
+                    <h2 className="font-headline text-[20px] font-extrabold text-[#111111] dark:text-white">
+                        {isZh ? '这份笔记覆盖了哪些原文证据' : 'Source evidence behind this note'}
+                    </h2>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[12px] sm:min-w-[26rem]">
+                    <StatBlock label={isZh ? '证据' : 'Evidence'} value={summary.evidence_count ?? evidence.length}/>
+                    <StatBlock label={isZh ? '章节' : 'Chapters'} value={summary.chapter_count ?? chapters.length}/>
+                    <StatBlock
+                        label={isZh ? '重点覆盖' : 'Important'}
+                        value={`${summary.covered_important_evidence_count ?? '-'} / ${summary.important_evidence_count ?? '-'}`}
+                    />
+                </div>
+            </div>
+
+            {chapters.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                    {chapters.map((chapter) => (
+                        <span key={chapter.chapter_id || chapter.title} className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-bold text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/62">
+                            {chapter.order ? `${chapter.order}. ` : ''}{chapter.title || chapter.chapter_id}
+                            <span className="ml-1 text-[#85868c] dark:text-white/40">({chapter.evidence_count ?? 0})</span>
+                        </span>
+                    ))}
+                </div>
+            )}
+
+            {visibleEvidence.length > 0 && (
+                <div className="mt-4 overflow-x-auto rounded-[16px] border border-[#dedada] dark:border-white/[0.10]">
+                    <div className="grid min-w-[46rem] grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] border-b border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[11px] font-extrabold text-[#85868c] dark:border-white/[0.10] dark:bg-white/[0.035] dark:text-white/42">
+                        <span>ID</span>
+                        <span>{isZh ? '重要性' : 'Weight'}</span>
+                        <span>{isZh ? '证据内容' : 'Evidence'}</span>
+                        <span>{isZh ? '来源' : 'Source'}</span>
+                    </div>
+                    <div className="min-w-[46rem] divide-y divide-[#dedada] bg-white dark:divide-white/[0.08] dark:bg-white/[0.035]">
+                        {visibleEvidence.map((item) => (
+                            <div key={item.evidence_id} className="grid grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] gap-0 px-3 py-3 text-[12px] leading-5">
+                                <span className="font-extrabold text-[#111111] dark:text-white">{item.evidence_id}</span>
+                                <span className="font-bold text-[#676970] dark:text-white/58">
+                                    {item.importance ?? '-'} / 5
+                                    {item.covered === false && <span className="ml-1 text-amber-700 dark:text-amber-200">{isZh ? '待补' : 'open'}</span>}
+                                </span>
+                                <span className="min-w-0 pr-4 font-semibold text-[#2f3035] dark:text-white/76">
+                                    {item.text}
+                                    {Array.isArray(item.keywords) && item.keywords.length > 0 && (
+                                        <span className="ml-2 text-[#85868c] dark:text-white/42">
+                                            {item.keywords.slice(0, 3).join(' / ')}
+                                        </span>
+                                    )}
+                                    {Array.isArray(item.covered_by_chapter_ids) && item.covered_by_chapter_ids.length > 0 && (
+                                        <span className="ml-2 text-[#85868c] dark:text-white/42">
+                                            {isZh ? '章节' : 'Chapter'} {item.covered_by_chapter_ids.slice(0, 3).join(', ')}
+                                        </span>
+                                    )}
+                                </span>
+                                <span className="font-bold text-[#676970] dark:text-white/54">{rangeText(item, lang)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {hiddenCount > 0 && (
+                <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/45">
+                    {isZh ? `还有 ${hiddenCount} 条证据未在此处展开。` : `${hiddenCount} more evidence rows hidden here.`}
+                </p>
+            )}
+        </section>
+    );
+};
+
 const actionToneClass = (tone) => {
     if (tone === 'danger') {
         return 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200 dark:hover:bg-red-400/15';
@@ -375,6 +493,7 @@ const AgentTrace = () => {
     const title = pageData?.task?.title || pageData?.title || taskId;
     const decisions = useMemo(() => decisionEntries(pageData, lang), [pageData, lang]);
     const steps = useMemo(() => executionSteps(pageData, lang), [pageData, lang]);
+    const chapterCoverage = useMemo(() => chapterCoverageData(pageData), [pageData]);
     const recordedCount = decisions.filter((entry) => entry.source === 'recorded').length;
     const diagnosis = pageData?.diagnosis || pageData?.note?.diagnosis || {};
     const taskStatus = pageData?.task?.status || pageData?.note?.status || '-';
@@ -459,6 +578,8 @@ const AgentTrace = () => {
                         </div>
                     </div>
                 </section>
+
+                <ChapterCoverageEvidence coverage={chapterCoverage} lang={lang}/>
 
                 <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.24fr)_minmax(330px,0.76fr)]">
                     <section className="min-w-0 space-y-4">

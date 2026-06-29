@@ -509,6 +509,20 @@ def test_agent_trace_prioritizes_material_specific_judgment() -> None:
     assert "内心独白" not in source
 
 
+def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
+    source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+
+    assert "chapterCoverageData" in source
+    assert "ChapterCoverageEvidence" in source
+    assert "chapter_coverage" in source
+    assert "Chapter Coverage 证据表" in source
+    assert "这份笔记覆盖了哪些原文证据" in source
+    assert "covered_by_chapter_ids" in source
+    assert "start_seconds" in source
+    assert "end_seconds" in source
+    assert "formatSeconds" in source
+
+
 def test_processing_page_is_agent_workflow_surface() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
@@ -687,11 +701,14 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
 
     assert '<Route path="/about/:page" element={<About/>}/>' in app_shell
     assert "to={`/about/${item.key}`}" in about
+    assert "h-dvh overflow-y-auto" in about
     assert "服务条款" in about
     assert "隐私政策" in about
     assert "版本更新" in about
     assert "import('../../../docs/changelog.md?raw')" in about
     assert "docs/changelog.md" in about
+    assert "release.items.map" in about
+    assert "暂时无法读取更新记录" in about
     assert "法律、医疗、投资、考试报名" in about
     assert "本地历史不会删除服务器任务" in about
     assert "const [legalMenuOpen, setLegalMenuOpen] = useState(false)" in side_nav
@@ -703,6 +720,27 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
     assert "{path: '/about/privacy'" in side_nav
     assert "{path: '/about/changelog'" in side_nav
     assert "ChevronRight" not in legal_submenu
+
+
+def test_sidebar_agent_access_stays_in_low_frequency_menu() -> None:
+    app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
+    side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+
+    assert "const [agentAccessOpen, setAgentAccessOpen] = useState(false)" in side_nav
+    assert "setMenuOpen(false); setAgentAccessOpen(true);" in side_nav
+    assert "Agent 接入" in side_nav
+    assert "role=\"dialog\"" in side_nav
+    assert "aria-labelledby=\"agent-access-title\"" in side_nav
+    assert "Agent API 数据链路" in side_nav
+    assert "本地 stdio MCP Server" in side_nav
+    assert "scripts/fluentflow_mcp_server.py" in side_nav
+    assert "npm run mcp:check:e2e" in side_nav
+    assert "MCP Server 还不是可配置成品" not in side_nav
+    assert "/agent/v1/tasks/{task_id}/package" in side_nav
+    assert "scripts/codex_transcribe_link.py" in side_nav
+    assert "Claude Code、Codex" in side_nav
+    assert 'path="/workspace/api"' not in app_shell
+    assert "to=\"/workspace/api\"" not in side_nav
 
 
 def test_settings_page_stays_focused_on_real_settings() -> None:

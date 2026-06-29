@@ -25,6 +25,7 @@ export const AGENT_TASK_PACKAGE_VERSION = '1';
  * @property {boolean=} summary_skipped
  * @property {Object=} artifacts
  * @property {Object=} processing_plan
+ * @property {Object=} chapter_coverage
  */
 
 /**

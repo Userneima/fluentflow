@@ -303,6 +303,7 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
                 "covered_important_evidence_count": result.get("note_mode_covered_important_evidence_count"),
                 "coverage_missing_count": result.get("note_mode_coverage_missing_count"),
             },
+            "chapter_coverage": result.get("chapter_coverage") if isinstance(result.get("chapter_coverage"), dict) else None,
         },
         "artifacts": artifacts,
         "visual": {

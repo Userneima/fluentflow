@@ -58,6 +58,13 @@ def _int(value: Any) -> int | None:
     return int(number)
 
 
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _sentences(text: str) -> list[str]:
     return [item.strip() for item in re.split(r"[。！？.!?\n]+", text or "") if item.strip()]
 
@@ -200,15 +207,18 @@ def build_note_quality_report(item: NoteQualityInput) -> dict[str, Any]:
     summary_chars = len(summary)
     transcript_chars = len(transcript)
     review = _review_for_sample(item.review, item.sample_id)
+    chapter_coverage = result.get("chapter_coverage") if isinstance(result.get("chapter_coverage"), dict) else {}
+    chapter_coverage_summary = chapter_coverage.get("summary") if isinstance(chapter_coverage.get("summary"), dict) else {}
 
     coverage_meta = {
         "coverage_checked": result.get("coverage_checked"),
         "coverage_revision_used": result.get("coverage_revision_used"),
-        "evidence_count": _int(result.get("note_mode_evidence_count")),
-        "chapter_count": _int(result.get("note_mode_chapter_count")),
-        "important_evidence_count": _int(result.get("note_mode_important_evidence_count")),
-        "covered_important_evidence_count": _int(result.get("note_mode_covered_important_evidence_count")),
-        "coverage_missing_count": _int(result.get("note_mode_coverage_missing_count")),
+        "evidence_count": _int(_first_present(result.get("note_mode_evidence_count"), chapter_coverage_summary.get("evidence_count"))),
+        "chapter_count": _int(_first_present(result.get("note_mode_chapter_count"), chapter_coverage_summary.get("chapter_count"))),
+        "important_evidence_count": _int(_first_present(result.get("note_mode_important_evidence_count"), chapter_coverage_summary.get("important_evidence_count"))),
+        "covered_important_evidence_count": _int(_first_present(result.get("note_mode_covered_important_evidence_count"), chapter_coverage_summary.get("covered_important_evidence_count"))),
+        "coverage_missing_count": _int(_first_present(result.get("note_mode_coverage_missing_count"), chapter_coverage_summary.get("coverage_missing_count"))),
+        "chapter_coverage_version": chapter_coverage.get("chapter_coverage_version"),
     }
     important = coverage_meta["important_evidence_count"]
     covered = coverage_meta["covered_important_evidence_count"]

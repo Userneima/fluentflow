@@ -22,6 +22,7 @@ DEFAULT_QWEN_MODEL: Final[str] = "qwen3.7-plus"
 DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
 SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai", "qwen"}
 SUPPORTED_NOTE_MODES: Final[set[str]] = {"auto", "direct", "fast", "high_fidelity", "chapter_coverage"}
+CHAPTER_COVERAGE_VERSION: Final[str] = "1"
 DIRECT_MODE_MAX_CHARS: Final[int] = 20_000
 HIGH_FIDELITY_NOTICE_CHARS: Final[int] = 60_000
 
@@ -333,6 +334,7 @@ class SummaryResult:
     important_evidence_count: int | None = None
     covered_important_evidence_count: int | None = None
     coverage_missing_count: int | None = None
+    chapter_coverage: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -643,11 +645,34 @@ def _resolve_note_mode(mode: str, transcript_length: int) -> str:
 
 
 def _chapter_segments(text: str, max_chars: int) -> list[dict[str, Any]]:
-    chunks = _chunk_text(text, max_chars, overlap=0)
-    return [
-        {"segment_id": f"S{idx + 1:03d}", "order": idx + 1, "text": chunk}
-        for idx, chunk in enumerate(chunks)
-    ]
+    t = text.strip()
+    if not t:
+        return []
+    segments: list[dict[str, Any]] = []
+    i = 0
+    n = len(t)
+    while i < n:
+        j = min(i + max_chars, n)
+        if j < n:
+            br = t.rfind("\n", i + max_chars // 2, j)
+            if br != -1:
+                j = br + 1
+        raw_piece = t[i:j]
+        piece = raw_piece.strip()
+        if piece:
+            leading = len(raw_piece) - len(raw_piece.lstrip())
+            trailing = len(raw_piece) - len(raw_piece.rstrip())
+            segments.append({
+                "segment_id": f"S{len(segments) + 1:03d}",
+                "order": len(segments) + 1,
+                "char_start": i + leading,
+                "char_end": j - trailing,
+                "text": piece,
+            })
+        if j >= n:
+            break
+        i = max(i + 1, j)
+    return segments
 
 
 def _coerce_importance(value: Any) -> int:
@@ -753,6 +778,116 @@ def _normalize_chapters(raw_items: list[Any], evidence: list[dict[str, Any]]) ->
     }]
 
 
+def _range_from_source_segments(source_segment_ids: list[str], segments_by_id: dict[str, dict[str, Any]]) -> dict[str, int | None]:
+    starts: list[int] = []
+    ends: list[int] = []
+    for segment_id in source_segment_ids:
+        segment = segments_by_id.get(segment_id)
+        if not segment:
+            continue
+        if isinstance(segment.get("char_start"), int):
+            starts.append(segment["char_start"])
+        if isinstance(segment.get("char_end"), int):
+            ends.append(segment["char_end"])
+    return {
+        "char_start": min(starts) if starts else None,
+        "char_end": max(ends) if ends else None,
+    }
+
+
+def _build_chapter_coverage_table(
+    *,
+    segments: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+    chapters: list[dict[str, Any]],
+    covered_ids: set[str],
+    important_ids: set[str],
+    uncovered_important: list[str],
+    coverage_checked: bool,
+    coverage_revision_used: bool,
+    coverage_missing_count: int,
+) -> dict[str, Any]:
+    segments_by_id = {str(segment.get("segment_id")): segment for segment in segments}
+    chapter_ids_by_evidence: dict[str, list[str]] = {}
+    for chapter in chapters:
+        chapter_id = str(chapter.get("chapter_id") or "")
+        for evidence_id in chapter.get("used_evidence_ids") or []:
+            chapter_ids_by_evidence.setdefault(str(evidence_id), []).append(chapter_id)
+
+    segment_table = [
+        {
+            "segment_id": segment.get("segment_id"),
+            "order": segment.get("order"),
+            "char_start": segment.get("char_start"),
+            "char_end": segment.get("char_end"),
+            "char_count": len(str(segment.get("text") or "")),
+            "text_preview": str(segment.get("text") or "").strip()[:240],
+        }
+        for segment in segments
+    ]
+
+    evidence_table: list[dict[str, Any]] = []
+    evidence_by_id = {str(item.get("evidence_id")): item for item in evidence}
+    for order, item in enumerate(evidence, 1):
+        evidence_id = str(item.get("evidence_id") or f"E{order:03d}")
+        source_ids = [str(value) for value in item.get("source_segment_ids") or [] if str(value)]
+        source_range = _range_from_source_segments(source_ids, segments_by_id)
+        evidence_table.append({
+            "evidence_id": evidence_id,
+            "order": order,
+            "type": item.get("type") or "detail",
+            "importance": _coerce_importance(item.get("importance")),
+            "text": str(item.get("text") or "").strip(),
+            "keywords": item.get("keywords") or [],
+            "quote": str(item.get("quote") or "").strip(),
+            "source_segment_ids": source_ids,
+            "char_start": source_range["char_start"],
+            "char_end": source_range["char_end"],
+            "covered": evidence_id in covered_ids,
+            "covered_by_chapter_ids": chapter_ids_by_evidence.get(evidence_id, []),
+        })
+
+    chapter_table: list[dict[str, Any]] = []
+    for order, chapter in enumerate(chapters, 1):
+        used_ids = [str(value) for value in chapter.get("used_evidence_ids") or [] if str(value) in evidence_by_id]
+        source_ids: list[str] = []
+        for evidence_id in used_ids:
+            source_ids.extend(str(value) for value in evidence_by_id[evidence_id].get("source_segment_ids") or [] if str(value))
+        source_ids = list(dict.fromkeys(source_ids))
+        source_range = _range_from_source_segments(source_ids, segments_by_id)
+        important_count = sum(1 for evidence_id in used_ids if evidence_id in important_ids)
+        chapter_table.append({
+            "chapter_id": chapter.get("chapter_id") or f"CH{order:02d}",
+            "order": order,
+            "title": str(chapter.get("title") or "").strip(),
+            "purpose": str(chapter.get("purpose") or "").strip(),
+            "evidence_ids": used_ids,
+            "evidence_count": len(used_ids),
+            "important_evidence_count": important_count,
+            "source_segment_ids": source_ids,
+            "char_start": source_range["char_start"],
+            "char_end": source_range["char_end"],
+        })
+
+    return {
+        "chapter_coverage_version": CHAPTER_COVERAGE_VERSION,
+        "summary": {
+            "segment_count": len(segments),
+            "evidence_count": len(evidence),
+            "chapter_count": len(chapters),
+            "important_evidence_count": len(important_ids),
+            "covered_important_evidence_count": len(important_ids) - len(uncovered_important),
+            "coverage_missing_count": coverage_missing_count,
+            "coverage_checked": coverage_checked,
+            "coverage_revision_used": coverage_revision_used,
+        },
+        "segments": segment_table,
+        "evidence": evidence_table,
+        "chapters": chapter_table,
+        "missing_important_evidence_ids": uncovered_important,
+    }
+
+
 def _evidence_markdown(items: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for item in items:
@@ -850,6 +985,18 @@ def _run_chapter_coverage_mode(
             coverage_revision_used = True
             missing_count = max(missing_count, 1)
 
+    chapter_coverage = _build_chapter_coverage_table(
+        segments=segments,
+        evidence=evidence,
+        chapters=chapters,
+        covered_ids=covered_ids,
+        important_ids=important_ids,
+        uncovered_important=uncovered_important,
+        coverage_checked=coverage_checked,
+        coverage_revision_used=coverage_revision_used,
+        coverage_missing_count=missing_count,
+    )
+
     return SummaryResult(
         markdown=final_note,
         requested_mode="chapter_coverage",
@@ -864,6 +1011,7 @@ def _run_chapter_coverage_mode(
         important_evidence_count=len(important_ids),
         covered_important_evidence_count=len(important_ids) - len(uncovered_important),
         coverage_missing_count=missing_count,
+        chapter_coverage=chapter_coverage,
     )
 
 

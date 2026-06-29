@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
 
 router = APIRouter()
 
@@ -1278,6 +1279,7 @@ async def process_video(
                 note_mode_important_evidence_count=getattr(summary_result, "important_evidence_count", None) if summary_result is not None else None,
                 note_mode_covered_important_evidence_count=getattr(summary_result, "covered_important_evidence_count", None) if summary_result is not None else None,
                 note_mode_coverage_missing_count=getattr(summary_result, "coverage_missing_count", None) if summary_result is not None else None,
+                chapter_coverage=getattr(summary_result, "chapter_coverage", None) if summary_result is not None else None,
                 note_mode_plan_reason=note_mode_plan.get("note_mode_plan_reason"),
                 note_mode_plan_confidence=note_mode_plan.get("note_mode_plan_confidence"),
                 note_mode_plan_warnings=note_mode_plan.get("note_mode_plan_warnings"),
@@ -1792,6 +1794,7 @@ async def regenerate_summary(
             "note_mode_important_evidence_count": getattr(summary_result, "important_evidence_count", None),
             "note_mode_covered_important_evidence_count": getattr(summary_result, "covered_important_evidence_count", None),
             "note_mode_coverage_missing_count": getattr(summary_result, "coverage_missing_count", None),
+            "chapter_coverage": getattr(summary_result, "chapter_coverage", None),
             **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             "prompt_preset": (prompt_preset or "").strip() or None,
             "prompt_preset_label": (prompt_preset_label or "").strip() or None,
@@ -1809,6 +1812,9 @@ async def regenerate_summary(
             "summary_skipped": False,
             "status": "completed",
         })
+        result = bind_chapter_coverage_time_ranges(result)
+        if isinstance(result.get("chapter_coverage"), dict):
+            payload["chapter_coverage"] = result["chapter_coverage"]
         H.upsert_job(
             task_id=task_id_value,
             status="completed",
@@ -2303,6 +2309,7 @@ async def summarize_transcript_file(
         note_mode_important_evidence_count=getattr(summary_result, "important_evidence_count", None),
         note_mode_covered_important_evidence_count=getattr(summary_result, "covered_important_evidence_count", None),
         note_mode_coverage_missing_count=getattr(summary_result, "coverage_missing_count", None),
+        chapter_coverage=getattr(summary_result, "chapter_coverage", None),
         note_mode_plan_reason=note_mode_plan.get("note_mode_plan_reason"),
         note_mode_plan_confidence=note_mode_plan.get("note_mode_plan_confidence"),
         note_mode_plan_warnings=note_mode_plan.get("note_mode_plan_warnings"),

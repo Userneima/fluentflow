@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 import backend.core.server_helpers as H
 from backend.core.agent_package import build_agent_task_package, note_generation_diagnosis
 from backend.core.agent_task_actions import AgentActionError, export_agent_note, regenerate_agent_note
+from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
 
 router = APIRouter(prefix="/agent/v1")
 
@@ -145,8 +146,10 @@ async def create_agent_task(request: Request, payload: dict[str, Any] = Body(...
                 "note_mode_important_evidence_count": getattr(summary_result, "important_evidence_count", None),
                 "note_mode_covered_important_evidence_count": getattr(summary_result, "covered_important_evidence_count", None),
                 "note_mode_coverage_missing_count": getattr(summary_result, "coverage_missing_count", None),
+                "chapter_coverage": getattr(summary_result, "chapter_coverage", None),
                 **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             })
+            result = bind_chapter_coverage_time_ranges(result)
             summary_status = "completed"
         result = H._attach_result_artifacts(task_id_value, result)
         H.upsert_job(

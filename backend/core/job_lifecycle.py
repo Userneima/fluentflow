@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
+
 
 def result_has_transcript(result: dict[str, Any] | None) -> bool:
     if not isinstance(result, dict):
@@ -58,6 +60,7 @@ def result_for_summary_success(
     note_mode_important_evidence_count: int | None = None,
     note_mode_covered_important_evidence_count: int | None = None,
     note_mode_coverage_missing_count: int | None = None,
+    chapter_coverage: dict[str, Any] | None = None,
     note_mode_plan_reason: str | None = None,
     note_mode_plan_confidence: str | None = None,
     note_mode_plan_warnings: list[str] | None = None,
@@ -94,6 +97,8 @@ def result_for_summary_success(
         result["note_mode_covered_important_evidence_count"] = note_mode_covered_important_evidence_count
     if note_mode_coverage_missing_count is not None:
         result["note_mode_coverage_missing_count"] = note_mode_coverage_missing_count
+    if chapter_coverage is not None:
+        result["chapter_coverage"] = chapter_coverage
     if note_mode_plan_reason is not None:
         result["note_mode_plan_reason"] = note_mode_plan_reason
     if note_mode_plan_confidence is not None:
@@ -114,4 +119,4 @@ def result_for_summary_success(
         result["prompt_preset"] = prompt_preset
     if prompt_preset_label is not None:
         result["prompt_preset_label"] = prompt_preset_label
-    return result
+    return bind_chapter_coverage_time_ranges(result)

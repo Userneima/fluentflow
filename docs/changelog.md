@@ -38,6 +38,9 @@
 ### 维护者变化
 
 - 新增离线笔记质量评测工具 `npm run note:quality`：从任务结果 JSON 汇总笔记模式、覆盖 metadata、耗时、token 和可选外部评审，用于比较 `direct`、`high_fidelity`、`chapter_coverage` 的质量/成本边界。
+- STT 评估工具新增候选 provider/model、耗时和可选成本 metadata，并新增 `npm run stt:compare` 横向比较 ElevenLabs / WhisperX / 本地 faster-whisper 等候选字幕的质量、速度和成本。
+- `chapter_coverage` 新增可复查证据表：任务结果、任务详情和 Agent 包会保存证据、章节、来源切片、重点覆盖和遗漏重要证据，Agent 工作流页可查看轻量证据表。
+- `chapter_coverage` 证据表会在有时间戳字幕时自动绑定 `start_seconds` / `end_seconds`，Agent 工作流页优先显示证据和章节对应的视频时间范围。
 - 后端主 `/process` 链路已接入 `elevenlabs_scribe`，支持从后端配置或 `ELEVENLABS_API_KEY` 读取密钥，并把队列、部署自检和公开模式默认 provider 同步到 ElevenLabs。
 - 部署示例和公开试用文档改为 `FLUENTFLOW_ALLOWED_STT_PROVIDERS=elevenlabs_scribe` 与 `FLUENTFLOW_DEFAULT_STT_PROVIDER=elevenlabs_scribe`。
 - 本地说话人区分的 pyannote token 已配置后不再持续显示输入框，并在填写前说明 token 只用于本机后端获取模型，音频识别仍在本地执行。
@@ -80,6 +83,8 @@
 - 下载 Markdown、PDF、Word 时会保留已选截图；飞书 OpenAPI 导出会尝试把本地截图 artifact 上传为文档图片块，而不是把私有下载地址直接写入云文档。
 - 登录 / 访问门禁、关于与协议、提示词模板弹窗和设置维护区统一到当前 FluentFlow 中性工作流 UI 语言，去掉旧的紫色按钮、slate 输入框、`rounded-sm` 卡片和营销式说明卡。
 - 左下角“关于与协议”补齐服务条款、隐私政策和版本更新三个入口；版本更新页直接读取项目 changelog，避免维护两份更新说明。
+- 关于与协议页面改为自带滚动容器，长内容不会再被应用根层锁住；版本更新页会展示最近更新条目，而不是只显示版本标题。
+- 左下角低频菜单新增“Agent 接入”弹层，集中说明当前可用的 Agent API、Codex 脚本和本地 MCP Server。
 - 设置页说明改为区分“长期偏好”和“本次 Agent 判断”，避免把提示词模板偏好误说成 Agent 自动选择模板。
 - Agent 工作流页遇到“转录已完成但摘要失败”时，下一步按钮会直接提示“打开编辑器重生笔记”。
 - 前端任务/历史记录映射抽到 `frontend/src/lib/jobMappers.js`，设置、转录路线和云端配置判断抽到 `frontend/src/lib/settingsModel.js`，避免 `shared.jsx` 与旧兼容文件继续各维护一份标题、缓存和设置规则。
@@ -92,6 +97,10 @@
 
 ### 维护者变化
 
+- 新增 Agent / MCP parity 规则：未来新增或修改用户工作流时，必须同步判断 `/agent/v1`、MCP 工具、任务包字段、schema、文档和测试是否需要更新，避免 Agent 入口滞后于 UI 产品迭代。
+- 新增 `scripts/fluentflow_mcp_server.py`：以 stdio MCP Server 形式包装 `/agent/v1`，提供提交视频链接、提交转录文本、查询任务、等待任务、读取任务包、诊断、重生笔记和导出工具。
+- 新增 `npm run mcp:check` 与 `npm run mcp:check:e2e`，用于验证 MCP stdio 协议、工具列表和真实后端任务链路。
+- 新增 `docs/mcp_integration.md`，记录 MCP client 配置、工具清单和“只包装稳定 Agent API，不暴露内部 helper”的边界。
 - 新增产品版本管理基础：`VERSION` 作为唯一版本源，后端 `/version` 和前端构建配置会暴露版本、Git commit 与 schema 信息；CI 和部署流程新增 release gate，部署成功后会写入 release manifest 方便回滚和排障。
 - 新增 `scripts/prepare_release.py` 和 npm `release:prepare` / `release:check` 入口，用于发版前同步版本号、生成发布检查单，并把 changelog 归档保留为人工判断步骤。
 - 新增 `docs/versioning_strategy.md`，明确 App 版本、原子提交、schema version、changelog、tag/release 和回滚之间的职责边界；`AGENTS.md` 与 `CLAUDE.md` 会要求未来 Agent 按该策略拆分提交和记录变更。

@@ -55,6 +55,10 @@ def test_task_detail_uses_shorter_timeline_for_transcript_file() -> None:
             "filename": "字幕.srt",
             "transcript_text": "hello",
             "summary_markdown": "# Note",
+            "chapter_coverage": {
+                "chapter_coverage_version": "1",
+                "evidence": [{"evidence_id": "E001", "text": "证据"}],
+            },
             "artifacts": {
                 "transcript_txt": {"filename": "字幕.txt", "url": "/jobs/task-subtitle/artifacts/transcript_txt"},
                 "summary_md": {"filename": "笔记.md", "url": "/jobs/task-subtitle/artifacts/summary_md"},
@@ -68,6 +72,7 @@ def test_task_detail_uses_shorter_timeline_for_transcript_file() -> None:
     assert step_ids == ["subtitle_parse", "subtitle_prepare", "note_generation", "result_save"]
     assert all(step["status"] == "completed" for step in detail["timeline"])
     assert [artifact["kind"] for artifact in detail["artifacts"]] == ["transcript_txt", "summary_md"]
+    assert detail["chapter_coverage"]["evidence"][0]["evidence_id"] == "E001"
     assert any(action["id"] == "open_result" for action in detail["actions"])
 
 

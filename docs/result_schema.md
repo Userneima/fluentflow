@@ -40,6 +40,7 @@ Every persisted task result should expose:
 | `resolved_note_mode` | Actual note mode used after planning/fallback. |
 | `prompt_preset` / `prompt_preset_label` | Prompt template metadata. |
 | `note_mode_*` | Current note-planning and coverage metadata. These remain compatible until folded into the broader Processing Plan. |
+| `chapter_coverage` | Optional Chapter Coverage Evidence Table v1 for `chapter_coverage` notes. |
 | `processing_plan` | Processing Plan v1. Explains the automatic Agent route used for this result. |
 
 Segment shape:
@@ -88,6 +89,27 @@ Legacy aliases are read-only compatibility inputs:
 | `risk_notes` | Honest limitations or fallback notes for the plan. |
 
 Compatibility rule: keep legacy `note_mode_plan_*` fields on the Result Payload, but new UI and Agent surfaces should prefer `processing_plan.note_strategy`.
+
+## Chapter Coverage Evidence Table v1
+
+`chapter_coverage` is the reviewable evidence table behind a `chapter_coverage` note. It productizes the intermediate evidence extraction and chapter planning output so users and Agents can inspect why a note section exists and which source evidence it used.
+
+Top-level shape:
+
+| Field | Meaning |
+| --- | --- |
+| `chapter_coverage_version` | Current value is `"1"`. |
+| `summary` | Counts for segments, evidence, chapters, important evidence, coverage checks, and revision usage. |
+| `segments` | Stable source text chunks used for evidence extraction. Records character ranges and, when timestamped subtitles exist, `start_seconds` / `end_seconds`. |
+| `evidence` | Evidence rows with id, order, type, importance, text, keywords, quote, source chunk ids, coverage status, bound chapter ids, and optional time range. |
+| `chapters` | Planned note chapters with id, order, title, purpose, source chunk ids, evidence ids, and optional time range. |
+| `missing_important_evidence_ids` | Important evidence not assigned to a chapter before any final coverage revision. |
+
+The legacy count fields (`note_mode_evidence_count`, `note_mode_chapter_count`, `note_mode_important_evidence_count`, `note_mode_covered_important_evidence_count`, `note_mode_coverage_missing_count`) remain as list/stat shortcuts. They must match the `chapter_coverage.summary` values when `chapter_coverage` is present.
+
+Time binding is deterministic. The backend maps `char_start` / `char_end` to existing `raw_segments` or `display_segments`; it must not ask a model to invent timestamps. If no reliable timestamped segments exist, time fields are omitted and the UI should fall back to character ranges or source chunk ids.
+
+Agents should read `note.chapter_coverage` from the Agent Task Package. Task detail pages may also expose `chapter_coverage` at the top level for UI rendering.
 
 ## Note Quality Evaluation Report v1
 

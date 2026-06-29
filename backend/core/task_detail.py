@@ -569,6 +569,7 @@ def build_task_detail(job: dict[str, Any], *, job_steps: list[dict[str, Any]] | 
         "diagnosis": {key: value for key, value in diagnosis.items() if value is not None and value != ""},
         "actions": _actions(job, result, artifacts, diagnosis),
         "artifacts": artifacts,
+        "chapter_coverage": result.get("chapter_coverage") if isinstance(result.get("chapter_coverage"), dict) else None,
         "recorded_steps": job_steps,
         "data_quality": {
             "has_recorded_steps": bool(job_steps),

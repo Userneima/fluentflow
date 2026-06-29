@@ -36,7 +36,11 @@ def test_result_for_summary_failure_keeps_transcript_deliverable_completed() -> 
 
 def test_result_for_summary_success_adds_note_mode_metadata() -> None:
     result = result_for_summary_success(
-        {"task_id": "task-1", "transcript_text": "text"},
+        {
+            "task_id": "task-1",
+            "transcript_text": "text",
+            "raw_segments": [{"start": 1.0, "end": 2.0, "text": "text"}],
+        },
         "## Note",
         requested_note_mode="auto",
         resolved_note_mode="high_fidelity",
@@ -47,6 +51,11 @@ def test_result_for_summary_success_adds_note_mode_metadata() -> None:
         note_mode_important_evidence_count=6,
         note_mode_covered_important_evidence_count=5,
         note_mode_coverage_missing_count=1,
+        chapter_coverage={
+            "chapter_coverage_version": "1",
+            "summary": {},
+            "evidence": [{"evidence_id": "E001", "char_start": 0, "char_end": 4}],
+        },
         note_mode_plan_reason="材料较长，适合高保真整理。",
         note_mode_plan_confidence="high",
         note_mode_plan_warnings=["会更慢。"],
@@ -69,6 +78,9 @@ def test_result_for_summary_success_adds_note_mode_metadata() -> None:
     assert result["note_mode_chapter_count"] == 4
     assert result["note_mode_covered_important_evidence_count"] == 5
     assert result["note_mode_coverage_missing_count"] == 1
+    assert result["chapter_coverage"]["evidence"][0]["evidence_id"] == "E001"
+    assert result["chapter_coverage"]["evidence"][0]["start_seconds"] == 1.0
+    assert result["chapter_coverage"]["evidence"][0]["end_seconds"] == 2.0
     assert result["note_mode_plan_reason"] == "材料较长，适合高保真整理。"
     assert result["note_mode_plan_confidence"] == "high"
     assert result["note_mode_plan_warnings"] == ["会更慢。"]

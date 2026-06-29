@@ -40,6 +40,10 @@ def _sample_result() -> dict:
         "note_mode_important_evidence_count": 4,
         "note_mode_covered_important_evidence_count": 3,
         "note_mode_coverage_missing_count": 1,
+        "chapter_coverage": {
+            "chapter_coverage_version": "1",
+            "summary": {"evidence_count": 6, "chapter_count": 3},
+        },
         "token_usage": {
             "input_tokens": 1200,
             "output_tokens": 360,
@@ -57,6 +61,7 @@ def test_build_note_quality_report_records_metrics_without_fake_quality_score() 
     assert report["run"]["resolved_note_mode"] == "chapter_coverage"
     assert report["material_metrics"]["raw_segment_count"] == 2
     assert report["coverage_metadata"]["recorded_important_coverage_rate"] == 0.75
+    assert report["coverage_metadata"]["chapter_coverage_version"] == "1"
     assert report["usage_metrics"]["total_tokens"] == 1560
     assert report["quality_review"]["status"] == "pending_review"
     assert all(value is None for value in report["quality_review"]["rubric"].values())

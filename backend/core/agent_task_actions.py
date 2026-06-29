@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 import backend.core.server_helpers as H
+from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
 
 
 class AgentActionError(Exception):
@@ -106,10 +107,12 @@ async def regenerate_agent_note(
         "note_mode_important_evidence_count": getattr(summary_result, "important_evidence_count", None),
         "note_mode_covered_important_evidence_count": getattr(summary_result, "covered_important_evidence_count", None),
         "note_mode_coverage_missing_count": getattr(summary_result, "coverage_missing_count", None),
+        "chapter_coverage": getattr(summary_result, "chapter_coverage", None),
         **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
         "prompt_preset": str(payload.get("prompt_preset") or "").strip() or result.get("prompt_preset"),
         "prompt_preset_label": str(payload.get("prompt_preset_label") or "").strip() or result.get("prompt_preset_label"),
     })
+    result = bind_chapter_coverage_time_ranges(result)
     result = H._attach_result_artifacts(task_id, result)
     H.upsert_job(
         task_id=task_id,
