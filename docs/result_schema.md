@@ -144,6 +144,15 @@ Visual evidence is the result contract for screenshots that help explain a speci
 
 Raw `frame_artifacts` are compatibility/candidate outputs. They may be exposed for diagnostics or future visual review, but UI should not present them as final note screenshots unless `visual_evidence` promotes them with a concrete reason and section association.
 
+Final note screenshots must pass the visual evidence policy before they are shown or exported:
+
+- Use screenshots as evidence for a specific note section or knowledge point, not as decoration.
+- Prefer frames that contain definitions, processes, formulas, code, charts, tables, key comparisons, product interfaces, or concrete demonstrations.
+- Exclude low-value frames such as covers, tables of contents, pure title pages, thanks/end pages, transition frames, pure talking-head shots, subtitle-only frames, black/white frames, and irrelevant images.
+- Apply global density control: short notes should usually contain only one or two screenshots, long notes still cap at a small number of high-value images, and repeated/near-duplicate frames should only appear once.
+- Every promoted screenshot should keep `timestamp_seconds` so the UI can use it as a review anchor and jump back to the original video when playback is available.
+- If an Agent-generated Markdown image reference does not pass the policy, remove that image reference from `summary_markdown`; do not leave unpromoted screenshots in the note body.
+
 V1 planning is intentionally two-stage:
 
 - Initial plan: generated at task creation from input type, selected execution route, local/cloud capability, and weak filename hints.

@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import re
+import math
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*$")
+_HIGH_VALUE_TERMS = (
+    "流程", "结构", "框架", "公式", "代码", "表格", "图表", "数据", "对比",
+    "定义", "步骤", "方法", "模型", "架构", "结论", "板书", "演示", "界面",
+)
+_LOW_VALUE_TERMS = (
+    "封面", "目录", "致谢", "结束页", "片头", "片尾", "过渡", "纯标题",
+    "标题页", "纯人像", "人物讲话", "字幕条",
+)
 
 
 def _text(value: Any) -> str:
@@ -27,6 +36,10 @@ def _heading_before(markdown: str, position: int) -> str:
         if match:
             heading = _plain_markdown(match.group(1))
     return heading
+
+
+def _plain_without_images(markdown: str) -> str:
+    return _plain_markdown(_IMAGE_RE.sub("", markdown or ""))
 
 
 def _artifact_by_filename(frame_artifacts: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -48,6 +61,130 @@ def _image_target_name(target: str) -> str:
     return Path(unquote(parsed.path or target)).name
 
 
+def _hex_hamming(left: str, right: str) -> int | None:
+    try:
+        return bin(int(left, 16) ^ int(right, 16)).count("1")
+    except Exception:
+        return None
+
+
+def _looks_low_value(alt_text: str, section: str) -> bool:
+    text = f"{alt_text} {section}"
+    if not any(term in text for term in _LOW_VALUE_TERMS):
+        return False
+    return not any(term in text for term in _HIGH_VALUE_TERMS)
+
+
+def _priority_score(alt_text: str, section: str, position: int) -> int:
+    text = f"{alt_text} {section}"
+    score = 0
+    for term in _HIGH_VALUE_TERMS:
+        if term in text:
+            score += 6
+    if section:
+        score += 2
+    if position < 1200:
+        score += 1
+    return score
+
+
+def _visual_limit(markdown: str, candidates: list[dict[str, Any]]) -> int:
+    text_chars = len(_plain_without_images(markdown))
+    by_text = max(2, min(8, math.ceil(max(text_chars, 1) / 1000) * 2))
+    timestamps = [
+        float(item["artifact"].get("timestamp_seconds"))
+        for item in candidates
+        if isinstance(item.get("artifact"), dict) and item["artifact"].get("timestamp_seconds") is not None
+    ]
+    if not timestamps:
+        return by_text
+    by_duration = max(2, min(8, math.ceil(max(timestamps) / 180) * 3))
+    return min(by_text, by_duration, 8)
+
+
+def _candidate_image_refs(markdown: str, frame_artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    artifact_index = _artifact_by_filename(frame_artifacts)
+    candidates: list[dict[str, Any]] = []
+    for match in _IMAGE_RE.finditer(markdown or ""):
+        alt_text = _plain_markdown(match.group(1))
+        image_name = _image_target_name(match.group(2))
+        artifact = artifact_index.get(image_name)
+        if not alt_text or not artifact:
+            continue
+        section = _heading_before(markdown, match.start())
+        if artifact.get("low_information") is True:
+            continue
+        if _looks_low_value(alt_text, section):
+            continue
+        candidates.append({
+            "match": match,
+            "alt_text": alt_text,
+            "image_name": image_name,
+            "artifact": artifact,
+            "section": section,
+            "score": _priority_score(alt_text, section, match.start()),
+        })
+    return candidates
+
+
+def _select_visual_candidates(markdown: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    limit = _visual_limit(markdown, candidates)
+    selected: list[dict[str, Any]] = []
+    section_counts: dict[str, int] = {}
+    used_names: set[str] = set()
+    used_hashes: list[str] = []
+    used_timestamps: list[float] = []
+    for candidate in sorted(candidates, key=lambda item: (-int(item.get("score") or 0), item["match"].start())):
+        if len(selected) >= limit:
+            break
+        artifact = candidate["artifact"]
+        image_name = candidate["image_name"]
+        if image_name in used_names:
+            continue
+        section = candidate.get("section") or ""
+        if section_counts.get(section, 0) >= 2:
+            continue
+        timestamp = artifact.get("timestamp_seconds")
+        ts = None
+        if timestamp is not None:
+            try:
+                ts = float(timestamp)
+            except (TypeError, ValueError):
+                ts = None
+            if ts is not None and any(abs(ts - old) < 3.0 for old in used_timestamps):
+                continue
+        visual_hash = _text(artifact.get("visual_hash") or artifact.get("perceptual_hash"))
+        if visual_hash:
+            duplicate = False
+            for old_hash in used_hashes:
+                distance = _hex_hamming(visual_hash, old_hash)
+                if distance is not None and distance <= 4:
+                    duplicate = True
+                    break
+            if duplicate:
+                continue
+        selected.append(candidate)
+        used_names.add(image_name)
+        if section:
+            section_counts[section] = section_counts.get(section, 0) + 1
+        if visual_hash:
+            used_hashes.append(visual_hash)
+        if ts is not None:
+            used_timestamps.append(ts)
+    return sorted(selected, key=lambda item: item["match"].start())
+
+
+def _remove_unselected_images(markdown: str, selected: list[dict[str, Any]]) -> str:
+    selected_spans = {(item["match"].start(), item["match"].end()) for item in selected}
+
+    def replace(match: re.Match[str]) -> str:
+        if (match.start(), match.end()) in selected_spans:
+            return match.group(0)
+        return ""
+
+    return re.sub(r"\n{3,}", "\n\n", _IMAGE_RE.sub(replace, markdown or "")).strip()
+
+
 def build_visual_evidence_from_note_images(
     markdown: str,
     frame_artifacts: list[dict[str, Any]],
@@ -60,16 +197,14 @@ def build_visual_evidence_from_note_images(
     function only promotes frames when the generated note explicitly references
     them with Markdown image syntax and provides a non-empty alt text.
     """
-    artifact_index = _artifact_by_filename(frame_artifacts)
+    candidates = _candidate_image_refs(markdown, frame_artifacts)
+    selected = _select_visual_candidates(markdown, candidates)
     evidence: list[dict[str, Any]] = []
     visual_artifacts: dict[str, dict[str, Any]] = {}
 
-    for match in _IMAGE_RE.finditer(markdown or ""):
-        alt_text = _plain_markdown(match.group(1))
-        image_name = _image_target_name(match.group(2))
-        artifact = artifact_index.get(image_name)
-        if not alt_text or not artifact:
-            continue
+    for candidate in selected:
+        alt_text = candidate["alt_text"]
+        artifact = candidate["artifact"]
         visual_id = f"visual_{len(evidence) + 1:03d}"
         artifact_url = _text(artifact.get("url"))
         timestamp = artifact.get("timestamp_seconds")
@@ -85,7 +220,7 @@ def build_visual_evidence_from_note_images(
             "id": visual_id,
             "timestamp_seconds": timestamp,
             "reason": alt_text,
-            "note_section": _heading_before(markdown, match.start()),
+            "note_section": candidate.get("section") or "",
             "source": "visual_review_grid",
             "confidence": "high",
             "provider": artifact_provider or None,
@@ -93,7 +228,14 @@ def build_visual_evidence_from_note_images(
             "artifact_url": artifact_url,
         })
 
+    filtered_markdown = _remove_unselected_images(markdown, selected) if _IMAGE_RE.search(markdown or "") else markdown
+    unavailable_reason = (
+        "Agent 候选截图没有通过全局密度、去重或价值过滤；最终笔记不插入截图。"
+        if candidates and not evidence
+        else "没有可确认的截图证据；候选帧不会自动插入笔记。"
+    )
     return {
+        "summary_markdown": filtered_markdown,
         "visual_evidence": [
             {key: value for key, value in item.items() if value not in (None, "")}
             for item in evidence
@@ -104,9 +246,9 @@ def build_visual_evidence_from_note_images(
         },
         "visual_evidence_status": "completed" if evidence else "unavailable",
         "visual_evidence_reason": (
-            "多模态 Agent 已在笔记中选择截图并提供图注。"
+            "多模态 Agent 已在笔记中选择截图，并通过全局密度、去重和价值过滤。"
             if evidence
-            else "没有可确认的截图证据；候选帧不会自动插入笔记。"
+            else unavailable_reason
         ),
     }
 

@@ -60,6 +60,44 @@ def _selected_even_indices(total: int, keep: int) -> list[int]:
     return [round(i * (total - 1) / (keep - 1)) for i in range(keep)]
 
 
+def _frame_quality_metadata(path: Path) -> dict[str, Any]:
+    try:
+        from PIL import Image, ImageFilter, ImageStat
+
+        with Image.open(path) as image:
+            gray = image.convert("L")
+            stat = ImageStat.Stat(gray)
+            edge_stat = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES))
+            small = gray.resize((9, 8))
+            pixels = list(small.getdata())
+            bits = []
+            for row in range(8):
+                offset = row * 9
+                for col in range(8):
+                    bits.append("1" if pixels[offset + col] > pixels[offset + col + 1] else "0")
+            visual_hash = f"{int(''.join(bits), 2):016x}"
+            contrast = float(stat.stddev[0] or 0)
+            edge_contrast = float(edge_stat.stddev[0] or 0)
+            return {
+                "visual_hash": visual_hash,
+                "brightness": round(float(stat.mean[0] or 0), 2),
+                "contrast": round(contrast, 2),
+                "edge_contrast": round(edge_contrast, 2),
+                "low_information": contrast < 2.0 and edge_contrast < 1.0,
+            }
+    except Exception:
+        return {}
+
+
+def _frame_record(path: Path, timestamp: float, source: str) -> dict[str, Any]:
+    return {
+        "path": str(path),
+        "timestamp_seconds": round(timestamp, 1),
+        "source": source,
+        **_frame_quality_metadata(path),
+    }
+
+
 def _extract_scene_frames(
     video_path: str,
     output_dir: Path,
@@ -103,11 +141,7 @@ def _extract_scene_frames(
     results: list[dict[str, Any]] = []
     for path, timestamp in selected_records:
         if path.is_file():
-            results.append({
-                "path": str(path),
-                "timestamp_seconds": round(timestamp, 1),
-                "source": "scene",
-            })
+            results.append(_frame_record(path, timestamp, "scene"))
     return results
 
 
@@ -145,11 +179,7 @@ def _extract_timepoint_frames(
         except subprocess.CalledProcessError:
             continue
         if output.is_file():
-            results.append({
-                "path": str(output),
-                "timestamp_seconds": ts,
-                "source": "timepoint",
-            })
+            results.append(_frame_record(output, ts, "timepoint"))
     return results
 
 
@@ -187,11 +217,7 @@ def _extract_fallback_frames(
         except subprocess.CalledProcessError:
             continue
         if output.is_file():
-            results.append({
-                "path": str(output),
-                "timestamp_seconds": ts,
-                "source": "fallback",
-            })
+            results.append(_frame_record(output, ts, "fallback"))
     return results
 
 

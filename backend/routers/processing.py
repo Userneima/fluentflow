@@ -1297,7 +1297,16 @@ async def process_video(
                     frame_name = Path(fm["path"]).name
                     try:
                         art = H._write_file_artifact(task_id_value, "frame", f"frames/{frame_name}", fm["path"])
-                        for key in ("timestamp_seconds", "source", "provider"):
+                        for key in (
+                            "timestamp_seconds",
+                            "source",
+                            "provider",
+                            "visual_hash",
+                            "brightness",
+                            "contrast",
+                            "edge_contrast",
+                            "low_information",
+                        ):
                             if fm.get(key) is not None:
                                 art[key] = fm.get(key)
                         art["content_type"] = "image/jpeg"
