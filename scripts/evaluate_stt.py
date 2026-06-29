@@ -194,6 +194,54 @@ def write_tsv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def compact_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    """Drop empty metadata while preserving explicit zero values."""
+    return {
+        key: item
+        for key, item in value.items()
+        if item is not None and item != ""
+    }
+
+
+def build_run_metadata(
+    *,
+    candidate_name: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    engine_version: str | None = None,
+    source_duration_seconds: float | None = None,
+    stt_elapsed_seconds: float | None = None,
+    billable_seconds: float | None = None,
+    estimated_cost_usd: float | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    realtime_factor = (
+        stt_elapsed_seconds / source_duration_seconds
+        if stt_elapsed_seconds is not None and source_duration_seconds
+        else None
+    )
+    cost_per_audio_hour = (
+        estimated_cost_usd / (source_duration_seconds / 3600)
+        if estimated_cost_usd is not None and source_duration_seconds
+        else None
+    )
+    return compact_metadata(
+        {
+            "candidate_name": candidate_name,
+            "provider": provider,
+            "model": model,
+            "engine_version": engine_version,
+            "source_duration_seconds": source_duration_seconds,
+            "stt_elapsed_seconds": stt_elapsed_seconds,
+            "realtime_factor": round(realtime_factor, 6) if realtime_factor is not None else None,
+            "billable_seconds": billable_seconds,
+            "estimated_cost_usd": estimated_cost_usd,
+            "cost_per_audio_hour_usd": round(cost_per_audio_hour, 6) if cost_per_audio_hour is not None else None,
+            "notes": notes,
+        }
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", required=True, type=Path, help="Human-corrected SRT/VTT/TXT")
@@ -201,6 +249,15 @@ def main() -> int:
     parser.add_argument("--glossary", type=Path, default=None, help="Optional JSON glossary")
     parser.add_argument("--confusions", type=Path, default=None, help="Optional JSON confusion pairs")
     parser.add_argument("--output-dir", type=Path, default=None, help="Write summary and TSV reports")
+    parser.add_argument("--candidate-name", default=None, help="Human readable candidate label, such as local-medium")
+    parser.add_argument("--provider", default=None, help="STT provider, such as local, elevenlabs_scribe, whisperx")
+    parser.add_argument("--model", default=None, help="Provider model name")
+    parser.add_argument("--engine-version", default=None, help="Optional engine or package version")
+    parser.add_argument("--source-duration-seconds", type=float, default=None, help="Source audio duration")
+    parser.add_argument("--stt-elapsed-seconds", type=float, default=None, help="Measured STT elapsed time")
+    parser.add_argument("--billable-seconds", type=float, default=None, help="Provider billable audio seconds")
+    parser.add_argument("--estimated-cost-usd", type=float, default=None, help="Optional externally calculated STT cost")
+    parser.add_argument("--notes", default=None, help="Short operator note for this candidate")
     args = parser.parse_args()
 
     reference_text, reference_segments = load_subtitle(args.reference.expanduser().resolve())
@@ -220,6 +277,17 @@ def main() -> int:
     summary: dict[str, Any] = {
         "reference": str(args.reference),
         "hypothesis": str(args.hypothesis),
+        "run": build_run_metadata(
+            candidate_name=args.candidate_name,
+            provider=args.provider,
+            model=args.model,
+            engine_version=args.engine_version,
+            source_duration_seconds=args.source_duration_seconds,
+            stt_elapsed_seconds=args.stt_elapsed_seconds,
+            billable_seconds=args.billable_seconds,
+            estimated_cost_usd=args.estimated_cost_usd,
+            notes=args.notes,
+        ),
         "metrics": {
             "segment_count": result.segment_count,
             "changed_segment_count": result.changed_segment_count,

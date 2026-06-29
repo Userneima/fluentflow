@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.evaluate_stt import (
+    build_run_metadata,
     evaluate_confusions,
     evaluate_glossary,
     evaluate_pair,
@@ -37,6 +38,20 @@ class TestEvaluateStt(unittest.TestCase):
 
         self.assertEqual(rows[0]["hit_count"], 2)
         self.assertEqual(rows[1]["hit_count"], 1)
+
+    def test_run_metadata_records_speed_and_cost_without_empty_fields(self) -> None:
+        metadata = build_run_metadata(
+            candidate_name="local-medium",
+            provider="local",
+            model="medium",
+            source_duration_seconds=120,
+            stt_elapsed_seconds=30,
+            estimated_cost_usd=0,
+        )
+
+        self.assertEqual(metadata["realtime_factor"], 0.25)
+        self.assertEqual(metadata["cost_per_audio_hour_usd"], 0)
+        self.assertNotIn("engine_version", metadata)
 
 
 if __name__ == "__main__":
