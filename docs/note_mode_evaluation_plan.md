@@ -208,7 +208,24 @@ reports/note_mode_eval/
 
 ## 推荐命令形态
 
-未来可增加脚本：
+当前已落地第一版结果报告工具。它读取已经生成好的任务结果 JSON，汇总模式、转录长度、摘要长度、覆盖 metadata、耗时、token 和可选外部评审，不负责自动宣布哪种模式质量最好：
+
+```bash
+npm run note:quality -- \
+  --input data/local_eval_results/long_01_chapter.json \
+  --review data/local_eval_reviews/long_01_review.json \
+  --output-dir reports/note_quality_eval/long_01
+```
+
+输出文件：
+
+```text
+reports/note_quality_eval/
+  runs.json
+  report.md
+```
+
+完整的跨模式 runner 仍是下一阶段：
 
 ```bash
 venv/bin/python scripts/evaluate_note_modes.py \
@@ -217,7 +234,7 @@ venv/bin/python scripts/evaluate_note_modes.py \
   --output reports/note_mode_eval
 ```
 
-第一版脚本不需要接入生产任务队列。它只作为离线评测工具。
+评测脚本不需要接入生产任务队列。它只作为离线评测工具。
 
 ## 评测指标
 
@@ -289,11 +306,11 @@ venv/bin/python scripts/evaluate_note_modes.py \
 
 ### Phase 3：实现离线评测脚本
 
-- 批量运行不同模式。
-- 保存输出和运行 metadata。
-- 调用模型生成关键点清单。
-- 调用模型做 judge。
-- 生成 Markdown 报告。
+- 已完成：保存并汇总已生成结果的运行 metadata。
+- 已完成：生成 Markdown / JSON 报告。
+- 待完成：批量运行不同模式。
+- 待完成：调用模型生成关键点清单。
+- 待完成：调用模型做 judge。
 
 ### Phase 4：人工校准阈值
 

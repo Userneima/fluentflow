@@ -89,6 +89,33 @@ Legacy aliases are read-only compatibility inputs:
 
 Compatibility rule: keep legacy `note_mode_plan_*` fields on the Result Payload, but new UI and Agent surfaces should prefer `processing_plan.note_strategy`.
 
+## Note Quality Evaluation Report v1
+
+`scripts/evaluate_note_quality.py` generates offline evaluation reports from Result Payload v2 or Job Payload JSON files. These reports are for product calibration and should not be written back into normal user task results.
+
+Top-level collection:
+
+| Field | Meaning |
+| --- | --- |
+| `note_quality_collection_version` | Current value is `"1"`. |
+| `run_count` | Number of evaluated result files. |
+| `modes` | Aggregate counts and compression metrics grouped by `resolved_note_mode`. |
+| `reports` | Per-run quality report list. |
+
+Per-run report:
+
+| Field | Meaning |
+| --- | --- |
+| `note_quality_report_version` | Current value is `"1"`. |
+| `sample` | Sample id, title, source path, source type, and duration. |
+| `run` | Requested/resolved note mode, prompt preset, provider/model, and note status. |
+| `material_metrics` | Transcript length, segment counts, language, and subtitle mode. |
+| `note_metrics` | Summary length, sentence count, and compression ratio. |
+| `coverage_metadata` | Recorded chapter coverage metadata already present on the result. |
+| `usage_metrics` | Elapsed seconds, model calls, token usage, and units when available. |
+| `quality_review` | Optional human/model review payload. Missing review means `pending_review`; scripts must not invent quality scores from text length. |
+| `observable_warnings` | Mechanical warnings such as missing summary or missing coverage metadata. These are review prompts, not final quality judgments. |
+
 ## Visual Evidence v1
 
 Visual evidence is the result contract for screenshots that help explain a specific course or lecture note section. It should be generated only when the system can name why a frame helps the user.

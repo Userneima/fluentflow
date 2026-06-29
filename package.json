@@ -5,6 +5,7 @@
     "lint:frontend": "node scripts/lint_frontend.mjs",
     "change:check": "python3 scripts/check_change_control.py",
     "change:check:staged": "python3 scripts/check_change_control.py --staged",
+    "note:quality": "python3 scripts/evaluate_note_quality.py",
     "release:check": "python3 scripts/check_release_gate.py",
     "release:prepare": "python3 scripts/prepare_release.py",
     "build:frontend": "node scripts/write_frontend_config.js && vite build --config vite.config.mjs",

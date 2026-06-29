@@ -37,6 +37,7 @@
 
 ### 维护者变化
 
+- 新增离线笔记质量评测工具 `npm run note:quality`：从任务结果 JSON 汇总笔记模式、覆盖 metadata、耗时、token 和可选外部评审，用于比较 `direct`、`high_fidelity`、`chapter_coverage` 的质量/成本边界。
 - 后端主 `/process` 链路已接入 `elevenlabs_scribe`，支持从后端配置或 `ELEVENLABS_API_KEY` 读取密钥，并把队列、部署自检和公开模式默认 provider 同步到 ElevenLabs。
 - 部署示例和公开试用文档改为 `FLUENTFLOW_ALLOWED_STT_PROVIDERS=elevenlabs_scribe` 与 `FLUENTFLOW_DEFAULT_STT_PROVIDER=elevenlabs_scribe`。
 - 本地说话人区分的 pyannote token 已配置后不再持续显示输入框，并在填写前说明 token 只用于本机后端获取模型，音频识别仍在本地执行。
