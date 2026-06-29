@@ -135,6 +135,15 @@ const enPrivacySections = [
     {title: 'Your choices', body: ['You can choose local or cloud transcription, clear browser history, delete eligible background tasks, or sign out.', 'If you do not want material sent to third-party providers, do not use cloud transcription, cloud notes, translation, Feishu export, or other external-service features.']},
 ];
 
+const isChangelogEntryTitle = (title) => (
+    /^(Unreleased|v?\d+\.\d+\.\d+|\d{4}-\d{2}|\d{4}-\d{2}-\d{2}|\d{4}年)/.test(title)
+);
+
+const formatChangelogTitle = (title, zh) => {
+    if (!zh) return title;
+    return title.replace(/^Unreleased\b/, '待发布');
+};
+
 const parseChangelog = (markdown) => (
     markdown
         .split(/\n(?=##\s+)/)
@@ -143,11 +152,13 @@ const parseChangelog = (markdown) => (
             const titleLine = lines.find((line) => line.startsWith('## '));
             if (!titleLine) return null;
             const title = titleLine.replace(/^##\s+/, '').trim();
+            if (!isChangelogEntryTitle(title)) return null;
             const items = lines
                 .filter((line) => line.startsWith('- '))
                 .map((line) => line.replace(/^-\s+/, '').trim())
                 .filter(Boolean)
                 .slice(0, 4);
+            if (items.length === 0) return null;
             return {title, items};
         })
         .filter(Boolean)
@@ -212,7 +223,7 @@ const ChangelogPage = ({zh}) => {
                 <div className="space-y-3">
                     {releases.length > 0 ? releases.map((release) => (
                         <div key={release.title} className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">{release.title}</p>
+                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">{formatChangelogTitle(release.title, zh)}</p>
                             {release.items.length > 0 && (
                                 <ul className="mt-2 space-y-1.5">
                                     {release.items.map((item) => (

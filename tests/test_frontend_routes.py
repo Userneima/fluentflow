@@ -707,6 +707,11 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
     assert "版本更新" in about
     assert "import('../../../docs/changelog.md?raw')" in about
     assert "docs/changelog.md" in about
+    assert "isChangelogEntryTitle" in about
+    assert "formatChangelogTitle" in about
+    assert "待发布" in about
+    assert "记录格式" not in about.split("const isChangelogEntryTitle", 1)[1]
+    assert "if (items.length === 0) return null" in about
     assert "release.items.map" in about
     assert "暂时无法读取更新记录" in about
     assert "法律、医疗、投资、考试报名" in about
