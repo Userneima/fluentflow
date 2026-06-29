@@ -127,3 +127,4 @@ def test_jsonrpc_initialize_returns_tools_capability() -> None:
     assert response["result"]["protocolVersion"] == server.PROTOCOL_VERSION
     assert response["result"]["capabilities"] == {"tools": {"listChanged": False}}
     assert response["result"]["serverInfo"]["name"] == "fluentflow"
+    assert response["result"]["serverInfo"]["version"] == server._app_version()

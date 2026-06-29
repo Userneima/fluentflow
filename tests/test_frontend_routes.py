@@ -730,21 +730,28 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
 def test_sidebar_agent_access_stays_in_low_frequency_menu() -> None:
     app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
     side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+    panel = Path("frontend/src/components/AgentAccessPanel.jsx").read_text(encoding="utf-8")
+    page = Path("frontend/src/routes/workspace-api.jsx").read_text(encoding="utf-8")
 
     assert "const [agentAccessOpen, setAgentAccessOpen] = useState(false)" in side_nav
     assert "setMenuOpen(false); setAgentAccessOpen(true);" in side_nav
     assert "Agent 接入" in side_nav
     assert "role=\"dialog\"" in side_nav
     assert "aria-labelledby=\"agent-access-title\"" in side_nav
-    assert "Agent API 数据链路" in side_nav
-    assert "本地 stdio MCP Server" in side_nav
-    assert "scripts/fluentflow_mcp_server.py" in side_nav
-    assert "npm run mcp:check:e2e" in side_nav
-    assert "MCP Server 还不是可配置成品" not in side_nav
-    assert "/agent/v1/tasks/{task_id}/package" in side_nav
-    assert "scripts/codex_transcribe_link.py" in side_nav
-    assert "Claude Code、Codex" in side_nav
-    assert 'path="/workspace/api"' not in app_shell
+    assert "<AgentAccessPanel compact onClose={() => setAgentAccessOpen(false)}/>" in side_nav
+    assert '<Route path="/workspace/api" element={<WorkspaceApi/>}/>' in app_shell
+    assert "<AgentAccessPanel/>" in page
+    assert "把 FluentFlow 接入你的 AI 工具" in panel
+    assert "新建一把 API Key" in panel
+    assert "粘贴到你的 AI 工具" in panel
+    assert "发链接，自动出笔记" in panel
+    assert "/account/api-keys" in panel
+    assert "FLUENTFLOW_ACCESS_TOKEN" in panel
+    assert "只显示一次的 API Key" in panel
+    assert "请用 fluentflow MCP 帮我把这个视频做成笔记" in panel
+    assert "scripts/fluentflow_mcp_server.py" in panel
+    assert "npm run mcp:check:e2e" in panel
+    assert "MCP Server 还不是可配置成品" not in panel
     assert "to=\"/workspace/api\"" not in side_nav
 
 

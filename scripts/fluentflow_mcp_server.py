@@ -21,7 +21,16 @@ from scripts.codex_transcribe_link import (
 )
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "fluentflow", "version": "0.1.0"}
+
+
+def _app_version() -> str:
+    try:
+        return (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8").strip() or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+SERVER_INFO = {"name": "fluentflow", "version": _app_version()}
 
 
 def _client_id(value: str | None = None) -> str:

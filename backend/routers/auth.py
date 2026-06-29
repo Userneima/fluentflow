@@ -127,6 +127,50 @@ def account_quota(request: Request) -> dict[str, Any]:
     return H._account_quota_payload(user)
 
 
+def _api_key_owner_for_request(request: Request) -> tuple[str, str | None]:
+    if H._account_auth_enabled():
+        user = H.get_user_by_session_token(H._request_account_session_token(request))
+        if not user:
+            raise HTTPException(status_code=401, detail="FluentFlow account login is required.")
+        return f"user:{user['id']}", str(user["id"])
+    return H._request_client_scope(request), None
+
+
+@router.get("/account/api-keys")
+def account_api_keys(request: Request) -> dict[str, Any]:
+    owner_scope, _user_id = _api_key_owner_for_request(request)
+    return {"ok": True, "api_keys": H.list_api_keys(owner_scope)}
+
+
+@router.post("/account/api-keys")
+def create_account_api_key(
+    request: Request,
+    payload: dict[str, Any] = Body(default={}),
+) -> dict[str, Any]:
+    owner_scope, user_id = _api_key_owner_for_request(request)
+    name = str(payload.get("name") or "Agent API Key").strip()
+    api_key = H.create_api_key(owner_scope=owner_scope, user_id=user_id, name=name)
+    return {
+        "ok": True,
+        "api_key": api_key,
+        "one_time_key": api_key.get("key"),
+    }
+
+
+@router.post("/account/api-keys/{key_id}/revoke")
+def revoke_account_api_key(request: Request, key_id: str) -> dict[str, Any]:
+    owner_scope, _user_id = _api_key_owner_for_request(request)
+    api_key = H.revoke_api_key(key_id, owner_scope=owner_scope)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    return {"ok": True, "api_key": api_key}
+
+
+@router.delete("/account/api-keys/{key_id}")
+def delete_account_api_key(request: Request, key_id: str) -> dict[str, Any]:
+    return revoke_account_api_key(request, key_id)
+
+
 @router.post("/account/import-history", include_in_schema=False)
 def account_import_history_removed() -> None:
     raise HTTPException(status_code=410, detail="Local history import has been removed")

@@ -360,12 +360,27 @@ def _request_access_token(request: Request) -> str:
     return (request.cookies.get("fluentflow_access_token") or "").strip()
 
 
+def _request_api_key_auth(request: Request) -> dict[str, Any] | None:
+    if getattr(request.state, "_api_key_auth_checked", False):
+        cached = getattr(request.state, "api_key_auth", None)
+        return cached if isinstance(cached, dict) else None
+    request.state._api_key_auth_checked = True
+    auth = authenticate_api_key(_request_access_token(request))
+    if auth:
+        request.state.api_key_auth = auth
+        return auth
+    request.state.api_key_auth = None
+    return None
+
+
 def _request_has_access(request: Request) -> bool:
     tokens = _configured_access_tokens()
     if not tokens:
         return True
     supplied = _request_access_token(request)
-    return bool(supplied and any(hmac.compare_digest(supplied, token) for token in tokens))
+    if supplied and any(hmac.compare_digest(supplied, token) for token in tokens):
+        return True
+    return bool(_request_api_key_auth(request))
 
 
 def _normalize_client_id(value: str | None) -> str | None:
@@ -386,6 +401,11 @@ def _request_client_id(request: Request | None) -> str | None:
 
 
 def _request_client_scope(request: Request | None) -> str:
+    if request is not None:
+        api_key_auth = _request_api_key_auth(request)
+        owner_scope = str(api_key_auth.get("owner_scope") or "").strip() if api_key_auth else ""
+        if owner_scope:
+            return owner_scope
     if request is not None and _request_is_local_execution(request):
         return _request_client_id(request) or "anonymous"
     if request is not None and _account_auth_enabled():
@@ -425,6 +445,12 @@ async def beta_access_middleware(request: Request, call_next):
         if user:
             request.state.account_user = user
             return await call_next(request)
+        api_key_auth = _request_api_key_auth(request)
+        if api_key_auth and api_key_auth.get("user_id"):
+            user = get_user_by_id(str(api_key_auth["user_id"]))
+            if user and user.get("status") == "active":
+                request.state.account_user = user
+                return await call_next(request)
         return JSONResponse(
             status_code=401,
             content={
@@ -494,6 +520,12 @@ try:
         list_users,
         revoke_session,
     )
+    from backend.core.api_key_store import (
+        authenticate_api_key,
+        create_api_key,
+        list_api_keys,
+        revoke_api_key,
+    )
     from backend.core.quota_store import (
         InsufficientBalanceError,
         account_quota_summary,
@@ -552,6 +584,12 @@ except ImportError:
         get_user_by_session_token,
         list_users,
         revoke_session,
+    )
+    from core.api_key_store import (
+        authenticate_api_key,
+        create_api_key,
+        list_api_keys,
+        revoke_api_key,
     )
     from core.quota_store import (
         InsufficientBalanceError,
@@ -808,6 +846,12 @@ def _request_account_user(request: Request) -> dict[str, Any] | None:
         return cached
     token = _request_account_session_token(request)
     user = get_user_by_session_token(token)
+    if not user:
+        api_key_auth = _request_api_key_auth(request)
+        if api_key_auth and api_key_auth.get("user_id"):
+            user = get_user_by_id(str(api_key_auth["user_id"]))
+            if user and user.get("status") != "active":
+                user = None
     if user:
         request.state.account_user = user
     return user
@@ -3309,6 +3353,7 @@ FRONTEND_INDEX: Path = FRONTEND_DIR / "index.html"
 API_ROUTE_PREFIXES: set[str] = {
     "account",
     "admin",
+    "agent",
     "auth",
     "credentials",
     "events",

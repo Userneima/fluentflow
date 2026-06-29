@@ -31,6 +31,16 @@
 
 后续尚未准备发布的变更继续记录在这里。只有已经落地、验证并准备对外说明的内容，才移动到具体版本段落。
 
+### 用户可见变化
+
+- Agent 接入面板支持创建、查看和撤销 API Key；新建 Key 会自动填入 Claude Code / Codex 的 MCP 配置示例。
+- 本地和云端 Agent/MCP 接入统一使用 API Key，明文 Key 只在创建成功后显示一次。
+
+### 维护者变化
+
+- 新增 SQLite API Key 存储，服务端只保存哈希，并允许 `X-FluentFlow-Access-Token` 或 `Authorization: Bearer` 携带 Key 调用 `/agent/v1`。
+- `/agent/v1` 纳入后端 API 路由前缀和账号鉴权边界，API Key 会绑定到账号 scope 或本地 client scope。
+
 ## v0.2.0｜2026-06-29｜Agent 工作流与云端转录基础版
 
 ### 用户可见变化

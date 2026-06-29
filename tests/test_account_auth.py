@@ -75,9 +75,12 @@ def test_account_middleware_rejects_api_without_session(monkeypatch, tmp_path) -
 
     with TestClient(main.app) as client:
         response = client.get("/jobs")
+        agent_response = client.get("/agent/v1/tasks/missing/package")
 
     assert response.status_code == 401
     assert response.json()["account_required"] is True
+    assert agent_response.status_code == 401
+    assert agent_response.json()["account_required"] is True
 
 
 def test_local_lark_export_can_use_local_execution_header(monkeypatch, tmp_path) -> None:
@@ -156,6 +159,103 @@ def test_account_scope_replaces_device_scope(monkeypatch, tmp_path) -> None:
     assert register.status_code == 200
     assert response.status_code == 200
     assert captured["client_id"] == f"user:{register.json()['user']['id']}"
+
+
+def test_account_api_key_can_call_agent_without_session(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
+
+    with TestClient(main.app) as client:
+        register = client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
+        key_response = client.post("/account/api-keys", json={"name": "Codex"})
+        api_key = key_response.json()["one_time_key"]
+        listed = client.get("/account/api-keys")
+        client.post("/auth/logout")
+        key_management_without_session = client.get(
+            "/account/api-keys",
+            headers={"X-FluentFlow-Access-Token": api_key},
+        )
+        created = client.post(
+            "/agent/v1/tasks",
+            headers={"X-FluentFlow-Access-Token": api_key, "X-FluentFlow-Client-Id": "other-client"},
+            json={
+                "input_type": "transcript",
+                "title": "API key transcript",
+                "transcript_text": "hello from api key",
+                "options": {"skip_summary": True},
+            },
+        )
+        client.post("/auth/login", json={"email": "owner@example.com", "password": "secure-pass"})
+        revoked = client.post(f"/account/api-keys/{key_response.json()['api_key']['id']}/revoke")
+        client.post("/auth/logout")
+        rejected = client.post(
+            "/agent/v1/tasks",
+            headers={"X-FluentFlow-Access-Token": api_key},
+            json={
+                "input_type": "transcript",
+                "title": "Revoked key transcript",
+                "transcript_text": "this should fail",
+                "options": {"skip_summary": True},
+            },
+        )
+
+    user_scope = f"user:{register.json()['user']['id']}"
+    assert key_response.status_code == 200
+    assert api_key.startswith("ff_")
+    assert key_response.json()["api_key"]["owner_scope"] == user_scope
+    assert key_response.json()["api_key"]["key"] == api_key
+    assert listed.status_code == 200
+    assert listed.json()["api_keys"][0]["key_prefix"].startswith("ff_")
+    assert "key" not in listed.json()["api_keys"][0]
+    assert key_management_without_session.status_code == 401
+    assert created.status_code == 200
+    assert created.json()["package"]["task"]["task_id"]
+    assert job_store.get_job(created.json()["task_id"], db_path=tmp_path / "jobs.sqlite", client_id=user_scope)
+    assert revoked.status_code == 200
+    assert revoked.json()["api_key"]["revoked_at"]
+    assert rejected.status_code == 401
+
+
+def test_local_api_key_keeps_agent_scope_with_created_client(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("FLUENTFLOW_ACCOUNT_AUTH", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
+    monkeypatch.setenv("FLUENTFLOW_ACCOUNT_DB_PATH", str(tmp_path / "accounts.sqlite"))
+    captured = {}
+
+    def fake_get_job(task_id: str, client_id: str | None = None):
+        captured["client_id"] = client_id
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "stage": "done",
+            "progress": 100,
+            "result": {"transcript_text": "Done", "summary_markdown": "# Done"},
+        }
+
+    monkeypatch.setattr(_H, "get_job", fake_get_job)
+
+    with TestClient(main.app) as client:
+        key_response = client.post(
+            "/account/api-keys",
+            headers={"X-FluentFlow-Client-Id": "local-a"},
+            json={"name": "Local Codex"},
+        )
+        api_key = key_response.json()["one_time_key"]
+        local_a = client.get("/account/api-keys", headers={"X-FluentFlow-Client-Id": "local-a"})
+        local_b = client.get("/account/api-keys", headers={"X-FluentFlow-Client-Id": "local-b"})
+        package = client.get(
+            "/agent/v1/tasks/local-task/package",
+            headers={"X-FluentFlow-Access-Token": api_key, "X-FluentFlow-Client-Id": "local-b"},
+        )
+
+    assert key_response.status_code == 200
+    assert key_response.json()["api_key"]["owner_scope"] == "local-a"
+    assert local_a.json()["api_keys"]
+    assert local_b.json()["api_keys"] == []
+    assert package.status_code == 200
+    assert captured["client_id"] == "local-a"
 
 
 def test_cloud_workspace_proxy_bypasses_local_account_gate(monkeypatch, tmp_path) -> None:

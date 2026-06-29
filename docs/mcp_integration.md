@@ -13,7 +13,7 @@ The MCP server wraps the stable Agent API under `/agent/v1`. It does not call ba
 
 ## Configuration
 
-Use this shape in an MCP client that supports stdio servers:
+Create an API key from the FluentFlow Agent access panel, then use this shape in an MCP client that supports stdio servers:
 
 ```json
 {
@@ -25,14 +25,17 @@ Use this shape in an MCP client that supports stdio servers:
       ],
       "env": {
         "FLUENTFLOW_API_BASE": "http://127.0.0.1:8000",
-        "FLUENTFLOW_CLIENT_ID": "local-client"
+        "FLUENTFLOW_CLIENT_ID": "local-client",
+        "FLUENTFLOW_ACCESS_TOKEN": "<your-fluentflow-api-key>"
       }
     }
   }
 }
 ```
 
-If the backend requires an access token, set `FLUENTFLOW_ACCESS_TOKEN` in the same `env` block. Do not hard-code production tokens in repo files.
+API keys work for both local and cloud deployments. Local development can still run without a key when access control is disabled, but MCP clients should use `FLUENTFLOW_ACCESS_TOKEN` so the local and cloud setup paths stay the same. Do not hard-code production keys in repo files.
+
+API keys are shown once when created. The server stores only a hash, and the key list only shows a prefix plus status.
 
 ## Checks
 

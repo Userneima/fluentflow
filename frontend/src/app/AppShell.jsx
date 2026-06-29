@@ -10,6 +10,7 @@ import Editor from '../routes/editor.jsx';
 import Admin from '../routes/admin.jsx';
 import Settings from '../routes/settings.jsx';
 import About from '../routes/about.jsx';
+import WorkspaceApi from '../routes/workspace-api.jsx';
 import {useAuth} from './shared.jsx';
 
 const AppShell = () => {
@@ -36,6 +37,7 @@ const AppShell = () => {
                     <Route path="/editor" element={<Editor/>}/>
                     <Route path="/admin" element={guestMode ? <Dashboard/> : <Admin/>}/>
                     <Route path="/settings" element={guestMode ? <Dashboard/> : <Settings/>}/>
+                    <Route path="/workspace/api" element={<WorkspaceApi/>}/>
                     <Route path="/about" element={<About/>}/>
                     <Route path="/about/:page" element={<About/>}/>
                 </Routes>
