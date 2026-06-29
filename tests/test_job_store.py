@@ -79,6 +79,38 @@ def test_update_job_result_preserves_job_metadata(tmp_path: Path) -> None:
     assert updated["result"]["transcript_edited"] is True
 
 
+def test_upsert_job_merges_metadata_instead_of_replacing_it(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+
+    upsert_job(
+        task_id="guest-task",
+        status="queued",
+        metadata={
+            "route": "/guest-trial/process",
+            "queue_options": {"ai_provider": "qwen"},
+            "guest_trial": {"token": "guest-token"},
+        },
+        db_path=db,
+    )
+    upsert_job(
+        task_id="guest-task",
+        status="running",
+        stage="stt",
+        metadata={
+            "route": "/process",
+            "stt_provider": "elevenlabs_scribe",
+        },
+        db_path=db,
+    )
+
+    job = get_job("guest-task", db_path=db)
+    assert job is not None
+    assert job["metadata"]["route"] == "/process"
+    assert job["metadata"]["stt_provider"] == "elevenlabs_scribe"
+    assert job["metadata"]["queue_options"] == {"ai_provider": "qwen"}
+    assert job["metadata"]["guest_trial"] == {"token": "guest-token"}
+
+
 def test_job_store_writes_current_result_schema_without_legacy_segment_aliases(tmp_path: Path) -> None:
     db = tmp_path / "jobs.sqlite"
 

@@ -88,6 +88,22 @@ def _json_loads(value: str | None) -> Any:
         return None
 
 
+def _merged_metadata_for_upsert(
+    conn: sqlite3.Connection,
+    task_id: str,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if metadata is None:
+        return None
+    row = conn.execute("SELECT metadata_json FROM jobs WHERE task_id = ?", (task_id,)).fetchone()
+    if not row:
+        return metadata
+    existing = _json_loads(row[0])
+    if not isinstance(existing, dict):
+        return metadata
+    return {**existing, **metadata}
+
+
 def ensure_job_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,6 +139,7 @@ def upsert_job(
             ensure_job_db(db_path)
             now = _now_iso()
             with sqlite3.connect(Path(db_path)) as conn:
+                merged_metadata = _merged_metadata_for_upsert(conn, task_id, metadata)
                 conn.execute(
                     """
                     INSERT INTO jobs (
@@ -159,7 +176,7 @@ def upsert_job(
                         summary_status,
                         error_reason,
                         _result_json_dumps(result),
-                        _json_dumps(metadata),
+                        _json_dumps(merged_metadata),
                     ),
                 )
             return
