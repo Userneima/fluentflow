@@ -455,7 +455,7 @@ def test_workflow_next_step_copy_is_action_oriented() -> None:
     assert "结果可以复查" not in processing
     assert "任务正在运行" not in processing
     assert "还没有可解释的任务" not in processing
-    assert "下一步：删除这条取消记录。" in tasks
+    assert "下一步：删除这条取消记录。" not in tasks
     assert "下一步：可以删除" not in tasks
     assert "复查结果" in agent_trace
     assert "打开编辑器复查正文" in agent_trace
@@ -562,17 +562,17 @@ def test_settings_clear_history_requires_confirmation_dialog() -> None:
     assert "edit.clearConfirmAgain" not in source
 
 
-def test_tasks_show_actionable_next_step_for_failures() -> None:
+def test_tasks_route_diagnostics_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 
-    assert "taskNextStepText" in source
-    assert "hasFailedSummaryWithoutNote" in source
-    assert "if (hasSummaryMarkdown(result)) return false" in source
-    assert "Unsupported note generation mode" in source or "unsupported note generation mode" in source
-    assert "下一步：" in source
-    assert "旧模式残留" not in source
-    assert "当前版本已不支持的笔记模式" in source
-    assert "{nextStepText}" in source
+    assert "taskNextStepText" not in source
+    assert "noteGenerationDiagnosis" not in source
+    assert "hasFailedSummaryWithoutNote" not in source
+    assert "liveStageDetail" in source
+    assert "{isLiveJob(job) && (" in source
+    assert "/tasks/${encodeURIComponent(job.task_id)}/agent" in source
+    assert "下一步：" not in source
+    assert "{nextStepText}" not in source
 
 
 def test_failed_job_can_be_deleted(monkeypatch) -> None:

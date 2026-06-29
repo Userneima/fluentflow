@@ -24,7 +24,6 @@ import {
     jobToCurrentJob,
     jobDisplayTitle,
     jobToHistoryEntry,
-    noteGenerationDiagnosis,
     readCachedAccountJobs,
     timeAgo,
     useApi,
@@ -46,45 +45,6 @@ import {
     TASK_STATE_QUEUED,
     TASK_STATE_RUNNING,
 } from '../lib/taskState.js';
-
-const hasSummaryMarkdown = (result={}) => !!String(result?.summary_markdown || '').trim();
-
-const hasFailedSummaryWithoutNote = (job) => {
-    const result = job?.result || {};
-    if (hasSummaryMarkdown(result)) return false;
-    return job?.summary_status === 'failed' || result.summary_status === 'failed' || !!result.summary_error;
-};
-
-const taskNextStepText = (job, lang) => {
-    const result = job?.result || {};
-    const errorText = String(job?.error_reason || result.summary_error || '').toLowerCase();
-    const summaryFailed = hasFailedSummaryWithoutNote(job);
-    const noteDiagnosis = noteGenerationDiagnosis({
-        ...result,
-        summary_status: result.summary_status || job?.summary_status,
-        summary_error: result.summary_error || job?.error_reason,
-    }, lang);
-    if (job?.status === 'cancelled') {
-        return lang === 'zh' ? '下一步：删除这条取消记录。' : 'Next: delete this cancelled record.';
-    }
-    if (summaryFailed && hasTranscriptResult(result)) {
-        return noteDiagnosis.nextAction || (lang === 'zh' ? '下一步：打开结果，点击重生笔记；字幕不会丢。' : 'Next: open the result and regenerate the note. The transcript is preserved.');
-    }
-    if (job?.status !== 'failed') return '';
-    if (errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
-        return lang === 'zh' ? '下一步：这个任务使用了当前版本已不支持的笔记模式，回到开始页重新提交即可。' : 'Next: this job used a note mode that is no longer supported. Submit it again from Dashboard.';
-    }
-    if (errorText.includes('quota') || errorText.includes('balance') || errorText.includes('额度') || errorText.includes('余额')) {
-        return lang === 'zh' ? '下一步：补足额度或降低本次处理成本后再提交。' : 'Next: add balance or lower this run’s cost before submitting again.';
-    }
-    if (errorText.includes('lark') || errorText.includes('feishu') || errorText.includes('飞书')) {
-        return lang === 'zh' ? '下一步：检查飞书导出路线和凭证后再重试。' : 'Next: check the Feishu export route and credentials, then retry.';
-    }
-    if (job?.source_type === 'video_link') {
-        return lang === 'zh' ? '下一步：删除失败记录，重新粘贴链接；如果仍失败，改用本地视频上传。' : 'Next: delete this failed record and paste the link again; upload the video file if it keeps failing.';
-    }
-    return lang === 'zh' ? '下一步：删除这条失败记录，然后从开始页重新提交。' : 'Next: delete this failed record, then submit it again from Dashboard.';
-};
 
 const agentPlanSummary = (job, lang) => {
     const plan = job?.result?.processing_plan;
@@ -141,7 +101,6 @@ const Tasks = () => {
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const isLiveJob = isLiveTask;
-    const isCancelledJob = (job) => normalizeTaskState(job) === TASK_STATE_CANCELLED;
     const isDeletableJob = (job) => !isLiveJob(job);
     const isLocalJob = (job) => String(job.client_id || '').startsWith('local-') || job.metadata?.stt_provider === 'local';
     const [taskFilter, setTaskFilter] = useState('all');
@@ -352,27 +311,15 @@ const Tasks = () => {
         return timeAgo(ts, t);
     };
     const stageLabel = (job) => t(`status.${job.stage || (normalizeTaskState(job) === TASK_STATE_FAILED ? 'failed' : 'idle')}`);
-    const stageDetail = (job) => {
+    const liveStageDetail = (job) => {
         const progressMeta = job.metadata?.video_source_progress || {};
         const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
         const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
         const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
-        const summaryFailed = hasFailedSummaryWithoutNote(job);
         if (progressMeta.message) return `${progressMeta.message}${byteText}`;
-        if (summaryFailed && hasTranscriptResult(job.result)) {
-            const noteDiagnosis = noteGenerationDiagnosis({
-                ...job.result,
-                summary_status: job.result?.summary_status || job.summary_status,
-                summary_error: job.result?.summary_error || job.error_reason,
-            }, lang);
-            return `${noteDiagnosis.title}。${noteDiagnosis.detail}`;
-        }
         const taskState = normalizeTaskState(job);
         if (taskState === TASK_STATE_QUEUED) return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
         if (taskState === TASK_STATE_RUNNING) return job.summary_status || stageLabel(job);
-        if (taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job)) return lang === 'zh' ? '结果已保存，可打开编辑器或下载产物。' : 'Result saved. Open it in the editor or download outputs.';
-        if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '任务已取消。删除这条记录即可。' : 'Task cancelled. Delete this record when ready.';
-        if (taskState === TASK_STATE_FAILED) return friendlyTaskError(job.error_reason, lang);
         return '-';
     };
     const artifactButtons = [
@@ -454,10 +401,7 @@ const Tasks = () => {
                             const availableArtifacts = artifactButtons.filter(([kind]) => artifacts[kind]);
                             const larkUrl = result.lark_response?.url || result.feishu_doc_url || null;
                             const canOpen = hasTranscriptResult(result) || (!!result && (taskState === TASK_STATE_COMPLETED || taskState === TASK_STATE_CACHED_ONLY));
-                            const summaryFailed = hasFailedSummaryWithoutNote(job);
                             const planSummary = agentPlanSummary(job, lang);
-                            const nextStepText = taskNextStepText(job, lang);
-                            const showDetail = isLiveJob(job) || taskState === TASK_STATE_FAILED || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result)) || !!nextStepText;
                             const displayTitle = jobDisplayTitle(job, lang);
                             const downloadItems = [
                                 ...availableArtifacts.map(([kind, label]) => ({icon:'download', label, badge:kind.endsWith('vtt')?'VTT':kind.endsWith('srt')?'SRT':kind.endsWith('txt')?'TXT':kind.endsWith('md')?'MD':kind, onClick:()=>downloadArtifact(job,kind)})),
@@ -483,22 +427,14 @@ const Tasks = () => {
                                                     {[planSummary.route, ...(planSummary.trace.length > 0 ? [planSummary.trace.join(' → ')] : [])].filter(Boolean).join(' · ')}
                                                 </p>
                                             )}
-                                            {showDetail && (
+                                            {isLiveJob(job) && (
                                             <div className="mt-2 ml-0 space-y-2">
-                                                {isLiveJob(job) && (
-                                                    <div className={`h-1.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${isSttProgressUnmeasured(jobToCurrentJob(job)) ? 'progress-indeterminate' : ''}`}>
-                                                        {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width:`${progress}%`}}></div>}
-                                                    </div>
-                                                )}
-                                                <p className={`rounded-sm px-3 py-2 text-xs font-semibold leading-relaxed ${taskState === TASK_STATE_FAILED && !canOpen ? 'border border-error/20 bg-error-container text-on-error-container' : summaryFailed && hasTranscriptResult(result) ? 'border border-amber-400/25 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-surface-container-low text-on-surface-variant'}`}>
-                                                    {taskState === TASK_STATE_FAILED && !canOpen ? <span className="font-bold">{t('tasks.error')}： </span> : null}
-                                                    {stageDetail(job)}
+                                                <div className={`h-1.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${isSttProgressUnmeasured(jobToCurrentJob(job)) ? 'progress-indeterminate' : ''}`}>
+                                                    {!isSttProgressUnmeasured(jobToCurrentJob(job)) && <div className="h-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width:`${progress}%`}}></div>}
+                                                </div>
+                                                <p className="rounded-sm bg-surface-container-low px-3 py-2 text-xs font-semibold leading-relaxed text-on-surface-variant">
+                                                    {liveStageDetail(job)}
                                                 </p>
-                                                {nextStepText && (
-                                                    <p className="rounded-sm border ff-border-control bg-surface-container-lowest px-3 py-2 text-xs font-semibold leading-relaxed text-on-surface-variant">
-                                                        {nextStepText}
-                                                    </p>
-                                                )}
                                             </div>
                                             )}
                                         </div>
