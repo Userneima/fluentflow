@@ -2911,6 +2911,8 @@ def _submit_transcript_source_file(
         "task_id": task_id,
     }
     headers = {"X-FluentFlow-Internal-Queue-Token": INTERNAL_QUEUE_TOKEN}
+    if str(options.get("stt_provider") or "").strip().lower() == "local":
+        headers["X-FluentFlow-Execution-Target"] = "local"
     if client_id:
         headers["X-FluentFlow-Client-Id"] = client_id
     tokens = _configured_access_tokens()

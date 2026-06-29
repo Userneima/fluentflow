@@ -261,3 +261,38 @@ def test_local_queued_transcription_keeps_process_request_local(tmp_path, monkey
 
     assert captured
     assert captured[0]["headers"]["X-FluentFlow-Execution-Target"] == "local"
+
+
+def test_local_transcript_source_submission_keeps_request_local(tmp_path, monkeypatch) -> None:
+    source_file = tmp_path / "source.srt"
+    source_file.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
+    captured: list[dict] = []
+
+    class DummyResponse:
+        is_error = False
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            captured.append({"url": url, **kwargs})
+            return DummyResponse()
+
+    monkeypatch.setattr(_H.httpx, "Client", lambda **kwargs: DummyClient())
+
+    _H._submit_transcript_source_file(
+        task_id="task-local-transcript",
+        source_path=source_file,
+        filename=source_file.name,
+        options={"stt_provider": "local"},
+        base_url="http://127.0.0.1:8000",
+        client_id="local-single-user",
+    )
+
+    assert captured
+    assert captured[0]["url"] == "http://127.0.0.1:8000/summarize-transcript-file"
+    assert captured[0]["headers"]["X-FluentFlow-Execution-Target"] == "local"
