@@ -691,7 +691,7 @@ const Dashboard = () => {
                             sttSpeed: settings.sttSpeed||'balanced',
                             sttLanguage: 'auto',
                         });
-                        navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`);
+                        navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job: pendingJob}});
                     }
                     setVideoLinkInput('');
                 } catch(err) {

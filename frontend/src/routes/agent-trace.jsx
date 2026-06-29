@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Link, useNavigate, useParams} from 'react-router-dom';
+import {Link, useLocation, useNavigate, useParams} from 'react-router-dom';
 import {
     AlertTriangle,
     ArrowLeft,
@@ -11,7 +11,7 @@ import {
     LoaderCircle,
     XCircle,
 } from 'lucide-react';
-import {API_BASE, apiFetch, noteModeLabel, useApp, useI18n} from '../app/shared.jsx';
+import {API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n} from '../app/shared.jsx';
 import TaskProgressOverview from '../components/TaskProgressOverview.jsx';
 
 const statusText = (status, lang) => {
@@ -350,31 +350,67 @@ const visibleActions = (actions=[]) => (
 const AgentTrace = () => {
     const {taskId} = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const {lang} = useI18n();
-    const {setLastResult} = useApp();
-    const [loading, setLoading] = useState(true);
+    const {currentJob, setLastResult} = useApp();
+    const initialJob = location.state?.job && location.state.job.task_id === taskId ? location.state.job : null;
+    const [loading, setLoading] = useState(!initialJob);
     const [error, setError] = useState(null);
-    const [pageData, setPageData] = useState(null);
+    const [pageData, setPageData] = useState(() => initialJob ? {
+        ok: true,
+        task: {
+            task_id: initialJob.task_id,
+            status: initialJob.status,
+            stage: initialJob.stage,
+            progress: initialJob.progress,
+            source_type: initialJob.source_type,
+            title: initialJob.metadata?.display_title || initialJob.source_filename,
+            filename: initialJob.source_filename,
+            created_at: initialJob.created_at,
+            updated_at: initialJob.updated_at,
+        },
+        title: initialJob.metadata?.display_title || initialJob.source_filename || taskId,
+        decision_log: {entries: []},
+        actions: [],
+    } : null);
     const [actionBusy, setActionBusy] = useState(null);
     const [actionError, setActionError] = useState(null);
     const isZh = lang === 'zh';
+
+    const readJson = async (path, options={}) => {
+        const response = await apiFetch(`${API_BASE}${path}`, {headers: localExecutionHeaders(options)});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const exc = new Error(data?.detail || `HTTP ${response.status}`);
+            exc.status = response.status;
+            throw exc;
+        }
+        return data;
+    };
+
+    const readJsonWithLocalFallback = async (path) => {
+        const currentJobOptions = currentJob?.taskId === taskId ? {sttProvider: currentJob.sttProvider} : {};
+        const currentIsLocal = !!localExecutionHeaders(currentJobOptions)['X-FluentFlow-Execution-Target'];
+        try {
+            return await readJson(path, currentJobOptions);
+        } catch (exc) {
+            if (exc.status !== 404 || currentIsLocal) throw exc;
+            return await readJson(path, {localExecution: true});
+        }
+    };
 
     const loadTaskDetail = async (staleRef={current:false}, {silent=false} = {}) => {
         if (!silent) setLoading(true);
         setError(null);
         try {
-            const detailResponse = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/detail`);
-            const detailData = await detailResponse.json().catch(() => ({}));
-            if (!detailResponse.ok) throw new Error(detailData?.detail || `HTTP ${detailResponse.status}`);
+            const detailData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`);
             if (!staleRef.current) setPageData(detailData);
         } catch (detailError) {
             try {
-                const packageResponse = await apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
-                const packageData = await packageResponse.json().catch(() => ({}));
-                if (!packageResponse.ok) throw new Error(packageData?.detail || `HTTP ${packageResponse.status}`);
+                const packageData = await readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
                 if (!staleRef.current) setPageData(packageData);
             } catch (packageError) {
-                if (!staleRef.current) setError(packageError.message || detailError.message || String(packageError));
+                if (!staleRef.current && !pageData) setError(packageError.message || detailError.message || String(packageError));
             }
         } finally {
             if (!staleRef.current) setLoading(false);

@@ -108,8 +108,8 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     overview = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
-    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`)" in media_text
-    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`)" in dashboard
+    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job}})" in media_text
+    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job: pendingJob}})" in dashboard
     assert "subscribeJobEvents(job.task_id" not in media_text
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
@@ -520,9 +520,11 @@ def test_editor_agent_workflow_link_requires_real_task_id() -> None:
 def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
-    assert "API_BASE, apiFetch, noteModeLabel, useApp, useI18n" in source
-    assert "apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/detail`)" in source
-    assert "apiFetch(`${API_BASE}/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
+    assert "API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
+    assert "readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`)" in source
+    assert "readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
+    assert "localExecutionHeaders(currentJobOptions)" in source
+    assert "return await readJson(path, {localExecution: true});" in source
     assert "visibleActions(pageData?.actions)" in source
     assert "runAction(action)" in source
     assert "setLastResult(job.result)" in source

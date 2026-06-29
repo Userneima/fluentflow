@@ -371,7 +371,7 @@ const MediaText = () => {
                 setVideoLinkInput('');
                 abortRef.current = null;
                 setSubmitting(false);
-                navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`);
+                navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job}});
                 return;
             }
         } catch (err) {
