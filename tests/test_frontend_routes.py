@@ -566,6 +566,8 @@ def test_tasks_show_actionable_next_step_for_failures() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 
     assert "taskNextStepText" in source
+    assert "hasFailedSummaryWithoutNote" in source
+    assert "if (hasSummaryMarkdown(result)) return false" in source
     assert "Unsupported note generation mode" in source or "unsupported note generation mode" in source
     assert "下一步：" in source
     assert "旧模式残留" not in source

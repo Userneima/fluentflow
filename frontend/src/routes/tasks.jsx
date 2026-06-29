@@ -47,10 +47,18 @@ import {
     TASK_STATE_RUNNING,
 } from '../lib/taskState.js';
 
+const hasSummaryMarkdown = (result={}) => !!String(result?.summary_markdown || '').trim();
+
+const hasFailedSummaryWithoutNote = (job) => {
+    const result = job?.result || {};
+    if (hasSummaryMarkdown(result)) return false;
+    return job?.summary_status === 'failed' || result.summary_status === 'failed' || !!result.summary_error;
+};
+
 const taskNextStepText = (job, lang) => {
     const result = job?.result || {};
     const errorText = String(job?.error_reason || result.summary_error || '').toLowerCase();
-    const summaryFailed = job?.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
+    const summaryFailed = hasFailedSummaryWithoutNote(job);
     const noteDiagnosis = noteGenerationDiagnosis({
         ...result,
         summary_status: result.summary_status || job?.summary_status,
@@ -349,7 +357,7 @@ const Tasks = () => {
         const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
         const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
         const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
-        const summaryFailed = job.summary_status === 'failed' || job.result?.summary_status === 'failed' || job.result?.summary_error;
+        const summaryFailed = hasFailedSummaryWithoutNote(job);
         if (progressMeta.message) return `${progressMeta.message}${byteText}`;
         if (summaryFailed && hasTranscriptResult(job.result)) {
             const noteDiagnosis = noteGenerationDiagnosis({
@@ -446,7 +454,7 @@ const Tasks = () => {
                             const availableArtifacts = artifactButtons.filter(([kind]) => artifacts[kind]);
                             const larkUrl = result.lark_response?.url || result.feishu_doc_url || null;
                             const canOpen = hasTranscriptResult(result) || (!!result && (taskState === TASK_STATE_COMPLETED || taskState === TASK_STATE_CACHED_ONLY));
-                            const summaryFailed = job.summary_status === 'failed' || result.summary_status === 'failed' || result.summary_error;
+                            const summaryFailed = hasFailedSummaryWithoutNote(job);
                             const planSummary = agentPlanSummary(job, lang);
                             const nextStepText = taskNextStepText(job, lang);
                             const showDetail = isLiveJob(job) || taskState === TASK_STATE_FAILED || isCancelledJob(job) || (summaryFailed && hasTranscriptResult(result)) || !!nextStepText;
