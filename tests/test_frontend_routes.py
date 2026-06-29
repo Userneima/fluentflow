@@ -114,7 +114,8 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
     assert "当前阶段、处理配置和判断依据会在这里同步更新" in overview
-    assert "return <Navigate to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`} replace/>;" in processing
+    assert "to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`}" in processing
+    assert "return <Navigate" not in processing
 
 
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
@@ -590,6 +591,7 @@ def test_processing_page_is_agent_workflow_surface() -> None:
     assert "计划依据" in source
     assert "高级详情" in source
     assert "editorActionLabel" in source
+    assert "查看任务详情" in source
     assert "h-dvh overflow-y-auto" in source
 
 

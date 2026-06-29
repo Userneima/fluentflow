@@ -1,5 +1,5 @@
 import {useMemo} from 'react';
-import {Link, Navigate} from 'react-router-dom';
+import {Link} from 'react-router-dom';
 import SvgIcon from '../components/SvgIcon.jsx';
 import {
     effectiveSttProvider,
@@ -141,9 +141,6 @@ const Processing = () => {
     const planSteps = Array.isArray(processingPlan?.steps) ? processingPlan.steps : [];
     const active = currentJob && currentJob.stage !== 'done' ? currentJob : null;
     const detailTaskId = active?.taskId || result?.task_id;
-    if (detailTaskId) {
-        return <Navigate to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`} replace/>;
-    }
     const rawTitle = active?.fileName || result?.display_title || result?.filename || '';
     const title = displayTitleForUser(rawTitle, result?.filename || rawTitle) || (isZh ? '等待任务' : 'Waiting for task');
     const stage = active?.stage || (result ? 'done' : 'queued');
@@ -399,8 +396,14 @@ const Processing = () => {
                         <section className="border-t border-[#dedada] pt-5 dark:border-white/[0.10]">
                             <SectionHeading icon={summaryFailed ? 'error' : 'arrow_forward'} title={nextActionTitle} desc={nextActionDesc}/>
                             <div className="flex flex-wrap gap-2">
+                                {detailTaskId && (
+                                    <Link to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`} className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                        <SvgIcon name="monitoring" className="text-base"/>
+                                        {isZh ? '查看任务详情' : 'View task details'}
+                                    </Link>
+                                )}
                                 {result && (
-                                    <Link to="/editor" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                    <Link to="/editor" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#f4f3f3] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
                                         <SvgIcon name="open_in_new" className="text-base"/>
                                         {editorActionLabel}
                                     </Link>
