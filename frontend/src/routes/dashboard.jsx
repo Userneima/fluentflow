@@ -691,6 +691,7 @@ const Dashboard = () => {
                             sttSpeed: settings.sttSpeed||'balanced',
                             sttLanguage: 'auto',
                         });
+                        navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`);
                     }
                     setVideoLinkInput('');
                 } catch(err) {

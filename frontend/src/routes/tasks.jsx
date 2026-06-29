@@ -470,7 +470,7 @@ const Tasks = () => {
                                                     {job.task_id ? (
                                                         <Link to={`/tasks/${encodeURIComponent(job.task_id)}/agent`} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
                                                             <Activity className="size-3.5" strokeWidth={2.15}/>
-                                                            Agent
+                                                            {lang === 'zh' ? '详情' : 'Details'}
                                                         </Link>
                                                     ) : null}
                                                     {downloadItems.length > 0 ? (

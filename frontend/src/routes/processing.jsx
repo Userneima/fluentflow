@@ -1,5 +1,5 @@
 import {useMemo} from 'react';
-import {Link} from 'react-router-dom';
+import {Link, Navigate} from 'react-router-dom';
 import SvgIcon from '../components/SvgIcon.jsx';
 import {
     effectiveSttProvider,
@@ -140,6 +140,10 @@ const Processing = () => {
     const planRiskNotes = Array.isArray(processingPlan?.risk_notes) ? processingPlan.risk_notes.filter(Boolean) : [];
     const planSteps = Array.isArray(processingPlan?.steps) ? processingPlan.steps : [];
     const active = currentJob && currentJob.stage !== 'done' ? currentJob : null;
+    const detailTaskId = active?.taskId || result?.task_id;
+    if (detailTaskId) {
+        return <Navigate to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`} replace/>;
+    }
     const rawTitle = active?.fileName || result?.display_title || result?.filename || '';
     const title = displayTitleForUser(rawTitle, result?.filename || rawTitle) || (isZh ? '等待任务' : 'Waiting for task');
     const stage = active?.stage || (result ? 'done' : 'queued');

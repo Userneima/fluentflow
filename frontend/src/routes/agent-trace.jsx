@@ -13,6 +13,7 @@ import {
     XCircle,
 } from 'lucide-react';
 import {API_BASE, apiFetch, noteModeLabel, useApp, useI18n} from '../app/shared.jsx';
+import TaskProgressOverview from '../components/TaskProgressOverview.jsx';
 
 const statusText = (status, lang) => {
     const isZh = lang === 'zh';
@@ -425,8 +426,8 @@ const AgentTrace = () => {
     const [actionError, setActionError] = useState(null);
     const isZh = lang === 'zh';
 
-    const loadTaskDetail = async (staleRef={current:false}) => {
-        setLoading(true);
+    const loadTaskDetail = async (staleRef={current:false}, {silent=false} = {}) => {
+        if (!silent) setLoading(true);
         setError(null);
         try {
             const detailResponse = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/detail`);
@@ -452,6 +453,18 @@ const AgentTrace = () => {
         loadTaskDetail(staleRef);
         return () => { staleRef.current = true; };
     }, [taskId]);
+
+    useEffect(() => {
+        const taskStatus = String(pageData?.task?.status || '').toLowerCase();
+        const taskStage = String(pageData?.task?.stage || '').toLowerCase();
+        if (!['queued', 'running'].includes(taskStatus) && !['queued', 'resolving', 'downloading', 'saving', 'audio', 'stt', 'summary', 'export'].includes(taskStage)) return undefined;
+        const staleRef = {current: false};
+        const timer = setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000);
+        return () => {
+            staleRef.current = true;
+            clearInterval(timer);
+        };
+    }, [pageData?.task?.status, pageData?.task?.stage, taskId]);
 
     const runAction = async (action) => {
         if (!action || actionBusy) return;
@@ -534,7 +547,7 @@ const AgentTrace = () => {
                             </Link>
                             <span className="text-[#a2a3a8] dark:text-white/35">/</span>
                             <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
-                                {isZh ? '判断推进' : 'Decision flow'}
+                                {isZh ? '处理详情' : 'Task details'}
                             </h1>
                             <span className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
                                 {isZh ? 'Agent 工作流' : 'Agent workflow'}
@@ -555,6 +568,8 @@ const AgentTrace = () => {
                         </Link>
                     </div>
                 </header>
+
+                <TaskProgressOverview pageData={pageData}/>
 
                 <section className="rounded-[20px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.4fr)] lg:items-center">

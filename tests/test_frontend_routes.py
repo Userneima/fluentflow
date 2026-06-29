@@ -86,7 +86,6 @@ def test_frontend_explains_video_link_download_failures() -> None:
 
 
 def test_video_link_failures_are_preserved_in_background_tasks() -> None:
-    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
@@ -96,12 +95,26 @@ def test_video_link_failures_are_preserved_in_background_tasks() -> None:
     assert "export const cacheJobRecord" in mapper
     assert "cacheJobRecord" in shared
     assert "cacheJobRecord" in job_morph
-    assert "persistFailedVideoLinkJob" in media_text
     assert "persistFailedTaskJob" in dashboard
-    assert "已保存在后台任务" in media_text
     assert "已保存在后台任务" in dashboard
     assert "taskFailureDetail" in tasks
     assert "job.error_reason || job.result?.summary_error" in tasks
+
+
+def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+    overview = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
+    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+
+    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`)" in media_text
+    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`)" in dashboard
+    assert "subscribeJobEvents(job.task_id" not in media_text
+    assert "TaskProgressOverview" in agent_trace
+    assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
+    assert "当前阶段、处理配置和判断依据会在这里同步更新" in overview
+    assert "return <Navigate to={`/tasks/${encodeURIComponent(detailTaskId)}/agent`} replace/>;" in processing
 
 
 def test_processing_page_no_longer_exposes_settings_controls() -> None:

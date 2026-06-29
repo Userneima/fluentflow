@@ -11,14 +11,12 @@ import {
     createTaskId,
     effectiveSttProvider,
     fileNameStem,
-    fmtElapsed,
     fmtFileSize,
     friendlyTaskError,
     hasTranscriptResult,
     historyEntryToResult,
     isCloudSttConfigured,
     isCloudSttProvider,
-    jobProgressLabel,
     jobToCurrentJob,
     jobToHistoryEntry,
     larkExportRouteFromSettings,
@@ -66,7 +64,6 @@ const MediaText = () => {
         enqueueProcessFiles,
         processGuestTrialFile,
         createVideoSourceJob,
-        subscribeJobEvents,
         subscribeGuestTrialJobEvents,
         summarizeTranscriptFile,
         cancelGuestTrialJob,
@@ -372,21 +369,9 @@ const MediaText = () => {
                     sttLanguage: 'auto',
                 });
                 setVideoLinkInput('');
-                subscribeJobEvents(job.task_id, applyProgressEvent, ac.signal, {sttProvider})
-                    .then((result) => {
-                        settleResult(result, {taskId: job.task_id, fileName: job.source_filename || input.slice(0, 80), source: 'video_link'});
-                        navigate('/editor');
-                    })
-                    .catch((err) => {
-                        if (err.name !== 'AbortError') {
-                            const errorText = persistFailedVideoLinkJob(job, err.message, input);
-                            setUploadError(lang === 'zh' ? `${errorText} 已保存在后台任务。` : `${errorText} Saved in background tasks.`);
-                        }
-                    })
-                    .finally(() => {
-                        if (abortRef.current === ac) abortRef.current = null;
-                        setSubmitting(false);
-                    });
+                abortRef.current = null;
+                setSubmitting(false);
+                navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`);
                 return;
             }
         } catch (err) {
@@ -483,8 +468,6 @@ const MediaText = () => {
         setSubmitting(false);
     };
 
-    const activeProgress = Math.max(0, Math.min(100, Number(currentJob?.progress) || 0));
-    const activeStageLabel = currentJob?.stage ? t(`status.${currentJob.stage}`) : '';
     const recent = history.slice(0, 6);
 
     const openRecentTask = async (item) => {
@@ -629,13 +612,13 @@ const MediaText = () => {
                     </div>
                 </section>
 
-                {currentJob && currentJob.stage !== 'done' && (
+                {currentJob && currentJob.stage !== 'done' && currentJob.sourceType !== 'video_link' && (
                     <section className="mt-6 rounded-[22px] border border-[#dedada] bg-white p-5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                             <div className="min-w-0">
                                 <p className="text-xs font-extrabold text-[#777] dark:text-white/55">{lang === 'zh' ? '当前任务' : 'Active task'}</p>
                                 <h2 className="mt-1 truncate text-xl font-extrabold">{currentJob.fileName}</h2>
-                                <p className="mt-1 text-sm font-semibold text-[#666] dark:text-white/55">{activeStageLabel} · {jobProgressLabel(currentJob, t)}</p>
+                                <p className="mt-1 text-sm font-semibold text-[#666] dark:text-white/55">{t(`status.${currentJob.stage}`)}</p>
                             </div>
                             <button type="button" onClick={handleCancel} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3 text-xs font-extrabold text-red-600 hover:bg-red-100 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/20">
                                 <SvgIcon name="cancel" className="size-4"/>
@@ -643,7 +626,7 @@ const MediaText = () => {
                             </button>
                         </div>
                         <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12]">
-                            <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width: `${activeProgress}%`}}/>
+                            <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width: `${Math.max(0, Math.min(100, Number(currentJob?.progress) || 0))}%`}}/>
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                             <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
