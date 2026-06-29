@@ -8,6 +8,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Frontend source: `frontend/src/`.
 - Built frontend app: `frontend/dist/` from Vite.
 - UI design system: `docs/ui_design_system.md`.
+- Agent / MCP parity rule: `docs/agent_mcp_parity.md`.
 - Changelog: `docs/changelog.md`.
 
 ## Rules
@@ -16,6 +17,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Before major UI or information-architecture changes, discuss the proposed direction with the user first. State what will move, hide, or be removed; what user workflow changes; and what existing settings/data remain intact. Wait for explicit confirmation before editing. Small visual fixes and bug fixes may still be implemented directly.
 - After frontend changes, run `npm run build:frontend`.
 - For backend logic, state, queue, auth, quota, or persistence changes, run relevant pytest coverage.
+- When adding or changing a user-facing workflow, run the Agent / MCP parity check in `docs/agent_mcp_parity.md`. Agent-actionable capabilities must update `/agent/v1`, MCP tools, task package fields, schemas, docs, or tests in the same work unit, unless the change is explicitly recorded as UI-only.
 - Always run `git diff --check` before reporting completion.
 - Do not commit `.env`, SQLite databases, runtime artifacts, media files, transcripts, notes, logs, exports, or private docs.
 - Do not push or deploy unless explicitly requested.
