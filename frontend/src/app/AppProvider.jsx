@@ -11,8 +11,10 @@ import {
     DEFAULT_RUNTIME_CONFIG,
     readCachedAccountJobs,
     writeCachedAccountJobs,
+    mergeCachedJobs,
     jobToHistoryEntry,
     jobToCurrentJob,
+    sortJobsForHistoryView,
 } from './jobMorph.js';
 import { normalizeTaskState, TASK_STATE_RUNNING, TASK_STATE_QUEUED } from '../lib/taskState.js';
 
@@ -56,24 +58,33 @@ export const AppProvider = ({children}) => {
         }
         const cachedJobs = readCachedAccountJobs(accountCacheId);
         if (cachedJobs.length) {
-            const cachedEntries = cachedJobs
+            const cachedEntries = sortJobsForHistoryView(cachedJobs)
                 .filter(jobVisibleInHistory)
                 .map(jobToHistoryEntry);
             setHistory(cachedEntries);
             const cachedRunning = cachedJobs.find((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_QUEUED);
             if (cachedRunning) setCurrentJob(jobToCurrentJob(cachedRunning));
         }
-        apiFetch(`${API_BASE}/jobs?limit=100`)
-            .then((r) => r.ok ? r.json() : null)
-            .then((data) => {
-                if (!Array.isArray(data?.jobs)) return;
-                writeCachedAccountJobs(accountCacheId, data.jobs);
-                const entries = data.jobs
+        Promise.allSettled([
+            apiFetch(`${API_BASE}/jobs?limit=100`),
+            apiFetch(`${API_BASE}/jobs?limit=100`, {headers: {'X-FluentFlow-Execution-Target': 'local'}}),
+        ])
+            .then(async (results) => {
+                const groups = await Promise.all(results.map(async (result) => {
+                    if (result.status !== 'fulfilled' || !result.value?.ok) return [];
+                    const data = await result.value.json().catch(() => ({}));
+                    return Array.isArray(data?.jobs) ? data.jobs : [];
+                }));
+                const fetchedJobs = groups.flat();
+                if (!fetchedJobs.length) return;
+                const nextJobs = sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs));
+                writeCachedAccountJobs(accountCacheId, nextJobs);
+                const entries = nextJobs
                     .filter(jobVisibleInHistory)
                     .map(jobToHistoryEntry);
                 if (cancelled) return;
                 setHistory(entries);
-                const running = data.jobs.find((job) => normalizeTaskState(job) === TASK_STATE_RUNNING);
+                const running = nextJobs.find((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_QUEUED);
                 if (running) setCurrentJob(jobToCurrentJob(running));
             })
             .catch(() => {});

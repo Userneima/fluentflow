@@ -113,10 +113,28 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "subscribeJobEvents(job.task_id" not in media_text
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
-    assert "当前阶段、处理配置和判断依据会在这里同步更新" in overview
-    assert "本地 faster-whisper 只负责转录；生成 AI 笔记仍会使用账号额度和配置的模型服务。" in overview
+    assert "这里仅显示当前阶段和必要进度" in overview
+    assert "转录、笔记和可下载产物会在结果页集中复查" in overview
+    assert "需要处理这个失败任务" in overview
+    assert "当前阶段、处理配置和判断依据会在这里同步更新" not in overview
+    assert "本地 faster-whisper 只负责转录" not in overview
     assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in processing
     assert "state={targetJob ? {job: targetJob} : undefined}" in processing
+
+
+def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
+    fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "export const diagnoseTaskError" in fmt
+    assert "return diagnoseTaskError(message, lang).detail;" in fmt
+    assert "const diag = diagnoseTaskError(rawError, lang)" in fmt
+    assert "auth_required" in fmt
+    assert "platform_rate_limited" in fmt
+    assert "source_file_missing" in fmt
+    assert "unsupported_note_mode" in fmt
+    assert "feishu_export_failed" in fmt
+    assert "diagnoseTaskError" in shared
 
 
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
@@ -186,8 +204,8 @@ def test_tasks_polling_respects_local_cancel_and_delete_mutations() -> None:
     assert "const results = await Promise.allSettled([" in source
     assert "setJobs((current) => {" in source
     assert "[...readCachedJobs(), ...current]" in source
-    assert "const [jobs, setJobs] = useState([])" in source
-    assert "const [loading, setLoading] = useState(true)" in source
+    assert "const [jobs, setJobs] = useState(initialCachedJobs)" in source
+    assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in source
     assert "map(markCachedOnlyJob)" not in source
     assert "locallyDeletedTaskIdsRef.current.has(taskId)" in source
     assert "locallyCancelledTaskIdsRef.current.has(taskId)" in source
@@ -248,7 +266,9 @@ def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     assert "const [history, setHistory] = useState([])" in shared
     assert "const [history, setHistory] = useState([])" in app_provider
     assert "readCachedAccountJobs(accountCacheId)" in shared
-    assert "writeCachedAccountJobs(accountCacheId, data.jobs)" in shared
+    assert "writeCachedAccountJobs(accountCacheId, nextJobs)" in shared
+    assert "mergeCachedJobs," in shared
+    assert "sortJobsForHistoryView," in shared
     assert "rawFilename" in mapper
     assert "filename: h.rawFilename || h.name" in mapper
     assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in mapper
@@ -257,6 +277,36 @@ def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     assert "historyEntryToResult(history.find" not in editor
     assert "historyEntryToResult(latestHistory)" not in processing
     assert "latestHistory" not in processing
+
+
+def test_recent_activity_and_history_share_cached_job_source() -> None:
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+    app_provider = Path("frontend/src/app/AppProvider.jsx").read_text(encoding="utf-8")
+    job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
+    mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
+
+    assert "Promise.allSettled([" in shared
+    assert "apiFetch(`${API_BASE}/jobs?limit=100`)" in shared
+    assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in shared
+    assert "mergeCachedJobs," in shared
+    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in shared
+    assert "const initialCachedJobs = () => readCachedAccountJobs(cacheAccountId)" in tasks
+    assert "const [jobs, setJobs] = useState(initialCachedJobs)" in tasks
+    assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in tasks
+    assert "sortJobsForHistoryView(" in tasks
+    assert "const priority = {" not in tasks
+    assert "timestampForJob(job) >= timestampForJob(existing)" in mapper
+    assert "export const sortJobsForHistoryView" in mapper
+    assert "[TASK_STATE_RUNNING]: 0" in mapper
+    assert "[TASK_STATE_FAILED]: 2" in mapper
+    assert "sortJobsForHistoryView" in job_morph
+    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in app_provider
+    assert "{t('dash.recent')}" in media_text
+    assert "{t('dash.noActivity')}" in media_text
+    assert "最近任务" not in media_text
+    assert "Recent tasks" not in media_text
 
 
 def test_frontend_job_mapping_lives_in_dedicated_module() -> None:
@@ -581,6 +631,11 @@ def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
     assert "const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {" in source
+    assert "const videoProgress = videoSourceProgressFromJob(job)" in source
+    assert "const status = videoProgress ? 'running' : normalizeTaskState(job)" in source
+    assert "const stage = videoProgress ? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')" in source
+    assert "video_source_progress: videoProgress" in source
+    assert "mergeLiveSnapshotPageData(detailData, current || initialPageData)" in source
     assert "const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang)" in source
     assert "const [loading, setLoading] = useState(!initialPageData)" in source
     assert "const [pageData, setPageData] = useState(() => initialPageData)" in source
@@ -589,6 +644,17 @@ def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
     assert "noteGenerationDiagnosis(result, lang)" in source
     assert "loadTaskDetail(staleRef, {silent: !!seededPageData})" in source
     assert "!silent && !pageData" in source
+
+
+def test_task_progress_overview_surfaces_video_download_progress() -> None:
+    source = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
+
+    assert "const videoSourceProgress = task.video_source_progress || source.video_source_progress || null" in source
+    assert "videoSourceProgress," in source
+    assert "const videoProgressDetail = videoSourceProgressText(task.videoSourceProgress, isZh)" in source
+    assert "fmtBytes(progress.loaded_bytes)" in source
+    assert "fmtBytes(progress.total_bytes)" in source
+    assert "{videoProgressDetail && (" in source
 
 
 def test_agent_trace_respects_sidebar_offset_in_all_states() -> None:
@@ -630,6 +696,38 @@ def test_agent_trace_prioritizes_material_specific_judgment() -> None:
     assert "THOUGHT_GENERATORS" not in source
     assert "inner monologue" not in source
     assert "内心独白" not in source
+
+
+def test_agent_trace_removes_duplicate_history_and_summary_card() -> None:
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+    progress = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
+
+    assert "Clock3" not in agent_trace
+    assert "Agent workflow" not in agent_trace
+    assert "Agent 工作流" not in agent_trace
+    assert "系统每一步为什么这样处理" not in agent_trace
+    assert "判断数" not in agent_trace
+    assert "任务状态" not in agent_trace
+    assert "showNextStepPanel" in agent_trace
+    assert "nextStepActions" in agent_trace
+    assert "taskProgress >= 100" in agent_trace
+    assert "to=\"/tasks\"" not in progress
+    assert "任务已进入后台处理" not in progress
+    assert "转录路线" not in progress
+    assert "模型配置" not in progress
+    assert "媒体时长" not in progress
+    assert "耗时" not in progress
+    assert "文件大小" not in progress
+    assert "stageItems" not in progress
+    assert "routeLabel" not in progress
+    assert "ArtifactPill" in progress
+    assert "结果可以复查" in progress
+    assert "{running && (" in progress
+    assert "{completed && (" in progress
+    assert "dark:text-white/[0.78]" in agent_trace
+    assert "dark:text-white/[0.68]" in progress
+    assert "dark:text-white/78" not in agent_trace
+    assert "dark:text-white/68" not in progress
 
 
 def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
@@ -742,7 +840,7 @@ def test_ui_copy_does_not_leak_internal_product_principles() -> None:
     assert "这不是多 Agent 表演" not in processing
     assert "decorative multi-agent theater" not in processing
     assert "证据摘要" in agent_trace
-    assert "可复查的判断结论、依据和影响" in agent_trace
+    assert "关键判断、依据和影响" in agent_trace
     assert "不适合直接喂给模型" not in agent_trace
     assert "而不是按时间戳" not in agent_trace
     assert "内心独白" not in agent_trace

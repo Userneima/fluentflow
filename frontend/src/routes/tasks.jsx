@@ -26,6 +26,7 @@ import {
     jobDisplayTitle,
     jobToHistoryEntry,
     readCachedAccountJobs,
+    sortJobsForHistoryView,
     timeAgo,
     useApi,
     useApp,
@@ -95,9 +96,10 @@ const Tasks = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
+    const initialCachedJobs = () => readCachedAccountJobs(cacheAccountId);
     const readCachedJobs = useCallback(() => readCachedAccountJobs(cacheAccountId), [cacheAccountId]);
-    const [jobs, setJobs] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [jobs, setJobs] = useState(initialCachedJobs);
+    const [loading, setLoading] = useState(() => initialCachedJobs().length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
     const [cancellingTaskId, setCancellingTaskId] = useState('');
@@ -122,21 +124,15 @@ const Tasks = () => {
         ['completed', lang === 'zh' ? '历史' : 'History', stats.completed],
     ];
     const visibleJobs = useMemo(() => {
-        const priority = {running: 0, queued: 1, failed: 2, completed: 3};
-        return jobs
-            .filter((job) => {
+        return sortJobsForHistoryView(
+            jobs.filter((job) => {
                 if (taskFilter === 'live') return isLiveJob(job);
                 const taskState = normalizeTaskState(job);
                 if (taskFilter === 'failed') return taskState === TASK_STATE_FAILED || taskState === TASK_STATE_CANCELLED;
                 if (taskFilter === 'completed') return taskState === TASK_STATE_COMPLETED || isCachedOnlyTask(job);
                 return true;
             })
-            .slice()
-            .sort((a, b) => {
-                const priorityDiff = (priority[normalizeTaskState(a)] ?? 9) - (priority[normalizeTaskState(b)] ?? 9);
-                if (priorityDiff !== 0) return priorityDiff;
-                return (Date.parse(b.updated_at || b.created_at || '') || 0) - (Date.parse(a.updated_at || a.created_at || '') || 0);
-            });
+        );
     }, [jobs, taskFilter]);
     const hasLiveJobs = Boolean(queueUploadJob || jobs.some(isLiveJob));
 

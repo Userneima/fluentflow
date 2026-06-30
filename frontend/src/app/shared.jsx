@@ -22,10 +22,12 @@ import {
     accountJobsCacheKey,
     readCachedAccountJobs,
     writeCachedAccountJobs,
+    mergeCachedJobs,
     hasTranscriptResult,
     jobVisibleInHistory,
     jobToHistoryEntry,
     jobToCurrentJob,
+    sortJobsForHistoryView,
 } from '../lib/jobMappers.js';
 import {
     DEFAULT_RUNTIME_CONFIG,
@@ -263,22 +265,31 @@ export const AppProvider = ({children}) => {
         }
         const cachedJobs = readCachedAccountJobs(accountCacheId);
         if (cachedJobs.length) {
-            const cachedEntries = cachedJobs
+            const cachedEntries = sortJobsForHistoryView(cachedJobs)
                 .filter(jobVisibleInHistory)
                 .map(jobToHistoryEntry);
             setHistory(cachedEntries);
         }
-        apiFetch(`${API_BASE}/jobs?limit=100`)
-            .then((r) => r.ok ? r.json() : null)
-            .then((data) => {
-                if (!Array.isArray(data?.jobs)) return;
-                writeCachedAccountJobs(accountCacheId, data.jobs);
-                const entries = data.jobs
+        Promise.allSettled([
+            apiFetch(`${API_BASE}/jobs?limit=100`),
+            apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})}),
+        ])
+            .then(async (results) => {
+                const groups = await Promise.all(results.map(async (result) => {
+                    if (result.status !== 'fulfilled' || !result.value?.ok) return [];
+                    const data = await result.value.json().catch(() => ({}));
+                    return Array.isArray(data?.jobs) ? data.jobs : [];
+                }));
+                const fetchedJobs = groups.flat();
+                if (!fetchedJobs.length) return;
+                const nextJobs = sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs));
+                writeCachedAccountJobs(accountCacheId, nextJobs);
+                const entries = nextJobs
                     .filter(jobVisibleInHistory)
                     .map(jobToHistoryEntry);
                 if (cancelled) return;
                 setHistory(entries);
-                const running = data.jobs.find((job) => job.status === 'running');
+                const running = nextJobs.find((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_QUEUED);
                 if (running) setCurrentJob(jobToCurrentJob(running));
             })
             .catch(() => {});
@@ -309,9 +320,9 @@ export const AppProvider = ({children}) => {
 };
 export const useApp = () => useContext(AppCtx);
 
-export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, cacheJobRecord, mergeCachedJobs, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
+export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, cacheJobRecord, mergeCachedJobs, sortJobsForHistoryView, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
 
-export { fmtTime, autoSizeTextarea, composeTranscriptText, normalizeTranscriptSegments, normalizeDisplaySegments, pickTranscriptSegments, pickTranscriptBaselineSegments, pickDisplayTranscriptSegments, buildTranscriptEditRecords, fmtElapsed, fmtFileSize, totalFileSizeMb, fmtBytes, fmtDateTime, friendlyTaskError, fmtSttRelative, sttStatusLabel, sttProgressFraction, isSttProgressUnmeasured, jobProgressLabel, timeAgo, noteGenerationDiagnosis } from '../lib/format.js';
+export { fmtTime, autoSizeTextarea, composeTranscriptText, normalizeTranscriptSegments, normalizeDisplaySegments, pickTranscriptSegments, pickTranscriptBaselineSegments, pickDisplayTranscriptSegments, buildTranscriptEditRecords, fmtElapsed, fmtFileSize, totalFileSizeMb, fmtBytes, fmtDateTime, friendlyTaskError, diagnoseTaskError, fmtSttRelative, sttStatusLabel, sttProgressFraction, isSttProgressUnmeasured, jobProgressLabel, timeAgo, noteGenerationDiagnosis } from '../lib/format.js';
 
 export { MD_TABLE_ALIGN_RE, splitMdTableRow, isPipeTableRow, looksLikeMdTable, looksLikeLoosePipeTable, renderTableHtml, simpleMd } from '../lib/markdown.js';
 

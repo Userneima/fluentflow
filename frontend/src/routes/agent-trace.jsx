@@ -5,7 +5,6 @@ import {
     ArrowLeft,
     CheckCircle2,
     CircleDashed,
-    Clock3,
     FileText,
     GitBranch,
     LoaderCircle,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import {API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n, noteGenerationDiagnosis} from '../app/shared.jsx';
 import TaskProgressOverview from '../components/TaskProgressOverview.jsx';
+import {normalizeTaskState} from '../lib/taskState.js';
 
 const statusText = (status, lang) => {
     const isZh = lang === 'zh';
@@ -55,8 +55,8 @@ const statusTone = (status) => {
         Icon: LoaderCircle,
     };
     if (status === 'pending') return {
-        dot: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50',
-        badge: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50',
+        dot: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/[0.50]',
+        badge: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/[0.50]',
         Icon: CircleDashed,
     };
     if (status === 'skipped' || status === 'cancelled') return {
@@ -177,42 +177,42 @@ const DecisionEntry = ({entry, index, isLast, lang}) => {
                     <Icon className={`size-[18px] ${entry.status === 'running' ? 'animate-spin' : ''}`} strokeWidth={2.15}/>
                 </div>
             </div>
-            <div className="min-w-0 rounded-[18px] border border-[#dedada] bg-white p-4 shadow-[0_18px_44px_-38px_rgba(17,17,17,.42)] dark:border-white/[0.10] dark:bg-white/[0.055] dark:shadow-none">
+            <div className="min-w-0 rounded-[18px] border border-[#dedada] bg-white p-4 shadow-[0_18px_44px_-38px_rgba(17,17,17,.42)] dark:border-white/[0.14] dark:bg-white/[0.07] dark:shadow-none">
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] font-extrabold text-[#85868c] dark:text-white/45">
+                    <span className="text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.65]">
                         {String(index + 1).padStart(2, '0')}
                     </span>
                     <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${tone.badge}`}>
                         {statusText(entry.status, lang)}
                     </span>
-                    <span className="rounded-full border border-[#dedada] bg-[#f7f7f7] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.06] dark:text-white/55">
+                    <span className="rounded-full border border-[#dedada] bg-[#f7f7f7] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.16] dark:bg-white/[0.08] dark:text-white/[0.72]">
                         {sourceText(entry.source, lang)}
                     </span>
                     {entry.confidence && (
-                        <span className="rounded-full border border-[#dedada] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.10] dark:text-white/55">
+                        <span className="rounded-full border border-[#dedada] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.16] dark:text-white/[0.72]">
                             {confidenceText(entry.confidence, lang)}
                         </span>
                     )}
                 </div>
                 <div className="mt-3 min-w-0">
-                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">{entry.title}</p>
+                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.70]">{entry.title}</p>
                     <h2 className="mt-1 text-[18px] font-extrabold leading-snug text-[#111111] dark:text-white">
                         {entry.decision || (lang === 'zh' ? '等待判断' : 'Pending decision')}
                     </h2>
                 </div>
                 {entry.reason && (
-                    <p className="mt-3 text-[13px] font-semibold leading-6 text-[#2f3035] dark:text-white/78">
+                    <p className="mt-3 text-[13px] font-semibold leading-6 text-[#2f3035] dark:text-white/[0.82]">
                         {entry.reason}
                     </p>
                 )}
                 {evidence.length > 0 && (
                     <div className="mt-4">
-                        <p className="mb-2 text-[11px] font-extrabold text-[#85868c] dark:text-white/40">
+                        <p className="mb-2 text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.64]">
                             {lang === 'zh' ? '证据摘要' : 'Evidence summary'}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                             {evidence.map((item) => (
-                                <span key={item} className="rounded-[10px] border border-[#dedada] bg-[#fbfbfb] px-2.5 py-1 text-[12px] font-bold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                                <span key={item} className="rounded-[10px] border border-[#dedada] bg-[#fbfbfb] px-2.5 py-1 text-[12px] font-bold leading-5 text-[#57585d] dark:border-white/[0.16] dark:bg-white/[0.075] dark:text-white/[0.78]">
                                     {item}
                                 </span>
                             ))}
@@ -220,8 +220,8 @@ const DecisionEntry = ({entry, index, isLast, lang}) => {
                     </div>
                 )}
                 {entry.impact && (
-                    <div className="mt-4 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
-                        <span className="mr-1 font-extrabold text-[#111111] dark:text-white/82">{lang === 'zh' ? '影响：' : 'Impact: '}</span>
+                    <div className="mt-4 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.16] dark:bg-white/[0.07] dark:text-white/[0.78]">
+                        <span className="mr-1 font-extrabold text-[#111111] dark:text-white/[0.90]">{lang === 'zh' ? '影响：' : 'Impact: '}</span>
                         {entry.impact}
                     </div>
                 )}
@@ -241,7 +241,7 @@ const DecisionEntry = ({entry, index, isLast, lang}) => {
 
 const StatBlock = ({label, value}) => (
     <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
-        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/45">{label}</p>
+        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.45]">{label}</p>
         <p className="mt-1 truncate text-[14px] font-extrabold text-[#111111] dark:text-white">{value}</p>
     </div>
 );
@@ -259,7 +259,7 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
         <section className="border-y border-[#dedada] py-5 dark:border-white/[0.10]">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.45]">
                         {isZh ? 'Chapter Coverage 证据表' : 'Chapter coverage evidence'}
                     </p>
                     <h2 className="font-headline text-[20px] font-extrabold text-[#111111] dark:text-white">
@@ -279,9 +279,9 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
             {chapters.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
                     {chapters.map((chapter) => (
-                        <span key={chapter.chapter_id || chapter.title} className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-bold text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/62">
+                        <span key={chapter.chapter_id || chapter.title} className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-bold text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/[0.62]">
                             {chapter.order ? `${chapter.order}. ` : ''}{chapter.title || chapter.chapter_id}
-                            <span className="ml-1 text-[#85868c] dark:text-white/40">({chapter.evidence_count ?? 0})</span>
+                            <span className="ml-1 text-[#85868c] dark:text-white/[0.40]">({chapter.evidence_count ?? 0})</span>
                         </span>
                     ))}
                 </div>
@@ -289,7 +289,7 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
 
             {visibleEvidence.length > 0 && (
                 <div className="mt-4 overflow-x-auto rounded-[16px] border border-[#dedada] dark:border-white/[0.10]">
-                    <div className="grid min-w-[46rem] grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] border-b border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[11px] font-extrabold text-[#85868c] dark:border-white/[0.10] dark:bg-white/[0.035] dark:text-white/42">
+                    <div className="grid min-w-[46rem] grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] border-b border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[11px] font-extrabold text-[#85868c] dark:border-white/[0.10] dark:bg-white/[0.035] dark:text-white/[0.42]">
                         <span>ID</span>
                         <span>{isZh ? '重要性' : 'Weight'}</span>
                         <span>{isZh ? '证据内容' : 'Evidence'}</span>
@@ -299,31 +299,31 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
                         {visibleEvidence.map((item) => (
                             <div key={item.evidence_id} className="grid grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] gap-0 px-3 py-3 text-[12px] leading-5">
                                 <span className="font-extrabold text-[#111111] dark:text-white">{item.evidence_id}</span>
-                                <span className="font-bold text-[#676970] dark:text-white/58">
+                                <span className="font-bold text-[#676970] dark:text-white/[0.58]">
                                     {item.importance ?? '-'} / 5
                                     {item.covered === false && <span className="ml-1 text-amber-700 dark:text-amber-200">{isZh ? '待补' : 'open'}</span>}
                                 </span>
-                                <span className="min-w-0 pr-4 font-semibold text-[#2f3035] dark:text-white/76">
+                                <span className="min-w-0 pr-4 font-semibold text-[#2f3035] dark:text-white/[0.76]">
                                     {item.text}
                                     {Array.isArray(item.keywords) && item.keywords.length > 0 && (
-                                        <span className="ml-2 text-[#85868c] dark:text-white/42">
+                                        <span className="ml-2 text-[#85868c] dark:text-white/[0.42]">
                                             {item.keywords.slice(0, 3).join(' / ')}
                                         </span>
                                     )}
                                     {Array.isArray(item.covered_by_chapter_ids) && item.covered_by_chapter_ids.length > 0 && (
-                                        <span className="ml-2 text-[#85868c] dark:text-white/42">
+                                        <span className="ml-2 text-[#85868c] dark:text-white/[0.42]">
                                             {isZh ? '章节' : 'Chapter'} {item.covered_by_chapter_ids.slice(0, 3).join(', ')}
                                         </span>
                                     )}
                                 </span>
-                                <span className="font-bold text-[#676970] dark:text-white/54">{rangeText(item, lang)}</span>
+                                <span className="font-bold text-[#676970] dark:text-white/[0.54]">{rangeText(item, lang)}</span>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
             {hiddenCount > 0 && (
-                <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/45">
+                <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/[0.45]">
                     {isZh ? `还有 ${hiddenCount} 条证据未在此处展开。` : `${hiddenCount} more evidence rows hidden here.`}
                 </p>
             )}
@@ -349,6 +349,87 @@ const visibleActions = (actions=[]) => (
 
 const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
+const liveStageRank = {
+    queued: 0,
+    resolving: 1,
+    downloading: 2,
+    saving: 3,
+    audio: 4,
+    stt: 5,
+    transcript_ready: 6,
+    summary: 7,
+    export: 8,
+    done: 9,
+    completed: 9,
+};
+
+const bytesToMb = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n / 1024 / 1024 : null;
+};
+
+const videoSourceProgressFromJob = (job) => {
+    const progress = job?.metadata?.video_source_progress;
+    if (!progress || typeof progress !== 'object') return null;
+    const loaded = Number(progress.loaded_bytes);
+    const total = Number(progress.total_bytes);
+    const hasLoaded = Number.isFinite(loaded) && loaded > 0;
+    const hasTotal = Number.isFinite(total) && total > 0;
+    const percent = hasLoaded && hasTotal ? Math.max(0, Math.min(100, loaded / total * 100)) : null;
+    const jobProgress = Number(job?.progress);
+    const mappedProgress = Number.isFinite(jobProgress) && jobProgress > 0
+        ? jobProgress
+        : percent == null
+            ? null
+            : 10 + percent * 0.45;
+    if (!progress.message && !hasLoaded && !hasTotal && mappedProgress == null) return null;
+    return {
+        ...progress,
+        loaded_bytes: Number.isFinite(loaded) ? loaded : progress.loaded_bytes,
+        total_bytes: Number.isFinite(total) ? total : progress.total_bytes,
+        stage: progress.stage || job?.stage || 'downloading',
+        progress: mappedProgress,
+    };
+};
+
+const mergeLiveSnapshotPageData = (nextData, currentData) => {
+    if (!currentData?.data_quality?.cached_snapshot) return nextData;
+    const currentTask = currentData.task || {};
+    const nextTask = nextData?.task || {};
+    const currentStage = String(currentTask.stage || '').toLowerCase();
+    const nextStage = String(nextTask.stage || '').toLowerCase();
+    const currentProgress = Number(currentTask.progress) || 0;
+    const nextProgress = Number(nextTask.progress) || 0;
+    const currentIsLive = ['running', 'queued'].includes(String(currentTask.status || '').toLowerCase())
+        || ['queued', 'resolving', 'downloading', 'saving', 'audio', 'stt', 'summary', 'export'].includes(currentStage);
+    const nextIsTerminal = ['completed', 'failed', 'cancelled'].includes(String(nextTask.status || nextTask.stage || '').toLowerCase())
+        || ['done', 'failed', 'cancelled'].includes(nextStage);
+    const currentIsAhead = (liveStageRank[currentStage] ?? 0) > (liveStageRank[nextStage] ?? 0) || currentProgress > nextProgress;
+    if (!currentIsLive || nextIsTerminal || !currentIsAhead) return nextData;
+    return {
+        ...nextData,
+        task: {
+            ...nextTask,
+            status: currentTask.status,
+            stage: currentTask.stage,
+            progress: currentTask.progress,
+            file_size_mb: nextTask.file_size_mb ?? currentTask.file_size_mb,
+            duration_seconds: nextTask.duration_seconds ?? currentTask.duration_seconds,
+        },
+        source: {
+            ...(nextData?.source || {}),
+            video_source_progress: currentData.source?.video_source_progress || nextData?.source?.video_source_progress || null,
+            file_size_mb: nextData?.source?.file_size_mb ?? currentData.source?.file_size_mb,
+            duration_seconds: nextData?.source?.duration_seconds ?? currentData.source?.duration_seconds,
+        },
+        data_quality: {
+            ...(nextData?.data_quality || {}),
+            cached_snapshot: currentData.data_quality?.cached_snapshot || nextData?.data_quality?.cached_snapshot || false,
+            used_cached_live_overlay: true,
+        },
+    };
+};
+
 const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
     if (!job || typeof job !== 'object') return null;
     const taskId = taskIdForJob(job) || fallbackTaskId;
@@ -356,6 +437,9 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
     const result = job.result && typeof job.result === 'object' ? job.result : {};
     const metadata = job.metadata && typeof job.metadata === 'object' ? job.metadata : {};
     const videoSource = metadata.video_source && typeof metadata.video_source === 'object' ? metadata.video_source : {};
+    const videoProgress = videoSourceProgressFromJob(job);
+    const progressValue = Number(job.progress);
+    const fileSizeMb = job.source_file_size_mb || bytesToMb(videoProgress?.total_bytes) || null;
     const title = (
         metadata.display_title
         || result.display_title
@@ -366,8 +450,8 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
         || result.filename
         || taskId
     );
-    const status = job.status || job.task_state || (result.summary_status === 'failed' ? 'failed' : result.summary_markdown ? 'completed' : 'pending');
-    const stage = job.stage || (status === 'completed' ? 'done' : status === 'failed' ? 'failed' : 'queued');
+    const status = videoProgress ? 'running' : normalizeTaskState(job);
+    const stage = videoProgress ? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading') : (job.stage || (status === 'completed' ? 'done' : status === 'failed' ? 'failed' : 'queued'));
     const diagnosis = noteGenerationDiagnosis(result, lang);
     const noteStatus = result.summary_skipped
         ? 'skipped'
@@ -386,14 +470,17 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
             task_id: taskId,
             status,
             stage,
-            progress: job.progress ?? (status === 'completed' ? 100 : 0),
+            progress: Number.isFinite(progressValue) && progressValue > 0
+                ? progressValue
+                : videoProgress?.progress ?? (status === 'completed' ? 100 : 0),
             source_type: job.source_type || result.source || null,
             title,
             filename: result.filename || job.source_filename || null,
-            file_size_mb: job.source_file_size_mb || null,
+            file_size_mb: fileSizeMb,
             duration_seconds: result.audio_duration_seconds || job.source_duration_seconds || metadata.duration_seconds || null,
             created_at: job.created_at || null,
             updated_at: job.updated_at || null,
+            video_source_progress: videoProgress,
         },
         title,
         source: {
@@ -403,8 +490,9 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
             display_title: title,
             url: videoSource.url || videoSource.webpage_url || null,
             duration_seconds: result.audio_duration_seconds || job.source_duration_seconds || metadata.duration_seconds || null,
-            file_size_mb: job.source_file_size_mb || null,
+            file_size_mb: fileSizeMb,
             video_source: Object.keys(videoSource).length ? videoSource : null,
+            video_source_progress: videoProgress,
         },
         transcript: {
             available: !!(
@@ -503,11 +591,19 @@ const AgentTrace = () => {
         setError(null);
         try {
             const detailData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`);
-            if (!staleRef.current) setPageData(detailData);
+            if (!staleRef.current) {
+                setPageData((current) => silent
+                    ? mergeLiveSnapshotPageData(detailData, current || initialPageData)
+                    : detailData);
+            }
         } catch (detailError) {
             try {
                 const packageData = await readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
-                if (!staleRef.current) setPageData(packageData);
+                if (!staleRef.current) {
+                    setPageData((current) => silent
+                        ? mergeLiveSnapshotPageData(packageData, current || initialPageData)
+                        : packageData);
+                }
             } catch (packageError) {
                 if (!staleRef.current && !silent && !pageData) setError(packageError.message || detailError.message || String(packageError));
             }
@@ -581,10 +677,14 @@ const AgentTrace = () => {
     const title = pageData?.task?.title || pageData?.title || taskId;
     const decisions = useMemo(() => decisionEntries(pageData, lang), [pageData, lang]);
     const chapterCoverage = useMemo(() => chapterCoverageData(pageData), [pageData]);
-    const recordedCount = decisions.filter((entry) => entry.source === 'recorded').length;
     const diagnosis = pageData?.diagnosis || pageData?.note?.diagnosis || {};
-    const taskStatus = pageData?.task?.status || pageData?.note?.status || '-';
     const actions = visibleActions(pageData?.actions);
+    const taskStateText = String(pageData?.task?.stage || pageData?.task?.status || '').toLowerCase();
+    const taskProgress = Number(pageData?.task?.progress) || 0;
+    const taskFailed = ['failed', 'error', 'cancelled'].includes(taskStateText);
+    const taskCompleted = !taskFailed && (['done', 'completed'].includes(taskStateText) || taskProgress >= 100);
+    const nextStepActions = taskCompleted ? actions.filter((action) => action.id !== 'open_result') : actions;
+    const showNextStepPanel = taskFailed || diagnosis.severity === 'error' || nextStepActions.length > 0;
 
     if (loading) {
         return (
@@ -615,19 +715,16 @@ const AgentTrace = () => {
                 <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/55 dark:hover:text-white">
+                            <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/[0.55] dark:hover:text-white">
                                 <ArrowLeft className="size-3.5" strokeWidth={2.15}/>
                                 {isZh ? '历史记录' : 'History'}
                             </Link>
-                            <span className="text-[#a2a3a8] dark:text-white/35">/</span>
+                            <span className="text-[#a2a3a8] dark:text-white/[0.35]">/</span>
                             <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
                                 {isZh ? '处理详情' : 'Task details'}
                             </h1>
-                            <span className="rounded-full border border-[#dedada] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/60">
-                                {isZh ? 'Agent 工作流' : 'Agent workflow'}
-                            </span>
                         </div>
-                        <p className="mt-1 max-w-[72ch] truncate text-[13px] leading-5 text-[#676970] dark:text-white/60" title={title}>
+                        <p className="mt-1 max-w-[72ch] truncate text-[13px] leading-5 text-[#676970] dark:text-white/[0.60]" title={title}>
                             {title}
                         </p>
                     </div>
@@ -636,44 +733,17 @@ const AgentTrace = () => {
                             <FileText className="size-4" strokeWidth={2.15}/>
                             {isZh ? '查看结果' : 'View result'}
                         </Link>
-                        <Link to="/tasks" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
-                            <Clock3 className="size-4" strokeWidth={2.15}/>
-                            {isZh ? '历史记录' : 'History'}
-                        </Link>
                     </div>
                 </header>
 
                 <TaskProgressOverview pageData={pageData}/>
 
-                <section className="rounded-[20px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.4fr)] lg:items-center">
-                        <div className="min-w-0">
-                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
-                                {isZh ? '判断记录' : 'Decision records'}
-                            </p>
-                            <h2 className="mt-1 font-headline text-[20px] font-extrabold text-[#111111] dark:text-white">
-                                {isZh ? '系统每一步为什么这样处理' : 'Why the system handled this task this way'}
-                            </h2>
-                            <p className="mt-2 max-w-[78ch] text-[13px] leading-5 text-[#676970] dark:text-white/60">
-                                {isZh
-                                    ? '这里展示可复查的判断结论、依据和影响。实时阶段和处理配置已经收敛到顶部。'
-                                    : 'This shows reviewable decisions, evidence, and impact. Live stage and route context are consolidated above.'}
-                            </p>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-[12px]">
-                            <StatBlock label={isZh ? '判断数' : 'Decisions'} value={decisions.length || '-'}/>
-                            <StatBlock label={isZh ? '真实记录' : 'Recorded'} value={recordedCount}/>
-                            <StatBlock label={isZh ? '任务状态' : 'Status'} value={statusText(taskStatus, lang)}/>
-                        </div>
-                    </div>
-                </section>
-
                 <ChapterCoverageEvidence coverage={chapterCoverage} lang={lang}/>
 
-                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.55fr)]">
+                <div className={showNextStepPanel ? "grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.55fr)]" : "min-w-0"}>
                     <section className="min-w-0 space-y-4">
                         <div>
-                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.64]">
                                 {isZh ? '判断推进流' : 'Decision stream'}
                             </p>
                             <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
@@ -691,19 +761,20 @@ const AgentTrace = () => {
                                 />
                             ))}
                             {!decisions.length && (
-                                <div className="rounded-[18px] border border-[#dedada] bg-white p-6 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/58">
+                                <div className="rounded-[18px] border border-[#dedada] bg-white p-6 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/[0.58]">
                                     {isZh ? '当前任务还没有可展示的判断记录。' : 'No decision records are available for this task yet.'}
                                 </div>
                             )}
                         </div>
                     </section>
 
+                    {showNextStepPanel && (
                     <aside className="space-y-5 xl:border-l xl:border-[#dedada] xl:pl-5 xl:dark:border-white/[0.10]">
                         <section>
                             <div className="mb-3 flex items-center gap-2">
-                                <GitBranch className="size-4 text-[#676970] dark:text-white/55" strokeWidth={2.15}/>
+                                <GitBranch className="size-4 text-[#676970] dark:text-white/[0.70]" strokeWidth={2.15}/>
                                 <div>
-                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/45">
+                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.64]">
                                         {isZh ? '下一步' : 'Next step'}
                                     </p>
                                     <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
@@ -711,7 +782,7 @@ const AgentTrace = () => {
                                     </h2>
                                 </div>
                             </div>
-                            <div className="space-y-2 text-[13px] leading-5 text-[#676970] dark:text-white/60">
+                            <div className="space-y-2 text-[13px] leading-5 text-[#676970] dark:text-white/[0.60]">
                                 <p className={`rounded-[14px] border p-3 font-semibold ${
                                     diagnosis.severity === 'error'
                                         ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200'
@@ -724,9 +795,9 @@ const AgentTrace = () => {
                                         {diagnosis.next_action}
                                     </p>
                                 )}
-                                {actions.length > 0 && (
+                                {nextStepActions.length > 0 && (
                                     <div className="flex flex-wrap gap-2 pt-1">
-                                        {actions.map((action) => (
+                                        {nextStepActions.map((action) => (
                                             <button
                                                 key={action.id}
                                                 type="button"
@@ -747,6 +818,7 @@ const AgentTrace = () => {
                             </div>
                         </section>
                     </aside>
+                    )}
                 </div>
             </div>
         </main>

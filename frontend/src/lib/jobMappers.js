@@ -9,6 +9,8 @@ import {
     TASK_STATE_FAILED,
     TASK_STATE_QUEUED,
     TASK_STATE_RUNNING,
+    TASK_STATE_CANCELLED,
+    TASK_STATE_CACHED_ONLY,
 } from './taskState.js';
 
 export const accountJobsCacheKey = (accountId) => `fluentflow_account_jobs_cache_${accountId || 'local'}`;
@@ -78,16 +80,40 @@ export const cacheJobRecord = (accountId, job) => {
 };
 
 export const mergeCachedJobs = (...groups) => {
-    const seen = new Set();
-    const merged = [];
+    const byKey = new Map();
+    const order = [];
+    const timestampForJob = (job) => Date.parse(job?.updated_at || job?.created_at || '') || 0;
     groups.flat().forEach((job) => {
         if (!job || typeof job !== 'object') return;
         const key = String(job.task_id || job.result?.task_id || '').trim();
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        merged.push(job);
+        if (!key) return;
+        const existing = byKey.get(key);
+        if (!existing) {
+            order.push(key);
+            byKey.set(key, job);
+            return;
+        }
+        if (timestampForJob(job) >= timestampForJob(existing)) byKey.set(key, job);
     });
-    return merged;
+    return order.map((key) => byKey.get(key)).filter(Boolean);
+};
+
+export const sortJobsForHistoryView = (jobs=[]) => {
+    const priority = {
+        [TASK_STATE_RUNNING]: 0,
+        [TASK_STATE_QUEUED]: 1,
+        [TASK_STATE_FAILED]: 2,
+        [TASK_STATE_CANCELLED]: 2,
+        [TASK_STATE_COMPLETED]: 3,
+        [TASK_STATE_CACHED_ONLY]: 3,
+    };
+    return (Array.isArray(jobs) ? jobs : [])
+        .slice()
+        .sort((a, b) => {
+            const priorityDiff = (priority[normalizeTaskState(a)] ?? 9) - (priority[normalizeTaskState(b)] ?? 9);
+            if (priorityDiff !== 0) return priorityDiff;
+            return (Date.parse(b?.updated_at || b?.created_at || '') || 0) - (Date.parse(a?.updated_at || a?.created_at || '') || 0);
+        });
 };
 
 export const hasTranscriptResult = (result={}) => {

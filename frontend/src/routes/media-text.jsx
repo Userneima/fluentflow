@@ -644,14 +644,14 @@ const MediaText = () => {
                 <section className="mt-7 rounded-[24px] border border-[#dedada] bg-white p-6 shadow-[0_18px_44px_-38px_rgba(17,17,17,.45)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                     <div className="mb-5 flex items-center justify-between gap-4">
                         <div>
-                            <h2 className="text-[22px] font-extrabold">{lang === 'zh' ? '最近任务' : 'Recent tasks'}</h2>
-                            <p className="mt-1 text-sm font-semibold text-[#777] dark:text-white/55">{lang === 'zh' ? '视频和字幕任务都会显示在这里。' : 'Media and subtitle tasks appear here.'}</p>
+                            <h2 className="text-[22px] font-extrabold">{t('dash.recent')}</h2>
+                            <p className="mt-1 text-sm font-semibold text-[#777] dark:text-white/55">{lang === 'zh' ? '最近完成和处理中任务会显示在这里。' : 'Recent completed and active tasks appear here.'}</p>
                         </div>
                         <Link to="/tasks" className="rounded-full bg-[#efeeee] px-4 py-2 text-xs font-extrabold text-[#111111] hover:bg-[#e8e5e5] dark:bg-white/[0.12] dark:text-white dark:hover:bg-white/[0.18]">{t('dash.viewAll')}</Link>
                     </div>
                     {recent.length === 0 ? (
                         <div className="rounded-[18px] border border-dashed border-[#dedada] bg-[#fbfbfb] px-4 py-12 text-center text-sm font-semibold text-[#999] dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white/40">
-                            {lang === 'zh' ? '还没有视频或字幕任务。' : 'No media or subtitle tasks yet.'}
+                            {t('dash.noActivity')}
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
