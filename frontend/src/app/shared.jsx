@@ -46,8 +46,8 @@ export const API_BASE = (() => {
     if (configured) return configured;
     const { hostname, port } = window.location;
     if (!hostname) return "http://127.0.0.1:8000";
-    const local = hostname === "localhost" || hostname === "127.0.0.1";
-    if (local && port === "5185") return "http://127.0.0.1:8000";
+    const local = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    if (local && port && port !== "8000") return "http://127.0.0.1:8000";
     return "";
 })();
 
