@@ -7,6 +7,7 @@
     "change:check:staged": "python3 scripts/check_change_control.py --staged",
     "mcp:check": "python3 scripts/check_mcp_server.py",
     "mcp:check:e2e": "python3 scripts/check_mcp_server.py --backend-e2e",
+    "agent:mcp:eval": "python3 scripts/evaluate_agent_mcp.py",
     "note:quality": "python3 scripts/evaluate_note_quality.py",
     "stt:evaluate": "python3 scripts/evaluate_stt.py",
     "stt:compare": "python3 scripts/compare_stt_quality.py",

@@ -9,6 +9,8 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Built frontend app: `frontend/dist/` from Vite.
 - UI design system: `docs/ui_design_system.md`.
 - Agent / MCP parity rule: `docs/agent_mcp_parity.md`.
+- Execution task brief: `docs/agent_task_brief.md`.
+- Project skills: `.agents/skills/`.
 - Changelog: `docs/changelog.md`.
 
 ## Rules
@@ -21,6 +23,10 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Always run `git diff --check` before reporting completion.
 - Do not commit `.env`, SQLite databases, runtime artifacts, media files, transcripts, notes, logs, exports, or private docs.
 - Do not push or deploy unless explicitly requested.
+- Before non-trivial execution work, read `docs/agent_task_brief.md` and use it
+  to confirm scope, validation, parity, changelog, and commit boundaries.
+- Repeated FluentFlow workflows should use the matching project skill in
+  `.agents/skills/` when one applies.
 
 ## Versioning And Commit Discipline
 

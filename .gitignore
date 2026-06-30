@@ -21,7 +21,15 @@ reports/
 docs/private/
 
 # Local agent / assistant workspace files
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/fluentflow-product-task-brief/
+!.agents/skills/fluentflow-product-task-brief/SKILL.md
+!.agents/skills/fluentflow-frontend-change/
+!.agents/skills/fluentflow-frontend-change/SKILL.md
+!.agents/skills/fluentflow-video-source-debug/
+!.agents/skills/fluentflow-video-source-debug/SKILL.md
 .claude/
 .superpowers/
 CONTEXT.md
