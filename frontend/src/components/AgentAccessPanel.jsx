@@ -129,7 +129,7 @@ const AgentAccessPanel = ({compact = false, onClose = null}) => {
     }, []);
 
     return (
-        <section className={compact ? '' : 'mx-auto w-full max-w-6xl px-6 py-8 lg:px-10'}>
+        <section className={compact ? 'flex min-h-0 flex-1 flex-col' : 'mx-auto w-full max-w-6xl px-6 py-8 lg:px-10'}>
             <header className={`${compact ? 'border-b border-[#e5e5e5] px-5 py-4 dark:border-white/[0.12]' : 'mb-6'} flex items-start justify-between gap-4`}>
                 <div className="min-w-0">
                     <p className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#85868c] dark:text-white/50">FluentFlow MCP</p>
@@ -153,7 +153,7 @@ const AgentAccessPanel = ({compact = false, onClose = null}) => {
                 )}
             </header>
 
-            <div className={compact ? 'min-h-0 overflow-y-auto px-5 py-4' : ''}>
+            <div className={compact ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4' : ''}>
                 <div className="grid gap-4 md:grid-cols-3">
                     <StepCard
                         number="1"

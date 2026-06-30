@@ -872,9 +872,13 @@ def test_sidebar_agent_access_stays_in_low_frequency_menu() -> None:
     assert "Agent 接入" in side_nav
     assert "role=\"dialog\"" in side_nav
     assert "aria-labelledby=\"agent-access-title\"" in side_nav
+    assert "max-h-[min(860px,calc(100dvh-48px))]" in side_nav
+    assert "flex-col overflow-hidden" in side_nav
     assert "<AgentAccessPanel compact onClose={() => setAgentAccessOpen(false)}/>" in side_nav
     assert '<Route path="/workspace/api" element={<WorkspaceApi/>}/>' in app_shell
     assert "<AgentAccessPanel/>" in page
+    assert "compact ? 'flex min-h-0 flex-1 flex-col'" in panel
+    assert "compact ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4'" in panel
     assert "把 FluentFlow 接入你的 AI 工具" in panel
     assert "新建一把 API Key" in panel
     assert "粘贴到你的 AI 工具" in panel
