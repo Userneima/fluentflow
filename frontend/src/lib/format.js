@@ -167,24 +167,312 @@ export const fmtDateTime = (value, lang='zh') => {
         return '-';
     }
 };
-export const friendlyTaskError = (message, lang='zh') => {
+const taskErrorDiagnosis = ({code, titleZh, titleEn, detailZh, detailEn, nextZh, nextEn, severity='error', retryable=true}) => ({
+    code,
+    title: {zh: titleZh, en: titleEn},
+    detail: {zh: detailZh, en: detailEn},
+    nextAction: {zh: nextZh, en: nextEn},
+    severity,
+    retryable,
+});
+
+export const diagnoseTaskError = (message, lang='zh') => {
     const raw = String(message || '').trim();
-    if(!raw) return lang === 'zh' ? '处理失败，但没有返回具体原因。请重试一次。' : 'The task failed without a specific reason. Try again.';
+    const zh = lang === 'zh';
+    const pick = (diag) => ({
+        code: diag.code,
+        severity: diag.severity || 'error',
+        title: zh ? diag.title.zh : diag.title.en,
+        detail: zh ? diag.detail.zh : diag.detail.en,
+        nextAction: zh ? diag.nextAction.zh : diag.nextAction.en,
+        retryable: diag.retryable !== false,
+        raw,
+    });
+    if(!raw) return pick(taskErrorDiagnosis({
+        code: 'unknown_error',
+        titleZh: '任务处理失败',
+        titleEn: 'Task failed',
+        detailZh: '处理失败，但没有返回具体原因。请重试一次。',
+        detailEn: 'The task failed without a specific reason. Try again.',
+        nextZh: '重新提交任务；如果连续失败，请把任务详情发给维护者排查。',
+        nextEn: 'Submit again; if it keeps failing, send the task detail to the maintainer.',
+    }));
     const lower = raw.toLowerCase();
-    if(lower.includes('only "standard" subscriptions') || lower.includes('only \\"standard\\" subscriptions') || lower.includes('invalidsubscription')) return lang === 'zh' ? '云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。' : 'Cloud transcription failed: the Speech resource is not a Standard subscription supported for Batch in this region.';
-    if(lower.includes('invalidlocale') || lower.includes('specified locale is not supported')) return lang === 'zh' ? '云端转录提交失败：当前音频语言不被 Azure 支持。请切换为中文/英文，或改用本地转录。' : 'Cloud transcription failed: this locale is not supported by Azure.';
-    if(lower.includes('invalidmodel') || lower.includes('specified model is not supported')) return lang === 'zh' ? '云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端默认模型或改用本地转录。' : 'Cloud transcription failed: the selected model is not supported by this Azure resource.';
-    if(lower.includes('diarization is currently not supported')) return lang === 'zh' ? '云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。' : 'Cloud transcription failed: diarization is not supported by this route.';
-    if(lower.includes('eof occurred in violation of protocol') || lower.includes('broken pipe')) return lang === 'zh' ? '云端上传中断：通常是网络或云端转录服务断开连接。请重试；如果文件很大，先压缩或拆分音频。' : 'Cloud upload was interrupted. Retry, or reduce/split the audio for very large files.';
-    if(lower.includes('queued transcript summary request failed') && (lower.includes('401') || lower.includes('login') || lower.includes('auth') || lower.includes('account'))) return lang === 'zh' ? '账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。' : 'Account login is missing or expired, so the AI note was not generated. Sign in again and retry; the completed transcript is not damaged.';
-    if(lower.includes('fluentflow account login is required')) return lang === 'zh' ? '账号未登录或登录态已失效，请重新登录后重试。' : 'Account login is missing or expired. Sign in again and retry.';
-    if(lower.includes('queued processing request failed')) return lang === 'zh' ? '处理流程调用转录接口失败。请重试；如果连续出现，请重启后端服务。' : 'The processing flow could not call the transcription endpoint. Retry or restart the backend.';
-    if(lower.includes('http error 403') || raw.includes('视频下载失败：403') || lower.includes('forbidden')) return lang === 'zh' ? '平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、配置浏览器 cookies，或上传本地视频。' : 'The platform refused this video download. FluentFlow will prefer captions when possible; retry later, configure browser cookies, or upload the local video.';
-    if(lower.includes('http error 429') || lower.includes('too many requests')) return lang === 'zh' ? '平台请求过于频繁，暂时限制了视频或字幕获取。请稍后重试，或上传本地视频/字幕文件。' : 'The platform is temporarily rate-limiting video or subtitle access. Retry later, or upload the local video/subtitle file.';
-    if(raw.includes('视频下载超时') || lower.includes('timed out') || lower.includes('timeout')) return lang === 'zh' ? '视频下载时间过长，可能是视频较大或当前网络较慢。笔记会优先尝试使用字幕；如仍失败，请稍后重试或上传本地视频。' : 'The video download took too long, likely due to a large video or slow network. FluentFlow will prefer captions when possible; retry later or upload the local video.';
-    if(lower.includes('no position encodings are defined')) return lang === 'zh' ? '本地说话人区分模型无法处理当前音频长度。请关闭说话人区分，或切换云端转录。' : 'Local diarization cannot handle this audio length. Disable diarization or use cloud transcription.';
-    if(lower.includes('downloaded video is too large') || lower.includes('file is too large')) return lang === 'zh' ? '文件超过当前上传限制。请压缩视频、拆分文件，或调高后端上传大小限制。' : 'The file exceeds the current upload limit.';
-    return raw;
+
+    const patterns = [
+        [
+            lower.includes('queued transcript summary request failed') && (lower.includes('401') || lower.includes('login') || lower.includes('auth') || lower.includes('account')),
+            taskErrorDiagnosis({
+                code: 'auth_required',
+                titleZh: '需要重新登录',
+                titleEn: 'Sign in required',
+                detailZh: '账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。',
+                detailEn: 'Account login is missing or expired, so the AI note was not generated. Sign in again and retry; the completed transcript is not damaged.',
+                nextZh: '重新登录后重试；如果转录已保存，打开结果后重生笔记。',
+                nextEn: 'Sign in again and retry; if the transcript is saved, reopen the result and regenerate the note.',
+            }),
+        ],
+        [
+            (raw.includes('AI 笔记') || raw.includes('转录不会因此损坏')) && (raw.includes('账号未登录') || raw.includes('登录态') || raw.includes('重新登录')),
+            taskErrorDiagnosis({
+                code: 'auth_required',
+                titleZh: '需要重新登录',
+                titleEn: 'Sign in required',
+                detailZh: '账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。',
+                detailEn: 'Account login is missing or expired, so the AI note was not generated. Sign in again and retry; the completed transcript is not damaged.',
+                nextZh: '重新登录后重试；如果转录已保存，打开结果后重生笔记。',
+                nextEn: 'Sign in again and retry; if the transcript is saved, reopen the result and regenerate the note.',
+            }),
+        ],
+        [
+            lower.includes('fluentflow account login is required') || lower.includes('http 401') || lower.includes('unauthorized') || raw.includes('账号未登录') || raw.includes('登录态') || raw.includes('重新登录'),
+            taskErrorDiagnosis({
+                code: 'auth_required',
+                titleZh: '需要重新登录',
+                titleEn: 'Sign in required',
+                detailZh: '账号未登录或登录态已失效，请重新登录后重试。',
+                detailEn: 'Account login is missing or expired. Sign in again and retry.',
+                nextZh: '重新登录后从同一条记录继续；如果仍失败，重新提交任务。',
+                nextEn: 'Sign in again and continue from the same record; submit again if it still fails.',
+            }),
+        ],
+        [
+            lower.includes('quota') || lower.includes('balance') || lower.includes('额度') || lower.includes('余额'),
+            taskErrorDiagnosis({
+                code: 'quota_insufficient',
+                titleZh: '额度不足',
+                titleEn: 'Insufficient balance',
+                detailZh: '当前账号处理额度不足，请充值或联系维护者增加额度。',
+                detailEn: 'This account does not have enough processing balance.',
+                nextZh: '补足额度后重试，或降低本次处理成本。',
+                nextEn: 'Add balance and retry, or lower this task cost.',
+            }),
+        ],
+        [
+            lower.includes('only "standard" subscriptions') || lower.includes('only \\"standard\\" subscriptions') || lower.includes('invalidsubscription'),
+            taskErrorDiagnosis({
+                code: 'azure_subscription_invalid',
+                titleZh: 'Azure 订阅不支持',
+                titleEn: 'Azure subscription unsupported',
+                detailZh: '云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。',
+                detailEn: 'Cloud transcription failed: the Speech resource is not a Standard subscription supported for Batch in this region.',
+                nextZh: '更换支持 Batch 的 Azure Speech 资源，或改用本地转录。',
+                nextEn: 'Use a Batch-capable Azure Speech resource, or switch to local transcription.',
+                retryable: false,
+            }),
+        ],
+        [
+            lower.includes('invalidlocale') || lower.includes('specified locale is not supported'),
+            taskErrorDiagnosis({
+                code: 'stt_locale_unsupported',
+                titleZh: '音频语言不支持',
+                titleEn: 'Audio language unsupported',
+                detailZh: '云端转录提交失败：当前音频语言不被 Azure 支持。请切换为中文/英文，或改用本地转录。',
+                detailEn: 'Cloud transcription failed: this locale is not supported by Azure.',
+                nextZh: '切换音频语言设置后重试，或改用本地转录。',
+                nextEn: 'Change the audio language setting and retry, or use local transcription.',
+            }),
+        ],
+        [
+            lower.includes('invalidmodel') || lower.includes('specified model is not supported'),
+            taskErrorDiagnosis({
+                code: 'stt_model_unsupported',
+                titleZh: '转录模型不支持',
+                titleEn: 'STT model unsupported',
+                detailZh: '云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端默认模型或改用本地转录。',
+                detailEn: 'Cloud transcription failed: the selected model is not supported by this Azure resource.',
+                nextZh: '切换转录模型后重试，或改用本地转录。',
+                nextEn: 'Change the STT model and retry, or use local transcription.',
+            }),
+        ],
+        [
+            lower.includes('diarization is currently not supported') || lower.includes('no position encodings are defined'),
+            taskErrorDiagnosis({
+                code: 'diarization_unsupported',
+                titleZh: '说话人区分不可用',
+                titleEn: 'Diarization unavailable',
+                detailZh: lower.includes('no position encodings are defined') ? '本地说话人区分模型无法处理当前音频长度。请关闭说话人区分，或切换云端转录。' : '云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。',
+                detailEn: lower.includes('no position encodings are defined') ? 'Local diarization cannot handle this audio length. Disable diarization or use cloud transcription.' : 'Cloud transcription failed: diarization is not supported by this route.',
+                nextZh: '关闭说话人区分后重试。',
+                nextEn: 'Disable diarization and retry.',
+            }),
+        ],
+        [
+            lower.includes('eof occurred in violation of protocol') || lower.includes('broken pipe') || lower.includes('azure blob upload failed'),
+            taskErrorDiagnosis({
+                code: 'cloud_upload_failed',
+                titleZh: '云端上传失败',
+                titleEn: 'Cloud upload failed',
+                detailZh: lower.includes('azure blob upload failed') ? '云端上传到 Blob 失败。请检查 SAS URL 是否仍有效、是否允许写入，以及网络是否稳定。' : '云端上传中断：通常是网络或云端转录服务断开连接。请重试；如果文件很大，先压缩或拆分音频。',
+                detailEn: lower.includes('azure blob upload failed') ? 'Cloud Blob upload failed. Check whether the SAS URL is valid and writable.' : 'Cloud upload was interrupted. Retry, or reduce/split the audio for very large files.',
+                nextZh: '检查云端存储配置后重试，或改用本地转录。',
+                nextEn: 'Check cloud storage settings and retry, or use local transcription.',
+            }),
+        ],
+        [
+            lower.includes('http error 403') || raw.includes('视频下载失败：403') || lower.includes('forbidden'),
+            taskErrorDiagnosis({
+                code: 'platform_forbidden',
+                titleZh: '平台拒绝下载',
+                titleEn: 'Platform refused download',
+                detailZh: '平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、配置浏览器 cookies，或上传本地视频。',
+                detailEn: 'The platform refused this video download. FluentFlow will prefer captions when possible; retry later, configure browser cookies, or upload the local video.',
+                nextZh: '稍后重试、配置浏览器 cookies，或上传本地视频。',
+                nextEn: 'Retry later, configure browser cookies, or upload the local video.',
+            }),
+        ],
+        [
+            lower.includes('http error 429') || lower.includes('too many requests'),
+            taskErrorDiagnosis({
+                code: 'platform_rate_limited',
+                titleZh: '平台请求过于频繁',
+                titleEn: 'Platform rate limit',
+                detailZh: '平台请求过于频繁，暂时限制了视频或字幕获取。请稍后重试，或上传本地视频/字幕文件。',
+                detailEn: 'The platform is temporarily rate-limiting video or subtitle access. Retry later, or upload the local video/subtitle file.',
+                nextZh: '稍后重试，或直接上传本地视频/字幕文件。',
+                nextEn: 'Retry later, or upload the local video/subtitle file.',
+            }),
+        ],
+        [
+            raw.includes('视频下载超时') || lower.includes('timed out') || lower.includes('timeout'),
+            taskErrorDiagnosis({
+                code: 'video_download_timeout',
+                titleZh: '视频下载超时',
+                titleEn: 'Video download timed out',
+                detailZh: '视频下载时间过长，可能是视频较大或当前网络较慢。笔记会优先尝试使用字幕；如仍失败，请稍后重试或上传本地视频。',
+                detailEn: 'The video download took too long, likely due to a large video or slow network. FluentFlow will prefer captions when possible; retry later or upload the local video.',
+                nextZh: '稍后重试，或上传本地视频。',
+                nextEn: 'Retry later, or upload the local video.',
+            }),
+        ],
+        [
+            raw.includes('暂时无法自动解析这个视频链接'),
+            taskErrorDiagnosis({
+                code: 'video_link_parse_failed',
+                titleZh: '链接暂时无法解析',
+                titleEn: 'Link cannot be parsed',
+                detailZh: '暂时无法自动解析这个视频链接。请换一个分享链接，或直接上传视频文件。',
+                detailEn: 'FluentFlow cannot parse this video link yet. Try another share link, or upload the video file directly.',
+                nextZh: '换一个分享链接，或直接上传视频文件。',
+                nextEn: 'Try another share link, or upload the video file directly.',
+            }),
+        ],
+        [
+            lower.includes('downloaded video is too large') || lower.includes('file is too large') || raw.includes('视频文件过大'),
+            taskErrorDiagnosis({
+                code: 'file_too_large',
+                titleZh: '文件超过限制',
+                titleEn: 'File too large',
+                detailZh: '文件超过当前上传限制。请压缩视频、拆分文件，或调高后端上传大小限制。',
+                detailEn: 'The file exceeds the current upload limit.',
+                nextZh: '压缩或拆分文件后重试。',
+                nextEn: 'Compress or split the file, then retry.',
+            }),
+        ],
+        [
+            lower.includes('unsupported transcript file type'),
+            taskErrorDiagnosis({
+                code: 'unsupported_transcript_type',
+                titleZh: '字幕格式不支持',
+                titleEn: 'Subtitle format unsupported',
+                detailZh: '不支持这个字幕/转录文件格式。请上传 SRT、VTT、TXT 或 Markdown 文件。',
+                detailEn: 'This transcript format is unsupported. Upload SRT, VTT, TXT, or Markdown.',
+                nextZh: '换成 SRT、VTT、TXT 或 Markdown 后重试。',
+                nextEn: 'Use SRT, VTT, TXT, or Markdown and retry.',
+                retryable: false,
+            }),
+        ],
+        [
+            lower.includes('unsupported file type'),
+            taskErrorDiagnosis({
+                code: 'unsupported_file_type',
+                titleZh: '文件格式不支持',
+                titleEn: 'File format unsupported',
+                detailZh: '不支持这个文件格式。请上传视频或音频文件。',
+                detailEn: 'This file format is unsupported. Upload a video or audio file.',
+                nextZh: '换成支持的视频或音频文件后重试。',
+                nextEn: 'Use a supported video or audio file and retry.',
+                retryable: false,
+            }),
+        ],
+        [
+            lower.includes('queued source file is missing') || raw.includes('原始文件已不存在'),
+            taskErrorDiagnosis({
+                code: 'source_file_missing',
+                titleZh: '原始文件已不存在',
+                titleEn: 'Source file missing',
+                detailZh: '后台任务找不到原始文件。文件可能已被清理，请重新上传。',
+                detailEn: 'The background task cannot find the source file. It may have been cleaned up.',
+                nextZh: '重新上传原始文件后再处理。',
+                nextEn: 'Upload the source file again.',
+                retryable: false,
+            }),
+        ],
+        [
+            lower.includes('queued processing request failed') || lower.includes('queued transcript summary request failed'),
+            taskErrorDiagnosis({
+                code: lower.includes('summary') ? 'queue_summary_failed' : 'queue_processing_failed',
+                titleZh: lower.includes('summary') ? '后台笔记生成调用失败' : '后台队列调用失败',
+                titleEn: lower.includes('summary') ? 'Background note request failed' : 'Background queue request failed',
+                detailZh: lower.includes('summary') ? '后台任务调用笔记生成接口失败。请重试；如果连续出现，请重启后端服务。' : '处理流程调用转录接口失败。请重试；如果连续出现，请重启后端服务。',
+                detailEn: lower.includes('summary') ? 'The background task could not call the note endpoint. Retry or restart the backend.' : 'The processing flow could not call the transcription endpoint. Retry or restart the backend.',
+                nextZh: lower.includes('summary') ? '重试；如果转录已保存，打开结果后重生笔记。' : '重试；如果连续出现，重启后端服务后再提交。',
+                nextEn: lower.includes('summary') ? 'Retry; if the transcript is saved, reopen the result and regenerate the note.' : 'Retry; if it keeps failing, restart the backend and submit again.',
+            }),
+        ],
+        [
+            lower.includes('unsupported note generation mode') || lower.includes('chapter_coverage'),
+            taskErrorDiagnosis({
+                code: 'unsupported_note_mode',
+                titleZh: '笔记模式不受当前版本支持',
+                titleEn: 'Note mode unsupported',
+                detailZh: '当前版本不支持这类笔记生成模式。请选择“自动”或“高保真”后重新提交任务。',
+                detailEn: 'This note generation mode is not supported by this version. Choose Auto or High fidelity and submit again.',
+                nextZh: '切换为“自动”或“高保真”后重新提交任务。',
+                nextEn: 'Switch to Auto or High fidelity and submit again.',
+                retryable: false,
+            }),
+        ],
+        [
+            lower.includes('empty result') || lower.includes('returned empty') || raw.includes('空笔记'),
+            taskErrorDiagnosis({
+                code: 'empty_ai_note',
+                titleZh: 'AI 返回了空笔记',
+                titleEn: 'AI returned an empty note',
+                detailZh: 'AI 返回了空笔记，没有生成可用内容。',
+                detailEn: 'The AI returned an empty note and produced no usable content.',
+                nextZh: '重生笔记；如果重复出现，换用直接生成模式或调整提示词。',
+                nextEn: 'Regenerate the note; if it repeats, use direct mode or adjust the prompt.',
+            }),
+        ],
+        [
+            lower.includes('feishu') || raw.includes('飞书') || lower.includes('lark'),
+            taskErrorDiagnosis({
+                code: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? 'lark_cli_login_required' : 'feishu_export_failed',
+                titleZh: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? '本机飞书登录失效' : '飞书导出失败',
+                titleEn: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? 'Local Lark login expired' : 'Feishu export failed',
+                detailZh: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? '飞书导出失败：当前 lark-cli 没有可用登录身份。' : '飞书导出失败。请检查授权、导出路线和目标文档权限。',
+                detailEn: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? 'Lark export failed: lark-cli has no usable login.' : 'Feishu export failed. Check authorization, export route, and target document permissions.',
+                nextZh: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? '在本机重新登录 lark-cli 后重试导出。' : '检查飞书授权和导出路线后重试导出。',
+                nextEn: lower.includes('lark-cli') && (lower.includes('login') || lower.includes('auth')) ? 'Sign in to lark-cli locally, then retry export.' : 'Check Feishu authorization and export route, then retry.',
+            }),
+        ],
+    ];
+    const match = patterns.find(([condition]) => condition);
+    if(match) return pick(match[1]);
+    return pick(taskErrorDiagnosis({
+        code: 'unknown_error',
+        titleZh: '任务处理失败',
+        titleEn: 'Task failed',
+        detailZh: raw,
+        detailEn: raw,
+        nextZh: '重试一次；如果连续失败，请把任务详情发给维护者排查。',
+        nextEn: 'Retry once; if it keeps failing, send the task detail to the maintainer.',
+    }));
+};
+
+export const friendlyTaskError = (message, lang='zh') => {
+    return diagnoseTaskError(message, lang).detail;
 };
 
 export const noteGenerationDiagnosis = (result={}, lang='zh') => {
@@ -192,7 +480,6 @@ export const noteGenerationDiagnosis = (result={}, lang='zh') => {
     const status = String(result?.summary_status || '').trim().toLowerCase();
     const stage = String(result?.stage || '').trim().toLowerCase();
     const rawError = String(result?.summary_error || result?.error_reason || '').trim();
-    const errorText = rawError.toLowerCase();
     const hasTranscript = !!String(result?.transcript_text || result?.transcript_text_preview || '').trim()
         || (Array.isArray(result?.raw_segments) && result.raw_segments.length > 0)
         || (Array.isArray(result?.display_segments) && result.display_segments.length > 0);
@@ -243,37 +530,19 @@ export const noteGenerationDiagnosis = (result={}, lang='zh') => {
         };
     }
     if(status === 'failed' || rawError) {
-        let code = 'ai_note_failed';
-        let title = zh ? 'AI 笔记生成失败' : 'AI note generation failed';
-        let nextAction = zh ? '打开结果后点击“重生笔记”；如果仍失败，换一个笔记模式或缩短材料。' : 'Open the result and click Regenerate note; if it still fails, change the note mode or shorten the material.';
-        if(errorText.includes('quota') || errorText.includes('balance') || errorText.includes('额度') || errorText.includes('余额')) {
-            code = 'quota_insufficient';
-            title = zh ? '额度不足，笔记未生成' : 'Insufficient balance for note generation';
-            nextAction = zh ? '补足额度后重生笔记，或降低本次处理成本。' : 'Add balance, then regenerate the note, or lower the processing cost.';
-        } else if(errorText.includes('401') || errorText.includes('login') || errorText.includes('auth') || errorText.includes('account')) {
-            code = 'auth_required';
-            title = zh ? '账号状态阻止了笔记生成' : 'Account state blocked note generation';
-            nextAction = zh ? '重新登录后打开结果，再点击“重生笔记”。' : 'Sign in again, reopen the result, then click Regenerate note.';
-        } else if(errorText.includes('404') || errorText.includes('job not found') || errorText.includes('not found')) {
-            code = 'job_scope_mismatch';
-            title = zh ? '任务归属不一致，笔记未生成' : 'Task scope mismatch blocked note generation';
-            nextAction = zh ? '刷新历史记录后从同一条记录打开结果；如果仍失败，重新提交任务。' : 'Refresh History and open the same record; submit it again if it still fails.';
-        } else if(errorText.includes('empty result') || errorText.includes('empty')) {
-            code = 'empty_ai_note';
-            title = zh ? 'AI 返回了空笔记' : 'AI returned an empty note';
-            nextAction = zh ? '点击“重生笔记”；如果重复出现，换用直接生成模式或调整提示词。' : 'Click Regenerate note; if it repeats, use direct mode or adjust the prompt.';
-        } else if(errorText.includes('unsupported note generation mode') || errorText.includes('chapter_coverage')) {
-            code = 'unsupported_note_mode';
-            title = zh ? '笔记模式不受当前版本支持' : 'Note mode is not supported by this version';
-            nextAction = zh ? '到设置页选择“自动”或“高保真”，再重新提交任务。' : 'Choose Auto or High fidelity in Settings, then submit again.';
-        }
+        const diag = diagnoseTaskError(rawError, lang);
+        const code = diag.code === 'unknown_error' ? 'ai_note_failed' : diag.code;
+        const title = diag.code === 'unknown_error' ? (zh ? 'AI 笔记生成失败' : 'AI note generation failed') : diag.title;
+        const nextAction = diag.code === 'unknown_error'
+            ? (zh ? '打开结果后点击“重生笔记”；如果仍失败，换一个笔记模式或缩短材料。' : 'Open the result and click Regenerate note; if it still fails, change the note mode or shorten the material.')
+            : diag.nextAction;
         return {
             ...base,
             status: 'failed',
             code,
             severity: 'error',
             title,
-            detail: friendlyTaskError(rawError, lang),
+            detail: diag.detail,
             nextAction,
             canRegenerate: true,
         };

@@ -11,6 +11,7 @@ from typing import Any
 
 from backend.core.agent_package import note_generation_diagnosis
 from backend.core.decision_log import build_decision_log
+from backend.core.error_diagnostics import diagnose_error
 from backend.core.result_schema import canonical_display_segments, canonical_raw_segments
 from backend.core.title_display import display_title_for_user
 
@@ -434,12 +435,14 @@ def _diagnosis(job: dict[str, Any], timeline: list[dict[str, Any]]) -> dict[str,
     note_diag = note_generation_diagnosis(job, result)
     if job_status == "failed":
         failed_step = next((step for step in timeline if step.get("status") == "failed"), None)
+        error_diag = diagnose_error(job.get("error_reason") or (failed_step or {}).get("error_reason"))
         return {
             "visible": True,
             "severity": "error",
-            "title": failed_step.get("title") + "失败" if failed_step else "任务处理失败",
-            "detail": _text(job.get("error_reason") or failed_step.get("error_reason")) or "任务失败，但没有记录更具体的原因。",
-            "next_action": _next_action_for_failure(job, failed_step),
+            "title": error_diag.get("title") or (failed_step.get("title") + "失败" if failed_step else "任务处理失败"),
+            "detail": error_diag.get("detail") or _text(job.get("error_reason") or failed_step.get("error_reason")) or "任务失败，但没有记录更具体的原因。",
+            "next_action": error_diag.get("next_action") or _next_action_for_failure(job, failed_step),
+            "code": error_diag.get("code"),
             "step_id": failed_step.get("id") if failed_step else None,
         }
     if note_diag.get("status") == "failed":

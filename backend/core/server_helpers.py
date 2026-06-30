@@ -38,6 +38,7 @@ from fastapi import Request, Response, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.core._env import GUEST_TRIAL_TOKEN_HEADER, INTERNAL_QUEUE_TOKEN
+from backend.core.error_diagnostics import diagnose_error
 from backend.core.result_schema import (
     canonical_display_segments,
     canonical_raw_segments,
@@ -407,12 +408,12 @@ def _request_client_scope(request: Request | None) -> str:
             return owner_scope
     if request is not None and _request_is_internal_queue(request):
         return _normalize_client_scope(request.headers.get("x-fluentflow-client-id")) or "anonymous"
-    if request is not None and _request_is_local_execution(request):
-        return _request_client_id(request) or "anonymous"
     if request is not None and _account_auth_enabled():
         user = _request_account_user(request)
         if user and user.get("id"):
             return f"user:{user['id']}"
+    if request is not None and _request_is_local_execution(request):
+        return _request_client_id(request) or "anonymous"
     return _request_client_id(request) or "anonymous"
 
 
@@ -1125,64 +1126,7 @@ def _upload_size_mb(upload: UploadFile) -> float | None:
 def _friendly_error_message(error: Any) -> str:
     """Convert infrastructure errors into user-facing Chinese copy."""
 
-    raw = str(error or "").strip()
-    if not raw:
-        return "处理失败，但没有返回具体原因。请重试一次。"
-    lowered = raw.lower()
-
-    if "cloud transcription backend configuration is incomplete" in lowered:
-        return "云端转录暂不可用：后端 Azure Speech 配置不完整。请联系产品维护者检查 Speech endpoint 和 key。"
-    if "cloud transcription storage is not configured" in lowered:
-        return "云端转录暂不可用：后端 Blob/SAS 存储配置缺失。请联系产品维护者检查 Azure 存储设置。"
-    if "elevenlabs api key is not configured" in lowered or "elevenlabs transcription backend configuration is incomplete" in lowered:
-        return "云端转录暂不可用：后端 ElevenLabs API Key 未配置。请联系产品维护者检查 ELEVENLABS_API_KEY。"
-    if "elevenlabs transcription failed" in lowered:
-        return "ElevenLabs 云端转录失败。请检查 API Key、账户额度、文件格式和音频长度后重试。"
-    if "elevenlabs transcription request failed" in lowered:
-        return "ElevenLabs 云端转录请求失败。请检查网络连接后重试。"
-    if "only \"standard\" subscriptions" in lowered or 'only \\"standard\\" subscriptions' in lowered or "invalidsubscription" in lowered:
-        return "云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。"
-    if "invalidlocale" in lowered or "specified locale is not supported" in lowered:
-        return "云端转录提交失败：当前音频语言不被 Azure 支持。请切换为中文/英文，或改用本地转录。"
-    if "invalidmodel" in lowered or "specified model is not supported" in lowered:
-        return "云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端 Batch 默认模型或改用本地转录。"
-    if "diarization is currently not supported" in lowered:
-        return "云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。"
-    if "eof occurred in violation of protocol" in lowered or "broken pipe" in lowered:
-        return "云端上传中断：通常是网络或 Azure 边缘服务断开连接。请重试；如果文件很大，优先使用 Azure Batch 或减小音频体积。"
-    if "azure blob upload failed" in lowered:
-        return "云端上传到 Blob 失败。请检查 SAS URL 是否仍有效、是否允许写入，以及网络是否稳定。"
-    if "queued transcript summary request failed" in lowered and (
-        "401" in lowered or "login" in lowered or "auth" in lowered or "account" in lowered
-    ):
-        return "账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。"
-    if "queued processing request failed" in lowered:
-        return "后台任务调用转录接口失败。请重试；如果连续出现，请重启后端服务并检查上传大小限制。"
-    if "http error 403" in lowered or "视频下载失败：403" in raw or "forbidden" in lowered:
-        return "平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、配置浏览器 cookies，或上传本地视频。"
-    if "http error 429" in lowered or "too many requests" in lowered:
-        return "平台请求过于频繁，暂时限制了视频或字幕获取。请稍后重试，或上传本地视频/字幕文件。"
-    if "视频下载超时" in raw or "timed out" in lowered or "timeout" in lowered:
-        return "视频下载时间过长，可能是视频较大或当前网络较慢。笔记会优先尝试使用字幕；如仍失败，请稍后重试或上传本地视频。"
-    if "no position encodings are defined" in lowered:
-        return "本地说话人区分模型无法处理当前音频长度。请关闭说话人区分，或切换云端转录。"
-    if "downloaded video is too large" in lowered or "file is too large" in lowered:
-        return "文件超过当前上传限制。请压缩视频、拆分文件，或调高后端上传大小限制。"
-    if "unsupported transcript file type" in lowered:
-        return "不支持这个字幕/转录文件格式。请上传 SRT、VTT、TXT 或 Markdown 文件。"
-    if "unsupported file type" in lowered:
-        return "不支持这个文件格式。请上传视频或音频文件。"
-    if "no file uploaded" in lowered:
-        return "没有收到上传文件。请重新选择文件后再试。"
-    if "queued source file is missing" in lowered:
-        return "后台任务找不到原始文件。文件可能已被清理，请重新上传。"
-    if "暂时无法自动解析这个视频链接" in raw:
-        return "暂时无法自动解析这个视频链接。请换一个分享链接，或直接上传视频文件。"
-    if "没有识别到视频链接" in raw:
-        return "没有识别到视频链接。请粘贴完整的分享文本或视频 URL。"
-    if "视频下载失败" in raw or "视频文件过大" in raw:
-        return raw
-    return raw
+    return str(diagnose_error(error).get("detail") or "").strip()
 
 
 def _active_job_count(client_id: str | None, exclude_task_id: str | None = None) -> int:
@@ -2845,7 +2789,7 @@ def _handle_step_failure(step: dict[str, Any], exc: Exception) -> None:
     upsert_job(
         task_id=task_id,
         status="failed",
-        client_id=_normalize_client_id(str(item.get("client_id") or "")),
+        client_id=_normalize_client_scope(str(item.get("client_id") or "")),
         stage=str(step.get("step_type") or "queued"),
         progress=0,
         error_reason=friendly_error,

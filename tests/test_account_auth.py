@@ -163,6 +163,34 @@ def test_account_scope_replaces_device_scope(monkeypatch, tmp_path) -> None:
     assert captured["client_id"] == f"user:{register.json()['user']['id']}"
 
 
+def test_logged_in_video_link_local_execution_keeps_account_scope(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
+    started: list[dict] = []
+    monkeypatch.setattr(_H, "_start_video_source_job", lambda item: started.append(item))
+
+    with TestClient(main.app) as client:
+        register = client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
+        response = client.post(
+            "/video-sources/jobs",
+            headers={
+                "X-FluentFlow-Execution-Target": "local",
+                "X-FluentFlow-Client-Id": "local-single-user",
+            },
+            json={
+                "input": "https://youtu.be/example",
+                "options": {"stt_provider": "local", "note_mode": "auto"},
+            },
+        )
+
+    account_scope = f"user:{register.json()['user']['id']}"
+    job = job_store.get_job(response.json()["job"]["task_id"], db_path=tmp_path / "jobs.sqlite")
+    assert response.status_code == 200
+    assert response.json()["job"]["metadata"]["queue_options"]["stt_provider"] == "local"
+    assert job and job["client_id"] == account_scope
+    assert started and started[0]["client_id"] == account_scope
+
+
 def test_internal_queue_uses_shared_token_and_preserves_account_scope(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
     request = Request({

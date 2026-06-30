@@ -10,6 +10,7 @@ from backend.core.processing_plan import build_processing_plan, ensure_processin
 from backend.core.title_display import display_title_for_user
 from backend.core.tool_trace import build_tool_trace
 from backend.core.decision_log import build_decision_log
+from backend.core.error_diagnostics import diagnose_error
 
 
 AGENT_TASK_PACKAGE_VERSION = "1"
@@ -24,7 +25,6 @@ def note_generation_diagnosis(job: dict[str, Any], result: dict[str, Any]) -> di
     status = _text(result.get("summary_status") or job.get("summary_status")).lower()
     stage = _text(result.get("stage") or job.get("stage")).lower()
     raw_error = _text(result.get("summary_error") or job.get("error_reason"))
-    error_text = raw_error.lower()
     has_transcript = bool(_text(result.get("transcript_text") or result.get("transcript_text_preview")))
     has_transcript = has_transcript or bool(canonical_raw_segments(result) or canonical_display_segments(result))
 
@@ -70,36 +70,20 @@ def note_generation_diagnosis(job: dict[str, Any], result: dict[str, Any]) -> di
             "retryable": True,
         }
     if status == "failed" or raw_error:
-        code = "ai_note_failed"
-        title = "AI 笔记生成失败"
-        next_action = "重新生成；如果仍失败，换一个笔记模式或缩短材料。"
-        if any(token in error_text for token in ("quota", "balance", "额度", "余额")):
-            code = "quota_insufficient"
-            title = "额度不足，笔记未生成"
-            next_action = "补足额度后重新生成，或降低本次处理成本。"
-        elif any(token in error_text for token in ("401", "login", "auth", "account")):
-            code = "auth_required"
-            title = "账号状态阻止了笔记生成"
-            next_action = "重新登录后再重新生成。"
-        elif any(token in error_text for token in ("404", "job not found", "not found")):
-            code = "job_scope_mismatch"
-            title = "任务归属不一致，笔记未生成"
-            next_action = "刷新任务列表后从同一条记录继续；如果仍失败，重新提交任务。"
-        elif "empty" in error_text:
-            code = "empty_ai_note"
-            title = "AI 返回了空笔记"
-            next_action = "重新生成；如果重复出现，换用直接生成模式或调整提示词。"
-        elif "unsupported note generation mode" in error_text or "chapter_coverage" in error_text:
-            code = "unsupported_note_mode"
-            title = "笔记模式不受当前版本支持"
-            next_action = "选择“自动”或“高保真”后重新提交任务。"
+        diag = diagnose_error(raw_error)
+        code = str(diag.get("code") or "ai_note_failed")
+        title = str(diag.get("title") or "AI 笔记生成失败")
+        next_action = str(diag.get("next_action") or "重新生成；如果仍失败，换一个笔记模式或缩短材料。")
+        if code in {"unknown_error", "video_download_failed"}:
+            code = "ai_note_failed"
+            title = "AI 笔记生成失败"
         return {
             **base,
             "status": "failed",
             "code": code,
             "severity": "error",
             "title": title,
-            "detail": raw_error or "处理失败，但没有返回具体原因。",
+            "detail": str(diag.get("detail") or raw_error or "处理失败，但没有返回具体原因。"),
             "next_action": next_action,
             "retryable": True,
         }
