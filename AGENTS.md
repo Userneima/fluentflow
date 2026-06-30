@@ -27,6 +27,10 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
   to confirm scope, validation, parity, changelog, and commit boundaries.
 - Repeated FluentFlow workflows should use the matching project skill in
   `.agents/skills/` when one applies.
+- Before non-trivial file edits, run `git status --short`. If unrelated dirty
+  changes already exist in the target worktree, do not stack new edits on top
+  of them. First split/checkpoint the existing work, move the task to a clean
+  worktree, or make the current turn read-only.
 
 ## Versioning And Commit Discipline
 

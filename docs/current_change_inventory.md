@@ -1,6 +1,6 @@
 # Current Change Inventory
 
-Last updated: 2026-06-28
+Last updated: 2026-06-30
 
 This document is the integration map for the current multi-agent worktree. It
 groups changes by product intent, not by which agent made them. Use it before
@@ -13,6 +13,117 @@ version only when a coherent release is being prepared.
 
 Each group below should become its own reviewed commit or be explicitly held
 back. Do not merge all dirty files as one "misc fixes" commit.
+
+## Active Dirty Worktree Audit — 2026-06-30
+
+Status: uncommitted in the main checkout. Do not add unrelated edits on top of
+these files. Either split/checkpoint the groups below or move new work to a
+clean worktree.
+
+### Group F: Account Scope And Internal Queue Auth Recovery
+
+Purpose:
+
+- Keep the internal queue token stable across backend imports/restarts.
+- Preserve account scope for internal queue requests.
+- Improve user-facing diagnosis when note generation is blocked by login/auth.
+
+Files currently touched:
+
+- `backend/core/_env.py`
+- `backend/core/server_helpers.py`
+- `backend/core/task_detail.py`
+- `tests/test_account_auth.py`
+
+Suggested validation before commit:
+
+```bash
+PYTHONPATH=. venv/bin/pytest tests/test_account_auth.py -q
+git diff --check
+```
+
+Suggested commit boundary:
+
+```text
+fix: preserve internal queue account scope
+```
+
+### Group G: History Records And Task Detail Recovery UI
+
+Purpose:
+
+- Rename user-facing "后台任务 / task management" language toward "历史记录".
+- Preserve local task snapshots while task detail silently refreshes backend
+  data.
+- Keep local cancel/delete/retry mutations from flickering back during polling.
+- Add retry affordances for failed video-link records when the original input
+  is available.
+
+Files currently touched:
+
+- `frontend/src/app/AppShell.jsx`
+- `frontend/src/app/shared.jsx`
+- `frontend/src/components/TaskProgressOverview.jsx`
+- `frontend/src/lib/format.js`
+- `frontend/src/routes/about.jsx`
+- `frontend/src/routes/agent-trace.jsx`
+- `frontend/src/routes/dashboard.jsx`
+- `frontend/src/routes/processing.jsx`
+- `frontend/src/routes/settings.jsx`
+- `frontend/src/routes/tasks.jsx`
+- `scripts/write_frontend_config.js`
+- `tests/test_frontend_routes.py`
+
+Suggested validation before commit:
+
+```bash
+npm run build:frontend
+PYTHONPATH=. venv/bin/pytest tests/test_frontend_routes.py -q
+git diff --check
+```
+
+Suggested commit boundary:
+
+```text
+fix: stabilize history task recovery
+```
+
+### Group H: Product Documentation Terminology Alignment
+
+Purpose:
+
+- Align public docs and design rules with the current "历史记录" product model.
+- Keep deployment/regression docs consistent with the renamed long-task entry.
+
+Files currently touched:
+
+- `docs/architecture.md`
+- `docs/beta_deployment_checklist.md`
+- `docs/product_intro_latest.md`
+- `docs/regression_checklist.md`
+- `docs/ui_design_system.md`
+
+Suggested validation before commit:
+
+```bash
+git diff --check
+```
+
+Suggested commit boundary:
+
+```text
+docs: align history record terminology
+```
+
+### Shared File Warning
+
+`docs/changelog.md` contains changes from multiple product groups. Stage its
+hunks with care:
+
+- history/task recovery user-facing entries belong with Group G;
+- documentation-only terminology may belong with Group H;
+- future maintenance workflow entries should be staged only with their matching
+  maintenance commit.
 
 ## Group A: Release And Version Management
 

@@ -35,6 +35,27 @@ If a field is unknown, mark it as unknown and resolve it before editing.
 | Commit allowed | Yes/no. If yes, define the commit boundary and validation required before commit. If dirty unrelated changes exist, stage only intended hunks/files. |
 | Report format | Final report must cover: changed files, validation run, what was intentionally not done, and remaining risk. |
 
+## Clean Worktree Start Gate
+
+Before non-trivial file edits, run:
+
+```bash
+git status --short
+```
+
+Then choose one path:
+
+| State | Required action |
+| --- | --- |
+| Clean worktree | Proceed with the task brief. |
+| Dirty, all changes belong to this work unit | Continue, then validate and commit the work unit when complete. |
+| Dirty, unrelated changes exist | Do not stack new edits on the same worktree. First split/checkpoint existing changes, move this task to a clean worktree, or keep the turn read-only. |
+| Dirty, ownership is unclear | Stop and report the ambiguity before editing. |
+
+This gate is what makes automatic checkpoint commits possible. If the start
+state is already mixed, the end state will not have a trustworthy commit
+boundary.
+
 ## Main And Execution Conversation Split
 
 Main conversation responsibilities:
@@ -86,3 +107,9 @@ brief:
 3. Did Agent/MCP parity, changelog, and UI confirmation get handled when needed?
 4. Is the commit boundary clear, even if this thread is not allowed to commit?
 5. Are remaining risks or blocked follow-ups stated plainly?
+
+If the work unit is complete, validated, clearly scoped, and independently
+reversible, create a normal checkpoint commit unless the user or task brief
+forbids commits. If a commit is not created, the final report must say exactly
+why, for example: unrelated dirty changes, skipped validation, exploratory work,
+or missing user confirmation.

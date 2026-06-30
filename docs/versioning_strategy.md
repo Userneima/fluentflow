@@ -67,6 +67,27 @@ When unrelated worktree changes exist, inspect the diff and stage intentionally.
 Do not use `git add .` unless the worktree has already been audited and every
 changed file belongs to the same commit purpose.
 
+## Dirty Worktree Start Gate
+
+Before non-trivial edits, check the worktree state:
+
+```bash
+git status --short
+```
+
+If the worktree already contains unrelated changes, do not add more edits to the
+same checkout. Choose one of these paths first:
+
+- split and checkpoint the existing changes;
+- move the new work to a clean Codex worktree;
+- keep the current turn read-only and report the dirty boundary;
+- ask the main conversation to decide when ownership is unclear.
+
+Automatic checkpoint commits are allowed only when the work unit is complete,
+validated, clearly scoped, and independently reversible. They are not a license
+to commit a mixed worktree. A mixed dirty worktree must be decomposed before it
+can produce trustworthy history.
+
 Before committing a finished work unit, use the daily change-control check on
 the staged files:
 

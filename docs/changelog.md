@@ -46,6 +46,7 @@
 - 新增 Agent 执行任务卡入口机制，帮助主对话和执行对话在开工前明确范围、验证、parity、changelog 和 commit 边界。
 - 新增 FluentFlow 项目级协作 Skills，覆盖任务卡拆分、前端变更和视频来源链路排查的重复执行流程。
 - 新增 Agent/MCP eval 起步机制，用离线 mock 用例和可选 backend e2e 命令记录工具调用、耗时、任务状态、诊断和任务包摘要。
+- 强化 Git 工作流规则：非琐碎编辑前必须检查 dirty worktree，发现无关改动时先拆分、checkpoint 或换 clean worktree，避免继续叠加未提交改动。
 
 ## v0.2.0｜2026-06-29｜Agent 工作流与云端转录基础版
 
