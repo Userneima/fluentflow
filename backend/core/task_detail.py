@@ -465,6 +465,8 @@ def _diagnosis(job: dict[str, Any], timeline: list[dict[str, Any]]) -> dict[str,
 
 def _next_action_for_failure(job: dict[str, Any], failed_step: dict[str, Any] | None) -> str:
     error_text = _text(job.get("error_reason") or failed_step.get("error_reason")).lower() if failed_step else _text(job.get("error_reason")).lower()
+    if any(token in error_text for token in ("401", "login", "auth", "account", "账号", "登录态", "未登录")):
+        return "重新登录后重试；如果转录已保存，打开结果后重生笔记。"
     if any(token in error_text for token in ("quota", "balance", "额度", "余额")):
         return "补足额度或降低处理成本后重新提交。"
     if any(token in error_text for token in ("lark", "feishu", "飞书")):

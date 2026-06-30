@@ -37,6 +37,7 @@ import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from backend.core._env import GUEST_TRIAL_TOKEN_HEADER, INTERNAL_QUEUE_TOKEN
 from backend.core.result_schema import (
     canonical_display_segments,
     canonical_raw_segments,
@@ -51,8 +52,6 @@ logger = logging.getLogger(__name__)
 
 EVENT_SCHEMA_VERSION = "1.3"
 APP_VERSION = get_app_version()
-INTERNAL_QUEUE_TOKEN = os.environ.get("FLUENTFLOW_INTERNAL_QUEUE_TOKEN") or uuid.uuid4().hex
-GUEST_TRIAL_TOKEN_HEADER = "x-fluentflow-guest-token"
 
 
 def _project_root() -> Path:
@@ -406,6 +405,8 @@ def _request_client_scope(request: Request | None) -> str:
         owner_scope = str(api_key_auth.get("owner_scope") or "").strip() if api_key_auth else ""
         if owner_scope:
             return owner_scope
+    if request is not None and _request_is_internal_queue(request):
+        return _normalize_client_scope(request.headers.get("x-fluentflow-client-id")) or "anonymous"
     if request is not None and _request_is_local_execution(request):
         return _request_client_id(request) or "anonymous"
     if request is not None and _account_auth_enabled():
@@ -1151,6 +1152,10 @@ def _friendly_error_message(error: Any) -> str:
         return "云端上传中断：通常是网络或 Azure 边缘服务断开连接。请重试；如果文件很大，优先使用 Azure Batch 或减小音频体积。"
     if "azure blob upload failed" in lowered:
         return "云端上传到 Blob 失败。请检查 SAS URL 是否仍有效、是否允许写入，以及网络是否稳定。"
+    if "queued transcript summary request failed" in lowered and (
+        "401" in lowered or "login" in lowered or "auth" in lowered or "account" in lowered
+    ):
+        return "账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。"
     if "queued processing request failed" in lowered:
         return "后台任务调用转录接口失败。请重试；如果连续出现，请重启后端服务并检查上传大小限制。"
     if "http error 403" in lowered or "视频下载失败：403" in raw or "forbidden" in lowered:

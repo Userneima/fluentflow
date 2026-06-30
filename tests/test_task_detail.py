@@ -127,3 +127,22 @@ def test_task_detail_surfaces_note_failure_without_marking_transcription_failed(
     decision_entries = {entry["id"]: entry for entry in detail["decision_log"]["entries"]}
     assert decision_entries["note_generation_outcome"]["status"] == "failed"
     assert any(action["id"] == "regenerate_note" for action in detail["actions"])
+
+
+def test_task_detail_auth_failure_suggests_login_before_retry() -> None:
+    job = {
+        "task_id": "task-auth-failed",
+        "status": "failed",
+        "stage": "failed",
+        "progress": 100,
+        "source_type": "video_link",
+        "source_filename": "YouTube Demo",
+        "error_reason": "账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。",
+        "result": {},
+    }
+
+    detail = build_task_detail(job)
+
+    assert detail["diagnosis"]["visible"] is True
+    assert "账号未登录或登录态已失效" in detail["diagnosis"]["detail"]
+    assert detail["diagnosis"]["next_action"] == "重新登录后重试；如果转录已保存，打开结果后重生笔记。"

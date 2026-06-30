@@ -296,3 +296,15 @@ def test_local_transcript_source_submission_keeps_request_local(tmp_path, monkey
     assert captured
     assert captured[0]["url"] == "http://127.0.0.1:8000/summarize-transcript-file"
     assert captured[0]["headers"]["X-FluentFlow-Execution-Target"] == "local"
+
+
+def test_transcript_summary_queue_401_is_user_readable() -> None:
+    raw = (
+        'Queued transcript summary request failed: HTTP 401 '
+        '{"detail":"FluentFlow account login is required.","auth_mode":"accounts","account_required":true}'
+    )
+
+    message = _H._friendly_error_message(raw)
+
+    assert "账号未登录或登录态已失效" in message
+    assert "HTTP 401" not in message

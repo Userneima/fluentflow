@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
 
 import backend.main as main
+from backend.core import _env
 from backend.core import job_store
 import backend.core.server_helpers as _H
 
@@ -159,6 +161,24 @@ def test_account_scope_replaces_device_scope(monkeypatch, tmp_path) -> None:
     assert register.status_code == 200
     assert response.status_code == 200
     assert captured["client_id"] == f"user:{register.json()['user']['id']}"
+
+
+def test_internal_queue_uses_shared_token_and_preserves_account_scope(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/summarize-transcript-file",
+        "headers": [
+            (b"x-fluentflow-internal-queue-token", _H.INTERNAL_QUEUE_TOKEN.encode()),
+            (b"x-fluentflow-client-id", b"user:account-123"),
+        ],
+        "server": ("127.0.0.1", 8000),
+    })
+
+    assert _H.INTERNAL_QUEUE_TOKEN == _env.INTERNAL_QUEUE_TOKEN
+    assert _H._request_is_internal_queue(request)
+    assert _H._request_client_scope(request) == "user:account-123"
 
 
 def test_account_api_key_can_call_agent_without_session(monkeypatch, tmp_path) -> None:
