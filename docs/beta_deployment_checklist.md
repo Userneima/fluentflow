@@ -42,7 +42,7 @@ export FLUENTFLOW_ACCESS_TOKENS="code-a,code-b,code-c"
 
 ### 设备级历史隔离
 
-前端会在浏览器 `localStorage` 中生成一个 `fluentflow_client_id`，之后所有 API 请求都会带上该 ID。后端 `jobs` 表会保存 `client_id`，并且任务列表、任务详情、源文件下载、产物下载、转录稿编辑和取消任务都会按当前 `client_id` 过滤。
+前端会在浏览器 `localStorage` 中生成一个 `fluentflow_client_id`，之后所有 API 请求都会带上该 ID。后端 `jobs` 表会保存 `client_id`，并且历史记录列表、任务详情、源文件下载、产物下载、转录稿编辑和取消任务都会按当前 `client_id` 过滤。
 
 这能保证封闭 Beta 中不同设备、不同浏览器默认看不到彼此的历史任务。但它仍然不是正式账号系统：用户清空浏览器数据或换浏览器后会变成新的设备身份，无法自动找回旧任务。
 
@@ -142,7 +142,7 @@ python3 scripts/cleanup_storage.py --apply
 
 封闭 Beta 的用户不应该看到 ElevenLabs 或 legacy provider 原始错误码作为主要提示。当前后端会把常见未配置、额度不足、上传中断、文件过大、链接无法解析、队列调用失败等错误转换为中文失败原因；原始错误保留在 job metadata 中供维护者排障。
 
-后台任务页是长任务的主入口，需要确认：
+历史记录页是长任务的主入口，需要确认：
 
 - 运行中任务能显示当前阶段和阶段详情。
 - 链接下载能显示解析、下载和保存状态。
