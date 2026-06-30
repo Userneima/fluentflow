@@ -146,6 +146,7 @@ const TaskProgressOverview = ({pageData}) => {
     const noteMode = task.skipSummary
         ? (isZh ? '仅转录' : 'Transcript only')
         : `${isZh ? '生成笔记' : 'Note on'} / ${noteModeLabel(task.noteMode || settings.noteMode || 'auto', lang)}`;
+    const showLocalAiBoundary = provider === 'local' && task.sourceType !== 'transcript_file' && !task.skipSummary;
     const progressText = task.taskId === currentJob?.taskId
         ? jobProgressLabel({...currentJob, progress}, t)
         : `${Math.round(progress)}%`;
@@ -192,6 +193,14 @@ const TaskProgressOverview = ({pageData}) => {
                 <Metric label={isZh ? '媒体时长' : 'Duration'} value={task.durationSeconds ? fmtElapsed(task.durationSeconds) : '-'}/>
             </div>
 
+            {showLocalAiBoundary && (
+                <div className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                    {isZh
+                        ? '本地 faster-whisper 只负责转录；生成 AI 笔记仍会使用账号额度和配置的模型服务。'
+                        : 'Local faster-whisper only handles transcription; AI notes still use account balance and the configured model service.'}
+                </div>
+            )}
+
             {task.stage === 'stt' && (
                 <div className="mt-4 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
                     {sttUnknown
@@ -224,7 +233,7 @@ const TaskProgressOverview = ({pageData}) => {
             <div className="mt-4 flex flex-wrap gap-2">
                 <Link to="/tasks" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-3 text-[12px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
                     <SvgIcon name="monitoring" className="size-4"/>
-                    {isZh ? '后台任务' : 'Tasks'}
+                    {isZh ? '历史记录' : 'History'}
                 </Link>
             </div>
         </section>

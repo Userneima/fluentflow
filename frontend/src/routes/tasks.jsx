@@ -1,5 +1,5 @@
-/* ═══════════════ Background Tasks ═══════════════ */
-import {useCallback, useEffect, useMemo, useState} from 'react';
+/* ═══════════════ History ═══════════════ */
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useNavigate, Link} from 'react-router-dom';
 import {
     Activity,
@@ -9,6 +9,7 @@ import {
     ListTodo,
     LoaderCircle,
     RefreshCw,
+    RotateCcw,
     Subtitles,
     Trash2,
     XCircle,
@@ -36,7 +37,6 @@ import {
     isCachedOnlyTask,
     isLiveTask,
     markBackendJob,
-    markCachedOnlyJob,
     normalizeTaskState,
     TASK_STATE_CANCELLED,
     TASK_STATE_CACHED_ONLY,
@@ -85,23 +85,28 @@ const agentPlanSummary = (job, lang) => {
     return {goal, route, trace: completedTrace};
 };
 
+const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
+
 const Tasks = () => {
     const {t, lang} = useI18n();
     const {authMode, user} = useAuth();
     const {currentJob, setLastResult, setCurrentJob, addToHistory} = useApp();
-    const {getJobs, getJob, cancelJob, deleteJob, downloadJobArtifact} = useApi();
+    const {getJobs, getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
-    const readCachedOnlyJobs = useCallback(() => readCachedAccountJobs(cacheAccountId).map(markCachedOnlyJob), [cacheAccountId]);
-    const [jobs, setJobs] = useState(() => readCachedAccountJobs(cacheAccountId).map(markCachedOnlyJob));
-    const [loading, setLoading] = useState(() => readCachedAccountJobs(cacheAccountId).length === 0);
+    const readCachedJobs = useCallback(() => readCachedAccountJobs(cacheAccountId), [cacheAccountId]);
+    const [jobs, setJobs] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
     const [cancellingTaskId, setCancellingTaskId] = useState('');
+    const [retryingTaskId, setRetryingTaskId] = useState('');
+    const locallyCancelledTaskIdsRef = useRef(new Set());
+    const locallyDeletedTaskIdsRef = useRef(new Set());
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const isLiveJob = isLiveTask;
-    const isDeletableJob = (job) => !isLiveJob(job);
+    const isDeletableJob = (job) => !isLiveJob(job) && (!!taskIdForJob(job) || isCachedOnlyTask(job));
     const isLocalJob = (job) => String(job.client_id || '').startsWith('local-') || job.metadata?.stt_provider === 'local';
     const [taskFilter, setTaskFilter] = useState('all');
     const stats = useMemo(() => ({
@@ -112,9 +117,9 @@ const Tasks = () => {
     }), [jobs]);
     const taskFilters = [
         ['all', lang === 'zh' ? '全部' : 'All', stats.all],
-        ['live', lang === 'zh' ? '进行中' : 'Active', stats.live],
+        ...(stats.live > 0 ? [['live', lang === 'zh' ? '进行中' : 'Active', stats.live]] : []),
         ['failed', t('tasks.failed'), stats.failed],
-        ['completed', t('tasks.completed'), stats.completed],
+        ['completed', lang === 'zh' ? '历史' : 'History', stats.completed],
     ];
     const visibleJobs = useMemo(() => {
         const priority = {running: 0, queued: 1, failed: 2, completed: 3};
@@ -136,39 +141,57 @@ const Tasks = () => {
     const hasLiveJobs = Boolean(queueUploadJob || jobs.some(isLiveJob));
 
     const loadJobs = useCallback(async () => {
-        try {
-            const [accountJobs, localJobs] = await Promise.all([
-                getJobs(100).catch(() => []),
-                getJobs(100, {sttProvider: 'local'}).catch(() => []),
-            ]);
-            const byId = new Map(readCachedOnlyJobs().map((job) => [job.task_id, job]).filter(([taskId]) => taskId));
-            [...accountJobs, ...localJobs].forEach((job) => {
-                if (!job?.task_id) return;
-                const existing = byId.get(job.task_id);
-                if (normalizeTaskState(existing) === TASK_STATE_CANCELLED && normalizeTaskState(job) !== TASK_STATE_CANCELLED) return;
+        const results = await Promise.allSettled([
+            getJobs(100),
+            getJobs(100, {sttProvider: 'local'}),
+        ]);
+        const fetchedJobs = results
+            .filter((result) => result.status === 'fulfilled')
+            .flatMap((result) => Array.isArray(result.value) ? result.value : []);
+        const failedFetches = results.filter((result) => result.status === 'rejected');
+        setJobs((current) => {
+            const byId = new Map();
+            [...readCachedJobs(), ...current].forEach((job) => {
+                const taskId = taskIdForJob(job);
+                if (!taskId || locallyDeletedTaskIdsRef.current.has(taskId)) return;
+                byId.set(taskId, job);
+            });
+            fetchedJobs.forEach((job) => {
+                const taskId = taskIdForJob(job);
+                if (!taskId || locallyDeletedTaskIdsRef.current.has(taskId)) return;
+                const nextJob = markBackendJob(job);
+                const nextState = normalizeTaskState(nextJob);
+                const existing = byId.get(taskId);
+                const existingState = normalizeTaskState(existing);
+                if (locallyCancelledTaskIdsRef.current.has(taskId) && nextState !== TASK_STATE_CANCELLED) {
+                    const cancelledJob = existing || nextJob;
+                    byId.set(taskId, {
+                        ...cancelledJob,
+                        status: TASK_STATE_CANCELLED,
+                        task_state: TASK_STATE_CANCELLED,
+                        error_reason: cancelledJob.error_reason || 'user_cancelled',
+                    });
+                    return;
+                }
+                if (existingState === TASK_STATE_CANCELLED && nextState !== TASK_STATE_CANCELLED) return;
                 const existingTs = Date.parse(existing?.updated_at || existing?.created_at || '') || 0;
-                const nextTs = Date.parse(job.updated_at || job.created_at || '') || 0;
-                if (!existing || nextTs >= existingTs) byId.set(job.task_id, markBackendJob(job));
-                else byId.set(job.task_id, markBackendJob(existing));
+                const nextTs = Date.parse(nextJob.updated_at || nextJob.created_at || '') || 0;
+                if (!existing || nextTs >= existingTs) byId.set(taskId, nextJob);
             });
             const next = Array.from(byId.values());
+            if (next.length === 0 && failedFetches.length === results.length) {
+                return current.length ? current : readCachedJobs();
+            }
             writeCachedAccountJobs(cacheAccountId, next);
-            setJobs(next);
+            return next;
+        });
+        if (failedFetches.length) {
+            setError(lang === 'zh' ? '记录刷新失败，已保留本地缓存。' : 'Failed to refresh records. Local cache is preserved.');
+        } else {
             setError(null);
-        } catch (err) {
-            setError(friendlyTaskError(err.message || String(err), lang));
-        } finally {
-            setLoading(false);
         }
-    }, [cacheAccountId, lang, readCachedOnlyJobs]);
-
-    useEffect(() => {
-        const cached = readCachedOnlyJobs();
-        if (cached.length) {
-            setJobs(cached);
-            setLoading(false);
-        }
-    }, [readCachedOnlyJobs]);
+        setLoading(false);
+    }, [cacheAccountId, getJobs, lang, readCachedJobs]);
 
     useEffect(() => {
         if(location.state?.queueSubmitError) {
@@ -228,15 +251,17 @@ const Tasks = () => {
     };
     const cancelLiveJob = async (job) => {
         if (!isLiveJob(job)) return;
+        const taskId = taskIdForJob(job);
+        if (!taskId) return;
         const confirmText = lang === 'zh'
             ? '取消这个正在处理的任务？已生成的完整结果不会保留。'
             : 'Cancel this active task? A complete result will not be kept.';
         if (!window.confirm(confirmText)) return;
-        setCancellingTaskId(job.task_id);
-        try {
-            await cancelJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
+        locallyCancelledTaskIdsRef.current.add(taskId);
+        setCancellingTaskId(taskId);
+        const applyLocalCancellation = () => {
             setJobs((current) => {
-                const next = current.map((item) => item.task_id === job.task_id ? {
+                const next = current.map((item) => taskIdForJob(item) === taskId ? {
                     ...item,
                     status: TASK_STATE_CANCELLED,
                     task_state: TASK_STATE_CANCELLED,
@@ -246,11 +271,17 @@ const Tasks = () => {
                 writeCachedAccountJobs(cacheAccountId, next);
                 return next;
             });
-            if (currentJob?.taskId === job.task_id) setCurrentJob(null);
+        };
+        applyLocalCancellation();
+        try {
+            await cancelJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            if (currentJob?.taskId === taskId) setCurrentJob(null);
             setError(null);
             loadJobs();
         } catch (err) {
+            locallyCancelledTaskIdsRef.current.delete(taskId);
             setError(friendlyTaskError(err.message || String(err), lang));
+            loadJobs();
         } finally {
             setCancellingTaskId('');
         }
@@ -259,27 +290,101 @@ const Tasks = () => {
     const deleteFinishedJob = async (job) => {
         if (!isDeletableJob(job)) return;
         if (!window.confirm(t('tasks.deleteConfirm'))) return;
-        setDeletingTaskId(job.task_id);
+        const taskId = taskIdForJob(job);
+        setDeletingTaskId(taskId);
         const removeLocalRecord = () => {
             setJobs((current) => {
-                const next = current.filter((item) => item.task_id !== job.task_id);
+                const next = current.filter((item) => (
+                    taskId
+                        ? taskIdForJob(item) !== taskId
+                        : item !== job
+                ));
                 writeCachedAccountJobs(cacheAccountId, next);
                 return next;
             });
         };
-        try {
-            await deleteJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
+        if (!taskId) {
             removeLocalRecord();
+            setDeletingTaskId('');
+            return;
+        }
+        locallyDeletedTaskIdsRef.current.add(taskId);
+        removeLocalRecord();
+        try {
+            await deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
             setError(null);
         } catch (err) {
             if (err.status === 404) {
-                removeLocalRecord();
                 setError(null);
                 return;
             }
+            locallyDeletedTaskIdsRef.current.delete(taskId);
             setError(friendlyTaskError(err.message || String(err), lang));
+            loadJobs();
         } finally {
             setDeletingTaskId('');
+        }
+    };
+
+    const retryInputForJob = (job) => {
+        const metadata = job?.metadata || {};
+        const videoSource = metadata.video_source || {};
+        return String(
+            metadata.video_source_input_preview
+            || videoSource.source_url
+            || videoSource.url
+            || videoSource.webpage_url
+            || ''
+        ).trim();
+    };
+
+    const retryOptionsForJob = (job) => {
+        const queueOptions = job?.metadata?.queue_options;
+        if (!queueOptions || typeof queueOptions !== 'object') return {};
+        return {
+            exportToLark: queueOptions.export_to_lark === true || queueOptions.export_to_lark === 'true',
+            larkExportRoute: queueOptions.lark_export_route,
+            larkViaCli: queueOptions.lark_via_cli === true || queueOptions.lark_via_cli === 'true',
+            skipSummary: queueOptions.skip_summary === true || queueOptions.skip_summary === 'true',
+            aiProvider: queueOptions.ai_provider,
+            aiModel: queueOptions.ai_model,
+            noteMode: queueOptions.note_mode,
+            promptPreset: queueOptions.prompt_preset,
+            promptPresetLabel: queueOptions.prompt_preset_label,
+            sttProvider: queueOptions.stt_provider,
+            sttModel: queueOptions.stt_model,
+            sttSpeed: queueOptions.stt_speed,
+            sttLanguage: queueOptions.stt_language,
+            speakerDiarization: queueOptions.speaker_diarization === true || queueOptions.speaker_diarization === 'true',
+        };
+    };
+
+    const canRetryJob = (job) => normalizeTaskState(job) === TASK_STATE_FAILED && !!retryInputForJob(job);
+
+    const retryFailedJob = async (job) => {
+        if (!canRetryJob(job)) return;
+        const taskId = taskIdForJob(job);
+        setRetryingTaskId(taskId);
+        try {
+            const input = retryInputForJob(job);
+            const response = await createVideoSourceJob(input, retryOptionsForJob(job));
+            const nextJob = response?.job ? markBackendJob(response.job) : null;
+            if (nextJob) {
+                setJobs((current) => {
+                    const next = [nextJob, ...current.filter((item) => taskIdForJob(item) !== taskIdForJob(nextJob))];
+                    writeCachedAccountJobs(cacheAccountId, next);
+                    return next;
+                });
+                setTaskFilter('all');
+                setError(null);
+                if (nextJob.task_id) navigate(`/tasks/${encodeURIComponent(nextJob.task_id)}/agent`, {state: {job: nextJob}});
+            } else {
+                loadJobs();
+            }
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setRetryingTaskId('');
         }
     };
 
@@ -318,7 +423,7 @@ const Tasks = () => {
         const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
         if (progressMeta.message) return `${progressMeta.message}${byteText}`;
         const taskState = normalizeTaskState(job);
-        if (taskState === TASK_STATE_QUEUED) return lang === 'zh' ? '等待后台转录开始。' : 'Waiting for background transcription.';
+        if (taskState === TASK_STATE_QUEUED) return lang === 'zh' ? '等待处理开始。' : 'Waiting for processing to start.';
         if (taskState === TASK_STATE_RUNNING) return job.summary_status || stageLabel(job);
         return '-';
     };
@@ -373,12 +478,12 @@ const Tasks = () => {
                                         </div>
                                         <div className="min-w-0">
                                             <h2 className="text-base font-headline font-bold text-on-surface dark:text-white">
-                                                {lang === 'zh' ? '正在上传到后台任务' : 'Uploading to background tasks'}
+                                                {lang === 'zh' ? '正在写入历史记录' : 'Uploading to History'}
                                             </h2>
                                             <p className="text-sm text-on-surface-variant mt-1">
                                                 {lang === 'zh'
-                                                    ? `已选择 ${queueUploadJob.queueTotal || 0} 个文件，上传完成后会自动出现在任务列表。`
-                                                    : `${queueUploadJob.queueTotal || 0} files selected. They will appear here after upload finishes.`}
+                                                    ? `已选择 ${queueUploadJob.queueTotal || 0} 个文件，上传完成后会自动出现在历史记录里。`
+                                                    : `${queueUploadJob.queueTotal || 0} files selected. They will appear in History after upload finishes.`}
                                             </p>
                                         </div>
                                     </div>
@@ -399,7 +504,7 @@ const Tasks = () => {
                         {visibleJobs.length === 0 && !loading && !queueUploadJob && (
                             <div className="rounded-[24px] border border-[#e4e0e0] bg-white p-10 text-center shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                                 <ListTodo className="mx-auto mb-3 size-10 text-[#8a8a8a] dark:text-white/40" strokeWidth={2}/>
-                                <p className="text-sm font-semibold text-[#777] dark:text-white/55">{taskFilter === 'all' ? t('tasks.empty') : (lang === 'zh' ? '这个分类下暂时没有任务。' : 'No jobs in this view.')}</p>
+                                <p className="text-sm font-semibold text-[#777] dark:text-white/55">{taskFilter === 'all' ? t('tasks.empty') : (lang === 'zh' ? '这个分类下暂时没有记录。' : 'No records in this view.')}</p>
                             </div>
                         )}
                         {visibleJobs.map((job) => {
@@ -413,12 +518,14 @@ const Tasks = () => {
                             const planSummary = agentPlanSummary(job, lang);
                             const displayTitle = jobDisplayTitle(job, lang);
                             const failureDetail = taskFailureDetail(job);
+                            const taskId = taskIdForJob(job);
+                            const canRetry = canRetryJob(job);
                             const downloadItems = [
                                 ...availableArtifacts.map(([kind, label]) => ({icon:'download', label, badge:kind.endsWith('vtt')?'VTT':kind.endsWith('srt')?'SRT':kind.endsWith('txt')?'TXT':kind.endsWith('md')?'MD':kind, onClick:()=>downloadArtifact(job,kind)})),
                                 ...(larkUrl ? [{divider:true},{icon:'open_in_new', label:t('tasks.larkDoc'), onClick:()=>window.open(larkUrl,'_blank','noopener')}] : []),
                             ];
                             return (
-                                <article key={job.task_id} className="rounded-[24px] border border-[#e4e0e0] bg-white p-4 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                                <article key={taskId || `cached-${job.updated_at || job.created_at || displayTitle}`} className="rounded-[24px] border border-[#e4e0e0] bg-white p-4 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                                     <div className="flex items-start gap-3">
                                         <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] ${isLiveJob(job) ? 'bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white' : taskState === TASK_STATE_FAILED ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : 'bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white'}`}>
                                             {job.source_type === 'transcript_file'
@@ -455,20 +562,29 @@ const Tasks = () => {
                                         </div>
                                         <div className="flex items-center gap-1.5 flex-shrink-0">
                                             {isLiveJob(job) ? (
-                                                <button type="button" disabled={cancellingTaskId === job.task_id} onClick={() => cancelLiveJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
-                                                    {cancellingTaskId === job.task_id
+                                                <button type="button" disabled={cancellingTaskId === taskId} onClick={() => cancelLiveJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
+                                                    {cancellingTaskId === taskId
                                                         ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
                                                         : <XCircle className="size-4" strokeWidth={2.15}/>}
                                                     {lang === 'zh' ? '取消' : 'Cancel'}
                                                 </button>
                                             ) : (
                                                 <>
-                                                    <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
-                                                        <ExternalLink className="size-4" strokeWidth={2.15}/>
-                                                        {t('tasks.open')}
-                                                    </button>
-                                                    {job.task_id ? (
-                                                        <Link to={`/tasks/${encodeURIComponent(job.task_id)}/agent`} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                                                    {taskState === TASK_STATE_FAILED && canRetry ? (
+                                                        <button type="button" disabled={retryingTaskId === taskId} onClick={() => retryFailedJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                                            {retryingTaskId === taskId
+                                                                ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
+                                                                : <RotateCcw className="size-4" strokeWidth={2.15}/>}
+                                                            {lang === 'zh' ? '重新处理' : 'Retry'}
+                                                        </button>
+                                                    ) : (
+                                                        <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                                            <ExternalLink className="size-4" strokeWidth={2.15}/>
+                                                            {t('tasks.open')}
+                                                        </button>
+                                                    )}
+                                                    {taskId ? (
+                                                        <Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
                                                             <Activity className="size-3.5" strokeWidth={2.15}/>
                                                             {lang === 'zh' ? '详情' : 'Details'}
                                                         </Link>
@@ -480,8 +596,8 @@ const Tasks = () => {
                                                             items={downloadItems}
                                                         />
                                                     ) : null}
-                                                    <button type="button" disabled={!isDeletableJob(job) || deletingTaskId === job.task_id} onClick={() => deleteFinishedJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
-                                                        {deletingTaskId === job.task_id
+                                                    <button type="button" disabled={!isDeletableJob(job) || deletingTaskId === taskId} onClick={() => deleteFinishedJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
+                                                        {deletingTaskId === taskId
                                                             ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
                                                             : <Trash2 className="size-4" strokeWidth={2.15}/>}
                                                     </button>

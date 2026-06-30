@@ -1,21 +1,95 @@
+import {useMemo} from 'react';
 import {Link, Navigate} from 'react-router-dom';
 import {ArrowRight, ListChecks, Plus, Workflow} from 'lucide-react';
-import {useApp, useI18n} from '../app/shared.jsx';
+import {
+    historyEntryToResult,
+    readCachedAccountJobs,
+    useApp,
+    useAuth,
+    useI18n,
+} from '../app/shared.jsx';
 
 const recentTaskIdFromHistory = (history) => {
     const entry = Array.isArray(history) ? history.find((item) => item?.taskId) : null;
     return entry?.taskId || '';
 };
 
+const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
+
+const jobFromResult = (result) => {
+    if (!result?.task_id) return null;
+    return {
+        task_id: result.task_id,
+        status: result.summary_status === 'failed' ? 'failed' : 'completed',
+        stage: result.summary_status === 'failed' ? 'failed' : 'done',
+        progress: 100,
+        source_type: result.source || null,
+        source_filename: result.filename || result.display_title || result.raw_title || result.task_id,
+        result,
+        metadata: {
+            display_title: result.display_title || result.raw_title || result.filename || result.task_id,
+            stt_provider: result.stt_provider || null,
+        },
+    };
+};
+
+const jobFromHistoryEntry = (entry) => {
+    const result = historyEntryToResult(entry);
+    if (!result?.task_id) return null;
+    return {
+        ...jobFromResult(result),
+        status: entry.status || result.summary_status || 'completed',
+        source_type: entry.source || result.source || null,
+        updated_at: entry.timestamp ? new Date(entry.timestamp).toISOString() : undefined,
+    };
+};
+
 const Processing = () => {
     const {lang} = useI18n();
+    const {authMode, user} = useAuth();
     const {currentJob, lastResult, history} = useApp();
     const isZh = lang === 'zh';
+    const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
+    const cachedJobs = useMemo(() => readCachedAccountJobs(accountCacheId), [accountCacheId, history]);
+    const recentHistoryEntry = Array.isArray(history) ? history.find((item) => item?.taskId) : null;
     const recentTaskId = recentTaskIdFromHistory(history);
     const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId;
+    const targetJob = useMemo(() => {
+        if (!targetTaskId) return null;
+        const cachedJob = cachedJobs.find((job) => taskIdForJob(job) === targetTaskId);
+        if (cachedJob) return cachedJob;
+        if (lastResult?.task_id === targetTaskId) return jobFromResult(lastResult);
+        if (recentHistoryEntry?.taskId === targetTaskId) return jobFromHistoryEntry(recentHistoryEntry);
+        if (currentJob?.taskId === targetTaskId) {
+            return {
+                task_id: currentJob.taskId,
+                status: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : 'running'),
+                stage: currentJob.stage || 'queued',
+                progress: currentJob.progress ?? 0,
+                source_type: currentJob.sourceType || null,
+                source_filename: currentJob.fileName || currentJob.taskId,
+                metadata: {
+                    display_title: currentJob.fileName || currentJob.taskId,
+                    stt_provider: currentJob.sttProvider || null,
+                    stt_progress: currentJob.sttProgress,
+                    transcribed_seconds: currentJob.transcribedSeconds,
+                    duration_seconds: currentJob.durationSeconds,
+                    stt_elapsed_seconds: currentJob.sttElapsedSeconds,
+                    stt_status: currentJob.sttStatus,
+                },
+            };
+        }
+        return null;
+    }, [cachedJobs, currentJob, lastResult, recentHistoryEntry, targetTaskId]);
 
     if (targetTaskId) {
-        return <Navigate to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace/>;
+        return (
+            <Navigate
+                to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`}
+                replace
+                state={targetJob ? {job: targetJob} : undefined}
+            />
+        );
     }
 
     return (
@@ -49,7 +123,7 @@ const Processing = () => {
                             className="inline-flex h-12 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-5 text-[14px] font-extrabold text-[#111111] transition hover:border-[#111111] dark:border-white/[0.14] dark:bg-white/[0.06] dark:text-white dark:hover:border-white/45"
                         >
                             <ListChecks size={18} strokeWidth={2.4}/>
-                            {isZh ? '任务列表' : 'Tasks'}
+                            {isZh ? '历史记录' : 'History'}
                             <ArrowRight size={16} strokeWidth={2.4}/>
                         </Link>
                     </div>

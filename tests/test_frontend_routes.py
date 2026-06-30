@@ -96,7 +96,7 @@ def test_video_link_failures_are_preserved_in_background_tasks() -> None:
     assert "cacheJobRecord" in shared
     assert "cacheJobRecord" in job_morph
     assert "persistFailedTaskJob" in dashboard
-    assert "已保存在后台任务" in dashboard
+    assert "已保存在历史记录里" in dashboard
     assert "taskFailureDetail" in tasks
     assert "job.error_reason || job.result?.summary_error" in tasks
 
@@ -114,8 +114,9 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
     assert "当前阶段、处理配置和判断依据会在这里同步更新" in overview
+    assert "本地 faster-whisper 只负责转录；生成 AI 笔记仍会使用账号额度和配置的模型服务。" in overview
     assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in processing
-    assert "return <Navigate to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace/>;" in processing
+    assert "state={targetJob ? {job: targetJob} : undefined}" in processing
 
 
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
@@ -141,6 +142,7 @@ def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     assert "from '../lib/settingsModel.js'" in job_morph
     assert "sttProvider: 'elevenlabs_scribe'" in settings
     assert "isCloudSttConfigured(sttProvider, status)" in editor
+    assert "本地处理转录；生成笔记仍使用账号和模型服务。" in settings
     assert "isAzureCloudProvider(sttProvider)" not in editor
 
 
@@ -174,6 +176,47 @@ def test_tasks_open_cached_result_without_backend_detail_request() -> None:
     assert "err.status === 404 && job.result" in source
     assert "err.status = r.status" in shared
     assert "const {__cacheOnly, ...persistedJob} = job" in mapper
+
+
+def test_tasks_polling_respects_local_cancel_and_delete_mutations() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+
+    assert "const locallyCancelledTaskIdsRef = useRef(new Set())" in source
+    assert "const locallyDeletedTaskIdsRef = useRef(new Set())" in source
+    assert "const results = await Promise.allSettled([" in source
+    assert "setJobs((current) => {" in source
+    assert "[...readCachedJobs(), ...current]" in source
+    assert "const [jobs, setJobs] = useState([])" in source
+    assert "const [loading, setLoading] = useState(true)" in source
+    assert "map(markCachedOnlyJob)" not in source
+    assert "locallyDeletedTaskIdsRef.current.has(taskId)" in source
+    assert "locallyCancelledTaskIdsRef.current.has(taskId)" in source
+    assert "status: TASK_STATE_CANCELLED" in source
+    assert "记录刷新失败，已保留本地缓存。" in source
+
+
+def test_history_failed_video_link_records_can_be_retried_without_status_flicker() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+
+    assert "createVideoSourceJob" in source
+    assert "const retryInputForJob = (job) => {" in source
+    assert "metadata.video_source_input_preview" in source
+    assert "const canRetryJob = (job) => normalizeTaskState(job) === TASK_STATE_FAILED && !!retryInputForJob(job)" in source
+    assert "const retryFailedJob = async (job) => {" in source
+    assert "重新处理" in source
+    assert "'live', lang === 'zh' ? '进行中' : 'Active', stats.live" in source
+    assert "stats.live > 0" in source
+
+
+def test_tasks_delete_cached_only_without_task_id_locally() -> None:
+    source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+
+    assert "const taskIdForJob = (job)" in source
+    assert "const isDeletableJob = (job) => !isLiveJob(job) && (!!taskIdForJob(job) || isCachedOnlyTask(job))" in source
+    assert "if (!taskId) {" in source
+    assert "removeLocalRecord();" in source
+    assert "await deleteJob(taskId" in source
+    assert "job.task_id ? (" not in source
 
 
 def test_tasks_strip_generated_video_prefix_from_video_source_title() -> None:
@@ -385,7 +428,8 @@ def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     assert "prompt.activeHint" not in source
     assert "noteModeText" not in source
     assert "fixed bottom-16 right-8" not in source
-    assert "to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace" in processing
+    assert "to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`}" in processing
+    assert "state={targetJob ? {job: targetJob} : undefined}" in processing
     assert "noteModePlanReason" in mapper
     assert "chapter_coverage" in settings_model
     assert "完整覆盖笔记" in settings_model
@@ -520,6 +564,7 @@ def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
     assert "API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
+    assert "noteGenerationDiagnosis" in source
     assert "readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`)" in source
     assert "readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
     assert "localExecutionHeaders(currentJobOptions)" in source
@@ -532,6 +577,20 @@ def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     assert "apiRequest(" not in source
 
 
+def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
+    source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+
+    assert "const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {" in source
+    assert "const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang)" in source
+    assert "const [loading, setLoading] = useState(!initialPageData)" in source
+    assert "const [pageData, setPageData] = useState(() => initialPageData)" in source
+    assert "cached: true" in source
+    assert "decision_log: decisionLog" in source
+    assert "noteGenerationDiagnosis(result, lang)" in source
+    assert "loadTaskDetail(staleRef, {silent: !!seededPageData})" in source
+    assert "!silent && !pageData" in source
+
+
 def test_agent_trace_respects_sidebar_offset_in_all_states() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
@@ -539,7 +598,18 @@ def test_agent_trace_respects_sidebar_offset_in_all_states() -> None:
     assert source.count("transition-[margin] duration-200 ease-out") >= 3
     assert "ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 items-center justify-center" in source
     assert "ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 flex-col items-center justify-center" in source
-    assert "ml-[var(--sidebar-offset)] min-h-dvh flex-1 overflow-y-auto" in source
+    assert "ml-[var(--sidebar-offset)] h-dvh flex-1 overflow-y-auto" in source
+
+
+def test_app_shell_preserves_route_level_scroll_containers() -> None:
+    app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
+    css = Path("frontend/src/tailwind.css").read_text(encoding="utf-8")
+
+    assert "overflow: hidden;" in css
+    assert "className=\"flex h-dvh w-full overflow-hidden bg-surface dark:bg-[#101010]\"" in app_shell
+    assert "className=\"relative flex h-dvh min-h-0 w-full flex-1 flex-col overflow-hidden\"" in app_shell
+    assert "flex min-h-screen w-full" not in app_shell
+    assert "w-full h-full relative" not in app_shell
 
 
 def test_agent_trace_prioritizes_material_specific_judgment() -> None:
@@ -579,10 +649,12 @@ def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
 def test_processing_page_is_agent_workflow_surface() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
+    assert "readCachedAccountJobs(accountCacheId)" in source
+    assert "historyEntryToResult(entry)" in source
     assert "const {currentJob, lastResult, history} = useApp()" in source
     assert "recentTaskIdFromHistory(history)" in source
     assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in source
-    assert "return <Navigate to={`/tasks/${encodeURIComponent(targetTaskId)}/agent`} replace/>;" in source
+    assert "state={targetJob ? {job: targetJob} : undefined}" in source
     assert "选择一个任务查看处理详情" in source
     assert "提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。" in source
     assert 'to="/media-text?mode=media"' in source
@@ -611,6 +683,7 @@ def test_processing_page_uses_compact_tool_header() -> None:
     assert "任务解释" not in source
     assert "展示本次任务的处理路线、判断依据和失败恢复建议。" not in source
     assert "{isZh ? '开始处理' : 'Start'}" in source
+    assert "{isZh ? '历史记录' : 'History'}" in source
     assert "{isZh ? '长期设置' : 'Settings'}" not in source
     assert "FLUENTFLOW AGENT" not in source
     assert "text-[34px]" not in source
@@ -645,7 +718,7 @@ def test_workflow_next_step_copy_is_action_oriented() -> None:
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "开始处理" in processing
-    assert "任务列表" in processing
+    assert "记录" in processing
     assert "查看处理详情" in processing
     assert "结果可以复查" not in processing
     assert "任务正在运行" not in processing
@@ -749,6 +822,7 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
     app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
     side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
     about = Path("frontend/src/routes/about.jsx").read_text(encoding="utf-8")
+    config_writer = Path("scripts/write_frontend_config.js").read_text(encoding="utf-8")
     legal_submenu = side_nav.split("legalMenuOpen && (", 1)[1].split("{authMode === 'accounts' && user && (", 1)[0]
 
     assert '<Route path="/about/:page" element={<About/>}/>' in app_shell
@@ -761,6 +835,11 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
     assert "docs/changelog.md" in about
     assert "isChangelogEntryTitle" in about
     assert "formatChangelogTitle" in about
+    assert "CHANGELOG_UPDATED_AT" in about
+    assert "formatDateTimeMinute" in about
+    assert "changelogTitleTime" in about
+    assert "release.updatedAt || formatDateTimeMinute(CHANGELOG_UPDATED_AT, zh)" in about
+    assert "更新于" in about
     assert "待发布" in about
     assert "记录格式" not in about.split("const isChangelogEntryTitle", 1)[1]
     assert "if (items.length === 0) return null" in about
@@ -777,6 +856,9 @@ def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
     assert "{path: '/about/privacy'" in side_nav
     assert "{path: '/about/changelog'" in side_nav
     assert "ChevronRight" not in legal_submenu
+    assert "fileMtimeIso(path.join(root, \"docs\", \"changelog.md\"))" in config_writer
+    assert "FLUENTFLOW_CHANGELOG_UPDATED_AT" in config_writer
+    assert "changelogUpdatedAt" in config_writer
 
 
 def test_sidebar_agent_access_stays_in_low_frequency_menu() -> None:
@@ -845,7 +927,8 @@ def test_tasks_route_diagnostics_to_agent_workflow() -> None:
     assert "hasFailedSummaryWithoutNote" not in source
     assert "liveStageDetail" in source
     assert "{isLiveJob(job) && (" in source
-    assert "/tasks/${encodeURIComponent(job.task_id)}/agent" in source
+    assert "/tasks/${encodeURIComponent(taskId)}/agent" in source
+    assert "state={{job}}" in source
     assert "下一步：" not in source
     assert "{nextStepText}" not in source
 

@@ -261,7 +261,7 @@ const Dashboard = () => {
                     }
                     currentTaskRef.current = null;
                     const errorText = persistFailedTaskJob(job, job.error_reason, currentJob);
-                    setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在后台任务。` : `${errorText} Saved in background tasks.`));
+                    setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在历史记录里。` : `${errorText} Saved in History.`));
                 }
             } catch(err) {
                 if(!stale && err?.status === 404) {
@@ -315,7 +315,7 @@ const Dashboard = () => {
                     source_file_size_mb: currentJob.fileSizeMb,
                     metadata: {stt_provider: currentJob.sttProvider},
                 }, err.message || 'Failed to resume task.', currentJob);
-                setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在后台任务。` : `${errorText} Saved in background tasks.`));
+                setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在历史记录里。` : `${errorText} Saved in History.`));
             }
         }).finally(() => {
             if(abortRef.current === ac) abortRef.current = null;
@@ -889,14 +889,14 @@ const Dashboard = () => {
                         >
                             <div className="relative flex h-full flex-col justify-between">
                                 <div>
-                                    <span className="inline-flex rounded-[0.3rem] bg-violet-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-violet-950">TASKS</span>
-                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '任务管理' : 'Task management'}</h3>
+                                    <span className="inline-flex rounded-[0.3rem] bg-violet-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-violet-950">HISTORY</span>
+                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '历史记录' : 'History'}</h3>
                                     <p className="mt-2 max-w-[16rem] text-[0.88rem] leading-5 text-white/72">
-                                        {lang === 'zh' ? '追踪处理进度、查看失败原因、下载转录产物。' : 'Track progress, review failures, and download results.'}
+                                        {lang === 'zh' ? '查看过去的材料、失败记录、进行中的任务和下载产物。' : 'Review previous materials, failures, active runs, and downloads.'}
                                     </p>
                                 </div>
                                 <div className="mt-4 flex flex-wrap gap-1.5">
-                                    {(lang === 'zh' ? ['实时进度', '失败详情', '产物下载'] : ['Live progress', 'Failure details', 'Downloads']).map((item) => (
+                                    {(lang === 'zh' ? ['处理中', '失败原因', '产物下载'] : ['Active runs', 'Failure reasons', 'Downloads']).map((item) => (
                                         <span key={item} className="rounded-[0.3rem] border border-white/18 bg-white/8 px-2.5 py-1 text-[0.74rem] font-medium text-white/78 backdrop-blur">{item}</span>
                                     ))}
                                 </div>
@@ -1030,7 +1030,7 @@ const Dashboard = () => {
             );
         };
 
-/* Background Tasks route lives in frontend/src/routes/tasks.jsx */
+/* History route lives in frontend/src/routes/tasks.jsx */
 
 /* ═══════════════ Processing ═══════════════ */
 

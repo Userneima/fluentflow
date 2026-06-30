@@ -23,11 +23,11 @@ const AppShell = () => {
 
     return (
         <div
-            className="flex min-h-screen w-full bg-surface dark:bg-[#101010]"
+            className="flex h-dvh w-full overflow-hidden bg-surface dark:bg-[#101010]"
             style={{'--sidebar-offset': sidebarCollapsed ? '4.5rem' : '14rem'}}
         >
             <SideNav collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)}/>
-            <div className="flex-1 flex flex-col w-full h-full relative">
+            <div className="relative flex h-dvh min-h-0 w-full flex-1 flex-col overflow-hidden">
                 <Routes>
                     <Route path="/" element={<Dashboard/>}/>
                     <Route path="/media-text" element={<MediaText/>}/>

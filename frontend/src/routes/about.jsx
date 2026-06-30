@@ -4,6 +4,9 @@ import {useI18n} from '../app/shared.jsx';
 import SvgIcon from '../components/SvgIcon.jsx';
 
 const UPDATED_AT = '2026-06-29';
+const CHANGELOG_UPDATED_AT = globalThis.window?.FLUENTFLOW_CONFIG?.version?.changelogUpdatedAt
+    || globalThis.window?.FLUENTFLOW_CONFIG?.version?.buildTime
+    || `${UPDATED_AT}T00:00:00+08:00`;
 
 const legalNav = [
     {key: 'service', zh: '服务条款', en: 'Terms of service', icon: 'description'},
@@ -22,7 +25,7 @@ const serviceSections = [
     {
         title: '账号、额度与任务',
         body: [
-            '账号用于隔离任务历史、额度、导出记录和后台任务。额度可能按任务预估、预留和最终结算，实际消耗取决于音视频长度、转录路线、摘要模式和第三方服务成本。',
+            '账号用于隔离处理记录、额度、导出记录和任务恢复数据。额度可能按任务预估、预留和最终结算，实际消耗取决于音视频长度、转录路线、摘要模式和第三方服务成本。',
             '管理员或测试账号可能显示额度豁免。系统可能限制提交频率、上传体积、每日任务数或异常请求，以保护服务稳定性。',
         ],
     },
@@ -96,7 +99,7 @@ const privacySections = [
         title: '保留与删除',
         body: [
             '不同部署可能采用不同的数据保留策略。当前产品会为任务恢复、历史查看和导出下载保留必要记录，直到用户删除、管理员清理或部署策略到期。',
-            '你可以在后台任务或设置页删除可删除记录。某些日志、账务、配额或安全记录可能因排障、审计或防滥用需要保留一段时间。',
+            '你可以在记录或设置页删除可删除记录。某些日志、账务、配额或安全记录可能因排障、审计或防滥用需要保留一段时间。',
         ],
     },
     {
@@ -109,7 +112,7 @@ const privacySections = [
     {
         title: '你的选择',
         body: [
-            '你可以选择本地或云端转录路线、清除浏览器本地历史、删除可删除的后台任务，或退出账号。',
+            '你可以选择本地或云端转录路线、清除浏览器本地历史、删除可删除的处理记录，或退出账号。',
             '如果你不希望材料发送给第三方服务，请不要使用云端转录、云端摘要、翻译或飞书导出等依赖外部服务的能力。',
         ],
     },
@@ -117,7 +120,7 @@ const privacySections = [
 
 const enServiceSections = [
     {title: 'Service scope', body: ['FluentFlow turns videos, audio, subtitle files, and video links into transcripts, subtitle files, structured notes, and exportable content.', 'It is a learning and knowledge-work tool, not legal, medical, financial, exam-registration, or other professional advice.']},
-    {title: 'Accounts, balance, and jobs', body: ['Accounts isolate job history, balance, exports, and background tasks. Balance may be estimated, reserved, and finalized based on media length, route, note mode, and third-party costs.', 'Admin or test accounts may be quota-exempt. The system may limit submission rate, upload size, daily jobs, or abnormal requests to keep the service stable.']},
+    {title: 'Accounts, balance, and records', body: ['Accounts isolate processing records, balance, exports, and recovery data. Balance may be estimated, reserved, and finalized based on media length, route, note mode, and third-party costs.', 'Admin or test accounts may be quota-exempt. The system may limit submission rate, upload size, daily jobs, or abnormal requests to keep the service stable.']},
     {title: 'User content and permission', body: ['You should confirm that you have permission to upload, transcribe, download, analyze, or export the material, including video links, course videos, meeting recordings, subtitles, and documents.', 'Do not upload unlawful, infringing, unauthorized, sensitive, or confidential material that you are not allowed to process.']},
     {title: 'Local and cloud processing', body: ['Local routes try to process media and transcription jobs on your local backend, which is better for private material and personal workflows.', 'Cloud routes send required files, links, text, job status, or note requests to the FluentFlow backend and configured third-party services. Cloud-only deployments may not provide local transcription.']},
     {title: 'Third-party services', body: ['FluentFlow may call ElevenLabs, OpenAI, DeepSeek, Feishu / Lark, video download tools, or other configured providers for transcription, notes, translation, exports, and account features.', 'Provider availability, pricing, speed, quota, and content policies may change and can affect FluentFlow results and costs.']},
@@ -130,9 +133,9 @@ const enPrivacySections = [
     {title: 'Local history and server jobs', body: ['Browser history helps reopen recent results quickly and is stored in the current browser environment. Clearing local history does not delete server jobs.', 'Server jobs support background processing, cross-device sync, progress recovery, artifact downloads, and failure diagnosis. Deleting server jobs follows backend cleanup rules.']},
     {title: 'Files, links, and source material', body: ['After you upload a file or paste a video link, the system may download, extract audio, save temporary files, generate subtitles, and cache intermediate results for transcription, retry, note regeneration, or export.', 'Local route files usually stay in the local runtime. Cloud route files and artifacts may be stored on the server or object storage, depending on deployment.']},
     {title: 'Third-party sharing', body: ['When a job needs cloud transcription, AI notes, translation, or Feishu export, required audio, text, titles, notes, or export content may be sent to the relevant provider.', 'Do not treat FluentFlow as an encrypted vault. Use local routes for highly sensitive material and verify that your local/backend configuration fits your privacy needs.']},
-    {title: 'Retention and deletion', body: ['Deployments may use different retention policies. The product keeps necessary records for job recovery, history, and downloads until users delete them, admins clean them, or deployment policies expire.', 'You can delete eligible records from Tasks or Settings. Some logs, billing, quota, or security records may be retained for troubleshooting, audit, or abuse prevention.']},
+    {title: 'Retention and deletion', body: ['Deployments may use different retention policies. The product keeps necessary records for job recovery, history, and downloads until users delete them, admins clean them, or deployment policies expire.', 'You can delete eligible records from Records or Settings. Some logs, billing, quota, or security records may be retained for troubleshooting, audit, or abuse prevention.']},
     {title: 'Secrets and credentials', body: ['OpenAI, DeepSeek, ElevenLabs, Feishu, pyannote, and other credentials should live only in server or local secure configuration, never in the repository.', 'Settings should only show whether a credential is configured and should not reveal full secrets. Replacing a secret requires entering it again.']},
-    {title: 'Your choices', body: ['You can choose local or cloud transcription, clear browser history, delete eligible background tasks, or sign out.', 'If you do not want material sent to third-party providers, do not use cloud transcription, cloud notes, translation, Feishu export, or other external-service features.']},
+    {title: 'Your choices', body: ['You can choose local or cloud transcription, clear browser history, delete eligible processing records, or sign out.', 'If you do not want material sent to third-party providers, do not use cloud transcription, cloud notes, translation, Feishu export, or other external-service features.']},
 ];
 
 const isChangelogEntryTitle = (title) => (
@@ -142,6 +145,26 @@ const isChangelogEntryTitle = (title) => (
 const formatChangelogTitle = (title, zh) => {
     if (!zh) return title;
     return title.replace(/^Unreleased\b/, '待发布');
+};
+
+const formatDateTimeMinute = (value, zh) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || '').trim();
+    const locale = zh ? 'zh-CN' : 'en-US';
+    return new Intl.DateTimeFormat(locale, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(date).replace(/\//g, '-');
+};
+
+const changelogTitleTime = (title) => {
+    const match = title.match(/(\d{4}-\d{2}-\d{2})(?:[ T｜]+(\d{2}:\d{2}))?/);
+    if (!match || !match[2]) return null;
+    return `${match[1]} ${match[2]}`;
 };
 
 const parseChangelog = (markdown) => (
@@ -159,7 +182,7 @@ const parseChangelog = (markdown) => (
                 .filter(Boolean)
                 .slice(0, 4);
             if (items.length === 0) return null;
-            return {title, items};
+            return {title, updatedAt: changelogTitleTime(title), items};
         })
         .filter(Boolean)
         .slice(0, 6)
@@ -223,7 +246,12 @@ const ChangelogPage = ({zh}) => {
                 <div className="space-y-3">
                     {releases.length > 0 ? releases.map((release) => (
                         <div key={release.title} className="rounded-[14px] bg-[#f4f3f3] px-4 py-3 dark:bg-white/[0.08]">
-                            <p className="text-sm font-extrabold text-[#111111] dark:text-white">{formatChangelogTitle(release.title, zh)}</p>
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                <p className="text-sm font-extrabold text-[#111111] dark:text-white">{formatChangelogTitle(release.title, zh)}</p>
+                                <p className="text-xs font-semibold text-[#85868c] dark:text-white/42">
+                                    {zh ? '更新于' : 'Updated'} {release.updatedAt || formatDateTimeMinute(CHANGELOG_UPDATED_AT, zh)}
+                                </p>
+                            </div>
                             {release.items.length > 0 && (
                                 <ul className="mt-2 space-y-1.5">
                                     {release.items.map((item) => (
@@ -270,6 +298,9 @@ const About = () => {
     const sections = activePage === 'service'
         ? (zh ? serviceSections : enServiceSections)
         : (zh ? privacySections : enPrivacySections);
+    const headerUpdatedAt = activePage === 'changelog'
+        ? formatDateTimeMinute(CHANGELOG_UPDATED_AT, zh)
+        : UPDATED_AT;
 
     return (
         <main className="ml-[var(--sidebar-offset)] h-dvh overflow-y-auto bg-[#f8f7fb] px-8 py-7 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
@@ -286,7 +317,7 @@ const About = () => {
                             {intro}
                         </p>
                         <p className="mt-2 text-xs font-semibold text-[#85868c] dark:text-white/45">
-                            {zh ? `最后更新：${UPDATED_AT}` : `Last updated: ${UPDATED_AT}`}
+                            {zh ? `最后更新：${headerUpdatedAt}` : `Last updated: ${headerUpdatedAt}`}
                         </p>
                     </div>
                     <Link to="/" className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-sm font-extrabold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">

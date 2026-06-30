@@ -193,7 +193,7 @@ const Settings = () => {
                                             <span className="block text-sm font-bold">{localProviderLabel}</span>
                                             <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
                                                 {localRouteAvailable
-                                                    ? (lang === 'zh' ? '适合隐私材料和本机处理。' : 'Best for private material and desktop processing.')
+                                                    ? (lang === 'zh' ? '本地处理转录；生成笔记仍使用账号和模型服务。' : 'Transcribes locally; note generation still uses your account and model service.')
                                                     : (lang === 'zh' ? '当前环境不可用。' : 'Unavailable in this environment.')}
                                             </span>
                                         </span>

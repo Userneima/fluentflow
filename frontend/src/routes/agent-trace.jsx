@@ -11,7 +11,7 @@ import {
     LoaderCircle,
     XCircle,
 } from 'lucide-react';
-import {API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n} from '../app/shared.jsx';
+import {API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n, noteGenerationDiagnosis} from '../app/shared.jsx';
 import TaskProgressOverview from '../components/TaskProgressOverview.jsx';
 
 const statusText = (status, lang) => {
@@ -347,32 +347,131 @@ const visibleActions = (actions=[]) => (
         .filter((action) => ['open_result', 'regenerate_note', 'cancel', 'delete', 'resubmit'].includes(action.id))
 );
 
+const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
+
+const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
+    if (!job || typeof job !== 'object') return null;
+    const taskId = taskIdForJob(job) || fallbackTaskId;
+    if (!taskId) return null;
+    const result = job.result && typeof job.result === 'object' ? job.result : {};
+    const metadata = job.metadata && typeof job.metadata === 'object' ? job.metadata : {};
+    const videoSource = metadata.video_source && typeof metadata.video_source === 'object' ? metadata.video_source : {};
+    const title = (
+        metadata.display_title
+        || result.display_title
+        || videoSource.display_title
+        || videoSource.title
+        || result.raw_title
+        || job.source_filename
+        || result.filename
+        || taskId
+    );
+    const status = job.status || job.task_state || (result.summary_status === 'failed' ? 'failed' : result.summary_markdown ? 'completed' : 'pending');
+    const stage = job.stage || (status === 'completed' ? 'done' : status === 'failed' ? 'failed' : 'queued');
+    const diagnosis = noteGenerationDiagnosis(result, lang);
+    const noteStatus = result.summary_skipped
+        ? 'skipped'
+        : result.summary_markdown
+            ? 'completed'
+            : result.summary_status || diagnosis.status || 'pending';
+    const decisionLog = job.decision_log && typeof job.decision_log === 'object'
+        ? job.decision_log
+        : result.decision_log && typeof result.decision_log === 'object'
+            ? result.decision_log
+            : {entries: []};
+    return {
+        ok: true,
+        cached: true,
+        task: {
+            task_id: taskId,
+            status,
+            stage,
+            progress: job.progress ?? (status === 'completed' ? 100 : 0),
+            source_type: job.source_type || result.source || null,
+            title,
+            filename: result.filename || job.source_filename || null,
+            file_size_mb: job.source_file_size_mb || null,
+            duration_seconds: result.audio_duration_seconds || job.source_duration_seconds || metadata.duration_seconds || null,
+            created_at: job.created_at || null,
+            updated_at: job.updated_at || null,
+        },
+        title,
+        source: {
+            type: job.source_type || result.source || null,
+            filename: result.filename || job.source_filename || null,
+            raw_title: result.raw_title || metadata.raw_title || videoSource.raw_title || null,
+            display_title: title,
+            url: videoSource.url || videoSource.webpage_url || null,
+            duration_seconds: result.audio_duration_seconds || job.source_duration_seconds || metadata.duration_seconds || null,
+            file_size_mb: job.source_file_size_mb || null,
+            video_source: Object.keys(videoSource).length ? videoSource : null,
+        },
+        transcript: {
+            available: !!(
+                String(result.transcript_text || result.transcript_text_preview || '').trim()
+                || (Array.isArray(result.raw_segments) && result.raw_segments.length)
+                || (Array.isArray(result.display_segments) && result.display_segments.length)
+            ),
+            text: result.transcript_text || '',
+            preview: result.transcript_text_preview || result.transcript_text || '',
+            raw_segments: Array.isArray(result.raw_segments) ? result.raw_segments : [],
+            display_segments: Array.isArray(result.display_segments) ? result.display_segments : [],
+            source_language: result.source_language || null,
+            detected_language: result.detected_language || null,
+            subtitle_mode: result.subtitle_mode || null,
+            translation_status: result.translation_status || null,
+            stt_provider: metadata.stt_provider || result.stt_provider || null,
+        },
+        note: {
+            status: noteStatus,
+            markdown: result.summary_markdown || '',
+            markdown_chars: String(result.summary_markdown || '').length,
+            diagnosis: {
+                ...diagnosis,
+                next_action: diagnosis.nextAction || '',
+                retryable: !!diagnosis.canRegenerate,
+            },
+            requested_mode: result.requested_note_mode || null,
+            resolved_mode: result.resolved_note_mode || null,
+            prompt_preset: result.prompt_preset || null,
+            prompt_preset_label: result.prompt_preset_label || null,
+            chapter_coverage: result.chapter_coverage || null,
+        },
+        processing_plan: result.processing_plan || null,
+        tool_trace: result.tool_trace || null,
+        decision_log: decisionLog,
+        diagnosis: {
+            ...diagnosis,
+            next_action: diagnosis.nextAction || '',
+            retryable: !!diagnosis.canRegenerate,
+        },
+        actions: result.summary_markdown ? [{
+            id: 'open_result',
+            label: lang === 'zh' ? '打开结果' : 'Open result',
+            method: 'GET',
+            path: `/jobs/${taskId}`,
+            enabled: true,
+            tone: 'primary',
+        }] : [],
+        artifacts: result.artifacts || null,
+        chapter_coverage: result.chapter_coverage || null,
+        data_quality: {
+            cached_snapshot: true,
+        },
+    };
+};
+
 const AgentTrace = () => {
     const {taskId} = useParams();
     const navigate = useNavigate();
     const location = useLocation();
     const {lang} = useI18n();
     const {currentJob, setLastResult} = useApp();
-    const initialJob = location.state?.job && location.state.job.task_id === taskId ? location.state.job : null;
-    const [loading, setLoading] = useState(!initialJob);
+    const initialJob = location.state?.job && taskIdForJob(location.state.job) === taskId ? location.state.job : null;
+    const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang);
+    const [loading, setLoading] = useState(!initialPageData);
     const [error, setError] = useState(null);
-    const [pageData, setPageData] = useState(() => initialJob ? {
-        ok: true,
-        task: {
-            task_id: initialJob.task_id,
-            status: initialJob.status,
-            stage: initialJob.stage,
-            progress: initialJob.progress,
-            source_type: initialJob.source_type,
-            title: initialJob.metadata?.display_title || initialJob.source_filename,
-            filename: initialJob.source_filename,
-            created_at: initialJob.created_at,
-            updated_at: initialJob.updated_at,
-        },
-        title: initialJob.metadata?.display_title || initialJob.source_filename || taskId,
-        decision_log: {entries: []},
-        actions: [],
-    } : null);
+    const [pageData, setPageData] = useState(() => initialPageData);
     const [actionBusy, setActionBusy] = useState(null);
     const [actionError, setActionError] = useState(null);
     const isZh = lang === 'zh';
@@ -410,7 +509,7 @@ const AgentTrace = () => {
                 const packageData = await readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
                 if (!staleRef.current) setPageData(packageData);
             } catch (packageError) {
-                if (!staleRef.current && !pageData) setError(packageError.message || detailError.message || String(packageError));
+                if (!staleRef.current && !silent && !pageData) setError(packageError.message || detailError.message || String(packageError));
             }
         } finally {
             if (!staleRef.current) setLoading(false);
@@ -419,7 +518,14 @@ const AgentTrace = () => {
 
     useEffect(() => {
         const staleRef = {current: false};
-        loadTaskDetail(staleRef);
+        const seededPageData = pageDataFromJobSnapshot(initialJob, taskId, lang);
+        if (seededPageData) {
+            setPageData(seededPageData);
+            setLoading(false);
+        } else {
+            setPageData(null);
+        }
+        loadTaskDetail(staleRef, {silent: !!seededPageData});
         return () => { staleRef.current = true; };
     }, [taskId]);
 
@@ -497,21 +603,21 @@ const AgentTrace = () => {
                 <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>
                 <button type="button" onClick={() => navigate('/tasks')} className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
                     <ArrowLeft className="size-4" strokeWidth={2.15}/>
-                    {isZh ? '返回任务列表' : 'Back to Tasks'}
+                    {isZh ? '返回历史记录' : 'Back to History'}
                 </button>
             </main>
         );
     }
 
     return (
-        <main className="ml-[var(--sidebar-offset)] min-h-dvh flex-1 overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] transition-[margin] duration-200 ease-out hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
+        <main className="ml-[var(--sidebar-offset)] h-dvh flex-1 overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] transition-[margin] duration-200 ease-out hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
             <div className="mx-auto max-w-7xl space-y-5">
                 <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                             <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/55 dark:hover:text-white">
                                 <ArrowLeft className="size-3.5" strokeWidth={2.15}/>
-                                {isZh ? '任务记录' : 'Tasks'}
+                                {isZh ? '历史记录' : 'History'}
                             </Link>
                             <span className="text-[#a2a3a8] dark:text-white/35">/</span>
                             <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
@@ -532,7 +638,7 @@ const AgentTrace = () => {
                         </Link>
                         <Link to="/tasks" className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
                             <Clock3 className="size-4" strokeWidth={2.15}/>
-                            {isZh ? '任务列表' : 'Task list'}
+                            {isZh ? '历史记录' : 'History'}
                         </Link>
                     </div>
                 </header>

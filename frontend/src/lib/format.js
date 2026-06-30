@@ -176,7 +176,9 @@ export const friendlyTaskError = (message, lang='zh') => {
     if(lower.includes('invalidmodel') || lower.includes('specified model is not supported')) return lang === 'zh' ? '云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端默认模型或改用本地转录。' : 'Cloud transcription failed: the selected model is not supported by this Azure resource.';
     if(lower.includes('diarization is currently not supported')) return lang === 'zh' ? '云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。' : 'Cloud transcription failed: diarization is not supported by this route.';
     if(lower.includes('eof occurred in violation of protocol') || lower.includes('broken pipe')) return lang === 'zh' ? '云端上传中断：通常是网络或云端转录服务断开连接。请重试；如果文件很大，先压缩或拆分音频。' : 'Cloud upload was interrupted. Retry, or reduce/split the audio for very large files.';
-    if(lower.includes('queued processing request failed')) return lang === 'zh' ? '后台任务调用转录接口失败。请重试；如果连续出现，请重启后端服务。' : 'The background task could not call the transcription endpoint. Retry or restart the backend.';
+    if(lower.includes('queued transcript summary request failed') && (lower.includes('401') || lower.includes('login') || lower.includes('auth') || lower.includes('account'))) return lang === 'zh' ? '账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。' : 'Account login is missing or expired, so the AI note was not generated. Sign in again and retry; the completed transcript is not damaged.';
+    if(lower.includes('fluentflow account login is required')) return lang === 'zh' ? '账号未登录或登录态已失效，请重新登录后重试。' : 'Account login is missing or expired. Sign in again and retry.';
+    if(lower.includes('queued processing request failed')) return lang === 'zh' ? '处理流程调用转录接口失败。请重试；如果连续出现，请重启后端服务。' : 'The processing flow could not call the transcription endpoint. Retry or restart the backend.';
     if(lower.includes('http error 403') || raw.includes('视频下载失败：403') || lower.includes('forbidden')) return lang === 'zh' ? '平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、配置浏览器 cookies，或上传本地视频。' : 'The platform refused this video download. FluentFlow will prefer captions when possible; retry later, configure browser cookies, or upload the local video.';
     if(lower.includes('http error 429') || lower.includes('too many requests')) return lang === 'zh' ? '平台请求过于频繁，暂时限制了视频或字幕获取。请稍后重试，或上传本地视频/字幕文件。' : 'The platform is temporarily rate-limiting video or subtitle access. Retry later, or upload the local video/subtitle file.';
     if(raw.includes('视频下载超时') || lower.includes('timed out') || lower.includes('timeout')) return lang === 'zh' ? '视频下载时间过长，可能是视频较大或当前网络较慢。笔记会优先尝试使用字幕；如仍失败，请稍后重试或上传本地视频。' : 'The video download took too long, likely due to a large video or slow network. FluentFlow will prefer captions when possible; retry later or upload the local video.';
@@ -255,7 +257,7 @@ export const noteGenerationDiagnosis = (result={}, lang='zh') => {
         } else if(errorText.includes('404') || errorText.includes('job not found') || errorText.includes('not found')) {
             code = 'job_scope_mismatch';
             title = zh ? '任务归属不一致，笔记未生成' : 'Task scope mismatch blocked note generation';
-            nextAction = zh ? '刷新任务列表后从同一条记录打开结果；如果仍失败，重新提交任务。' : 'Refresh the task list and open the same record; submit it again if it still fails.';
+            nextAction = zh ? '刷新历史记录后从同一条记录打开结果；如果仍失败，重新提交任务。' : 'Refresh History and open the same record; submit it again if it still fails.';
         } else if(errorText.includes('empty result') || errorText.includes('empty')) {
             code = 'empty_ai_note';
             title = zh ? 'AI 返回了空笔记' : 'AI returned an empty note';
