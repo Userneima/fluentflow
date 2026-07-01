@@ -467,7 +467,7 @@ def test_subtitle_import_is_a_note_generation_action() -> None:
     assert "导入字幕生成笔记" in shared
     assert "skipSummary: false" in source
     assert "summarizeTranscriptFile(file, {taskId, ...buildAiOptions(settings), skipSummary: false}" in source
-    assert "\.(srt|vtt|txt|md)$" in source
+    assert r"\.(srt|vtt|txt|md)$" in source
 
 
 def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
