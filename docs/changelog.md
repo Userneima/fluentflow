@@ -33,6 +33,7 @@
 
 ### 用户可见变化
 
+- 后端新增 DeepSeek 保守字幕纠错层：在不覆盖原始转录的前提下，保存高置信字幕修正和 corrected transcript；后续 AI 笔记会优先使用已验证的 corrected transcript。
 - 设置页的系统维护区新增 Qwen 作为摘要服务商选项，并可保存百炼 / DashScope API Key；视频笔记截图链路可以用它驱动 Qwen 视觉模型继续执行局部视觉选图。
 - 处理详情页的“查看结果”只会在记录确实有可打开结果时出现，并会先载入对应任务结果再进入编辑器，避免失败记录出现无效入口或完成记录打开后显示“未选择结果”。
 - 视频笔记的截图插入链路改为“文本模型先提出截图时间窗，Qwen 只复查局部候选帧”；长视频不再为了插图先把全视频交给多模态模型，最终截图仍会经过密度、去重和低价值过滤后才进入笔记。
@@ -120,6 +121,10 @@
 - 新增当前版本宏观计划文档，明确本版本目标、边界、主路径、阶段顺序和每次执行的拆分规则；旧 `next_execution_plan.md` 保留为历史上下文。
 - 优化工作流、Agent/MCP 和任务卡文档的表达口径，减少页面名、平台名和旧提交策略等过窄规则对后续迭代的干扰。
 - 优化结果 schema 和事件日志文档：补齐 Job Payload 结构，保留平台特定采集策略字段，并将事件日志从阶段性埋点说明收敛为长期诊断与统计口径。
+
+### 数据 / 口径变化
+
+- Result Payload v2 新增 `transcript_correction_status`、`transcript_correction`、`transcript_corrections`、`corrected_transcript_text`、`corrected_segments` 和 `note_generation_transcript_source`；原始 `transcript_text`、`raw_segments`、`display_segments` 不会被纠错层覆盖。
 
 ## v0.2.0｜2026-06-29｜Agent 工作流与云端转录基础版
 

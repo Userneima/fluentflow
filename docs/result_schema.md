@@ -24,6 +24,12 @@ Every persisted task result should expose:
 | `transcript_text_preview` | Short preview for lists and Agent summaries. |
 | `raw_segments` | Source-language, editable transcript segments. |
 | `display_segments` | Reading/export segments; may include `text_zh` for bilingual subtitles. |
+| `transcript_correction_status` | Optional conservative transcript correction state: `completed`, `no_changes`, `failed`, or `unavailable`. |
+| `transcript_correction` | Optional Transcript Correction v1 metadata. It records provider/model, counts, confidence threshold, error, and whether corrected text was used for note generation. |
+| `transcript_corrections` | Optional structured list of high-confidence corrections. Raw transcript fields remain unchanged. |
+| `corrected_transcript_text` | Optional transcript text after applying accepted high-confidence corrections. Present only when at least one correction was applied. |
+| `corrected_segments` | Optional source-language segments with accepted corrections applied. Present only when at least one correction was applied. |
+| `note_generation_transcript_source` | `corrected_transcript` when AI notes were generated from corrected text; otherwise `transcript_text`. |
 | `summary_markdown` | AI note content in Markdown. |
 | `summary_status` | `completed`, `failed`, `skipped`, or `pending`. |
 | `summary_error` | Failure reason when note generation fails. |
@@ -55,6 +61,52 @@ Segment shape:
 | `start` / `end` | Seconds from media start. |
 | `speaker` | Optional speaker label. |
 | `source_start_index` / `source_end_index` | Optional mapping back to raw segments after sentence merging. |
+
+## Transcript Correction v1
+
+Transcript correction is a conservative model-backed layer between STT cleanup
+and note generation. It exists to reduce obvious course/lecture transcription
+errors without losing traceability.
+
+Rules:
+
+- `transcript_text`, `raw_segments`, and `display_segments` remain the original
+  cleaned STT/subtitle result and must not be overwritten by correction.
+- The correction model may only return high-confidence, minimal segment-level
+  edits. It must not rewrite style, add information, infer missing content, or
+  make low-confidence guesses.
+- If correction fails, is unavailable, or returns no accepted corrections, the
+  task continues with `transcript_text`.
+- `corrected_transcript_text` and `corrected_segments` are written only when at
+  least one correction passes backend validation.
+- Stage 1 lets note generation use `corrected_transcript_text` when available;
+  the result records this in `note_generation_transcript_source`.
+
+`transcript_correction` metadata:
+
+| Field | Meaning |
+| --- | --- |
+| `transcript_correction_version` | Current value is `"1"`. |
+| `status` | `completed`, `no_changes`, `failed`, or `unavailable`. |
+| `provider` / `model` | Model route used for correction. Stage 1 uses DeepSeek. |
+| `applied_count` | Number of corrections accepted and applied to `corrected_segments`. |
+| `rejected_count` | Number of model-proposed corrections rejected by backend validation. |
+| `segment_count` | Number of source segments considered. |
+| `min_confidence` | Backend confidence threshold for accepting a correction. |
+| `note_input_applied` | True when note generation used `corrected_transcript_text`. |
+| `error` | Failure/unavailable reason when correction did not run successfully. |
+
+Each `transcript_corrections` item contains:
+
+| Field | Meaning |
+| --- | --- |
+| `segment_index` | Index into `raw_segments` / cleaned source segments. |
+| `start` / `end` | Segment timestamps in seconds when available. |
+| `original_text` | Full original segment text before correction. |
+| `corrected_text` | Full corrected segment text after minimal correction. |
+| `reason` | Short user-facing reason for the correction. |
+| `confidence` | Numeric model confidence after backend validation, usually `>= 0.85`. |
+| `provider` / `model` | Provider/model that proposed the correction. |
 
 Legacy aliases are read-only compatibility inputs:
 
@@ -282,7 +334,7 @@ Top-level shape:
 | `task` | Task id, status, stage, progress, and timestamps. |
 | `title` | User-facing task title. |
 | `source` | Source type, filename, title, URL, duration, and file size. |
-| `transcript` | Transcript availability, text, preview, raw/display segments, language, subtitle and translation state. |
+| `transcript` | Transcript availability, text, preview, raw/display segments, optional correction fields, language, subtitle and translation state. |
 | `note` | Note status, Markdown, diagnosis, modes, prompt metadata, and generation stats. |
 | `artifacts` | Download/export outputs by kind. Public or agent-facing payloads should prefer URLs or artifact ids; local filesystem paths are allowed only inside trusted local runtime surfaces and must never be exposed by public APIs. |
 | `visual` | Optional visual evidence package with final screenshot evidence, generated image artifacts, screenshot requests, frame selections, status, reason, and pipeline. |
@@ -301,6 +353,16 @@ Top-level shape:
 | `next_action` | Suggested recovery action. |
 | `retryable` | Whether retry/regenerate is meaningful. |
 
+`transcript` includes correction fields when present:
+
+| Field | Meaning |
+| --- | --- |
+| `corrected_text` | Mirrors `corrected_transcript_text` from the result when corrections were applied. |
+| `corrected_segments` | Mirrors `corrected_segments` from the result when corrections were applied. |
+| `corrections` | Mirrors `transcript_corrections`; empty for old tasks or no accepted corrections. |
+| `correction` | Transcript Correction v1 metadata or minimal status object. |
+| `note_input_source` | `corrected_transcript` when the note used corrected text, otherwise `transcript_text`. |
+
 ## Frontend Runtime Normalization
 
 Frontend code should normalize external payloads through `frontend/src/lib/resultSchema.js` before mapping them into list, detail, editor, or agent-facing surfaces.
@@ -308,6 +370,8 @@ Frontend code should normalize external payloads through `frontend/src/lib/resul
 The normalizer:
 
 - Converts legacy segment aliases into `raw_segments` and `display_segments`.
+- Preserves transcript correction fields when present; old results without
+  correction remain valid and should behave as `note_input_source=transcript_text`.
 - Derives `summary_status` when older payloads only have summary content, skip flags, or errors.
 - Adds `task_state` to job payloads using `frontend/src/lib/taskState.js`.
 - Keeps legacy fields on the object for compatibility, but callers should read canonical fields.

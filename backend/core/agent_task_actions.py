@@ -31,7 +31,8 @@ async def regenerate_agent_note(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     result = dict(job.get("result") or {})
-    transcript = str(result.get("transcript_text") or "").strip()
+    transcript_source = "corrected_transcript" if str(result.get("corrected_transcript_text") or "").strip() else "transcript_text"
+    transcript = str(result.get("corrected_transcript_text") or result.get("transcript_text") or "").strip()
     route = "/agent/v1/tasks/{task_id}/note/regenerate"
     if not transcript:
         raise AgentActionError(400, "No transcript available for note regeneration")
@@ -89,7 +90,7 @@ async def regenerate_agent_note(
             duration_seconds=round(time.perf_counter() - started_at, 3),
             success=False,
             error_reason=friendly_error,
-            metadata=H._metadata(route=route, raw_error=str(exc)),
+            metadata=H._metadata(route=route, raw_error=str(exc), note_generation_transcript_source=transcript_source),
         )
         raise AgentActionError(500, friendly_error, cause=exc) from exc
 
@@ -137,7 +138,7 @@ async def regenerate_agent_note(
         stage="summary_regenerate",
         duration_seconds=round(time.perf_counter() - started_at, 3),
         success=True,
-        metadata=H._metadata(route=route),
+        metadata=H._metadata(route=route, note_generation_transcript_source=transcript_source),
     )
     return H.get_job(task_id, client_id=client_id) or {**job, "result": result}
 

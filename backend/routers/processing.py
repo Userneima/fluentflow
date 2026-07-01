@@ -43,6 +43,63 @@ def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _run_transcript_correction_stage(
+    *,
+    loop: asyncio.AbstractEventLoop,
+    task_id: str,
+    route: str,
+    source_type: str,
+    source_filename: str | None,
+    source_duration_seconds: float | None,
+    source_file_size_mb: float | None,
+    transcript_text: str,
+    segments: list[dict[str, Any]],
+    deepseek_api_key: str | None,
+) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
+    """Run optional conservative transcript correction without failing the task."""
+    started_at = time.perf_counter()
+    correction_result = await loop.run_in_executor(
+        None,
+        lambda: H.correct_transcript_segments(
+            segments,
+            api_key=H.resolve_secret(deepseek_api_key, "deepseek_api_key"),
+            provider="deepseek",
+        ),
+    )
+    note_transcript_text = correction_result.corrected_text or transcript_text
+    note_segments = correction_result.corrected_segments or segments
+    fields = H.correction_result_fields(
+        correction_result,
+        note_input_applied=bool(correction_result.corrected_text),
+    )
+    fields["note_generation_transcript_source"] = (
+        "corrected_transcript" if correction_result.corrected_text else "transcript_text"
+    )
+    H.log_event(
+        task_id=task_id,
+        event_name="transcript_correction_completed" if correction_result.status in {"completed", "no_changes"} else "transcript_correction_unavailable",
+        source_type=source_type,
+        source_filename=source_filename,
+        source_duration_seconds=source_duration_seconds,
+        source_file_size_mb=source_file_size_mb,
+        transcript_length=H._text_len(transcript_text),
+        stage="transcript_correction",
+        duration_seconds=round(time.perf_counter() - started_at, 3),
+        success=correction_result.status in {"completed", "no_changes"},
+        error_reason=correction_result.error,
+        metadata=H._metadata(
+            route=route,
+            correction_status=correction_result.status,
+            correction_applied_count=correction_result.applied_count,
+            correction_rejected_count=correction_result.rejected_count,
+            correction_provider=correction_result.provider,
+            correction_model=correction_result.model,
+            note_generation_transcript_source=fields["note_generation_transcript_source"],
+        ),
+    )
+    return fields, note_transcript_text, note_segments
+
+
 @router.post("/queue/process")
 async def queue_process(
     request: Request,
@@ -1002,6 +1059,25 @@ async def process_video(
                 "source": source_type,
                 "summary_skipped": summary_disabled,
             })
+            note_transcript_text = transcript_text
+            note_segments_payload = segments_payload
+            if not summary_disabled:
+                current_stage = "transcript_correction"
+                H.upsert_job(task_id=task_id_value, status="running", stage="transcript_correction", progress=61)
+                yield H._sse({"stage": "transcript_correction", "progress": 61})
+                correction_fields, note_transcript_text, note_segments_payload = await _run_transcript_correction_stage(
+                    loop=loop,
+                    task_id=task_id_value,
+                    route="/process",
+                    source_type=source_type,
+                    source_filename=source_filename,
+                    source_duration_seconds=round(duration_sec, 1),
+                    source_file_size_mb=source_file_size_mb,
+                    transcript_text=transcript_text,
+                    segments=segments_payload,
+                    deepseek_api_key=deepseek_api_key,
+                )
+                base_result.update(correction_fields)
             if playback_audio_path is not None:
                 base_result = H._attach_playback_audio_artifact(task_id_value, base_result, playback_audio_path)
             base_result = H._attach_result_artifacts(task_id_value, base_result)
@@ -1041,7 +1117,7 @@ async def process_video(
                     source_filename=source_filename,
                     source_duration_seconds=round(duration_sec, 1),
                     source_file_size_mb=source_file_size_mb,
-                    transcript_length=H._text_len(transcript_text),
+                    transcript_length=H._text_len(note_transcript_text),
                     stage="summary",
                     success=True,
                     metadata=H._metadata(route="/process", reason="transcript_only_mode"),
@@ -1115,7 +1191,7 @@ async def process_video(
                 )
                 kwargs, note_mode_plan = H._plan_note_mode_for_summary(
                     kwargs,
-                    transcript_text,
+                    note_transcript_text,
                     task_id=task_id_value,
                     route="/process",
                     filename=source_filename,
@@ -1124,19 +1200,19 @@ async def process_video(
                 )
                 summary_result = await loop.run_in_executor(
                     None,
-                    lambda: H.summarize_transcript_with_metadata(transcript_text, **kwargs),
+                    lambda: H.summarize_transcript_with_metadata(note_transcript_text, **kwargs),
                 )
                 summary_md = summary_result.markdown
                 if not summary_md.strip():
                     raise ValueError("AI summarization returned empty result")
                 summary_status = "completed"
-                if source_type == "video" and segments_payload:
+                if source_type == "video" and note_segments_payload:
                     try:
                         visual_plan = await loop.run_in_executor(
                             None,
                             lambda: H.plan_visual_evidence_requests(
                                 summary_md,
-                                segments_payload,
+                                note_segments_payload,
                                 api_key=kwargs.get("api_key"),
                                 model=kwargs.get("model"),
                                 provider=kwargs.get("provider"),
@@ -1191,7 +1267,7 @@ async def process_video(
                     source_filename=source_filename,
                     source_duration_seconds=round(duration_sec, 1),
                     source_file_size_mb=source_file_size_mb,
-                    transcript_length=H._text_len(transcript_text),
+                    transcript_length=H._text_len(note_transcript_text),
                     summary_length=H._text_len(summary_md),
                     stage="summary",
                     duration_seconds=round(time.perf_counter() - summary_started_at, 3),
@@ -1207,6 +1283,7 @@ async def process_video(
                         visual_selection_count=len(visual_selections) if visual_selections else None,
                         visual_evidence_error=visual_evidence_error,
                         frame_count=len(frame_paths) if frame_paths else None,
+                        note_generation_transcript_source=base_result.get("note_generation_transcript_source"),
                     ),
                 )
             except Exception as exc:
@@ -1233,6 +1310,7 @@ async def process_video(
                         ai_model=(ai_model or "").strip() or None,
                         requested_note_mode=note_mode_plan.get("requested_note_mode") or (note_mode or "").strip() or None,
                         raw_error=str(exc),
+                        note_generation_transcript_source=base_result.get("note_generation_transcript_source"),
                         **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
                     ),
                 )
@@ -1243,7 +1321,7 @@ async def process_video(
                     task_id=task_id_value,
                     final_usage=H._estimate_processing_units(
                         duration_seconds=duration_sec,
-                        transcript_text=transcript_text,
+                        transcript_text=note_transcript_text,
                         summary_text="",
                         skip_summary=True,
                     ),
@@ -1274,7 +1352,7 @@ async def process_video(
                     source_filename=source_filename,
                     source_duration_seconds=round(duration_sec, 1),
                     source_file_size_mb=source_file_size_mb,
-                    transcript_length=H._text_len(transcript_text),
+                    transcript_length=H._text_len(note_transcript_text),
                     summary_length=0,
                     summary_status=summary_status,
                     lark_requested=do_lark,
@@ -1471,7 +1549,7 @@ async def process_video(
                 task_id=task_id_value,
                 final_usage=H._estimate_processing_units(
                     duration_seconds=duration_sec,
-                    transcript_text=transcript_text,
+                    transcript_text=note_transcript_text,
                     summary_text=summary_md,
                     skip_summary=False,
                 ),
@@ -2182,6 +2260,22 @@ async def summarize_transcript_file(
     }
     if quota_reservation:
         base_result["quota"] = quota_reservation
+    note_transcript_text = transcript_text
+    if not summary_disabled:
+        H.upsert_job(task_id=task_id_value, status="running", stage="transcript_correction", progress=61)
+        correction_fields, note_transcript_text, _note_segments_payload = await _run_transcript_correction_stage(
+            loop=loop,
+            task_id=task_id_value,
+            route="/summarize-transcript-file",
+            source_type="transcript_file",
+            source_filename=source_filename,
+            source_duration_seconds=round(parsed.duration, 1),
+            source_file_size_mb=source_file_size_mb,
+            transcript_text=transcript_text,
+            segments=segments_payload,
+            deepseek_api_key=deepseek_api_key,
+        )
+        base_result.update(correction_fields)
     base_result = H._attach_result_artifacts(task_id_value, base_result)
     H.upsert_job(
         task_id=task_id_value,
@@ -2258,7 +2352,7 @@ async def summarize_transcript_file(
     )
     kwargs, note_mode_plan = H._plan_note_mode_for_summary(
         kwargs,
-        transcript_text,
+        note_transcript_text,
         task_id=task_id_value,
         route="/summarize-transcript-file",
         filename=source_filename,
@@ -2268,7 +2362,7 @@ async def summarize_transcript_file(
     started_at = time.perf_counter()
     try:
         summary_result = await loop.run_in_executor(
-            None, lambda: H.summarize_transcript_with_metadata(transcript_text, **kwargs)
+            None, lambda: H.summarize_transcript_with_metadata(note_transcript_text, **kwargs)
         )
         summary_md = summary_result.markdown
         if not summary_md.strip():
@@ -2280,7 +2374,7 @@ async def summarize_transcript_file(
             source_filename=source_filename,
             source_duration_seconds=round(parsed.duration, 1),
             source_file_size_mb=source_file_size_mb,
-            transcript_length=H._text_len(transcript_text),
+            transcript_length=H._text_len(note_transcript_text),
             summary_length=H._text_len(summary_md),
             stage="summary",
             duration_seconds=round(time.perf_counter() - started_at, 3),
@@ -2290,6 +2384,7 @@ async def summarize_transcript_file(
                 ai_provider=(ai_provider or "").strip() or None,
                 ai_model=(ai_model or "").strip() or None,
                 requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
+                note_generation_transcript_source=base_result.get("note_generation_transcript_source"),
                 **H._summary_result_metadata(summary_result),
                 **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             ),
@@ -2303,12 +2398,16 @@ async def summarize_transcript_file(
             source_filename=source_filename,
             source_duration_seconds=round(parsed.duration, 1),
             source_file_size_mb=source_file_size_mb,
-            transcript_length=H._text_len(transcript_text),
+            transcript_length=H._text_len(note_transcript_text),
             stage="summary",
             duration_seconds=round(time.perf_counter() - started_at, 3),
             success=False,
             error_reason=friendly_error,
-            metadata=H._metadata(route="/summarize-transcript-file", raw_error=str(exc)),
+            metadata=H._metadata(
+                route="/summarize-transcript-file",
+                raw_error=str(exc),
+                note_generation_transcript_source=base_result.get("note_generation_transcript_source"),
+            ),
         )
         H._log_task_completed(
             task_id=task_id_value,
@@ -2318,7 +2417,7 @@ async def summarize_transcript_file(
             source_filename=source_filename,
             source_duration_seconds=round(parsed.duration, 1),
             source_file_size_mb=source_file_size_mb,
-            transcript_length=H._text_len(transcript_text),
+            transcript_length=H._text_len(note_transcript_text),
             summary_status="failed",
             lark_requested=False,
             lark_success=None,
@@ -2374,7 +2473,7 @@ async def summarize_transcript_file(
         client_id=client_id,
         task_id=task_id_value,
         final_usage=H._estimate_processing_units(
-            transcript_text=transcript_text,
+            transcript_text=note_transcript_text,
             summary_text=summary_md,
             skip_summary=False,
         ),

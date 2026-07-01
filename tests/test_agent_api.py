@@ -39,6 +39,27 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
                 "subtitle_mode": "bilingual_zh",
                 "translation_status": "completed",
                 "transcript_text": "Hello world",
+                "corrected_transcript_text": "Hello World",
+                "corrected_segments": [{"start": 0, "end": 1, "text": "Hello World"}],
+                "transcript_correction_status": "completed",
+                "transcript_correction": {
+                    "transcript_correction_version": "1",
+                    "status": "completed",
+                    "applied_count": 1,
+                    "note_input_applied": True,
+                },
+                "transcript_corrections": [
+                    {
+                        "segment_index": 0,
+                        "start": 0,
+                        "end": 1,
+                        "original_text": "Hello world",
+                        "corrected_text": "Hello World",
+                        "reason": "Terminology capitalization.",
+                        "confidence": 0.9,
+                    }
+                ],
+                "note_generation_transcript_source": "corrected_transcript",
                 "segments": [{"start": 0, "end": 1, "text": "Hello world"}],
                 "translated_segments_zh": [{"start": 0, "end": 1, "text": "你好世界"}],
                 "summary_markdown": "# Summary",
@@ -120,6 +141,11 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["transcript"]["text"] == "Hello world"
     assert package["transcript"]["raw_segments"][0]["text"] == "Hello world"
     assert package["transcript"]["display_segments"][0]["text_zh"] == "你好世界"
+    assert package["transcript"]["corrected_text"] == "Hello World"
+    assert package["transcript"]["corrected_segments"][0]["text"] == "Hello World"
+    assert package["transcript"]["corrections"][0]["confidence"] == 0.9
+    assert package["transcript"]["correction"]["status"] == "completed"
+    assert package["transcript"]["note_input_source"] == "corrected_transcript"
     assert package["note"]["status"] == "completed"
     assert package["note"]["markdown"] == "# Summary"
     assert package["note"]["diagnosis"]["code"] == "note_completed"
@@ -246,6 +272,7 @@ def test_agent_wait_returns_package_for_terminal_task(monkeypatch) -> None:
 
 def test_agent_regenerate_note_uses_stored_transcript_and_updates_package(monkeypatch) -> None:
     stored: dict[str, object] = {}
+    captured: dict[str, str] = {}
 
     def fake_get_job(task_id: str, client_id: str | None = None):
         if stored.get("updated"):
@@ -256,7 +283,13 @@ def test_agent_regenerate_note_uses_stored_transcript_and_updates_package(monkey
             "stage": "done",
             "source_type": "video",
             "source_filename": "demo.mp4",
-            "result": {"task_id": task_id, "filename": "demo.mp4", "transcript_text": "Hello"},
+            "result": {
+                "task_id": task_id,
+                "filename": "demo.mp4",
+                "transcript_text": "Hello",
+                "corrected_transcript_text": "Hello corrected",
+                "note_generation_transcript_source": "corrected_transcript",
+            },
         }
 
     def fake_upsert_job(**kwargs):
@@ -275,10 +308,10 @@ def test_agent_regenerate_note_uses_stored_transcript_and_updates_package(monkey
     monkeypatch.setattr(H, "log_event", lambda **kwargs: None)
     monkeypatch.setattr(H, "_attach_result_artifacts", lambda task_id, result: result)
     monkeypatch.setattr(H, "_plan_note_mode_for_summary", lambda kwargs, transcript, **meta: (kwargs, {"requested_note_mode": "auto"}))
-    monkeypatch.setattr(
-        H,
-        "summarize_transcript_with_metadata",
-        lambda transcript, **kwargs: SimpleNamespace(
+
+    def fake_summarize(transcript, **kwargs):
+        captured["transcript"] = transcript
+        return SimpleNamespace(
             markdown="# New note",
             requested_mode="auto",
             resolved_mode="direct",
@@ -289,7 +322,12 @@ def test_agent_regenerate_note_uses_stored_transcript_and_updates_package(monkey
             important_evidence_count=None,
             covered_important_evidence_count=None,
             coverage_missing_count=None,
-        ),
+        )
+
+    monkeypatch.setattr(
+        H,
+        "summarize_transcript_with_metadata",
+        fake_summarize,
     )
 
     response = TestClient(app).post("/agent/v1/tasks/task-note/note/regenerate", json={"note_mode": "auto"})
@@ -298,6 +336,7 @@ def test_agent_regenerate_note_uses_stored_transcript_and_updates_package(monkey
     package = response.json()["package"]
     assert package["note"]["markdown"] == "# New note"
     assert package["note"]["diagnosis"]["code"] == "note_completed"
+    assert captured["transcript"] == "Hello corrected"
     assert stored["updated"]["summary_status"] == "completed"
 
 

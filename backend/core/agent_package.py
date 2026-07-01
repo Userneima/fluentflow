@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from backend.core.result_schema import canonical_display_segments, canonical_raw_segments
+from backend.core.result_schema import canonical_display_segments, canonical_raw_segments, sanitize_raw_segments
 from backend.core.processing_plan import build_processing_plan, ensure_processing_plan
 from backend.core.title_display import display_title_for_user
 from backend.core.tool_trace import build_tool_trace
@@ -260,6 +260,12 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
     raw_segments = canonical_raw_segments(result)
     display_segments = canonical_display_segments(result)
     transcript_text = _text(result.get("transcript_text"))
+    corrected_transcript_text = _text(result.get("corrected_transcript_text"))
+    corrected_segments = sanitize_raw_segments(result.get("corrected_segments"))
+    transcript_corrections = result.get("transcript_corrections")
+    correction_meta = result.get("transcript_correction") if isinstance(result.get("transcript_correction"), dict) else None
+    if correction_meta is None and result.get("transcript_correction_status"):
+        correction_meta = {"status": result.get("transcript_correction_status")}
     diagnosis = note_generation_diagnosis(job, result)
     title = (
         _text(result.get("display_title"))
@@ -307,8 +313,14 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
             "preview": _text(result.get("transcript_text_preview") or transcript_text[:300]),
             "raw_segments": raw_segments,
             "display_segments": display_segments,
+            "corrected_text": corrected_transcript_text,
+            "corrected_segments": corrected_segments,
+            "corrections": transcript_corrections if isinstance(transcript_corrections, list) else [],
+            "correction": correction_meta,
+            "note_input_source": result.get("note_generation_transcript_source") or "transcript_text",
             "raw_segment_count": len(raw_segments),
             "display_segment_count": len(display_segments),
+            "corrected_segment_count": len(corrected_segments),
             "source_language": result.get("source_language"),
             "detected_language": result.get("detected_language"),
             "subtitle_mode": result.get("subtitle_mode"),
