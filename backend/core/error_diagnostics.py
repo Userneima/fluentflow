@@ -165,6 +165,31 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             next_action="检查 Azure 存储配置后重试，或改用本地转录。",
         )
 
+    if (
+        "po token" in lowered
+        or "gvs po token" in lowered
+        or "sabr streaming" in lowered
+        or "the page needs to be reloaded" in lowered
+        or "youtube 原视频下载受限" in raw
+    ):
+        return _diag(
+            code="youtube_media_restricted",
+            title="YouTube 原视频下载受限",
+            detail="YouTube 字幕不可用或不足以继续处理，同时原视频下载被 YouTube 客户端校验拦住。当前通常需要 PO Token、cookies 或高级本地下载环境，不是这条记录本身损坏。",
+            next_action="上传本地视频或字幕文件；如果要继续尝试链接下载，请在高级本地模式配置 YouTube 下载环境后重试。",
+        )
+    if (
+        "没有可用字幕" in raw
+        or "no captions" in lowered
+        or "no subtitles" in lowered
+        or "there are missing subtitles languages" in lowered
+    ):
+        return _diag(
+            code="youtube_no_captions",
+            title="YouTube 没有可用字幕",
+            detail="这个 YouTube 视频没有拿到可用字幕。FluentFlow 无法只靠链接稳定生成笔记，需要原视频、音频或字幕文件作为输入。",
+            next_action="上传本地视频、音频或字幕文件；如果开启高级本地下载，可以尝试重新获取原视频。",
+        )
     if "http error 403" in lowered or "视频下载失败：403" in raw or "forbidden" in lowered:
         return _diag(
             code="platform_forbidden",

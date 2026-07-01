@@ -16,6 +16,7 @@ from backend.core.result_schema import canonical_display_segments, canonical_raw
 from backend.core.title_display import display_title_for_user
 
 TASK_DETAIL_VERSION = "1"
+TASK_SNAPSHOT_VERSION = "1"
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 LIVE_STATUSES = {"queued", "running"}
@@ -277,6 +278,95 @@ def _note_mode_label(result: dict[str, Any], metadata: dict[str, Any]) -> str:
         "chapter_coverage": "章节覆盖笔记",
     }
     return labels.get(value, value)
+
+
+def _status_for_snapshot(job: dict[str, Any]) -> str:
+    value = _text(job.get("status") or job.get("task_state")).lower()
+    aliases = {
+        "processing": "running",
+        "done": "completed",
+        "canceled": "cancelled",
+    }
+    value = aliases.get(value, value)
+    if value in {"queued", "running", "completed", "failed", "cancelled"}:
+        return value
+    stage = _text(job.get("stage")).lower()
+    if stage == "queued":
+        return "queued"
+    if stage and stage not in {"idle", "done"}:
+        return "running"
+    if _result(job):
+        return "completed"
+    return "queued"
+
+
+def _current_step_id(timeline: list[dict[str, Any]]) -> str | None:
+    for status in ("failed", "cancelled", "running"):
+        match = next((step for step in timeline if step.get("status") == status), None)
+        if match:
+            return _text(match.get("id")) or None
+    pending = next((step for step in timeline if step.get("status") == "pending"), None)
+    if pending:
+        return _text(pending.get("id")) or None
+    if timeline:
+        return _text(timeline[-1].get("id")) or None
+    return None
+
+
+def _route_snapshot(job: dict[str, Any], result: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    queue_options = _queue_options(metadata)
+    processing_plan = result.get("processing_plan") if isinstance(result.get("processing_plan"), dict) else {}
+    execution = processing_plan.get("execution") if isinstance(processing_plan.get("execution"), dict) else {}
+    provider = _text(result.get("stt_provider") or metadata.get("stt_provider") or queue_options.get("stt_provider"))
+    model = _text(result.get("stt_model") or metadata.get("stt_model") or queue_options.get("stt_model"))
+    source_type = _source_type(job, result, metadata)
+    transcription = ""
+    if source_type == "transcript_file":
+        transcription = "transcript_file"
+    elif provider == "local":
+        transcription = "local"
+    elif provider in {"elevenlabs_scribe", "azure_batch"}:
+        transcription = "cloud"
+    elif provider:
+        transcription = provider
+    else:
+        transcription = _text(execution.get("scope") or "")
+
+    summary_skipped = bool(result.get("summary_skipped") or result.get("summary_status") == "skipped")
+    route = {
+        "transcription": transcription or None,
+        "stt_provider": provider or None,
+        "stt_model": model or None,
+        "execution_scope": _text(execution.get("scope")) or None,
+        "transcription_tool": _text(execution.get("transcription_tool")) or None,
+        "ai_note_requires_account": not summary_skipped,
+    }
+    return {key: value for key, value in route.items() if value not in (None, "")}
+
+
+def _note_payload(job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    markdown = _text(result.get("summary_markdown"))
+    summary_status = _text(result.get("summary_status") or job.get("summary_status"))
+    status = "pending"
+    if result.get("summary_skipped") or summary_status == "skipped":
+        status = "skipped"
+    elif markdown:
+        status = "completed"
+    elif result.get("summary_error") or summary_status == "failed":
+        status = "failed"
+    elif summary_status:
+        status = summary_status
+    diagnosis = note_generation_diagnosis(job, result)
+    payload = {
+        "status": status,
+        "markdown_chars": len(markdown),
+        "diagnosis": diagnosis,
+        "requested_mode": result.get("requested_note_mode"),
+        "resolved_mode": result.get("resolved_note_mode"),
+        "prompt_preset": result.get("prompt_preset"),
+        "prompt_preset_label": result.get("prompt_preset_label"),
+    }
+    return {key: value for key, value in payload.items() if value not in (None, "")}
 
 
 def _detail_for(
@@ -542,6 +632,49 @@ def _actions(job: dict[str, Any], result: dict[str, Any], artifacts: list[dict[s
     return actions
 
 
+def build_task_snapshot(
+    job: dict[str, Any],
+    *,
+    job_steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    job_steps = job_steps or []
+    result = _result(job)
+    metadata = _metadata(job)
+    task_id = _text(job.get("task_id"))
+    artifacts = _artifact_items(task_id, result)
+    timeline = _timeline(job, job_steps)
+    diagnosis = _diagnosis(job, timeline)
+    current_step = _current_step_id(timeline)
+    failure_reason = ""
+    next_action = ""
+    if diagnosis.get("visible") and diagnosis.get("severity") in {"error", "warning"}:
+        failure_reason = _text(diagnosis.get("detail"))
+        next_action = _text(diagnosis.get("next_action"))
+    snapshot = {
+        "task_snapshot_version": TASK_SNAPSHOT_VERSION,
+        "task_id": task_id,
+        "overall_status": _status_for_snapshot(job),
+        "current_step": current_step,
+        "progress": _num(job.get("progress")),
+        "steps": timeline,
+        "step_statuses": {
+            _text(step.get("id")): step.get("status")
+            for step in timeline
+            if _text(step.get("id")) and step.get("status")
+        },
+        "failure_reason": failure_reason or None,
+        "next_action": next_action or None,
+        "artifacts": artifacts,
+        "route": _route_snapshot(job, result, metadata),
+        "actions": _actions(job, result, artifacts, diagnosis),
+        "data_quality": {
+            "has_recorded_steps": bool(job_steps),
+            "timeline_sources": sorted({step.get("source") for step in timeline if step.get("source")}),
+        },
+    }
+    return {key: value for key, value in snapshot.items() if value not in (None, "", [])}
+
+
 def build_task_detail(job: dict[str, Any], *, job_steps: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     job_steps = job_steps or []
     result = _result(job)
@@ -552,6 +685,7 @@ def build_task_detail(job: dict[str, Any], *, job_steps: list[dict[str, Any]] | 
     diagnosis = _diagnosis(job, timeline)
     decision_log = build_decision_log(result, job=job, metadata=metadata)
     source_type = _source_type(job, result, metadata)
+    task_snapshot = build_task_snapshot(job, job_steps=job_steps)
     task = {
         "task_id": task_id,
         "status": job.get("status"),
@@ -568,7 +702,9 @@ def build_task_detail(job: dict[str, Any], *, job_steps: list[dict[str, Any]] | 
     return {
         "ok": True,
         "task_detail_version": TASK_DETAIL_VERSION,
+        "task_snapshot": task_snapshot,
         "task": {key: value for key, value in task.items() if value is not None and value != ""},
+        "note": _note_payload(job, result),
         "timeline": timeline,
         "decision_log": decision_log,
         "diagnosis": {key: value for key, value in diagnosis.items() if value is not None and value != ""},

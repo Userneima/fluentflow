@@ -13,6 +13,8 @@ def test_error_diagnostics_classifies_common_failures() -> None:
         ("InsufficientBalanceError: required quota balance", "quota_insufficient", "补足额度"),
         ("HTTP Error 403: Forbidden", "platform_forbidden", "cookies"),
         ("HTTP Error 429: Too Many Requests", "platform_rate_limited", "稍后重试"),
+        ("这个 YouTube 视频没有可用字幕", "youtube_no_captions", "上传本地视频"),
+        ("YouTube 字幕不可用，且原视频下载失败：missing a GVS PO Token", "youtube_media_restricted", "高级本地模式"),
         ("Queued source file is missing", "source_file_missing", "重新上传"),
         ("Unsupported note generation mode: chapter_coverage", "unsupported_note_mode", "自动"),
         ("AI summarization returned empty result", "empty_ai_note", "重生笔记"),

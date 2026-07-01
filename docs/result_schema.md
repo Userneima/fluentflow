@@ -64,6 +64,77 @@ Legacy aliases are read-only compatibility inputs:
 
 ## Job Payload
 
+The Job Payload wraps a result with task execution metadata:
+
+| Field | Meaning |
+| --- | --- |
+| `task_id` | Stable task id. |
+| `status` | Backend status such as `queued`, `running`, `completed`, `failed`, or `cancelled`. |
+| `task_state` | Frontend-normalized state: `idle`, `uploading`, `queued`, `running`, `completed`, `failed`, `cancelled`, or `cached_only`. |
+| `stage` | Current processing stage. |
+| `progress` | Numeric progress percentage when measurable. |
+| `source_type` / `source_filename` | Source metadata. |
+| `summary_status` | Job-level note state mirror for list rendering. |
+| `metadata` | Worker/runtime metadata. |
+| `result` | Result Payload v2. |
+
+Link-source jobs may include `metadata.asset_strategy`:
+
+| Field | Meaning |
+| --- | --- |
+| `platform_strategy` | Optional platform-specific acquisition strategy. Examples: `captions_first`, `media_first`, `metadata_only`, or `manual_upload_required`. |
+| `transcript_asset` | How the note input was or will be obtained, such as platform captions, provider subtitles, uploaded transcript, or STT from media. |
+| `playback_asset` | Playback availability: `playback_mode` may be `local_file`, `embedded_url`, `external_url`, or `unavailable`. |
+| `visual_asset` | Whether source media is available for screenshots/visual evidence. |
+| `download_status` | Media download state, such as `skipped`, `pending`, `running`, `completed`, `slow`, or `failed`. |
+| `failure_reason` | Stable machine reason when download/caption preparation fails, such as `timeout`, `forbidden`, `rate_limited`, `too_large`, `no_captions`, or `unknown`. |
+
+Different platforms may need different acquisition strategies. For example, YouTube links may complete the note path from captions while playback falls back to `external_url`; another platform may require media download or manual upload before transcription. UI and Agent surfaces should read `metadata.asset_strategy` instead of assuming all link-source jobs need the same assets.
+
+For link-source jobs, a missing local media file is not automatically a failed note task when the transcript and note outputs are available.
+
+`cached_only` is a frontend state, not a backend persistence state. It means the browser has enough cached result data to open a task even when the backend task row is unavailable.
+
+## Task Snapshot v1
+
+`task_snapshot` is the backend-owned read model for user-facing task state. Job
+rows and Result Payload fields remain readable, but UI and Agent surfaces should
+prefer `task_snapshot` when they need to explain where a task is, why it stopped,
+and what action is available next.
+
+Top-level shape:
+
+| Field | Meaning |
+| --- | --- |
+| `task_snapshot_version` | Current value is `"1"`. |
+| `task_id` | Stable task id. |
+| `overall_status` | One of `queued`, `running`, `completed`, `failed`, or `cancelled`. |
+| `current_step` | Current user-understandable step id, such as `source_fetch`, `transcription`, `note_generation`, or `result_save`. |
+| `progress` | Backend-owned numeric progress when measurable. UI should avoid inventing precision when this is absent. |
+| `steps` | Ordered timeline steps with title, status, detail, source, and optional error fields. |
+| `step_statuses` | Convenience map from step id to status. |
+| `failure_reason` | User-readable failure explanation when the task or a recoverable sub-step failed. |
+| `next_action` | User-readable recovery suggestion. |
+| `artifacts` | Available output artifacts projected for download. |
+| `route` | Transcription route and account-backed service requirements. |
+| `actions` | Available task actions such as cancel, open result, regenerate note, delete, or resubmit. |
+| `data_quality` | Whether the snapshot used recorded queue steps or inferred legacy state. |
+
+Route shape:
+
+| Field | Meaning |
+| --- | --- |
+| `transcription` | `local`, `cloud`, `transcript_file`, provider-specific value, or omitted when unknown. |
+| `stt_provider` / `stt_model` | Effective STT provider/model when known. |
+| `execution_scope` | Processing Plan execution scope when available. |
+| `transcription_tool` | Processing Plan transcription tool when available. |
+| `ai_note_requires_account` | Whether note generation for this task uses account/model-backed services. |
+
+Compatibility rule: existing job fields (`status`, `stage`, `progress`,
+`summary_status`, `error_reason`, `metadata`, and `result`) stay available
+during migration. New UI should read `task_snapshot` first and fall back to old
+fields only for cached or legacy records.
+
 ## Processing Plan v1
 
 `processing_plan` explains the task route FluentFlow chose. The first version is deterministic and evidence-based; it should not claim deep semantic understanding of content quality.
@@ -179,34 +250,6 @@ V1 planning is intentionally two-stage:
 
 - Initial plan: generated at task creation from input type, selected execution route, local/cloud capability, and weak filename hints.
 - Completed plan: generated or refreshed after transcription from transcript language, length, duration, and content structure. If transcript content conflicts with filename hints, transcript content wins.
-
-The Job Payload wraps a result with task execution metadata:
-
-| Field | Meaning |
-| --- | --- |
-| `task_id` | Stable task id. |
-| `status` | Backend status such as `queued`, `running`, `completed`, `failed`, or `cancelled`. |
-| `task_state` | Frontend-normalized state: `idle`, `uploading`, `queued`, `running`, `completed`, `failed`, `cancelled`, or `cached_only`. |
-| `stage` | Current processing stage. |
-| `progress` | Numeric progress percentage when measurable. |
-| `source_type` / `source_filename` | Source metadata. |
-| `summary_status` | Job-level note state mirror for list rendering. |
-| `metadata` | Worker/runtime metadata. |
-| `result` | Result Payload v2. |
-
-Video-link jobs may include `metadata.asset_strategy`:
-
-| Field | Meaning |
-| --- | --- |
-| `transcript_asset` | How the note input was or will be obtained, such as YouTube captions or STT from media. |
-| `playback_asset` | Playback availability: `playback_mode` may be `local_file`, `embedded_url`, `external_url`, or `unavailable`. |
-| `visual_asset` | Whether local video is available for screenshots/visual evidence. |
-| `download_status` | Video download state, such as `skipped`, `pending`, `running`, `completed`, `slow`, or `failed`. |
-| `failure_reason` | Stable machine reason when download/caption preparation fails, such as `timeout`, `forbidden`, `rate_limited`, `too_large`, `no_captions`, or `unknown`. |
-
-For YouTube links, the note path may complete from captions while playback falls back to `external_url`. UI and Agent surfaces should not treat a missing local video file as a failed note task.
-
-`cached_only` is a frontend state, not a backend persistence state. It means the browser has enough cached result data to open a task even when the backend task row is unavailable.
 
 ## Agent Task Package v1
 
