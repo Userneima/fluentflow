@@ -24,6 +24,7 @@ commits, versioning, or worktree state.
 
 - `AGENTS.md`
 - `docs/agent_task_brief.md`
+- `docs/git_checkpoint_workflow.md`
 - `docs/versioning_strategy.md` when committing, releasing, tagging, bumping
   versions, or discussing rollback.
 - `docs/changelog.md` when the work changes user-visible behavior, maintainer

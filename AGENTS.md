@@ -14,6 +14,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Workflow design system: `docs/workflow_design_system.md`.
 - Agent / MCP parity rule: `docs/agent_mcp_parity.md`.
 - Execution task brief: `docs/agent_task_brief.md`.
+- Git checkpoint workflow: `docs/git_checkpoint_workflow.md`.
 - Versioning and release: `docs/versioning_strategy.md`, `docs/release_process.md`.
 - Project skills: `.agents/skills/`.
 - Changelog: `docs/changelog.md`.
@@ -42,6 +43,8 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Before file edits, run `git status --short`. If dirty changes overlap the
   target files or make the commit boundary unclear, stop and ask/split first.
   If they are unrelated, continue carefully and report that they were left untouched.
+- For staging, committing, dirty worktree triage, or end-of-task checkpoints,
+  follow `docs/git_checkpoint_workflow.md`.
 
 ## Validation Checklist
 
@@ -60,14 +63,10 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 
 ## Versioning And Commit Discipline
 
-- Follow `docs/versioning_strategy.md` for app versions, atomic commits, changelog entries, schema versions, release tags, and rollback decisions.
-- One conversation is not one commit. Split work into separate commits by product purpose.
-- At the end of each completed execution task, create a local checkpoint commit by default when the work unit is coherent, validated, clearly scoped, and independently reversible.
-- Do not commit after every tiny edit. Commit after a coherent, validated work unit, or make temporary `wip:` commits only when the user explicitly asks to save progress.
-- Do not commit when the user asks not to, when the work is still exploratory, when validation has not run, or when unrelated dirty changes make the commit boundary unclear. In those cases, split the work if possible; otherwise leave changes uncommitted and explain why.
-- Do not create broad `misc`, `update`, or `fix things` commits. Each commit should explain one coherent user or maintainer outcome.
-- Stage intentionally. When unrelated changes exist, inspect the diff and stage only the hunks/files for the current commit.
-- Use English Conventional Commit style for new commit messages when practical, for example `fix: handle stale dashboard jobs` or `docs: clarify release process`.
+- Follow `docs/git_checkpoint_workflow.md` for work unit boundaries, staging,
+  validation, checkpoint commits, and mixed dirty worktrees.
+- Follow `docs/versioning_strategy.md` for app versions, schema versions,
+  release tags, release notes, and rollback decisions.
 - Do not bump `VERSION` for ordinary fixes. Bump the app version only when preparing a coherent release.
 - User-visible behavior changes belong in `docs/changelog.md` under `Unreleased`; shipped release sections are prepared during release.
 - Persistent data/API/result-shape changes must update the relevant schema or migration documentation and keep old data readable.

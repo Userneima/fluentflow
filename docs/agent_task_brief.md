@@ -6,9 +6,9 @@ work so each thread has one clear boundary, one validation standard, and one
 commit decision.
 
 It does not replace `AGENTS.md`, `docs/versioning_strategy.md`,
-`docs/agent_mcp_parity.md`, `docs/ui_design_system.md`, or
-`docs/workflow_design_system.md`. It is the short handoff layer that points each
-execution thread to the right checks.
+`docs/git_checkpoint_workflow.md`, `docs/agent_mcp_parity.md`,
+`docs/ui_design_system.md`, or `docs/workflow_design_system.md`. It is the
+short handoff layer that points each execution thread to the right checks.
 
 ## When To Use
 
@@ -59,7 +59,7 @@ If a field is unknown, mark it as unknown and resolve it before editing.
 | UI confirmation needed | Yes when changing major UI, information architecture, page responsibility, navigation, or visible workflow meaning. State who confirms before editing. |
 | Agent/MCP parity needed | Yes when adding or changing a user-facing workflow that an external agent may need to submit, wait for, inspect, retry, export, or diagnose. Use `docs/agent_mcp_parity.md`. |
 | Changelog needed | Yes for user-visible behavior, maintainer-visible workflow, deployment, schema, auth/quota, integration, rollback, or migration impact. Record under `Unreleased`. |
-| Commit expected | Yes by default for completed execution work. Define the commit boundary and validation required before commit. If dirty unrelated changes exist, stage only intended hunks/files or stop when the boundary is unclear. |
+| Commit expected | Yes by default for completed execution work. Use `docs/git_checkpoint_workflow.md` for staging, validation, mixed worktrees, and commit rules. |
 | Report format | Final report must cover: changed files, validation run, what was intentionally not done, and remaining risk. |
 
 ## Clean Worktree Start Gate
@@ -79,9 +79,8 @@ Then choose one path:
 | Dirty, unrelated changes exist and do not overlap target files | Continue carefully, leave them untouched, and report them in the final summary. |
 | Dirty changes overlap target files or ownership is unclear | Stop and report the ambiguity before editing. |
 
-This gate protects the commit boundary. If the start state is already mixed,
-do not stage unrelated changes or create a checkpoint unless the user explicitly
-asks for that boundary.
+This gate protects the commit boundary. Use `docs/git_checkpoint_workflow.md`
+for staging, committing, and mixed worktree handling.
 
 ## Main And Execution Conversation Split
 
@@ -132,12 +131,9 @@ brief:
 1. Did the work solve the stated problem without expanding scope?
 2. Were validation commands run, or was each skipped check justified?
 3. Did Agent/MCP parity, changelog, and UI confirmation get handled when needed?
-4. Is the commit boundary clear enough to create the default checkpoint commit?
+4. Was `docs/git_checkpoint_workflow.md` followed for checkpoint decisions?
 5. Are remaining risks or blocked follow-ups stated plainly?
 
-Completed execution tasks should end with a local checkpoint commit by default.
-Do not commit when the user asked not to, validation was skipped or failed, the
-work is still exploratory, or unrelated dirty changes make the boundary unclear.
-If the default commit is not created, the final report must say exactly why, for
-example: unrelated dirty changes, skipped validation, exploratory work, or
-missing user confirmation.
+Completed execution tasks should end with a local checkpoint commit by default
+when the Git checkpoint workflow allows it. If the default commit is not
+created, the final report must say exactly why.

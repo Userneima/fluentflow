@@ -90,6 +90,7 @@
 
 ### 维护者变化
 
+- 新增 `docs/git_checkpoint_workflow.md` 作为 Git checkpoint 单一操作手册；`AGENTS.md`、执行任务 brief 和 git workflow skill 只保留索引，避免多处规则互相冲突。
 - 执行任务完成后默认创建本地 checkpoint commit；如果验证未跑、工作仍在探索、或脏改动边界不清，则必须先拆分或说明未提交原因。
 - 任务结果新增笔记正文保存接口 `PATCH /jobs/{task_id}/summary`，保存后继续更新既有 `summary_markdown` 字段和 Markdown artifact；Agent API / MCP 读取任务包时无需新增工具即可拿到最新正文。
 - Agent 工作流入口调整不改变 Agent API / MCP 合约；它只选择已有任务详情页，任务包字段和 MCP 工具无需同步扩展。
