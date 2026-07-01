@@ -407,6 +407,26 @@ def test_download_video_source_falls_back_when_youtube_captions_missing(tmp_path
     assert Path(saved.file_path).read_bytes() == b"video"
 
 
+def test_download_video_source_explains_youtube_caption_and_media_failure(tmp_path, monkeypatch) -> None:
+    resolved = video_source.ResolvedVideo(
+        provider="yt-dlp",
+        source_url="https://www.youtube.com/watch?v=demo123",
+        download_url="https://googlevideo.example/video.mp4",
+        video_id="demo123",
+        title="YouTube Demo",
+    )
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "download_youtube_captions", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("no captions")))
+    monkeypatch.setattr(video_source, "download_yt_dlp_media", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("missing a GVS PO Token")))
+
+    with pytest.raises(RuntimeError, match="YouTube 字幕不可用，且原视频下载失败"):
+        video_source.download_video_source("https://youtu.be/demo123", video_dir=tmp_path)
+
+
+def test_video_source_failure_reason_classifies_youtube_media_restriction() -> None:
+    assert video_source.video_source_failure_reason("missing a GVS PO Token") == "youtube_media_restricted"
+
+
 def test_download_video_source_merges_split_bilibili_streams(tmp_path, monkeypatch) -> None:
     resolved = video_source.ResolvedVideo(
         provider="yt-dlp",

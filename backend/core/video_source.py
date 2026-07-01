@@ -558,6 +558,8 @@ def download_timeout_seconds(
 
 def video_source_failure_reason(error: Any) -> str:
     text = str(error or "").lower()
+    if "po token" in text or "sabr streaming" in text or "the page needs to be reloaded" in text:
+        return "youtube_media_restricted"
     if "http error 403" in text or "forbidden" in text or "视频下载失败：403" in text:
         return "forbidden"
     if "http error 429" in text or "too many requests" in text:
@@ -826,13 +828,18 @@ def download_video_source(
                     media_type = "video"
                     video_id, raw_title, display_title, filename = resolve_filename(resolved, title)
                     file_path = video_dir / filename
-                    size_bytes = download_yt_dlp_media(
-                        resolved.source_url,
-                        file_path,
-                        on_progress,
-                        duration_seconds=resolved.duration_seconds,
-                        estimated_size_bytes=resolved.estimated_size_bytes,
-                    )
+                    try:
+                        size_bytes = download_yt_dlp_media(
+                            resolved.source_url,
+                            file_path,
+                            on_progress,
+                            duration_seconds=resolved.duration_seconds,
+                            estimated_size_bytes=resolved.estimated_size_bytes,
+                        )
+                    except Exception as media_exc:
+                        raise RuntimeError(
+                            f"YouTube 字幕不可用，且原视频下载失败：{media_exc}"
+                        ) from media_exc
             elif resolved.provider == "yt-dlp":
                 size_bytes = download_yt_dlp_media(
                     resolved.source_url,
