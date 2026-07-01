@@ -1,7 +1,8 @@
-export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
+export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'dashscopeApiKey', 'qwenApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
 export const LEGACY_REMOVED_SETTING_KEYS = ['hotwordLibrary', 'hotwordLibraries', 'reviewMode', 'reviewUseAi'];
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
+export const DEFAULT_QWEN_MODEL = 'qwen3.7-plus';
 export const SUPPORTED_FRONTEND_NOTE_MODES = new Set(['auto', 'direct', 'high_fidelity', 'chapter_coverage']);
 export const NOTE_MODE_OPTIONS = [
     {value: 'auto', labelEn: 'Auto', labelZh: '自动选择'},
@@ -27,10 +28,13 @@ export const larkExportRouteFromSettings = (settings={}) => (
 export const isLocalLarkExportRoute = (route) => normalizeLarkExportRoute(route) === LARK_EXPORT_ROUTE_LOCAL_CLI;
 
 export const normalizeAiModel = (provider, model) => {
-    const p = provider === 'openai' ? 'openai' : 'deepseek';
+    const p = provider === 'openai' ? 'openai' : (provider === 'qwen' ? 'qwen' : 'deepseek');
     const value = String(model || '').trim();
     if (p === 'openai') {
         return value && value.startsWith('gpt-') ? value : DEFAULT_OPENAI_MODEL;
+    }
+    if (p === 'qwen') {
+        return value || DEFAULT_QWEN_MODEL;
     }
     return value && value !== 'deepseek-chat' ? value : DEFAULT_DEEPSEEK_MODEL;
 };
@@ -39,7 +43,7 @@ export const sanitizeSettings = (settings={}) => {
     const next = {...settings};
     SENSITIVE_SETTING_KEYS.forEach((key) => delete next[key]);
     LEGACY_REMOVED_SETTING_KEYS.forEach((key) => delete next[key]);
-    const provider = next.aiProvider === 'openai' ? 'openai' : 'deepseek';
+    const provider = next.aiProvider === 'openai' ? 'openai' : (next.aiProvider === 'qwen' ? 'qwen' : 'deepseek');
     next.aiProvider = provider;
     next.aiModel = normalizeAiModel(provider, next.aiModel);
     if (!SUPPORTED_FRONTEND_NOTE_MODES.has(next.noteMode)) {
@@ -54,6 +58,7 @@ export const sanitizeSettings = (settings={}) => {
 export const sensitivePatchFromSettings = (settings={}) => ({
     deepseek_api_key: settings.deepseekApiKey || '',
     openai_api_key: settings.openaiApiKey || '',
+    dashscope_api_key: settings.dashscopeApiKey || settings.qwenApiKey || '',
     lark_app_id: settings.larkAppId || '',
     lark_app_secret: settings.larkAppSecret || '',
     elevenlabs_api_key: settings.elevenLabsApiKey || '',

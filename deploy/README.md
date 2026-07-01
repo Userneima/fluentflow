@@ -103,8 +103,7 @@ FLUENTFLOW_STALE_JOB_SECONDS=90000
 ```bash
 FLUENTFLOW_KEYFRAME_EXTRACTION=1
 FLUENTFLOW_KEYFRAME_PROVIDER=local_ffmpeg
-AI_PROVIDER=qwen
-QWEN_API_KEY=...
+DASHSCOPE_API_KEY=...
 ```
 
 后续如果把截图任务拆到独立 Worker，再切换为：
@@ -116,7 +115,7 @@ FLUENTFLOW_KEYFRAME_WORKER_URL=https://your-worker/keyframes
 
 没有配置 Worker URL 时系统会跳过关键帧抽取，不会阻塞转录和笔记生成。关键帧图片属于任务产物，跟随 `FLUENTFLOW_ARTIFACT_RETENTION_DAYS` 清理；如果未来写入 OSS，笔记和 Agent 任务包里只能暴露 OSS/下载 URL，不能暴露服务器本地路径。
 
-ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插图需要 Qwen 多模态摘要链路：`AI_PROVIDER=qwen` 且 `QWEN_API_KEY` 已配置。只配置 DeepSeek 或 OpenAI 时，普通文字笔记仍可生成，但视频关键截图不会自动进入笔记。
+ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插图需要 `DASHSCOPE_API_KEY` 供 Qwen 视觉模型做局部视觉选图；主摘要服务商可以继续使用 DeepSeek、OpenAI 或 Qwen。`QWEN_API_KEY` 仍作为旧环境变量兼容。只配置 DeepSeek/OpenAI 但没有百炼 / DashScope Key 时，普通文字笔记仍可生成，但视频关键截图不会自动进入笔记。
 
 如果暂时不想启用账号系统，也可以不配置 `FLUENTFLOW_AUTH_MODE`，让用户直接打开产品；此时后端仍会按设备、IP 和全站总量拦截异常提交，但任务历史无法跨设备找回。封闭 Beta 才需要额外设置 `FLUENTFLOW_ACCESS_TOKEN`。
 

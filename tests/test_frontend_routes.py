@@ -194,11 +194,22 @@ def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
     assert "export const DEFAULT_STT_PROVIDER = 'elevenlabs_scribe'" in settings_model
+    assert "export const DEFAULT_QWEN_MODEL = 'qwen3.7-plus'" in settings_model
+    assert "'dashscopeApiKey'" in settings_model
+    assert "'qwenApiKey'" in settings_model
+    assert "dashscope_api_key: settings.dashscopeApiKey || settings.qwenApiKey || ''" in settings_model
     assert "allowedSttProviders: ['elevenlabs_scribe', 'local']" in settings_model
     assert "const localAwareAllowed = publicMode || uniqueAllowed.includes('local')" in settings_model
     assert "from '../lib/settingsModel.js'" in shared
     assert "from '../lib/settingsModel.js'" in job_morph
     assert "sttProvider: 'elevenlabs_scribe'" in settings
+    assert '<option value="qwen">Qwen</option>' in settings
+    assert "credentialConfigured(credentialStatus, 'dashscope_api_key')" in settings
+    assert "set.dashscopeKey" in settings
+    assert "百炼 / DashScope API Key" in settings
+    assert "已配置，留空则保留" in settings
+    assert "已配置，输入新 Key 可替换" in settings
+    assert "Qwen API Key" not in settings
     assert "isCloudSttConfigured(sttProvider, status)" in editor
     assert "本地处理转录；生成笔记仍使用账号和模型服务。" in settings
     assert "isAzureCloudProvider(sttProvider)" not in editor

@@ -229,7 +229,7 @@ def run_checks(
     checks.append(CheckResult(
         "summary_model_credentials",
         "pass" if ai_configured else "fail",
-        "摘要模型 Key 已配置。" if ai_configured else "缺少 DEEPSEEK_API_KEY、OPENAI_API_KEY 或 QWEN_API_KEY。",
+        "摘要模型 Key 已配置。" if ai_configured else "缺少 DEEPSEEK_API_KEY、OPENAI_API_KEY 或 DASHSCOPE_API_KEY。",
     ))
 
     lark_openapi_configured = bool(credentials["lark_app_id_configured"] and credentials["lark_app_secret_configured"])
@@ -252,12 +252,11 @@ def run_checks(
 
     keyframe_enabled = _keyframe_enabled()
     keyframe_provider = _keyframe_provider()
-    ai_provider = (os.environ.get("AI_PROVIDER") or "deepseek").strip().lower()
-    qwen_ok = bool(credentials["qwen_api_key_configured"])
+    dashscope_ok = bool(credentials.get("dashscope_api_key_configured") or credentials["qwen_api_key_configured"])
     visual_status = "pass"
     visual_detail = (
-        f"provider={keyframe_provider}, AI_PROVIDER={ai_provider}; "
-        "视频截图插图可用。"
+        f"provider={keyframe_provider}; "
+        "百炼 / DashScope 视觉选择 Key 已配置，视频截图插图可用。"
     )
     if not keyframe_enabled or keyframe_provider == "disabled":
         visual_status = "fail" if require_visual_evidence else "warn"
@@ -268,9 +267,9 @@ def run_checks(
     elif not (ffmpeg_ok and ffprobe_ok):
         visual_status = "fail"
         visual_detail = "视频截图插图需要服务器可执行 ffmpeg 和 ffprobe。"
-    elif ai_provider != "qwen" or not qwen_ok:
+    elif not dashscope_ok:
         visual_status = "fail" if require_visual_evidence else "warn"
-        visual_detail = "视频截图插图需要 AI_PROVIDER=qwen 且配置 QWEN_API_KEY；ElevenLabs 只负责转录，不会看视频画面。"
+        visual_detail = "视频截图插图需要配置 DASHSCOPE_API_KEY（兼容旧名 QWEN_API_KEY）；摘要模型可继续使用 DeepSeek、OpenAI 或 Qwen，ElevenLabs 只负责转录。"
     checks.append(CheckResult(
         "visual_note_screenshots",
         visual_status,

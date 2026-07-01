@@ -33,6 +33,7 @@
 
 ### 用户可见变化
 
+- 设置页的系统维护区新增 Qwen 作为摘要服务商选项，并可保存百炼 / DashScope API Key；视频笔记截图链路可以用它驱动 Qwen 视觉模型继续执行局部视觉选图。
 - 处理详情页的“查看结果”只会在记录确实有可打开结果时出现，并会先载入对应任务结果再进入编辑器，避免失败记录出现无效入口或完成记录打开后显示“未选择结果”。
 - 视频笔记的截图插入链路改为“文本模型先提出截图时间窗，Qwen 只复查局部候选帧”；长视频不再为了插图先把全视频交给多模态模型，最终截图仍会经过密度、去重和低价值过滤后才进入笔记。
 - 新增公开官网首页，根路径 `/` 用于展示 FluentFlow 的产品主张、Agent 工作流和适用场景；原应用 Dashboard 迁移到 `/app`，视频处理主入口仍为 `/media-text`。
@@ -99,6 +100,7 @@
 
 ### 维护者变化
 
+- 部署自检中的视频截图插图检查改为要求百炼 / DashScope 视觉选择 Key，而不再强制主摘要服务商必须设置为 Qwen；DeepSeek/OpenAI 生成文本笔记时也可配合 Qwen 视觉模型完成局部截图选择。
 - 新增 `docs/git_checkpoint_workflow.md` 作为 Git checkpoint 单一操作手册；`AGENTS.md`、执行任务 brief 和 git workflow skill 只保留索引，避免多处规则互相冲突。
 - 执行任务完成后默认创建本地 checkpoint commit；如果验证未跑、工作仍在探索、或脏改动边界不清，则必须先拆分或说明未提交原因。
 - 任务结果新增笔记正文保存接口 `PATCH /jobs/{task_id}/summary`，保存后继续更新既有 `summary_markdown` 字段和 Markdown artifact；Agent API / MCP 读取任务包时无需新增工具即可拿到最新正文。

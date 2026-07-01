@@ -456,11 +456,18 @@ def _provider_api_key(provider: str, api_key: str | None = None) -> str:
     load_dotenv()
     if provider == "openai":
         env_name = "OPENAI_API_KEY"
+        env_names = (env_name,)
     elif provider == "qwen":
-        env_name = "QWEN_API_KEY"
+        env_name = "DASHSCOPE_API_KEY"
+        env_names = ("DASHSCOPE_API_KEY", "QWEN_API_KEY")
     else:
         env_name = "DEEPSEEK_API_KEY"
-    key = (api_key or os.environ.get(env_name, "")).strip()
+        env_names = (env_name,)
+    env_key = next(
+        ((os.environ.get(name) or "").strip() for name in env_names if (os.environ.get(name) or "").strip()),
+        "",
+    )
+    key = (api_key or env_key).strip()
     if not key:
         raise ValueError(f"{env_name} 未设置：请在 .env 中配置或在设置页填写 API Key。")
     return key

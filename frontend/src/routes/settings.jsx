@@ -3,6 +3,7 @@ import SvgIcon from '../components/SvgIcon.jsx';
 import {
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_OPENAI_MODEL,
+    DEFAULT_QWEN_MODEL,
     LARK_EXPORT_ROUTE_LOCAL_CLI,
     LARK_EXPORT_ROUTE_OPENAPI,
     effectiveSttProvider,
@@ -43,6 +44,19 @@ const Settings = () => {
     const [secretSaving, setSecretSaving] = useState(false);
     const [secretFeedback, setSecretFeedback] = useState(null);
 
+    const credentialConfigured = (status, key) => {
+        if (key === 'dashscope_api_key' || key === 'qwen_api_key') {
+            return !!(status?.dashscope_api_key_configured || status?.qwen_api_key_configured);
+        }
+        return !!status?.[`${key}_configured`];
+    };
+
+    const credentialStatusKey = (key) => (
+        key === 'dashscope_api_key' || key === 'qwen_api_key'
+            ? 'dashscope_api_key_configured'
+            : `${key}_configured`
+    );
+
     useEffect(() => {
         const normalizedSttModel = normalizeSttModel(settings.sttModel);
         if (settings.sttModel !== normalizedSttModel) {
@@ -70,6 +84,14 @@ const Settings = () => {
         try {
             const next = await saveCredentials({[key]: value});
             const fresh = await getCredentialsStatus().catch(() => next);
+            const statusKey = credentialStatusKey(key);
+            if (value && statusKey) {
+                fresh[statusKey] = true;
+                if (key === 'dashscope_api_key' || key === 'qwen_api_key') {
+                    fresh.qwen_api_key_configured = true;
+                    fresh.dashscope_api_key_configured = true;
+                }
+            }
             setCredentialStatus(fresh);
             if (key === 'pyannote_auth_token') {
                 const status = await getSpeakerDiarizationStatus();
@@ -87,6 +109,18 @@ const Settings = () => {
 
     const secretStatusText = (configured) => (
         configured ? (lang === 'zh' ? '已配置' : 'Configured') : (lang === 'zh' ? '未配置' : 'Not configured')
+    );
+
+    const secretRetentionText = (configured) => (
+        configured
+            ? (lang === 'zh' ? '已配置，留空则保留' : 'Configured. Leave blank to keep it.')
+            : (lang === 'zh' ? '未配置' : 'Not configured')
+    );
+
+    const secretInputPlaceholder = (configured) => (
+        configured
+            ? (lang === 'zh' ? '已配置，输入新 Key 可替换' : 'Configured. Enter a new key to replace it.')
+            : (lang === 'zh' ? '粘贴 API Key' : 'Paste API key')
     );
 
     const SecretFeedback = ({keyName}) => (
@@ -116,10 +150,15 @@ const Settings = () => {
     const saveButtonClass = 'rounded-[14px] bg-[#111111] px-4 py-3 text-sm font-extrabold text-white transition hover:bg-[#2a2a2a] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]';
     const aiProvider = settings.aiProvider || 'deepseek';
     const aiModel = normalizeAiModel(aiProvider, settings.aiModel);
-    const activeAiSecretKey = aiProvider === 'openai' ? 'openai_api_key' : 'deepseek_api_key';
+    const aiProviderDefaults = {
+        deepseek: DEFAULT_DEEPSEEK_MODEL,
+        openai: DEFAULT_OPENAI_MODEL,
+        qwen: DEFAULT_QWEN_MODEL,
+    };
+    const activeAiSecretKey = aiProvider === 'openai' ? 'openai_api_key' : (aiProvider === 'qwen' ? 'dashscope_api_key' : 'deepseek_api_key');
     const activeAiConfigured = aiProvider === 'openai'
         ? credentialStatus?.openai_api_key_configured
-        : credentialStatus?.deepseek_api_key_configured;
+        : (aiProvider === 'qwen' ? credentialConfigured(credentialStatus, 'dashscope_api_key') : credentialStatus?.deepseek_api_key_configured);
     const sttProvider = effectiveSttProvider(settings, runtimeConfig);
     const larkExportRoute = larkExportRouteFromSettings(settings);
     const cloudProviderLabel = lang === 'zh' ? '云端转录' : 'Cloud transcription';
@@ -323,9 +362,10 @@ const Settings = () => {
                                 <div className="grid gap-4 px-5 py-4 md:grid-cols-2">
                                     <div className="space-y-2">
                                         <label className={fieldLabelClass}>{t('set.provider')}</label>
-                                        <select className={inputClass} value={aiProvider} onChange={e=>updateSettingNow({aiProvider:e.target.value, aiModel:e.target.value === 'openai' ? DEFAULT_OPENAI_MODEL : DEFAULT_DEEPSEEK_MODEL})}>
+                                        <select className={inputClass} value={aiProvider} onChange={e=>updateSettingNow({aiProvider:e.target.value, aiModel: aiProviderDefaults[e.target.value] || DEFAULT_DEEPSEEK_MODEL})}>
                                             <option value="deepseek">DeepSeek</option>
                                             <option value="openai">OpenAI</option>
+                                            <option value="qwen">Qwen</option>
                                         </select>
                                     </div>
                                     <div className="space-y-2">
@@ -336,6 +376,10 @@ const Settings = () => {
                                                 <option value="gpt-5.4">gpt-5.4</option>
                                                 <option value="gpt-5.5">gpt-5.5</option>
                                             </select>
+                                        ) : aiProvider === 'qwen' ? (
+                                            <select className={inputClass} value={aiModel} onChange={e=>updateSettingNow({aiModel:e.target.value})}>
+                                                <option value={DEFAULT_QWEN_MODEL}>{DEFAULT_QWEN_MODEL}</option>
+                                            </select>
                                         ) : (
                                             <select className={inputClass} value={aiModel} onChange={e=>updateSettingNow({aiModel:e.target.value})}>
                                                 <option value="deepseek-reasoner">deepseek-reasoner</option>
@@ -343,13 +387,30 @@ const Settings = () => {
                                         )}
                                     </div>
                                     <div className="space-y-2 md:col-span-2">
-                                        <label className={fieldLabelClass}>{aiProvider === 'openai' ? t('set.openaiKey') : t('set.deepseekKey')}</label>
+                                        <label className={fieldLabelClass}>{aiProvider === 'openai' ? t('set.openaiKey') : (aiProvider === 'qwen' ? t('set.dashscopeKey') : t('set.deepseekKey'))}</label>
+                                        <p className="text-xs leading-relaxed text-on-surface-variant">{secretRetentionText(activeAiConfigured)}</p>
                                         <div className="flex gap-2">
-                                            <input className={inputClass} placeholder={secretStatusText(activeAiConfigured)} type="password" value={secretDraft[activeAiSecretKey] || ''} onChange={e=>setSecretDraft(d=>({...d, [activeAiSecretKey]: e.target.value}))}/>
+                                            <input className={inputClass} placeholder={secretInputPlaceholder(activeAiConfigured)} type="password" value={secretDraft[activeAiSecretKey] || ''} onChange={e=>setSecretDraft(d=>({...d, [activeAiSecretKey]: e.target.value}))}/>
                                             <button type="button" disabled={secretSaving || !secretDraft[activeAiSecretKey]} onClick={()=>saveSecret(activeAiSecretKey)} className={saveButtonClass}>{lang === 'zh' ? '保存' : 'Save'}</button>
                                         </div>
                                         <SecretFeedback keyName={activeAiSecretKey} />
                                     </div>
+                                    {aiProvider !== 'qwen' && (
+                                        <div className="space-y-2 md:col-span-2">
+                                            <label className={fieldLabelClass}>{t('set.dashscopeKey')}</label>
+                                            <p className="text-xs leading-relaxed text-on-surface-variant">
+                                                {lang === 'zh'
+                                                    ? '百炼 / DashScope API Key，用于 Qwen 视觉模型的局部截图选择；摘要服务商可以继续使用 DeepSeek 或 OpenAI。'
+                                                    : 'Bailian / DashScope API Key for Qwen visual local-window screenshot selection. The summary provider can stay on DeepSeek or OpenAI.'}
+                                            </p>
+                                            <p className="text-xs leading-relaxed text-on-surface-variant">{secretRetentionText(credentialConfigured(credentialStatus, 'dashscope_api_key'))}</p>
+                                            <div className="flex gap-2">
+                                                <input className={inputClass} placeholder={secretInputPlaceholder(credentialConfigured(credentialStatus, 'dashscope_api_key'))} type="password" value={secretDraft.dashscope_api_key || ''} onChange={e=>setSecretDraft(d=>({...d, dashscope_api_key: e.target.value}))}/>
+                                                <button type="button" disabled={secretSaving || !secretDraft.dashscope_api_key} onClick={()=>saveSecret('dashscope_api_key')} className={saveButtonClass}>{lang === 'zh' ? '保存' : 'Save'}</button>
+                                            </div>
+                                            <SecretFeedback keyName="dashscope_api_key" />
+                                        </div>
+                                    )}
                                 </div>
 
                                 {!isLocalLarkExportRoute(larkExportRoute) && (

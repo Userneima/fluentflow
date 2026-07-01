@@ -14,6 +14,7 @@ def test_sensitive_settings_are_saved_server_side(tmp_path: Path) -> None:
     status = save_sensitive_settings(
         {
             "deepseek_api_key": "ds-key",
+            "dashscope_api_key": "dashscope-key",
             "lark_app_secret": "lark-secret",
             "azure_speech_key": "azure-key",
             "azure_speech_endpoint": "https://eastasia.api.cognitive.microsoft.com",
@@ -23,12 +24,24 @@ def test_sensitive_settings_are_saved_server_side(tmp_path: Path) -> None:
     )
 
     assert status["deepseek_api_key_configured"] is True
+    assert status["dashscope_api_key_configured"] is True
+    assert status["qwen_api_key_configured"] is True
     assert status["lark_app_secret_configured"] is True
     assert status["azure_speech_key_configured"] is True
     assert status["azure_speech_endpoint_configured"] is True
     assert status["azure_blob_container_sas_url_configured"] is True
     with patch.dict(os.environ, {}, clear=True):
         assert resolve_secret(None, "unknown") is None
+
+
+def test_dashscope_key_is_qwen_visual_selector_alias(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "config.json"
+    monkeypatch.setenv("FLUENTFLOW_CONFIG_PATH", str(path))
+    status = save_sensitive_settings({"dashscope_api_key": "dashscope-key"}, path=path)
+
+    assert status["dashscope_api_key_configured"] is True
+    assert status["qwen_api_key_configured"] is True
+    assert resolve_secret(None, "qwen_api_key") == "dashscope-key"
 
 
 def test_resolve_secret_prefers_form_value_then_env(tmp_path: Path) -> None:
@@ -44,7 +57,7 @@ def test_resolve_secret_prefers_form_value_then_env(tmp_path: Path) -> None:
 
 def test_credentials_load_project_env_when_no_config_path(tmp_path: Path, monkeypatch) -> None:
     env_path = tmp_path / ".env"
-    env_path.write_text("DEEPSEEK_API_KEY=env-deepseek\nLARK_APP_ID=env-lark\n", encoding="utf-8")
+    env_path.write_text("DEEPSEEK_API_KEY=env-deepseek\nDASHSCOPE_API_KEY=env-dashscope\nLARK_APP_ID=env-lark\n", encoding="utf-8")
     monkeypatch.setattr(local_config, "DEFAULT_ENV_PATH", env_path)
     monkeypatch.setenv("FLUENTFLOW_CONFIG_PATH", str(tmp_path / "missing.json"))
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -53,4 +66,6 @@ def test_credentials_load_project_env_when_no_config_path(tmp_path: Path, monkey
     status = credential_status()
 
     assert status["deepseek_api_key_configured"] is True
+    assert status["dashscope_api_key_configured"] is True
+    assert status["qwen_api_key_configured"] is True
     assert status["lark_app_id_configured"] is True

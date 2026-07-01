@@ -47,7 +47,7 @@ def plan_note_task_endpoint(request: Request, payload: dict[str, Any] = Body(def
     if provider_for_secret == "openai":
         api_key = H.resolve_secret(payload.get("openai_api_key"), "openai_api_key")
     elif provider_for_secret == "qwen":
-        api_key = H.resolve_secret(payload.get("qwen_api_key"), "qwen_api_key")
+        api_key = H.resolve_secret(payload.get("qwen_api_key") or payload.get("dashscope_api_key"), "qwen_api_key")
     else:
         api_key = H.resolve_secret(payload.get("deepseek_api_key"), "deepseek_api_key")
 
@@ -115,6 +115,7 @@ def update_credentials(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     allowed = {
         "deepseek_api_key",
         "openai_api_key",
+        "dashscope_api_key",
         "qwen_api_key",
         "lark_app_id",
         "lark_app_secret",

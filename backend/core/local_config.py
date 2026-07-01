@@ -16,6 +16,7 @@ DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 SENSITIVE_FIELDS = {
     "deepseek_api_key",
     "openai_api_key",
+    "dashscope_api_key",
     "qwen_api_key",
     "lark_app_id",
     "lark_app_secret",
@@ -29,6 +30,7 @@ SENSITIVE_FIELDS = {
 ENV_FALLBACKS = {
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
+    "dashscope_api_key": "DASHSCOPE_API_KEY",
     "qwen_api_key": "QWEN_API_KEY",
     "lark_app_id": "LARK_APP_ID",
     "lark_app_secret": "LARK_APP_SECRET",
@@ -37,6 +39,16 @@ ENV_FALLBACKS = {
     "azure_speech_key": "AZURE_SPEECH_KEY",
     "azure_speech_endpoint": "AZURE_SPEECH_ENDPOINT",
     "azure_blob_container_sas_url": "AZURE_BLOB_CONTAINER_SAS_URL",
+}
+
+SECRET_ALIASES = {
+    "dashscope_api_key": ("dashscope_api_key", "qwen_api_key"),
+    "qwen_api_key": ("qwen_api_key", "dashscope_api_key"),
+}
+
+ENV_ALIAS_FALLBACKS = {
+    "dashscope_api_key": ("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
+    "qwen_api_key": ("QWEN_API_KEY", "DASHSCOPE_API_KEY"),
 }
 
 
@@ -94,11 +106,14 @@ def get_sensitive_setting(name: str, path: Path | str | None = None) -> str | No
         load_project_env()
     data = load_config(path)
     secrets = data.get("secrets") if isinstance(data.get("secrets"), dict) else {}
-    value = (secrets.get(name) or "").strip()
-    if value:
-        return value
-    env_name = ENV_FALLBACKS.get(name)
-    if env_name:
+    for secret_name in SECRET_ALIASES.get(name, (name,)):
+        value = (secrets.get(secret_name) or "").strip()
+        if value:
+            return value
+    env_names = ENV_ALIAS_FALLBACKS.get(name, (ENV_FALLBACKS.get(name),))
+    for env_name in env_names:
+        if not env_name:
+            continue
         env_value = (os.environ.get(env_name) or "").strip()
         if env_value:
             return env_value
@@ -109,6 +124,7 @@ def credential_status(path: Path | str | None = None) -> dict[str, Any]:
     return {
         "deepseek_api_key_configured": bool(get_sensitive_setting("deepseek_api_key", path)),
         "openai_api_key_configured": bool(get_sensitive_setting("openai_api_key", path)),
+        "dashscope_api_key_configured": bool(get_sensitive_setting("dashscope_api_key", path)),
         "qwen_api_key_configured": bool(get_sensitive_setting("qwen_api_key", path)),
         "lark_app_id_configured": bool(get_sensitive_setting("lark_app_id", path)),
         "lark_app_secret_configured": bool(get_sensitive_setting("lark_app_secret", path)),

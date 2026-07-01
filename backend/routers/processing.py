@@ -1168,7 +1168,7 @@ async def process_video(
                                     keyframe_result.skipped_reason,
                                 )
                         if frame_metadata:
-                            visual_api_key = (qwen_api_key or "").strip()
+                            visual_api_key = H.resolve_secret(qwen_api_key, "qwen_api_key")
                             if not visual_api_key and (kwargs.get("provider") == "qwen"):
                                 visual_api_key = kwargs.get("api_key") or ""
                             visual_selection = await loop.run_in_executor(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from backend.core.ai_summarizer import _coerce_visual_requests, visual_requests_to_frame_segments
 from backend.core.visual_evidence import (
     build_visual_evidence_from_note_images,
@@ -203,6 +205,13 @@ def test_visual_requests_to_frame_segments_preserves_request_context() -> None:
             "reason": "流程图",
         }
     ]
+
+
+def test_processing_visual_selector_reads_qwen_secret_from_backend_config() -> None:
+    source = Path("backend/routers/processing.py").read_text(encoding="utf-8")
+
+    assert 'H.resolve_secret(qwen_api_key, "qwen_api_key")' in source
+    assert 'visual_api_key = (qwen_api_key or "").strip()' not in source
 
 
 def test_inject_visual_evidence_references_near_matching_heading() -> None:

@@ -102,14 +102,13 @@ FluentFlow 的截图能力分成本地和云端 provider：
 - `FLUENTFLOW_KEYFRAME_PROVIDER=cloud_ffmpeg_worker`：预留给独立 Worker；Worker 需要能读取源视频，生成图片，并把图片写回 OSS 或产物目录。未配置 `FLUENTFLOW_KEYFRAME_WORKER_URL` 时会跳过，不影响转录和笔记。
 - `FLUENTFLOW_KEYFRAME_EXTRACTION=0`：完全关闭截图抽帧。
 
-自动把截图写入笔记还需要多模态摘要链路。当前后端只把 Qwen 视为可用多模态 provider，因此服务器需要同时配置：
+自动把截图写入笔记还需要百炼 / DashScope API Key，用来驱动 Qwen 视觉模型做局部候选帧选择。文本笔记和截图时间窗可以继续使用 DeepSeek、OpenAI 或 Qwen：
 
 ```bash
-AI_PROVIDER=qwen
-QWEN_API_KEY=...
+DASHSCOPE_API_KEY=...
 ```
 
-ElevenLabs 只负责转录，不会看视频画面；只配置 DeepSeek / OpenAI 时可以生成文字笔记，但不会自动把视频关键截图插入笔记。
+`QWEN_API_KEY` 仍作为旧环境变量兼容，但新配置应优先使用 `DASHSCOPE_API_KEY`。ElevenLabs 只负责转录，不会看视频画面；只配置 DeepSeek / OpenAI 但不配置百炼 / DashScope Key 时，可以生成文字笔记和截图请求，但不会自动把视频关键截图插入笔记。
 
 如果使用本机/服务器 FFmpeg，先确认：
 

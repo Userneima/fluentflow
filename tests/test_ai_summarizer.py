@@ -49,11 +49,16 @@ class TestAiSummarizer(unittest.TestCase):
     def test_provider_api_key_uses_matching_env(self) -> None:
         with patch.dict(
             os.environ,
-            {"DEEPSEEK_API_KEY": "deepseek-key", "OPENAI_API_KEY": "openai-key"},
+            {"DEEPSEEK_API_KEY": "deepseek-key", "OPENAI_API_KEY": "openai-key", "DASHSCOPE_API_KEY": "dashscope-key"},
             clear=True,
         ):
             self.assertEqual(_provider_api_key("deepseek"), "deepseek-key")
             self.assertEqual(_provider_api_key("openai"), "openai-key")
+            self.assertEqual(_provider_api_key("qwen"), "dashscope-key")
+
+    def test_provider_api_key_keeps_qwen_env_alias(self) -> None:
+        with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True):
+            self.assertEqual(_provider_api_key("qwen"), "legacy-qwen-key")
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")
