@@ -5,13 +5,11 @@ import {
     AlertCircle,
     CheckCircle2,
     FileText,
-    FileVideo,
     History,
     LoaderCircle,
     Plus,
     RefreshCw,
     SlidersHorizontal,
-    Subtitles,
     XCircle,
 } from 'lucide-react';
 import {
@@ -147,11 +145,27 @@ const liveStageDetail = (job, lang) => {
 const sourceLabel = (job, lang) => {
     const isZh = lang === 'zh';
     const sourceType = job?.source_type || job?.result?.source || '';
-    if (sourceType === 'transcript_file') return isZh ? '字幕文件' : 'Subtitle file';
-    if (sourceType === 'video_link') return isZh ? '视频链接' : 'Video link';
-    if (sourceType === 'queue_upload' || sourceType === 'video_file') return isZh ? '视频文件' : 'Video file';
-    if (sourceType === 'audio_file') return isZh ? '音频文件' : 'Audio file';
-    return isZh ? '素材' : 'Source';
+    const metadata = job?.metadata || {};
+    const videoSource = metadata.video_source || {};
+    const url = String(videoSource.url || videoSource.webpage_url || metadata.video_source_input_preview || '').trim();
+    let host = '';
+    try {
+        host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    } catch (_) {}
+    if (sourceType === 'video_link') {
+        if (host.includes('bilibili.com') || host === 'b23.tv') return 'Bilibili';
+        if (host.includes('youtube.com') || host === 'youtu.be') return 'YouTube';
+        if (host.includes('douyin.com')) return isZh ? '抖音' : 'Douyin';
+        return isZh ? '视频平台链接' : 'Video platform link';
+    }
+    if (sourceType === 'transcript_file') return isZh ? '本地字幕文件' : 'Local subtitle file';
+    if (sourceType === 'queue_upload' || sourceType === 'video_file') return isZh ? '本地视频文件' : 'Local video file';
+    if (sourceType === 'audio_file') return isZh ? '本地音频文件' : 'Local audio file';
+    const filename = String(job?.source_filename || job?.result?.filename || '').toLowerCase();
+    if (/\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(filename)) return isZh ? '本地视频文件' : 'Local video file';
+    if (/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(filename)) return isZh ? '本地音频文件' : 'Local audio file';
+    if (/\.(srt|vtt|txt|md)$/i.test(filename)) return isZh ? '本地字幕文件' : 'Local subtitle file';
+    return isZh ? '本地文件' : 'Local file';
 };
 
 const routeLabel = (job, lang) => {
@@ -204,70 +218,57 @@ const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel,
     const progressUnknown = isSttProgressUnmeasured(current);
     const displayTitle = jobDisplayTitle(job, lang);
     const updatedAt = Date.parse(job?.updated_at || job?.created_at || '') || 0;
-    const sourceType = job?.source_type || '';
     const queueTotal = job?.metadata?.queue_total;
-    const SourceIcon = sourceType === 'transcript_file' ? Subtitles : FileVideo;
     const detail = failed
         ? friendlyTaskError(job?.error_reason || job?.result?.summary_error || '', lang)
         : completed
             ? (lang === 'zh' ? '处理完成，可以打开结果继续校对、下载或重生笔记。' : 'Done. Open the result to review, download, or regenerate notes.')
             : liveStageDetail(job, lang);
+    const progressLabel = progressUnknown && live ? (lang === 'zh' ? '处理中' : 'Working') : `${progress}%`;
+    const metaItems = [
+        {label: lang === 'zh' ? '来源' : 'Source', value: sourceLabel(job, lang)},
+        {label: lang === 'zh' ? '处理路线' : 'Route', value: routeLabel(job, lang)},
+        {label: lang === 'zh' ? '文件信息' : 'File', value: fileInfoLabel(job)},
+        {label: lang === 'zh' ? '判断材料类型' : 'Material', value: materialLabel(job, lang)},
+    ];
     return (
         <article className="rounded-[24px] border border-[#dedada] bg-white p-5 shadow-[0_18px_44px_-38px_rgba(17,17,17,.45)] dark:border-white/[0.10] dark:bg-white/[0.055] dark:shadow-none">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white">
-                        <SourceIcon className="size-5" strokeWidth={2.15}/>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statePillClass(state)}`}>
+                            {statusLabel(job, lang)}
+                        </span>
+                        <span className="text-[12px] font-semibold text-[#85868c] dark:text-white/55">
+                            {updatedAt ? timeAgo(updatedAt, t) : (lang === 'zh' ? '刚刚' : 'just now')}
+                        </span>
                     </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statePillClass(state)}`}>
-                                {statusLabel(job, lang)}
-                            </span>
-                            <span className="text-[12px] font-semibold text-[#85868c] dark:text-white/55">
-                                {updatedAt ? timeAgo(updatedAt, t) : (lang === 'zh' ? '刚刚' : 'just now')}
-                            </span>
-                        </div>
-                        <h2 className="mt-2 truncate font-headline text-[17px] font-extrabold text-[#111111] dark:text-white" title={displayTitle}>
-                            {displayTitle}
-                        </h2>
-                        <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
-                            {stageLabel(job, lang)}{queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
-                        </p>
-                        <div className="mt-5">
+                    <h2 className="mt-2 truncate font-headline text-[17px] font-extrabold text-[#111111] dark:text-white" title={displayTitle}>
+                        {displayTitle}
+                    </h2>
+                    <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
+                        {completed ? statusLabel(job, lang) : stageLabel(job, lang)}
+                        {!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`}
+                        {queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
+                    </p>
+
+                    {!completed ? (
+                        <div className="mt-4">
                             <div className="mb-2 flex items-end justify-between gap-4">
                                 <div>
                                     <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
-                                    <p className="mt-1 font-headline text-[24px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
+                                    <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
                                 </div>
-                                <p className="font-headline text-[28px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progress}%</p>
+                                <p className="font-headline text-[24px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progressLabel}</p>
                             </div>
                             <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
-                                {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
+                                {!progressUnknown && <div className={`h-full rounded-full transition-all duration-500 ${failed ? 'bg-red-500' : 'bg-[#111111] dark:bg-white'}`} style={{width: `${progress}%`}}/>}
                             </div>
-                            <p className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                            <p className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
                                 {detail}
                             </p>
                         </div>
-                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
-                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '来源' : 'Source'}</p>
-                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{sourceLabel(job, lang)}</p>
-                            </div>
-                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
-                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '处理路线' : 'Route'}</p>
-                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{routeLabel(job, lang)}</p>
-                            </div>
-                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
-                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '文件信息' : 'File'}</p>
-                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{fileInfoLabel(job)}</p>
-                            </div>
-                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
-                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '判断材料类型' : 'Material'}</p>
-                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{materialLabel(job, lang)}</p>
-                            </div>
-                        </div>
-                    </div>
+                    ) : null}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
                     {completed ? (
@@ -294,6 +295,14 @@ const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel,
                         </span>
                     ) : null}
                 </div>
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-4">
+                {metaItems.map((item) => (
+                    <div key={item.label} className="min-w-0 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{item.label}</p>
+                        <p className="mt-1 truncate text-[13px] font-extrabold text-[#111111] dark:text-white" title={item.value}>{item.value}</p>
+                    </div>
+                ))}
             </div>
         </article>
     );

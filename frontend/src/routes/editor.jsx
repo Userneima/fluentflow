@@ -232,6 +232,7 @@ const Editor = () => {
     const [transcriptReviewMode, setTranscriptReviewMode] = useState('text');
     const [transcriptSaveStatus, setTranscriptSaveStatus] = useState('idle');
     const [summaryDraft, setSummaryDraft] = useState('');
+    const [summaryEditing, setSummaryEditing] = useState(false);
     const [summaryUnsaved, setSummaryUnsaved] = useState(false);
     const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
     const [transcriptView, setTranscriptView] = useState('bilingual');
@@ -312,6 +313,7 @@ const Editor = () => {
     useEffect(() => {
         if (!result) {
             setSummaryDraft('');
+            setSummaryEditing(false);
             setSummaryUnsaved(false);
             setSummarySaveStatus('idle');
             summaryDraftResultKeyRef.current = 'empty_result';
@@ -320,6 +322,7 @@ const Editor = () => {
         if (summaryDraftResultKeyRef.current !== summaryResultKey) {
             summaryDraftResultKeyRef.current = summaryResultKey;
             setSummaryDraft(result.summary_markdown || '');
+            setSummaryEditing(false);
             setSummaryUnsaved(false);
             setSummarySaveStatus(result.summary_edited ? 'saved' : 'idle');
             return;
@@ -545,18 +548,7 @@ const Editor = () => {
             return found >= 0 ? found : -1;
         })()
         : -1;
-    const activeRawSegmentIndex = segments.length > 0
-        ? (() => {
-            const found = segments.findIndex((seg, index) => {
-            const start = Number(seg.start) || 0;
-            const nextStart = Number(segments[index + 1]?.start);
-            const end = Number(seg.end) || (Number.isFinite(nextStart) ? nextStart : start + 6);
-            return mediaCurrentTime >= start && mediaCurrentTime < end;
-            });
-            return found >= 0 ? found : 0;
-        })()
-        : -1;
-    const currentVideoSegment = activeRawSegmentIndex >= 0 ? segments[activeRawSegmentIndex] : null;
+    const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;
     const updateMediaCurrentTime = useCallback((time, options={}) => {
         const next = Math.max(0, Number(time) || 0);
         setMediaCurrentTime(next);
@@ -601,11 +593,11 @@ const Editor = () => {
     }, [playbackDuration, updateMediaCurrentTime]);
 
     useEffect(() => {
-        const followIndex = activeReviewMode === 'video' ? activeRawSegmentIndex : activeSegmentIndex;
+        const followIndex = activeSegmentIndex;
         if (!followPlayback || followIndex < 0 || !mediaPlaying) return;
         const node = segmentRefs.current[followIndex];
         if (node) node.scrollIntoView({block:'center', behavior:'smooth'});
-    }, [activeReviewMode, activeRawSegmentIndex, activeSegmentIndex, followPlayback, mediaPlaying]);
+    }, [activeSegmentIndex, followPlayback, mediaPlaying]);
 
     useEffect(() => {
         const root = transcriptScrollRef.current;
@@ -697,9 +689,9 @@ const Editor = () => {
     };
 
     const handleVideoSegmentStep = (offset) => {
-        if (activeRawSegmentIndex < 0 || segments.length === 0) return;
-        const nextIndex = Math.min(segments.length - 1, Math.max(0, activeRawSegmentIndex + offset));
-        seekToSegment(segments[nextIndex]);
+        if (activeSegmentIndex < 0 || visibleTranscriptSegments.length === 0) return;
+        const nextIndex = Math.min(visibleTranscriptSegments.length - 1, Math.max(0, activeSegmentIndex + offset));
+        seekToSegment(visibleTranscriptSegments[nextIndex]);
     };
 
     const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null), 3000); };
@@ -1531,16 +1523,38 @@ const Editor = () => {
                                         />
                                     <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 overflow-y-auto rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.05]">
                                         <div className="divide-y divide-[#e4e0e0] dark:divide-white/[0.08]">
-                                            {segments.map((seg,i) => (
+                                            {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
                                                 <div
-                                                    key={`video-review-${i}`}
+                                                    key={`video-review-bilingual-${i}`}
                                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                                    className={`grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2 transition-colors ${i===activeRawSegmentIndex ? 'bg-[#eef2ff] dark:bg-white/[0.08]' : 'hover:bg-white/70 dark:hover:bg-white/[0.04]'}`}
+                                                    className={`grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2 transition-colors ${i===activeSegmentIndex ? 'bg-[#eef2ff] dark:bg-white/[0.08]' : 'hover:bg-white/70 dark:hover:bg-white/[0.04]'}`}
                                                 >
                                                     <button
                                                         type="button"
                                                         onClick={()=>seekToSegment(seg)}
-                                                        className={`pt-[1px] text-left font-mono text-xs font-bold tabular-nums transition ${i===activeRawSegmentIndex ? 'text-primary dark:text-white' : 'text-[#8a8a8a] hover:text-primary dark:text-white/42 dark:hover:text-white'}`}
+                                                        className={`pt-[1px] text-left font-mono text-xs font-bold tabular-nums transition ${i===activeSegmentIndex ? 'text-primary dark:text-white' : 'text-[#8a8a8a] hover:text-primary dark:text-white/42 dark:hover:text-white'}`}
+                                                    >
+                                                        {fmtTime(seg.start)}
+                                                    </button>
+                                                    <div className="min-w-0">
+                                                        <p className="whitespace-pre-wrap text-sm font-semibold leading-snug text-[#111111] dark:text-white">
+                                                            {seg.text}
+                                                        </p>
+                                                        <p className="mt-1.5 border-l-2 border-primary/25 pl-3 text-sm font-semibold leading-snug text-[#666] dark:text-white/68">
+                                                            {seg.text_zh}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )) : segments.map((seg,i) => (
+                                                <div
+                                                    key={`video-review-${i}`}
+                                                    ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
+                                                    className={`grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2 transition-colors ${i===activeSegmentIndex ? 'bg-[#eef2ff] dark:bg-white/[0.08]' : 'hover:bg-white/70 dark:hover:bg-white/[0.04]'}`}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={()=>seekToSegment(seg)}
+                                                        className={`pt-[1px] text-left font-mono text-xs font-bold tabular-nums transition ${i===activeSegmentIndex ? 'text-primary dark:text-white' : 'text-[#8a8a8a] hover:text-primary dark:text-white/42 dark:hover:text-white'}`}
                                                     >
                                                         {fmtTime(seg.start)}
                                                     </button>
@@ -1696,6 +1710,22 @@ const Editor = () => {
                                         </span>
                                     )}
                                     <div className="flex shrink-0 items-center gap-2">
+                                        {hasEditableSummary && (
+                                            <button
+                                                type="button"
+                                                onClick={()=>setSummaryEditing((value)=>!value)}
+                                                className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border px-3 text-xs font-bold transition ${
+                                                    summaryEditing
+                                                        ? 'border-[#111111] bg-[#111111] text-white hover:bg-[#2a2a2a] dark:border-white dark:bg-white dark:text-[#111111] dark:hover:bg-white/85'
+                                                        : 'border-[#e4e0e0] bg-white text-[#555] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white/70 dark:hover:bg-white/[0.08]'
+                                                }`}
+                                            >
+                                                <SvgIcon name="edit_note" className="text-sm"/>
+                                                {summaryEditing
+                                                    ? (lang === 'zh' ? '完成' : 'Done')
+                                                    : (lang === 'zh' ? '编辑' : 'Edit')}
+                                            </button>
+                                        )}
                                         {hasInlineVisualEvidence && (
                                             <button
                                                 type="button"
@@ -1732,21 +1762,29 @@ const Editor = () => {
                                 </div>
                                 <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-6 text-[#111111] dark:text-white">
                                 {hasEditableSummary ? (
-                                    <>
-                                        <textarea
-                                            value={summary}
-                                            onChange={(event)=>handleSummaryChange(event.target.value)}
-                                            aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}
-                                            spellCheck={false}
-                                            className="min-h-[520px] w-full resize-y rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-4 font-sans text-base font-semibold leading-8 text-[#111111] outline-none transition focus:border-[#111111]/45 focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white dark:focus:border-white/35 dark:focus:bg-white/[0.06] dark:focus:ring-white/[0.08]"
-                                            placeholder={lang === 'zh' ? '在这里修改生成的笔记正文...' : 'Edit the generated note here...'}
-                                        />
+                                    summaryEditing ? (
+                                        <>
+                                            <textarea
+                                                value={summary}
+                                                onChange={(event)=>handleSummaryChange(event.target.value)}
+                                                aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}
+                                                spellCheck={false}
+                                                className="min-h-[520px] w-full resize-y rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-4 font-sans text-base font-semibold leading-8 text-[#111111] outline-none transition focus:border-[#111111]/45 focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white dark:focus:border-white/35 dark:focus:bg-white/[0.06] dark:focus:ring-white/[0.08]"
+                                                placeholder={lang === 'zh' ? '在这里修改生成的笔记正文...' : 'Edit the generated note here...'}
+                                            />
+                                            <div
+                                                ref={summaryRef}
+                                                className="fixed left-[-10000px] top-0 w-[720px] bg-white p-6 text-black"
+                                                dangerouslySetInnerHTML={{__html: renderedSummary}}
+                                            />
+                                        </>
+                                    ) : (
                                         <div
                                             ref={summaryRef}
-                                            className="fixed left-[-10000px] top-0 w-[720px] bg-white p-6 text-black"
+                                            className="max-w-none text-base font-semibold leading-8 text-[#111111] dark:text-white [&_a]:text-primary [&_blockquote]:border-l-4 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-[#555] dark:[&_blockquote]:text-white/70 [&_h1]:mb-4 [&_h1]:mt-6 [&_h1]:font-headline [&_h1]:text-2xl [&_h1]:font-extrabold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:font-headline [&_h2]:text-xl [&_h2]:font-extrabold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-headline [&_h3]:text-lg [&_h3]:font-extrabold [&_li]:my-1.5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-3 [&_strong]:font-extrabold [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6"
                                             dangerouslySetInnerHTML={{__html: renderedSummary}}
                                         />
-                                    </>
+                                    )
                                 ) : result.summary_skipped ? (
                                     <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summarySkipped')}</p>
                                 ) : result.summary_status === 'failed' || result.summary_error ? (

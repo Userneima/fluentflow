@@ -39,6 +39,7 @@ const stageLabel = (stage, lang) => {
 const normalizeTask = (pageData, currentJob) => {
     const task = pageData?.task || {};
     const source = pageData?.source || {};
+    const videoSource = source.video_source || {};
     const videoSourceProgress = task.video_source_progress || source.video_source_progress || null;
     const videoSourceFileSizeMb = videoSourceProgress?.total_bytes ? Number(videoSourceProgress.total_bytes) / 1024 / 1024 : null;
     const sameCurrentJob = currentJob?.taskId && currentJob.taskId === task.task_id;
@@ -52,6 +53,9 @@ const normalizeTask = (pageData, currentJob) => {
         sttStatus: current?.sttStatus || null,
         videoSourceProgress,
         sourceType: current?.sourceType || task.source_type || source.type || null,
+        sourceFilename: current?.fileName || task.filename || source.filename || null,
+        sourceUrl: source.url || videoSource.url || videoSource.webpage_url || null,
+        sourcePlatform: source.platform || videoSource.provider || videoSource.extractor_key || videoSource.extractor || null,
         fileSizeMb: current?.fileSizeMb ?? task.file_size_mb ?? source.file_size_mb ?? videoSourceFileSizeMb,
     };
 };
@@ -68,16 +72,39 @@ const InfoTile = ({label, value, wrap = false}) => {
     );
 };
 
-const sourceKindLabel = (sourceType, isZh) => {
-    const value = String(sourceType || '').toLowerCase();
-    if (value === 'video_link') return isZh ? '视频链接' : 'video link';
-    if (value === 'transcript_file') return isZh ? '字幕文件' : 'subtitle file';
-    if (value === 'audio_file') return isZh ? '音频文件' : 'audio file';
-    if (value === 'video_file') return isZh ? '本地视频文件' : 'local video file';
-    if (value === 'video') return isZh ? '本地视频文件' : 'local video file';
-    if (value === 'audio') return isZh ? '音频文件' : 'audio file';
+const sourcePlatformLabel = (source, isZh) => {
+    const raw = String(source?.sourcePlatform || '').toLowerCase();
+    const url = String(source?.sourceUrl || '').trim();
+    let host = '';
+    try {
+        host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    } catch (_) {}
+    const probe = `${raw} ${host}`;
+    if (probe.includes('bilibili') || host === 'b23.tv') return 'Bilibili';
+    if (probe.includes('youtube') || host === 'youtu.be') return 'YouTube';
+    if (probe.includes('douyin')) return isZh ? '抖音' : 'Douyin';
+    if (probe.includes('xiaohongshu')) return isZh ? '小红书' : 'Xiaohongshu';
+    if (host) return host;
+    return '';
+};
+
+const localFileKindLabel = (filename, isZh) => {
+    const name = String(filename || '').toLowerCase();
+    if (/\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(name)) return isZh ? '本地视频文件' : 'local video file';
+    if (/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(name)) return isZh ? '本地音频文件' : 'local audio file';
+    if (/\.(srt|vtt|txt|md)$/i.test(name)) return isZh ? '本地字幕文件' : 'local subtitle file';
+    return '';
+};
+
+const sourceKindLabel = (source, isZh) => {
+    const value = String(source?.sourceType || '').toLowerCase();
+    const platform = sourcePlatformLabel(source, isZh);
+    if (value === 'video_link') return platform || (isZh ? '视频平台链接' : 'video platform link');
+    if (value === 'transcript_file') return isZh ? '本地字幕文件' : 'local subtitle file';
+    if (value === 'audio_file' || value === 'audio') return isZh ? '本地音频文件' : 'local audio file';
+    if (value === 'video_file' || value === 'video' || value === 'queue_upload') return isZh ? '本地视频文件' : 'local video file';
     if (value === 'text') return isZh ? '文本材料' : 'text material';
-    return isZh ? '素材' : 'material';
+    return platform || localFileKindLabel(source?.sourceFilename, isZh) || (isZh ? '本地文件' : 'local file');
 };
 
 const routeLabel = (route, isZh) => {
@@ -145,7 +172,7 @@ const TaskProgressOverview = ({pageData, materialJudgment = ''}) => {
     const route = routeLabel(pageData?.task_snapshot?.route || {}, isZh);
     const noteMode = noteModeTag(pageData, lang);
     const noteWordCount = noteWordCountTag(pageData, lang);
-    const source = sourceKindLabel(task.sourceType || pageData?.source?.type, isZh);
+    const source = sourceKindLabel(task, isZh);
     const duration = Number(pageData?.task?.duration_seconds || pageData?.source?.duration_seconds);
     const durationText = Number.isFinite(duration) && duration > 0
         ? `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}`

@@ -537,6 +537,9 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
 
     assert "转录原文" in source
     assert "笔记正文" in source
+    assert "summaryEditing ? (" in source
+    assert "setSummaryEditing((value)=>!value)" in source
+    assert "dangerouslySetInnerHTML={{__html: renderedSummary}}" in source
     assert "aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}" in source
     assert "fd.append('markdown', summary || '')" in source
     assert "inline-flex h-10 items-center" in source
@@ -594,6 +597,12 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "group grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-2.5" in source
     assert "grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-2.5" in source
     assert "grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2" in source
+    assert "visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (" in source
+    assert "key={`video-review-bilingual-${i}`}" in source
+    assert "const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;" in source
+    assert "const followIndex = activeSegmentIndex;" in source
+    assert "seekToSegment(visibleTranscriptSegments[nextIndex]);" in source
+    assert "activeRawSegmentIndex" not in source
     assert "segments.map((seg,i) => (" in source
     assert "sticky top-0 z-10" not in source
     assert "上一句" not in source
@@ -781,6 +790,9 @@ def test_agent_trace_overview_uses_task_card_for_all_task_states() -> None:
     assert "STT ${activeJobSttProgress}%" in progress
     assert "infoCards.map((item)" in progress
     assert "return isZh ? '本地视频文件' : 'local video file'" in progress
+    assert "return platform || (isZh ? '视频平台链接' : 'video platform link')" in progress
+    assert "return platform || localFileKindLabel(source?.sourceFilename, isZh) || (isZh ? '本地文件' : 'local file')" in progress
+    assert "return isZh ? '素材' : 'material'" not in progress
 
 
 def test_agent_trace_removes_duplicate_history_and_summary_card() -> None:
@@ -840,6 +852,9 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "查看详情" not in source
     assert "查看结果" in source
     assert "sourceLabel(job, lang)" in source
+    assert "return isZh ? '素材' : 'Source'" not in source
+    assert "return isZh ? '本地音频文件' : 'Local audio file'" in source
+    assert "return isZh ? '视频平台链接' : 'Video platform link'" in source
     assert "routeLabel(job, lang)" in source
     assert "fileInfoLabel(job)" in source
     assert "materialLabel(job, lang)" in source
