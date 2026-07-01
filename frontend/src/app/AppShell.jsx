@@ -1,11 +1,11 @@
-import {Route, Routes} from 'react-router-dom';
+import {Navigate, Route, Routes} from 'react-router-dom';
 import {useEffect, useState} from 'react';
 import SideNav from '../components/SideNav.jsx';
 import Dashboard from '../routes/dashboard.jsx';
 import MediaText from '../routes/media-text.jsx';
 import Tasks from '../routes/tasks.jsx';
 import AgentTrace from '../routes/agent-trace.jsx';
-import Processing from '../routes/processing.jsx';
+import AgentTasks from '../routes/agent-tasks.jsx';
 import Editor from '../routes/editor.jsx';
 import Admin from '../routes/admin.jsx';
 import Settings from '../routes/settings.jsx';
@@ -31,7 +31,8 @@ const AppShell = () => {
                 <Routes>
                     <Route path="/" element={<Dashboard/>}/>
                     <Route path="/media-text" element={<MediaText/>}/>
-                    <Route path="/processing" element={guestMode ? <Dashboard/> : <Processing/>}/>
+                    <Route path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}/>
+                    <Route path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}/>
                     <Route path="/tasks" element={guestMode ? <Dashboard/> : <Tasks/>}/>
                     <Route path="/tasks/:taskId/agent" element={<AgentTrace/>}/>
                     <Route path="/editor" element={<Editor/>}/>

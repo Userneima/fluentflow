@@ -188,6 +188,37 @@ def update_job_transcript(request: Request, task_id: str, payload: dict[str, Any
     return {"ok": True, "job": updated, "result": updated.get("result")}
 
 
+@router.patch("/jobs/{task_id}/summary")
+def update_job_summary(request: Request, task_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    client_id = H._request_client_scope(request)
+    job = H.get_job(task_id, client_id=client_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    result = dict(job.get("result") or {})
+    summary = payload.get("summary_markdown")
+    if not isinstance(summary, str):
+        raise HTTPException(status_code=400, detail="summary_markdown is required")
+    max_chars = int(os.environ.get("FLUENTFLOW_MAX_SUMMARY_EDIT_CHARS", "500000"))
+    if len(summary) > max_chars:
+        raise HTTPException(status_code=413, detail=f"Summary edit is too large: {len(summary)} chars")
+
+    edited_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    result.update({
+        "task_id": result.get("task_id") or task_id,
+        "summary_markdown": summary,
+        "summary_skipped": False,
+        "summary_status": "completed" if summary.strip() else result.get("summary_status") or "completed",
+        "summary_error": None,
+        "summary_edited": True,
+        "summary_edited_at": edited_at,
+    })
+    result = H._attach_result_artifacts(task_id, result)
+    updated = H.update_job_result(task_id, result, client_id=client_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, "job": updated, "result": updated.get("result")}
+
+
 @router.post("/jobs/{task_id}/translations/zh")
 async def generate_job_zh_translations(
     request: Request,

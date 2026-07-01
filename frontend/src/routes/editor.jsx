@@ -79,6 +79,18 @@ const isLikelyVideoFile = (fileOrName) => {
     return /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(name);
 };
 
+const localSourceFileMatchesResult = (file, result) => {
+    if (!file || !result) return false;
+    const fingerprint = result.source_fingerprint || {};
+    const expectedName = String(fingerprint.source_filename || result.filename || '').trim();
+    const expectedSize = Number(fingerprint.source_size_bytes || 0);
+    const nameMatches = expectedName && file.name === expectedName;
+    const sizeMatches = expectedSize > 0 && file.size === expectedSize;
+    if (nameMatches && sizeMatches) return true;
+    if (sizeMatches && !expectedName) return true;
+    return false;
+};
+
 const summaryFailureNextStep = (result, lang) => {
     if (!(result?.summary_status === 'failed' || result?.summary_error)) return '';
     const error = friendlyTaskError(result?.summary_error, lang);
@@ -126,7 +138,7 @@ const Editor = () => {
         addLarkExport,
         runtimeConfig,
     } = useApp();
-    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, getCredentialsStatus} = useApi();
+    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, saveSummaryEdit, getCredentialsStatus} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
@@ -142,6 +154,9 @@ const Editor = () => {
     const fallbackTaskIdRef = useRef(createTaskId());
     const hydratedTaskIdsRef = useRef(new Set());
     const transcriptSaveSeqRef = useRef(0);
+    const summarySaveSeqRef = useRef(0);
+    const summaryDraftResultKeyRef = useRef('');
+    const playbackSaveRef = useRef(0);
 
     const initSettings = loadSettings();
     let initPk = initSettings.promptPreset || DEFAULT_PROMPT_PRESET;
@@ -184,17 +199,21 @@ const Editor = () => {
 
     const result = lastResult;
     const isGuestResult = !!(guestMode && result?.task_id && result.task_id === getGuestTrialTaskId());
+    const matchedLocalSourceFile = localSourceFileMatchesResult(lastSourceFile, result) ? lastSourceFile : null;
     const resultSegmentCount = pickTranscriptSegments(result).length;
     const resultTextLength = (result?.transcript_text || '').length;
     const resultKey = result
         ? `${result.task_id || result.filename || 'current_result'}:${result.transcript_edited ? 'edited' : `${resultSegmentCount}:${resultTextLength}`}`
+        : 'empty_result';
+    const summaryResultKey = result
+        ? `${result.task_id || result.filename || 'current_result'}`
         : 'empty_result';
     const mediaSourceKey = result
         ? [
             result.task_id || result.filename || 'current_result',
             result.artifacts?.playback_audio?.filename || (result.playback_audio_available ? 'playback-audio' : 'no-playback-audio'),
             result.source_file_available ? 'stored' : 'unstored',
-            lastSourceFile ? `${lastSourceFile.name}:${lastSourceFile.size}:${lastSourceFile.lastModified || 0}` : 'no-local-file',
+            matchedLocalSourceFile ? `${matchedLocalSourceFile.name}:${matchedLocalSourceFile.size}:${matchedLocalSourceFile.lastModified || 0}` : 'no-local-file',
         ].join(':')
         : 'empty_media_source';
     const [editedSegments, setEditedSegments] = useState([]);
@@ -212,6 +231,9 @@ const Editor = () => {
     const [followPlayback, setFollowPlayback] = useState(true);
     const [transcriptReviewMode, setTranscriptReviewMode] = useState('text');
     const [transcriptSaveStatus, setTranscriptSaveStatus] = useState('idle');
+    const [summaryDraft, setSummaryDraft] = useState('');
+    const [summaryUnsaved, setSummaryUnsaved] = useState(false);
+    const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
     const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
     const mediaRef = useRef(null);
@@ -287,6 +309,26 @@ const Editor = () => {
         setTranscriptSaveStatus(result.transcript_edited ? 'saved' : 'idle');
     }, [resultKey, transcriptUnsaved]);
 
+    useEffect(() => {
+        if (!result) {
+            setSummaryDraft('');
+            setSummaryUnsaved(false);
+            setSummarySaveStatus('idle');
+            summaryDraftResultKeyRef.current = 'empty_result';
+            return;
+        }
+        if (summaryDraftResultKeyRef.current !== summaryResultKey) {
+            summaryDraftResultKeyRef.current = summaryResultKey;
+            setSummaryDraft(result.summary_markdown || '');
+            setSummaryUnsaved(false);
+            setSummarySaveStatus(result.summary_edited ? 'saved' : 'idle');
+            return;
+        }
+        if (summaryUnsaved) return;
+        setSummaryDraft(result.summary_markdown || '');
+        setSummarySaveStatus(result.summary_edited ? 'saved' : 'idle');
+    }, [summaryResultKey, result?.summary_markdown, result?.summary_edited, summaryUnsaved]);
+
     const applyTranscriptEdit = useCallback((nextSegments, nextText) => {
         if (!result) return;
         const nextEditRecords = buildTranscriptEditRecords(baselineSegments, nextSegments, result);
@@ -316,6 +358,22 @@ const Editor = () => {
         applyTranscriptEdit([], text);
     };
 
+    const handleSummaryChange = useCallback((text) => {
+        setSummaryDraft(text);
+        setSummaryUnsaved(true);
+        setSummarySaveStatus(result?.task_id && !isGuestResult ? 'saving' : 'local');
+        if (!result) return;
+        setLastResult({
+            ...result,
+            summary_markdown: text,
+            summary_skipped: false,
+            summary_status: text.trim() ? 'completed' : result.summary_status || 'completed',
+            summary_error: null,
+            summary_edited: true,
+            summary_edited_at: new Date().toISOString(),
+        });
+    }, [isGuestResult, result, setLastResult]);
+
     const loadMediaFile = useCallback((file) => {
         if (!file) return;
         const url = URL.createObjectURL(file);
@@ -338,8 +396,8 @@ const Editor = () => {
         setMediaLoading(false);
         setMediaKind('audio');
         if (!result) return () => { cancelled = true; };
-        if (lastSourceFile) {
-            loadMediaFile(lastSourceFile);
+        if (matchedLocalSourceFile) {
+            loadMediaFile(matchedLocalSourceFile);
             return () => { cancelled = true; };
         }
         if (result.task_id && result.source_file_available && !isGuestResult) {
@@ -402,7 +460,35 @@ const Editor = () => {
         () => buildTranscriptEditRecords(baselineSegments, segments, result),
         [baselineSegments, segments, result?.transcript_edit_records]
     );
-    const summary = result?.summary_markdown || '';
+    const visibleEditRecords = useMemo(
+        () => editRecords.filter((record) => {
+            const before = String(record?.before || '').trim();
+            const after = String(record?.after || '').trim();
+            if (!before && !after) return false;
+            if (before === after) return false;
+            const current = segments[record?.index];
+            if (!current) return false;
+            return String(current.text || '').trim() === after;
+        }),
+        [editRecords, segments],
+    );
+    const storedSummary = result?.summary_markdown || '';
+    const summary = summaryUnsaved ? summaryDraft : (summaryDraft || storedSummary);
+    const hasEditableSummary = !!result && (
+        !!summary
+        || summaryUnsaved
+        || result?.summary_status === 'completed'
+        || !!result?.summary_edited
+    );
+    const summarySaveLabel = summarySaveStatus === 'saving'
+        ? (lang === 'zh' ? '保存中' : 'Saving')
+        : summarySaveStatus === 'saved'
+            ? (lang === 'zh' ? '已保存' : 'Saved')
+            : summarySaveStatus === 'failed'
+                ? (lang === 'zh' ? '保存失败' : 'Save failed')
+                : summarySaveStatus === 'local'
+                    ? (lang === 'zh' ? '本页已修改' : 'Edited locally')
+                    : '';
     const inlineVisualEvidenceCount = (summary.match(/(^|\n)\s*!\[[^\]]+\]\([^)]+\)\s*(?=\n|$)/g) || []).length;
     const hasInlineVisualEvidence = inlineVisualEvidenceCount > 0;
     const renderedSummary = useMemo(
@@ -417,14 +503,14 @@ const Editor = () => {
     const visibleTranscriptSegments = visibleTranscriptView === 'bilingual' ? bilingualTranscriptSegments : segments;
     const canUseStoredSource = !!result?.source_file_available && !!result?.task_id;
     const canUsePlaybackAudio = !!result?.artifacts?.playback_audio && !!result?.task_id;
-    const canRetranscribeStoredMedia = !!lastSourceFile || canUseStoredSource || canUsePlaybackAudio;
+    const canRetranscribeStoredMedia = !!matchedLocalSourceFile || canUseStoredSource || canUsePlaybackAudio;
     const retranscribeBlockedByJob = !!currentJob && !['summary', 'export', 'done'].includes(currentJob.stage);
     const retranscribeSourceLabel = canRetranscribeStoredMedia
-        ? ((lastSourceFile || canUseStoredSource)
+        ? ((matchedLocalSourceFile || canUseStoredSource)
             ? (lang === 'zh' ? '原文件' : 'Source file')
             : (lang === 'zh' ? '已保存音频' : 'Saved audio'))
         : (lang === 'zh' ? '当前结果' : 'Current result');
-    const retranscribeSourceName = lastSourceFile?.name
+    const retranscribeSourceName = matchedLocalSourceFile?.name
         || (canUseStoredSource ? result?.filename : result?.artifacts?.playback_audio?.filename)
         || result?.filename
         || t('edit.title');
@@ -435,15 +521,16 @@ const Editor = () => {
         ? `${t('edit.sttElapsed')} ${formatElapsedMinuteSecond(sttElapsedSec)}${sttRealtimeFactor ? (lang === 'zh' ? `（${formatSttOriginalRatio(sttRealtimeFactor, lang)}）` : ` (${formatSttOriginalRatio(sttRealtimeFactor, lang)})`) : ''}`
         : '';
     const activeTaskId = result?.task_id || fallbackTaskIdRef.current;
+    const playbackMemoryKey = result ? `fluentflow_playback_position_${activeTaskId}` : '';
     const summaryFailureHint = summaryFailureNextStep(result, lang);
     const resultTitle = resultDisplayTitle(result, {name: t('edit.title')});
     const resultDownloadName = resultTitle || result?.filename;
     const rawEditorTitle = resultTitle || result?.filename || t('edit.title');
-    const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';
+    const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/agent';
     const playbackDuration = mediaDuration || durSec || 0;
     const canDownloadSourceVideo = !!(
-        isLikelyVideoFile(lastSourceFile || result?.filename)
-        && (lastSourceFile || (result?.task_id && result?.source_file_available))
+        isLikelyVideoFile(matchedLocalSourceFile || result?.filename)
+        && (matchedLocalSourceFile || (result?.task_id && result?.source_file_available))
     );
     const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0;
     const activeReviewMode = canUseVideoReview ? transcriptReviewMode : 'text';
@@ -470,12 +557,55 @@ const Editor = () => {
         })()
         : -1;
     const currentVideoSegment = activeRawSegmentIndex >= 0 ? segments[activeRawSegmentIndex] : null;
+    const updateMediaCurrentTime = useCallback((time, options={}) => {
+        const next = Math.max(0, Number(time) || 0);
+        setMediaCurrentTime(next);
+        if (options.persist === false || !playbackMemoryKey) return;
+        const now = Date.now();
+        if (now - playbackSaveRef.current < 900 && !options.force) return;
+        playbackSaveRef.current = now;
+        try {
+            localStorage.setItem(playbackMemoryKey, JSON.stringify({
+                time: next,
+                duration: Number(options.duration ?? playbackDuration) || 0,
+                updatedAt: now,
+            }));
+        } catch(_) {}
+    }, [playbackDuration, playbackMemoryKey]);
+    const restoreMediaPosition = useCallback((media, duration) => {
+        const nextDuration = Number(duration) || 0;
+        setMediaDuration(nextDuration || durSec || 0);
+        if (!media || !playbackMemoryKey) {
+            updateMediaCurrentTime(media?.currentTime || 0, {persist: false});
+            return;
+        }
+        try {
+            const saved = JSON.parse(localStorage.getItem(playbackMemoryKey) || '{}');
+            const savedTime = Number(saved?.time);
+            const safeDuration = nextDuration || Number(saved?.duration) || durSec || 0;
+            if (Number.isFinite(savedTime) && savedTime > 1 && (!safeDuration || savedTime < safeDuration - 1)) {
+                media.currentTime = savedTime;
+                updateMediaCurrentTime(savedTime, {persist: false});
+                return;
+            }
+        } catch(_) {}
+        updateMediaCurrentTime(media.currentTime || 0, {persist: false});
+    }, [durSec, playbackMemoryKey, updateMediaCurrentTime]);
+    const seekMediaTo = useCallback((time, {follow=true}={}) => {
+        const media = mediaRef.current;
+        const duration = playbackDuration || media?.duration || 0;
+        const next = Math.max(0, Math.min(Number(time) || 0, duration || Number(time) || 0));
+        if (media) media.currentTime = next;
+        updateMediaCurrentTime(next, {duration, force: true});
+        if (follow) setFollowPlayback(true);
+    }, [playbackDuration, updateMediaCurrentTime]);
 
     useEffect(() => {
-        if (!followPlayback || activeSegmentIndex < 0 || !mediaPlaying) return;
-        const node = segmentRefs.current[activeSegmentIndex];
+        const followIndex = activeReviewMode === 'video' ? activeRawSegmentIndex : activeSegmentIndex;
+        if (!followPlayback || followIndex < 0 || !mediaPlaying) return;
+        const node = segmentRefs.current[followIndex];
         if (node) node.scrollIntoView({block:'center', behavior:'smooth'});
-    }, [activeSegmentIndex, followPlayback, mediaPlaying]);
+    }, [activeReviewMode, activeRawSegmentIndex, activeSegmentIndex, followPlayback, mediaPlaying]);
 
     useEffect(() => {
         const root = transcriptScrollRef.current;
@@ -499,7 +629,7 @@ const Editor = () => {
             saveTranscriptEdit(result.task_id, {
                 transcript_text: transcript,
                 segments,
-                edit_records: editRecords,
+                edit_records: visibleEditRecords,
             }, resultJobOptions)
                 .then((data) => {
                     if (seq !== transcriptSaveSeqRef.current) return;
@@ -520,14 +650,43 @@ const Editor = () => {
                 });
         }, 800);
         return () => clearTimeout(timer);
-    }, [result?.task_id, transcriptUnsaved, transcript, segments, editRecords, isGuestResult, resultJobOptions]);
+    }, [result?.task_id, transcriptUnsaved, transcript, segments, visibleEditRecords, isGuestResult, resultJobOptions]);
+
+    useEffect(() => {
+        if (!summaryUnsaved) return;
+        if (!result?.task_id || isGuestResult) {
+            setSummarySaveStatus('local');
+            return;
+        }
+        const seq = ++summarySaveSeqRef.current;
+        setSummarySaveStatus('saving');
+        const timer = setTimeout(() => {
+            saveSummaryEdit(result.task_id, {
+                summary_markdown: summaryDraft,
+            }, resultJobOptions)
+                .then((data) => {
+                    if (seq !== summarySaveSeqRef.current) return;
+                    setSummaryUnsaved(false);
+                    setSummarySaveStatus('saved');
+                    if (data?.result) {
+                        setLastResult((prev) => (
+                            prev?.task_id === result.task_id
+                                ? {...prev, ...data.result}
+                                : prev
+                        ));
+                    }
+                })
+                .catch(() => {
+                    if (seq !== summarySaveSeqRef.current) return;
+                    setSummarySaveStatus('failed');
+                });
+        }, 800);
+        return () => clearTimeout(timer);
+    }, [result?.task_id, summaryUnsaved, summaryDraft, isGuestResult, resultJobOptions]);
 
     const seekToSegment = (seg) => {
-        const media = mediaRef.current;
-        if (!media || seg?.start == null) return;
-        media.currentTime = Math.max(0, Number(seg.start) || 0);
-        setMediaCurrentTime(media.currentTime);
-        setFollowPlayback(true);
+        if (seg?.start == null) return;
+        seekMediaTo(Number(seg.start) || 0);
     };
 
     const togglePlayback = () => {
@@ -660,7 +819,7 @@ const Editor = () => {
         try {
             const settings = loadSettings();
             const fd = new FormData();
-            fd.append('markdown', result.summary_markdown||'');
+            fd.append('markdown', summary || '');
             fd.append('title', fileNameStem(resultDownloadName));
             fd.append('task_id', activeTaskId);
             if(result.source) fd.append('source_type', result.source);
@@ -715,29 +874,29 @@ const Editor = () => {
             const r = await apiFetch(`${API_BASE}/regenerate-summary`, {method:'POST', body:fd});
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||'Regeneration failed');
             const data = await r.json();
-		            setLastResult({
-		                ...result,
-		                task_id: data.task_id || activeTaskId,
-		                transcript_text: transcript,
-		                segments,
-		                transcript_edited: transcriptDirty || !!result.transcript_edited,
-		                summary_markdown: data.summary_markdown,
-		                summary_skipped: false,
-		                summary_status: data.summary_status || 'completed',
-		                summary_error: null,
-		                requested_note_mode: data.requested_note_mode||settings.noteMode||'auto',
-		                resolved_note_mode: data.resolved_note_mode||null,
-		                note_mode_chunk_count: data.note_mode_chunk_count||null,
-		                note_mode_segment_count: data.note_mode_segment_count||null,
-		                note_mode_evidence_count: data.note_mode_evidence_count||null,
-		                note_mode_chapter_count: data.note_mode_chapter_count||null,
-		                note_mode_important_evidence_count: data.note_mode_important_evidence_count||null,
-		                note_mode_covered_important_evidence_count: data.note_mode_covered_important_evidence_count||null,
-		                note_mode_coverage_missing_count: data.note_mode_coverage_missing_count||null,
-		                chapter_coverage: data.chapter_coverage||null,
-		                prompt_preset: data.prompt_preset || settings.promptPreset || DEFAULT_PROMPT_PRESET,
-		                prompt_preset_label: data.prompt_preset_label || presetDisplayLabel(settings.promptPreset || DEFAULT_PROMPT_PRESET, settings, lang),
-			            });
+                    setLastResult({
+                        ...result,
+                        task_id: data.task_id || activeTaskId,
+                        transcript_text: transcript,
+                        segments,
+                        transcript_edited: transcriptDirty || !!result.transcript_edited,
+                        summary_markdown: data.summary_markdown,
+                        summary_skipped: false,
+                        summary_status: data.summary_status || 'completed',
+                        summary_error: null,
+                        requested_note_mode: data.requested_note_mode||settings.noteMode||'auto',
+                        resolved_note_mode: data.resolved_note_mode||null,
+                        note_mode_chunk_count: data.note_mode_chunk_count||null,
+                        note_mode_segment_count: data.note_mode_segment_count||null,
+                        note_mode_evidence_count: data.note_mode_evidence_count||null,
+                        note_mode_chapter_count: data.note_mode_chapter_count||null,
+                        note_mode_important_evidence_count: data.note_mode_important_evidence_count||null,
+                        note_mode_covered_important_evidence_count: data.note_mode_covered_important_evidence_count||null,
+                        note_mode_coverage_missing_count: data.note_mode_coverage_missing_count||null,
+                        chapter_coverage: data.chapter_coverage||null,
+                        prompt_preset: data.prompt_preset || settings.promptPreset || DEFAULT_PROMPT_PRESET,
+                        prompt_preset_label: data.prompt_preset_label || presetDisplayLabel(settings.promptPreset || DEFAULT_PROMPT_PRESET, settings, lang),
+                        });
             showToast(t('edit.regenDone'));
         } catch(err) { showToast(err.message, false); }
         finally { setRegenerating(false); }
@@ -818,15 +977,15 @@ const Editor = () => {
                 setCurrentJob(prev => prev ? {
                     ...prev,
                     stage:ev.stage,
-	                    progress:ev.progress,
-	                    sttProgress: ev.stt_progress ?? prev.sttProgress,
-	                    transcribedSeconds: ev.transcribed_seconds ?? prev.transcribedSeconds,
-		                    durationSeconds: ev.duration_seconds ?? prev.durationSeconds,
-		                    sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
-		                    sttStatus: ev.stt_status ?? prev.sttStatus,
-		                    sttProvider: ev.stt_provider ?? prev.sttProvider,
-		                    azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
-		                } : null);
+                        progress:ev.progress,
+                        sttProgress: ev.stt_progress ?? prev.sttProgress,
+                        transcribedSeconds: ev.transcribed_seconds ?? prev.transcribedSeconds,
+                            durationSeconds: ev.duration_seconds ?? prev.durationSeconds,
+                            sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
+                            sttStatus: ev.stt_status ?? prev.sttStatus,
+                            sttProvider: ev.stt_provider ?? prev.sttProvider,
+                            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+                        } : null);
                 if(ev.stage === 'transcript_ready' && ev.result) setLastResult(ev.result);
             });
 
@@ -865,7 +1024,7 @@ const Editor = () => {
                 resultJobOptions,
             );
         };
-        if(lastSourceFile) runRetranscribe(lastSourceFile);
+        if(matchedLocalSourceFile) runRetranscribe(matchedLocalSourceFile);
         else if(result?.task_id && result?.source_file_available) {
             try {
                 const sourceFile = await fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions);
@@ -953,8 +1112,8 @@ const Editor = () => {
         if (!canDownloadSourceVideo || downloading) return;
         setDownloading('source_video');
         try {
-            const file = lastSourceFile && isLikelyVideoFile(lastSourceFile)
-                ? lastSourceFile
+            const file = matchedLocalSourceFile && isLikelyVideoFile(matchedLocalSourceFile)
+                ? matchedLocalSourceFile
                 : await fetchJobSourceFile(result.task_id, result.filename || `${resultDownloadName}.mp4`, resultJobOptions);
             downloadBrowserFile(file, result.filename || `${resultDownloadName}.mp4`);
             recordDownload('source_video_downloaded', 'video');
@@ -1074,7 +1233,7 @@ const Editor = () => {
                             <h2 className="flex items-center gap-2 font-headline text-xl font-extrabold text-[#111111] dark:text-white">
                                 <SvgIcon name="edit_note" className="text-primary"/>
                                 {t('edit.editRecordsTitle')}
-                                <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-bold text-primary dark:bg-white/[0.08] dark:text-white">{editRecords.length}</span>
+                                <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-bold text-primary dark:bg-white/[0.08] dark:text-white">{visibleEditRecords.length}</span>
                             </h2>
                             <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">{t('edit.editRecordsDesc')}</p>
                         </div>
@@ -1087,11 +1246,11 @@ const Editor = () => {
                         </button>
                     </div>
                     <div className="flex-1 space-y-4 overflow-y-auto p-5">
-                        {editRecords.length === 0 ? (
+                        {visibleEditRecords.length === 0 ? (
                             <div className="rounded-[18px] bg-[#f8f7fb] px-5 py-8 text-center text-sm font-medium text-[#666] dark:bg-white/[0.06] dark:text-white/60">
                                 {t('edit.editRecordsEmpty')}
                             </div>
-                        ) : editRecords.map((record, idx) => (
+                        ) : visibleEditRecords.map((record, idx) => (
                             <article key={`${record.index}-${record.start}-${idx}`} className="overflow-hidden rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.04]">
                                 <div className="flex items-center gap-3 bg-[#f8f7fb] px-4 py-3 dark:bg-white/[0.04]">
                                     <button
@@ -1326,7 +1485,7 @@ const Editor = () => {
                                                     </button>
                                                 </div>
                                             )}
-                                            {editRecords.length > 0 && (
+                                            {visibleEditRecords.length > 0 && (
                                                 <button
                                                     type="button"
                                                     onClick={()=>setEditRecordsOpen(true)}
@@ -1334,7 +1493,7 @@ const Editor = () => {
                                                 >
                                                     <SvgIcon name="edit_note" className="text-[17px]"/>
                                                     <span>{t('edit.editRecords')}</span>
-                                                    <span className="tabular-nums text-primary">{editRecords.length}</span>
+                                                    <span className="tabular-nums text-primary">{visibleEditRecords.length}</span>
                                                 </button>
                                             )}
                                             <DropdownMenu
@@ -1363,69 +1522,40 @@ const Editor = () => {
                                         ref={mediaRef}
                                         src={mediaUrl || undefined}
                                         controls
-                                        className="max-h-[min(42vh,360px)] w-full shrink-0 rounded-[18px] bg-black object-contain"
-                                        onTimeUpdate={(e)=>setMediaCurrentTime(e.currentTarget.currentTime || 0)}
-                                        onLoadedMetadata={(e)=>setMediaDuration(e.currentTarget.duration || durSec || 0)}
+                                        className="max-h-[min(38vh,330px)] w-full shrink-0 rounded-[18px] bg-black object-contain"
+                                        onTimeUpdate={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration})}
+                                        onLoadedMetadata={(e)=>restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)}
                                         onPlay={()=>setMediaPlaying(true)}
-                                        onPause={()=>setMediaPlaying(false)}
-                                        onEnded={()=>setMediaPlaying(false)}
-                                    />
-                                    <div className="flex items-center gap-2 text-xs font-mono text-[#666] dark:text-white/55">
-                                        <span>{fmtTime(mediaCurrentTime)}</span>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max={Math.max(1, playbackDuration)}
-                                            step="0.1"
-                                            value={Math.min(mediaCurrentTime, Math.max(1, playbackDuration))}
-                                            onChange={(e)=>{
-                                                const next = Number(e.target.value) || 0;
-                                                if(mediaRef.current) mediaRef.current.currentTime = next;
-                                                setMediaCurrentTime(next);
-                                            }}
-                                            className="min-w-0 flex-1 accent-primary"
-                                            style={{background:`linear-gradient(90deg, #3B82F6 ${mediaProgress}%, var(--c-surface-container-highest) ${mediaProgress}%)`}}
+                                            onPause={(e)=>{ updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true}); setMediaPlaying(false); }}
+                                            onEnded={()=>setMediaPlaying(false)}
                                         />
-                                        <span>{fmtTime(playbackDuration || mediaCurrentTime)}</span>
-                                    </div>
-                                    <div className="min-h-0 rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] p-3 dark:border-white/[0.12] dark:bg-white/[0.05]">
-                                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                                            <span className="rounded-[10px] bg-[#eef2ff] px-2 py-1 font-mono text-[11px] font-bold tabular-nums text-primary dark:bg-white/[0.08] dark:text-white">
-                                                {fmtTime(currentVideoSegment.start || 0)}
-                                            </span>
-                                            <span className="text-xs font-bold text-[#666] dark:text-white/55">
-                                                {lang === 'zh' ? '当前字幕' : 'Current subtitle'}
-                                            </span>
-                                            <div className="ml-auto flex items-center gap-1.5">
-                                                <button
-                                                    type="button"
-                                                    onClick={()=>handleVideoSegmentStep(-1)}
-                                                    disabled={activeRawSegmentIndex <= 0}
-                                                    className="inline-flex h-8 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                                    <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 overflow-y-auto rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.05]">
+                                        <div className="divide-y divide-[#e4e0e0] dark:divide-white/[0.08]">
+                                            {segments.map((seg,i) => (
+                                                <div
+                                                    key={`video-review-${i}`}
+                                                    ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
+                                                    className={`grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2 transition-colors ${i===activeRawSegmentIndex ? 'bg-[#eef2ff] dark:bg-white/[0.08]' : 'hover:bg-white/70 dark:hover:bg-white/[0.04]'}`}
                                                 >
-                                                    <SvgIcon name="arrow_back" className="text-[14px]"/>
-                                                    {lang === 'zh' ? '上一句' : 'Prev'}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={()=>handleVideoSegmentStep(1)}
-                                                    disabled={activeRawSegmentIndex >= segments.length - 1}
-                                                    className="inline-flex h-8 items-center gap-1 rounded-[11px] border border-[#e4e0e0] bg-white px-2 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
-                                                >
-                                                    {lang === 'zh' ? '下一句' : 'Next'}
-                                                    <SvgIcon name="arrow-right" className="text-[14px]"/>
-                                                </button>
-                                            </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={()=>seekToSegment(seg)}
+                                                        className={`pt-[1px] text-left font-mono text-xs font-bold tabular-nums transition ${i===activeRawSegmentIndex ? 'text-primary dark:text-white' : 'text-[#8a8a8a] hover:text-primary dark:text-white/42 dark:hover:text-white'}`}
+                                                    >
+                                                        {fmtTime(seg.start)}
+                                                    </button>
+                                                    <textarea
+                                                        data-transcript-segment="true"
+                                                        value={seg.text || ''}
+                                                        ref={(node)=>{ if(node) autoSizeTextarea(node); }}
+                                                        onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
+                                                        onFocus={()=>setFollowPlayback(false)}
+                                                        rows={1}
+                                                        className="min-h-[1.45rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-semibold leading-snug text-[#111111] focus:ring-0 dark:text-white"
+                                                    />
+                                                </div>
+                                            ))}
                                         </div>
-                                        <textarea
-                                            data-transcript-segment="true"
-                                            value={currentVideoSegment.text || ''}
-                                            ref={(node)=>{ if(node) autoSizeTextarea(node); }}
-                                            onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(activeRawSegmentIndex, e.target.value); }}
-                                            onFocus={()=>setFollowPlayback(false)}
-                                            rows={2}
-                                            className="max-h-[9rem] min-h-[3.25rem] w-full resize-none overflow-y-auto border-none bg-transparent p-0 text-base font-semibold leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
-                                        />
                                     </div>
                                 </div>
                             </div>
@@ -1436,12 +1566,12 @@ const Editor = () => {
                                 <div
                                     key={`bilingual-${i}`}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                    className={`grid min-h-[54px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-[16px] px-3 py-2 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
+                                    className={`grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-2.5 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={()=>seekToSegment(seg)}
-                                        className={`flex h-full min-h-[38px] flex-col items-start justify-center font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#777] hover:text-primary dark:text-white/45'}`}
+                                        className={`flex flex-col items-start justify-start pt-[1px] font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#777] hover:text-primary dark:text-white/45'}`}
                                     >
                                         <span className="block">{fmtTime(seg.start)}</span>
                                         <span className="mt-0.5 block text-[10px] opacity-70">{fmtTime(seg.end)}</span>
@@ -1459,16 +1589,16 @@ const Editor = () => {
                                 <div
                                     key={i}
                                     ref={(node)=>{ if(node) segmentRefs.current[i]=node; }}
-                                    className={`group grid min-h-[52px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-[16px] px-3 py-1.5 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
+                                    className={`group grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-2.5 transition-colors ${i===activeSegmentIndex && mediaUrl ? 'bg-[#eef2ff] dark:bg-white/[0.1]' : 'hover:bg-[#f8f7fb] dark:hover:bg-white/[0.06]'}`}
                                 >
                                     <button
                                         type="button"
                                         onClick={()=>seekToSegment(seg)}
-                                        className={`flex h-full min-h-[38px] items-center justify-start font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#8a8a8a] hover:text-primary dark:text-white/40'}`}
+                                        className={`pt-[1px] text-left font-mono text-xs tabular-nums transition ${i===activeSegmentIndex && mediaUrl ? 'font-bold text-primary' : 'text-[#8a8a8a] hover:text-primary dark:text-white/40'}`}
                                     >
                                         {fmtTime(seg.start)}
                                     </button>
-                                    <div className="flex min-w-0 flex-1 items-center">
+                                    <div className="min-w-0 flex-1">
                                         <textarea
                                             data-transcript-segment="true"
                                             value={seg.text || ''}
@@ -1480,7 +1610,7 @@ const Editor = () => {
                                         />
                                     </div>
                                         </div>
-	                            )) : (
+                                )) : (
                                     <div className="min-h-full flex flex-col gap-2">
                                         <div className="flex items-center gap-2 rounded-[12px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.08]">
                                             <SvgIcon name="info" className="text-primary text-[15px] flex-shrink-0"/>
@@ -1492,26 +1622,26 @@ const Editor = () => {
                                                     : 'No timestamped segments. Retranscribe the source audio to restore segment review.'}
                                             </p>
                                         </div>
-	                                <textarea
-	                                    value={transcript}
-	                                    onChange={(e)=>handlePlainTranscriptChange(e.target.value)}
-	                                    onFocus={()=>setFollowPlayback(false)}
-	                                    className="min-h-[320px] w-full flex-1 resize-none whitespace-pre-wrap border-none bg-transparent p-0 text-sm font-medium leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
-	                                />
+                                    <textarea
+                                        value={transcript}
+                                        onChange={(e)=>handlePlainTranscriptChange(e.target.value)}
+                                        onFocus={()=>setFollowPlayback(false)}
+                                        className="min-h-[320px] w-full flex-1 resize-none whitespace-pre-wrap border-none bg-transparent p-0 text-sm font-medium leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
+                                    />
                                     </div>
-	                            )}
+                                )}
                                 </div>
                                 <div className="border-t border-[#e4e0e0] bg-[#fbfbfb]/90 p-4 dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                    <video
-                                        ref={mediaRef}
-                                        src={mediaUrl || undefined}
-                                        className="hidden"
-                                        onTimeUpdate={(e)=>setMediaCurrentTime(e.currentTarget.currentTime || 0)}
-                                        onLoadedMetadata={(e)=>setMediaDuration(e.currentTarget.duration || durSec || 0)}
-                                        onPlay={()=>setMediaPlaying(true)}
-                                        onPause={()=>setMediaPlaying(false)}
-                                        onEnded={()=>setMediaPlaying(false)}
-                                    />
+                                        <video
+                                            ref={mediaRef}
+                                            src={mediaUrl || undefined}
+                                            className="hidden"
+                                            onTimeUpdate={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration})}
+                                            onLoadedMetadata={(e)=>restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)}
+                                            onPlay={()=>setMediaPlaying(true)}
+                                            onPause={(e)=>{ updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true}); setMediaPlaying(false); }}
+                                            onEnded={()=>setMediaPlaying(false)}
+                                        />
                                     {mediaUrl ? (
                                         <div className="space-y-3">
                                             <div className="flex items-center gap-3">
@@ -1528,12 +1658,11 @@ const Editor = () => {
                                                 min="0"
                                                 max={Math.max(1, playbackDuration)}
                                                 step="0.1"
-                                                value={Math.min(mediaCurrentTime, Math.max(1, playbackDuration))}
-                                                onChange={(e)=>{
-                                                    const next = Number(e.target.value) || 0;
-                                                    if(mediaRef.current) mediaRef.current.currentTime = next;
-                                                    setMediaCurrentTime(next);
-                                                }}
+                                                    value={Math.min(mediaCurrentTime, Math.max(1, playbackDuration))}
+                                                    onChange={(e)=>{
+                                                        const next = Number(e.target.value) || 0;
+                                                        seekMediaTo(next);
+                                                    }}
                                                 className="w-full accent-primary"
                                                 style={{background:`linear-gradient(90deg, #3B82F6 ${mediaProgress}%, var(--c-surface-container-highest) ${mediaProgress}%)`}}
                                             />
@@ -1557,6 +1686,15 @@ const Editor = () => {
                                         <SvgIcon name="psychology" className="text-[#111111] dark:text-white"/>
                                         {lang === 'zh' ? '笔记正文' : 'Note'}
                                     </h2>
+                                    {summarySaveLabel && (
+                                        <span className={`mr-auto rounded-full border px-2 py-1 text-[11px] font-bold ${
+                                            summarySaveStatus === 'failed'
+                                                ? 'border-error/25 bg-error-container text-on-error-container'
+                                                : 'border-[#e4e0e0] bg-white text-[#666] dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-white/60'
+                                        }`}>
+                                            {summarySaveLabel}
+                                        </span>
+                                    )}
                                     <div className="flex shrink-0 items-center gap-2">
                                         {hasInlineVisualEvidence && (
                                             <button
@@ -1593,22 +1731,36 @@ const Editor = () => {
                                     </div>
                                 </div>
                                 <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-6 text-[#111111] dark:text-white">
-	                            {summary ? (
-	                                <div ref={summaryRef} dangerouslySetInnerHTML={{__html: renderedSummary}}></div>
-	                            ) : result.summary_skipped ? (
-	                                <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summarySkipped')}</p>
-	                            ) : result.summary_status === 'failed' || result.summary_error ? (
-	                                <div className="space-y-2 text-sm text-[#666] dark:text-white/60">
-	                                    <p className="italic">{t('edit.summaryFailed')}</p>
-	                                    {summaryFailureHint && (
-	                                        <p className="rounded-[14px] border border-error/20 bg-error-container px-3 py-2 text-xs font-semibold leading-relaxed text-on-error-container">
-	                                            {summaryFailureHint}
-	                                        </p>
-	                                    )}
-	                                </div>
-	                            ) : (
-	                                <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summaryPending')}</p>
-	                            )}
+                                {hasEditableSummary ? (
+                                    <>
+                                        <textarea
+                                            value={summary}
+                                            onChange={(event)=>handleSummaryChange(event.target.value)}
+                                            aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}
+                                            spellCheck={false}
+                                            className="min-h-[520px] w-full resize-y rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-4 font-sans text-base font-semibold leading-8 text-[#111111] outline-none transition focus:border-[#111111]/45 focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white dark:focus:border-white/35 dark:focus:bg-white/[0.06] dark:focus:ring-white/[0.08]"
+                                            placeholder={lang === 'zh' ? '在这里修改生成的笔记正文...' : 'Edit the generated note here...'}
+                                        />
+                                        <div
+                                            ref={summaryRef}
+                                            className="fixed left-[-10000px] top-0 w-[720px] bg-white p-6 text-black"
+                                            dangerouslySetInnerHTML={{__html: renderedSummary}}
+                                        />
+                                    </>
+                                ) : result.summary_skipped ? (
+                                    <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summarySkipped')}</p>
+                                ) : result.summary_status === 'failed' || result.summary_error ? (
+                                    <div className="space-y-2 text-sm text-[#666] dark:text-white/60">
+                                        <p className="italic">{t('edit.summaryFailed')}</p>
+                                        {summaryFailureHint && (
+                                            <p className="rounded-[14px] border border-error/20 bg-error-container px-3 py-2 text-xs font-semibold leading-relaxed text-on-error-container">
+                                                {summaryFailureHint}
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summaryPending')}</p>
+                                )}
                                 </div>
                                 <div className="flex justify-end border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">
                                     <Link to={agentWorkflowHref} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#dedada] bg-white px-3 text-[12px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">

@@ -219,12 +219,10 @@ const Settings = () => {
                                         <SvgIcon name="expand_less" className="text-sm text-on-surface-variant transition group-open:rotate-180"/>
                                     </summary>
                                     <div className="mt-4 grid gap-4 md:grid-cols-2">
-                                        <div className="space-y-2">
-                                            <label className={fieldLabelClass}>{t('set.modelSel')}</label>
-                                            <select className={inputClass} value={normalizeSttModel(settings.sttModel)} onChange={e=>updateSettingNow({sttModel:e.target.value})}>
-                                                <option value="medium">{t('set.optMedium')}</option>
-                                                <option value="large-v3">{t('set.optLarge')}</option>
-                                            </select>
+                                        <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 text-sm font-semibold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-white/70">
+                                            {lang === 'zh'
+                                                ? '本地转录固定使用 faster-whisper medium 模型。'
+                                                : 'Local transcription always uses the faster-whisper medium model.'}
                                         </div>
                                         <div className="space-y-2">
                                             <label className={fieldLabelClass}>{t('set.sttSpeed')}</label>

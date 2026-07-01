@@ -81,3 +81,44 @@ def test_update_transcript_returns_backup_path(monkeypatch, tmp_path: Path) -> N
     assert '"previous_before": "上一句"' in records_path.read_text(encoding="utf-8")
     assert data["result"]["transcript_edit_record_count"] == 1
     assert captured["result"]["edited_transcript_saved_at"] == data["result"]["transcript_edited_at"]
+
+
+def test_update_summary_persists_latest_markdown(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get_job(task_id: str, **_: object) -> dict[str, object]:
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "result": {
+                "task_id": task_id,
+                "filename": "demo.m4a",
+                "summary_markdown": "旧笔记",
+            },
+        }
+
+    def fake_update_job_result(task_id: str, result: dict[str, object], **_: object) -> dict[str, object]:
+        captured["result"] = result
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "result": result,
+        }
+
+    monkeypatch.setattr(_H, "get_job", fake_get_job)
+    monkeypatch.setattr(_H, "update_job_result", fake_update_job_result)
+    monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+
+    response = TestClient(main.app).patch(
+        "/jobs/task-note/summary",
+        json={"summary_markdown": "# 新笔记\n\n- 已修改"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["summary_markdown"] == "# 新笔记\n\n- 已修改"
+    assert result["summary_status"] == "completed"
+    assert result["summary_edited"] is True
+    assert result["summary_error"] is None
+    assert result["artifacts"]["summary_md"]["filename"].endswith("_summary.md")
+    assert captured["result"]["summary_markdown"] == result["summary_markdown"]

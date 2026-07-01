@@ -34,6 +34,17 @@ const FluentFlowLogo = ({compact = false}) => (
     </div>
 );
 
+const isAgentWorkflowRoute = (pathname) => (
+    pathname === '/agent' || pathname === '/processing' || /^\/tasks\/[^/]+\/agent\/?$/.test(pathname)
+);
+
+const isNavItemActive = (itemPath, pathname) => {
+    if (itemPath === '/') return pathname === '/';
+    if (itemPath === '/agent') return isAgentWorkflowRoute(pathname);
+    if (itemPath === '/tasks') return !isAgentWorkflowRoute(pathname) && (pathname === '/tasks' || pathname.startsWith('/tasks/'));
+    return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+};
+
 const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const {t, lang, toggleLang} = useI18n();
     const {authMode, user, guestMode, canRegister, openAuth, logout} = useAuth();
@@ -99,7 +110,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     const fullItems = [
         {path:'/', icon:LayoutGrid, k:'nav.dashboard'},
         {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
-        {path:'/processing', icon:SlidersHorizontal, k:'nav.processing'},
+        {path:'/agent', icon:SlidersHorizontal, k:'nav.processing'},
         {path:'/tasks', icon:Activity, k:'nav.tasks'},
         {path:'/editor', icon:FilePenLine, k:'nav.editor'},
         ...(user?.role === 'admin' ? [{path:'/admin', icon:ShieldCheck, k:'nav.admin'}] : []),
@@ -177,7 +188,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
 
                 <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden">
                     {items.map((it) => {
-                        const active = loc.pathname === it.path;
+                        const active = isNavItemActive(it.path, loc.pathname);
                         const Icon = it.icon;
                         return (
                             <Link

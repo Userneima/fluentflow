@@ -104,22 +104,36 @@ def test_video_link_failures_are_preserved_in_background_tasks() -> None:
 def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
+    agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
-    overview = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
-    processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
-    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job}})" in media_text
-    assert "navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job: pendingJob}})" in dashboard
+    assert "navigate('/agent', {state: {job}})" in media_text
+    assert "navigate('/agent', {state: {job: pendingJob}})" in dashboard
+    assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
+    assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
+    assert "mergeJobs(seededJob ? [seededJob] : [], readCachedJobs())" in agent_tasks
+    assert "displayJobs.map((job) => (" in agent_tasks
+    assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
+    assert "查看详情" not in agent_tasks
     assert "subscribeJobEvents(job.task_id" not in media_text
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
-    assert "这里仅显示当前阶段和必要进度" in overview
-    assert "转录、笔记和可下载产物会在结果页集中复查" in overview
-    assert "需要处理这个失败任务" in overview
-    assert "当前阶段、处理配置和判断依据会在这里同步更新" not in overview
-    assert "本地 faster-whisper 只负责转录" not in overview
-    assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in processing
-    assert "state={targetJob ? {job: targetJob} : undefined}" in processing
+
+
+def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> None:
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+
+    for source in (dashboard, media_text):
+        assert "const cachedResult = historyEntryToResult" in source
+        assert "const openCachedEditor = () => {" in source
+        assert "h.status !== 'completed' || !hasTranscriptResult(cachedResult)" in source or "item.status !== 'completed' || !hasTranscriptResult(cachedResult)" in source
+        assert "setLastResult(cachedResult);" in source
+        assert "navigate('/editor');" in source
+        assert "if (openCachedEditor()) return;" in source
+        assert "navigate(`/tasks/${encodeURIComponent(" in source
+        assert "}/agent`, {state: {job:" in source
 
 
 def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
@@ -191,6 +205,12 @@ def test_tasks_open_cached_result_without_backend_detail_request() -> None:
 
     assert "isCachedOnlyTask" in source
     assert "isCachedOnlyTask(job) && job.result" in source
+    assert "const getJobWithFallback = async (job) => {" in source
+    assert "return getJob(taskId, {sttProvider: 'local'});" in source
+    assert "const [openingTaskId, setOpeningTaskId] = useState('')" in source
+    assert "setOpeningTaskId(taskId)" in source
+    assert "这条记录暂时没有可打开的结果" in source
+    assert "disabled={!canOpen || openingTaskId === taskId}" in source
     assert "err.status === 404 && job.result" in source
     assert "err.status = r.status" in shared
     assert "const {__cacheOnly, ...persistedJob} = job" in mapper
@@ -272,8 +292,10 @@ def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     assert "rawFilename" in mapper
     assert "filename: h.rawFilename || h.name" in mapper
     assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in mapper
-    assert "setLastResult(historyEntryToResult(h)); navigate('/editor');" in dashboard
-    assert "setLastResult(historyEntryToResult(item));" in media_text
+    assert "const openCachedEditor = () => {" in dashboard
+    assert "navigate('/editor');" in dashboard
+    assert "const openCachedEditor = () => {" in media_text
+    assert "navigate('/editor');" in media_text
     assert "historyEntryToResult(history.find" not in editor
     assert "historyEntryToResult(latestHistory)" not in processing
     assert "latestHistory" not in processing
@@ -431,9 +453,11 @@ def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
     assert "getJob(result.task_id, resultJobOptions)" in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
     assert "saveTranscriptEdit(result.task_id, {" in source
+    assert "saveSummaryEdit(result.task_id, {" in source
     assert "}, resultJobOptions)" in source
     assert "const fetchJobSourceFile = async (taskId, filename='source', options={})" in shared
     assert "const saveTranscriptEdit = async (taskId, payload={}, options={})" in shared
+    assert "const saveSummaryEdit = async (taskId, payload={}, options={})" in shared
 
 
 def test_subtitle_import_is_a_note_generation_action() -> None:
@@ -513,6 +537,8 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
 
     assert "转录原文" in source
     assert "笔记正文" in source
+    assert "aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}" in source
+    assert "fd.append('markdown', summary || '')" in source
     assert "inline-flex h-10 items-center" in source
     assert "max-w-[18em] truncate whitespace-nowrap font-headline" in source
     assert "{rawEditorTitle}" in source
@@ -539,7 +565,7 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "inline-flex h-5 items-center gap-1 rounded-[8px] px-1.5 text-[11px] font-bold leading-none" in source
     assert "标题旁状态标签" in design_system
     assert "必须小于标题字号" in design_system
-    assert "editRecords.length > 0" in source
+    assert "visibleEditRecords.length > 0" in source
     assert "导出转录" not in source
     assert "lang === 'zh' ? '导出' : 'Export'" in source
     assert "const canDownloadSourceVideo = !!(" in source
@@ -551,29 +577,60 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border border-[#e4e0e0] bg-white px-3" in source
 
 
-def test_editor_video_review_keeps_current_subtitle_as_core_object() -> None:
+def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "const [transcriptReviewMode, setTranscriptReviewMode] = useState('text')" in source
     assert "const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
+    assert "const playbackMemoryKey = result ? `fluentflow_playback_position_${activeTaskId}` : ''" in source
+    assert "localStorage.setItem(playbackMemoryKey" in source
+    assert "restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)" in source
+    assert "const visibleEditRecords = useMemo" in source
+    assert "visibleEditRecords.length > 0" in source
+    assert "editRecords.length > 0" not in source
     assert "文本校对" in source
     assert "视频复查" in source
-    assert "grid min-h-[52px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3" in source
-    assert "grid min-h-[54px] grid-cols-[64px_minmax(0,1fr)] items-center gap-3" in source
-    assert "flex h-full min-h-[38px] items-center justify-start font-mono text-xs tabular-nums" in source
+    assert "group grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-2.5" in source
+    assert "grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-2.5" in source
+    assert "grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2" in source
+    assert "segments.map((seg,i) => (" in source
+    assert "sticky top-0 z-10" not in source
+    assert "上一句" not in source
+    assert "下一句" not in source
+    assert "text-[18px] font-extrabold" not in source
+    assert "text-[15px] font-semibold leading-relaxed" not in source
+    assert "min-h-[1.45rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-semibold leading-snug" in source
+    assert "flex h-full min-h-[38px] items-center justify-start font-mono text-xs tabular-nums" not in source
+    assert "pt-[1px] text-left font-mono text-xs tabular-nums" in source
     assert "min-h-[1.75rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-medium leading-snug" in source
     assert "w-14 flex-shrink-0 pt-2 text-left font-mono" not in source
     assert "inline-flex h-9 items-center gap-1 rounded-[13px]" in source
     assert "inline-flex h-full items-center justify-center rounded-[10px]" in source
     assert "disabled:hover:bg-transparent" in source
     assert "currentVideoSegment" in source
-    assert "当前字幕" in source
+    assert "当前字幕" not in source
     assert "handleVideoSegmentStep" in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
-    assert "max-h-[min(42vh,360px)]" in source
-    assert "视频复查模式不是视频播放器页面" in design_system
-    assert "没有原视频、没有时间戳或只有音频时" in design_system
+    assert "max-h-[min(42vh,360px)]" not in source
+    assert "max-h-[min(38vh,330px)]" in source
+    assert "min-w-0 flex-1 accent-primary" not in source
+    assert "w-full accent-primary" in source
+    assert "结果编辑页只承载复查、修改、下载和导出" in design_system
+    assert "结果编辑页只承载复查、修改、下载和导出" in design_system
+
+
+def test_editor_playback_ignores_stale_last_source_file() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+
+    assert "const localSourceFileMatchesResult = (file, result) =>" in source
+    assert "const matchedLocalSourceFile = localSourceFileMatchesResult(lastSourceFile, result) ? lastSourceFile : null;" in source
+    assert "if (matchedLocalSourceFile) {" in source
+    assert "loadMediaFile(matchedLocalSourceFile)" in source
+    assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
+    assert "if (lastSourceFile) {" not in source
+    assert "loadMediaFile(lastSourceFile)" not in source
+    assert "if(lastSourceFile) runRetranscribe(lastSourceFile)" not in source
 
 
 def test_editor_destructive_top_actions_require_confirmation() -> None:
@@ -606,7 +663,7 @@ def test_editor_agent_workflow_link_requires_real_task_id() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
     assert "const activeTaskId = result?.task_id || fallbackTaskIdRef.current" in source
-    assert "const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/processing';" in source
+    assert "const agentWorkflowHref = result?.task_id ? `/tasks/${encodeURIComponent(result.task_id)}/agent` : '/agent';" in source
     assert "encodeURIComponent(activeTaskId)}/agent" not in source
 
 
@@ -619,10 +676,9 @@ def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     assert "readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
     assert "localExecutionHeaders(currentJobOptions)" in source
     assert "return await readJson(path, {localExecution: true});" in source
-    assert "visibleActions(pageData?.actions)" in source
-    assert "runAction(action)" in source
-    assert "setLastResult(job.result)" in source
-    assert "setLastResult(data.result)" in source
+    assert "actions: Array.isArray(snapshot.actions) && snapshot.actions.length ? snapshot.actions" in source
+    assert "id: 'open_result'" in source
+    assert "查看结果" in source
     assert "request: apiRequest" not in source
     assert "apiRequest(" not in source
 
@@ -632,8 +688,9 @@ def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
 
     assert "const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {" in source
     assert "const videoProgress = videoSourceProgressFromJob(job)" in source
-    assert "const status = videoProgress ? 'running' : normalizeTaskState(job)" in source
-    assert "const stage = videoProgress ? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')" in source
+    assert "const status = videoProgress ? 'running' : (snapshot.overall_status || normalizeTaskState(job))" in source
+    assert "const stage = videoProgress" in source
+    assert "? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')" in source
     assert "video_source_progress: videoProgress" in source
     assert "mergeLiveSnapshotPageData(detailData, current || initialPageData)" in source
     assert "const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang)" in source
@@ -651,10 +708,10 @@ def test_task_progress_overview_surfaces_video_download_progress() -> None:
 
     assert "const videoSourceProgress = task.video_source_progress || source.video_source_progress || null" in source
     assert "videoSourceProgress," in source
-    assert "const videoProgressDetail = videoSourceProgressText(task.videoSourceProgress, isZh)" in source
-    assert "fmtBytes(progress.loaded_bytes)" in source
-    assert "fmtBytes(progress.total_bytes)" in source
-    assert "{videoProgressDetail && (" in source
+    assert "const videoSourceProgress = task.video_source_progress || source.video_source_progress || null" in source
+    assert "videoSourceProgress," in source
+    assert "const videoSourceFileSizeMb = videoSourceProgress?.total_bytes" in source
+    assert "fileSizeMb: current?.fileSizeMb ?? task.file_size_mb ?? source.file_size_mb ?? videoSourceFileSizeMb" in source
 
 
 def test_agent_trace_respects_sidebar_offset_in_all_states() -> None:
@@ -684,10 +741,8 @@ def test_agent_trace_prioritizes_material_specific_judgment() -> None:
     assert "decision_log" in source
     assert "decisionEntries" in source
     assert "fallbackDecisionEntries" in source
-    assert "判断推进流" in source
-    assert "关键判断、依据和影响" in source
-    assert "真实记录" in source
-    assert "兼容推导" in source
+    assert "判断记录" in source
+    assert "原始判断字段" in source
     assert "TaskProgressOverview" in source
     assert "执行记录" not in source
     assert "Actual task progress" not in source
@@ -696,6 +751,36 @@ def test_agent_trace_prioritizes_material_specific_judgment() -> None:
     assert "THOUGHT_GENERATORS" not in source
     assert "inner monologue" not in source
     assert "内心独白" not in source
+
+
+def test_agent_trace_moves_material_judgment_into_overview_without_truncation() -> None:
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+    progress = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
+
+    assert "materialJudgment={materialJudgmentValue(materialEntry, lang)}" in agent_trace
+    assert "MaterialJudgmentTile" not in agent_trace
+    assert "materialJudgment = ''" in progress
+    assert "{label: isZh ? '判断材料类型' : 'Material type', value: materialJudgment, wrap: true}" in progress
+    assert "wrap ? 'whitespace-normal break-words leading-5' : 'truncate'" in progress
+
+
+def test_agent_trace_overview_uses_task_card_for_all_task_states() -> None:
+    progress = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
+
+    assert "const activeCurrentJob = running && currentJob?.taskId && currentJob.taskId === task.taskId ? currentJob : null;" in progress
+    assert "const badgeText = activeCurrentJob" in progress
+    assert "已完成记录" in progress
+    assert "处理已完成，可以打开结果继续复查。" in progress
+    assert "你可以离开本页，进度会在记录里继续更新。" in progress
+    assert "to=\"/media-text?mode=media\"" in progress
+    assert "添加新任务" in progress
+    assert "添加到队列" not in progress
+    assert "取消任务" in progress
+    assert "await cancelJob(activeCurrentJob.taskId, {sttProvider: activeCurrentJob.sttProvider});" in progress
+    assert "setCurrentJob((prev) => prev?.taskId === activeCurrentJob.taskId ? null : prev);" in progress
+    assert "STT ${activeJobSttProgress}%" in progress
+    assert "infoCards.map((item)" in progress
+    assert "return isZh ? '本地视频文件' : 'local video file'" in progress
 
 
 def test_agent_trace_removes_duplicate_history_and_summary_card() -> None:
@@ -708,24 +793,17 @@ def test_agent_trace_removes_duplicate_history_and_summary_card() -> None:
     assert "系统每一步为什么这样处理" not in agent_trace
     assert "判断数" not in agent_trace
     assert "任务状态" not in agent_trace
-    assert "showNextStepPanel" in agent_trace
-    assert "nextStepActions" in agent_trace
-    assert "taskProgress >= 100" in agent_trace
+    assert "TaskProgressOverview pageData={pageData}" in agent_trace
     assert "to=\"/tasks\"" not in progress
     assert "任务已进入后台处理" not in progress
-    assert "转录路线" not in progress
     assert "模型配置" not in progress
     assert "媒体时长" not in progress
-    assert "耗时" not in progress
-    assert "文件大小" not in progress
     assert "stageItems" not in progress
-    assert "routeLabel" not in progress
-    assert "ArtifactPill" in progress
-    assert "结果可以复查" in progress
-    assert "{running && (" in progress
-    assert "{completed && (" in progress
-    assert "dark:text-white/[0.78]" in agent_trace
-    assert "dark:text-white/[0.68]" in progress
+    assert "ArtifactPill" not in progress
+    assert "处理已完成，可以打开结果继续复查。" in progress
+    assert "activeCurrentJob && (" in progress
+    assert "dark:text-white/[0.74]" in agent_trace
+    assert "dark:text-white/[0.62]" in progress
     assert "dark:text-white/78" not in agent_trace
     assert "dark:text-white/68" not in progress
 
@@ -744,20 +822,30 @@ def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
     assert "formatSeconds" in source
 
 
-def test_processing_page_is_agent_workflow_surface() -> None:
-    source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
+def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
-    assert "readCachedAccountJobs(accountCacheId)" in source
-    assert "historyEntryToResult(entry)" in source
-    assert "const {currentJob, lastResult, history} = useApp()" in source
-    assert "recentTaskIdFromHistory(history)" in source
-    assert "const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId" in source
-    assert "state={targetJob ? {job: targetJob} : undefined}" in source
-    assert "选择一个任务查看处理详情" in source
-    assert "提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。" in source
+    assert "readCachedAccountJobs(cacheAccountId)" in source
+    assert "const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp()" in source
+    assert "getJobs(100)," in source
+    assert "getJobs(100, {sttProvider: 'local'})," in source
+    assert "displayJobs" in source
+    assert "displayJobs.map((job) => (" in source
+    assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
+    assert "queuedCount" in source
+    assert "runningCount" in source
+    assert "处理详情" in source
+    assert "每个视频就是一条完整处理记录" in source
+    assert "点开单条任务，再看处理详情" not in source
+    assert "查看详情" not in source
+    assert "查看结果" in source
+    assert "sourceLabel(job, lang)" in source
+    assert "routeLabel(job, lang)" in source
+    assert "fileInfoLabel(job)" in source
+    assert "materialLabel(job, lang)" in source
     assert 'to="/media-text?mode=media"' in source
     assert 'to="/tasks"' in source
-    assert "min-h-dvh" in source
+    assert "ml-[var(--sidebar-offset)]" in source
 
 
 def test_processing_page_uses_timeline_not_card_stack() -> None:
@@ -823,8 +911,8 @@ def test_workflow_next_step_copy_is_action_oriented() -> None:
     assert "还没有可解释的任务" not in processing
     assert "下一步：删除这条取消记录。" not in tasks
     assert "下一步：可以删除" not in tasks
-    assert "复查结果" in agent_trace
-    assert "打开编辑器复查正文" in agent_trace
+    assert "查看结果" in agent_trace
+    assert "处理已完成，可以打开结果继续复查。" in Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
     assert "可以随时下载或导出" not in agent_trace
     assert "Action-Oriented Copy" in design_system
     assert "避免把行动标题写成状态判断句" in design_system
@@ -839,8 +927,8 @@ def test_ui_copy_does_not_leak_internal_product_principles() -> None:
     assert "提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。" in processing
     assert "这不是多 Agent 表演" not in processing
     assert "decorative multi-agent theater" not in processing
-    assert "证据摘要" in agent_trace
-    assert "关键判断、依据和影响" in agent_trace
+    assert "判断记录" in agent_trace
+    assert "原始判断字段" in agent_trace
     assert "不适合直接喂给模型" not in agent_trace
     assert "而不是按时间戳" not in agent_trace
     assert "内心独白" not in agent_trace
@@ -879,6 +967,17 @@ def test_sidebar_collapse_keeps_navigation_vertical_rhythm() -> None:
     assert '<Icon className="size-5 shrink-0" strokeWidth={2.15}/>' in source
     assert "mb-8 flex-col gap-4" not in source
     assert "size-[22px]" not in source
+
+
+def test_sidebar_agent_task_detail_highlights_agent_workflow_not_history() -> None:
+    source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+
+    assert "const isAgentWorkflowRoute = (pathname) => (" in source
+    assert "pathname === '/agent' || pathname === '/processing' || /^\\/tasks\\/[^/]+\\/agent\\/?$/.test(pathname)" in source
+    assert "if (itemPath === '/agent') return isAgentWorkflowRoute(pathname);" in source
+    assert "{path:'/agent', icon:SlidersHorizontal, k:'nav.processing'}" in source
+    assert "if (itemPath === '/tasks') return !isAgentWorkflowRoute(pathname) && (pathname === '/tasks' || pathname.startsWith('/tasks/'));" in source
+    assert "const active = isNavItemActive(it.path, loc.pathname);" in source
 
 
 def test_auth_status_failure_keeps_login_path_visible() -> None:

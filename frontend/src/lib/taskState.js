@@ -18,11 +18,21 @@ export const TASK_STATES = new Set([
     TASK_STATE_CACHED_ONLY,
 ]);
 
+const normalizeSnapshotStatus = (status) => {
+    const value = String(status || '').trim();
+    if (value === 'processing') return TASK_STATE_RUNNING;
+    if (value === 'done') return TASK_STATE_COMPLETED;
+    if (value === 'canceled') return TASK_STATE_CANCELLED;
+    return TASK_STATES.has(value) ? value : '';
+};
+
 export const normalizeTaskState = (job={}) => {
-    const explicit = String(job?.task_state || job?.taskState || '').trim();
-    if (TASK_STATES.has(explicit)) return explicit;
     if (job?.__cacheOnly || job?.status === TASK_STATE_CACHED_ONLY) return TASK_STATE_CACHED_ONLY;
     if (job?.queueUpload || job?.status === TASK_STATE_UPLOADING || job?.stage === TASK_STATE_UPLOADING) return TASK_STATE_UPLOADING;
+    const snapshotStatus = normalizeSnapshotStatus(job?.task_snapshot?.overall_status);
+    if (snapshotStatus) return snapshotStatus;
+    const explicit = String(job?.task_state || job?.taskState || '').trim();
+    if (TASK_STATES.has(explicit)) return explicit;
     const status = String(job?.status || '').trim();
     if (status === 'processing') return TASK_STATE_RUNNING;
     if (TASK_STATES.has(status)) return status;

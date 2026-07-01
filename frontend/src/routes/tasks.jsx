@@ -103,6 +103,7 @@ const Tasks = () => {
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
     const [cancellingTaskId, setCancellingTaskId] = useState('');
+    const [openingTaskId, setOpeningTaskId] = useState('');
     const [retryingTaskId, setRetryingTaskId] = useState('');
     const locallyCancelledTaskIdsRef = useRef(new Set());
     const locallyDeletedTaskIdsRef = useRef(new Set());
@@ -212,11 +213,23 @@ const Tasks = () => {
         };
     }, [loadJobs, hasLiveJobs]);
 
+    const getJobWithFallback = async (job) => {
+        const taskId = taskIdForJob(job);
+        const primaryOptions = isLocalJob(job) ? {sttProvider: 'local'} : {};
+        try {
+            return await getJob(taskId, primaryOptions);
+        } catch (err) {
+            if (err.status !== 404 || primaryOptions.sttProvider === 'local') throw err;
+            return getJob(taskId, {sttProvider: 'local'});
+        }
+    };
+
     const openJob = async (job) => {
         if (normalizeTaskState(job) === TASK_STATE_RUNNING) {
             setCurrentJob(jobToCurrentJob(job));
             return;
         }
+        const taskId = taskIdForJob(job);
         const openResult = (sourceJob, result) => {
             setLastResult(result);
             addToHistory(jobToHistoryEntry({...sourceJob, result}));
@@ -226,18 +239,25 @@ const Tasks = () => {
             openResult(job, job.result);
             return;
         }
+        setOpeningTaskId(taskId);
         try {
-            const fresh = await getJob(job.task_id, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            const fresh = await getJobWithFallback(job);
             const result = fresh?.result || job.result;
             if (result) {
-                openResult(job, result);
+                openResult(fresh || job, result);
+                return;
             }
+            setError(lang === 'zh'
+                ? '这条记录暂时没有可打开的结果。请点“详情”查看处理状态，或刷新后再试。'
+                : 'This record does not have an openable result yet. Open Details or refresh and try again.');
         } catch (err) {
             if (err.status === 404 && job.result) {
                 openResult(job, job.result);
                 return;
             }
             setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setOpeningTaskId('');
         }
     };
 
@@ -413,6 +433,10 @@ const Tasks = () => {
     };
     const stageLabel = (job) => t(`status.${job.stage || (normalizeTaskState(job) === TASK_STATE_FAILED ? 'failed' : 'idle')}`);
     const liveStageDetail = (job) => {
+        const snapshotStep = Array.isArray(job.task_snapshot?.steps)
+            ? job.task_snapshot.steps.find((step) => step?.id === job.task_snapshot?.current_step)
+            : null;
+        if (snapshotStep?.detail) return snapshotStep.detail;
         const progressMeta = job.metadata?.video_source_progress || {};
         const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
         const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
@@ -426,6 +450,8 @@ const Tasks = () => {
     const taskFailureDetail = (job) => {
         const taskState = normalizeTaskState(job);
         if (taskState === TASK_STATE_CANCELLED) return lang === 'zh' ? '用户已取消这个任务。' : 'This task was cancelled by the user.';
+        const snapshotFailure = job.task_snapshot?.failure_reason || '';
+        if (snapshotFailure) return snapshotFailure;
         if (taskState !== TASK_STATE_FAILED) return '';
         const raw = job.error_reason || job.result?.summary_error || job.result?.error_reason || job.metadata?.raw_error || '';
         return raw
@@ -574,8 +600,8 @@ const Tasks = () => {
                                                             {lang === 'zh' ? '重新处理' : 'Retry'}
                                                         </button>
                                                     ) : (
-                                                        <button type="button" disabled={!canOpen} onClick={() => openJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
-                                                            <ExternalLink className="size-4" strokeWidth={2.15}/>
+                                                        <button type="button" disabled={!canOpen || openingTaskId === taskId} onClick={() => openJob(job)} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#111111] px-3.5 text-xs font-bold text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                                            {openingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <ExternalLink className="size-4" strokeWidth={2.15}/>}
                                                             {t('tasks.open')}
                                                         </button>
                                                     )}

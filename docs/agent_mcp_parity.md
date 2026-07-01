@@ -49,8 +49,8 @@ Examples:
 
 | Product change | Preferred Agent / MCP response |
 | --- | --- |
-| Add source subtitle availability | Add `source.video_source.subtitles` or equivalent package field |
-| Add Bilibili downloader metadata | Add source metadata fields and tests |
+| Add source capability or availability | Add source capability fields to the task package |
+| Add platform-specific source metadata | Add normalized source metadata fields and tests |
 | Add a new export destination | Add or extend an export tool |
 | Add a new note mode | Extend `regenerate_note` parameters and package note metadata |
 | Add failure recovery guidance | Add diagnosis and `next_actions`; add a tool only if the action is executable |
@@ -77,7 +77,7 @@ Use this checklist during implementation:
 
 1. Can an external agent complete the same workflow without opening the UI?
 2. If the workflow is long-running, can the agent submit, wait, resume, and inspect failure state?
-3. Does `GET /agent/v1/tasks/{task_id}/package` contain enough source, transcript, note, artifact, plan, trace, diagnosis, and next-action data?
+3. Does `GET /agent/v1/tasks/{task_id}/package` contain the source, result, artifact, diagnosis, and next-action fields needed for this workflow?
 4. Does an existing MCP tool need a new parameter or output field?
 5. Is a new MCP tool truly needed, or is a task package field enough?
 6. Are old clients still compatible if fields are added?

@@ -75,6 +75,7 @@ class TestLocalStt(unittest.TestCase):
         self.assertEqual(_resolve_model("tiny"), "medium")
         self.assertEqual(_resolve_model("base"), "medium")
         self.assertEqual(_resolve_model("small"), "medium")
+        self.assertEqual(_resolve_model("large-v3"), "medium")
         self.assertEqual(_resolve_model(""), "medium")
 
     def test_language_defaults_to_auto_detection(self) -> None:

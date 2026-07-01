@@ -129,8 +129,15 @@ const Dashboard = () => {
     });
 
     const openHistoryEntry = async (h) => {
+        const cachedResult = historyEntryToResult(h);
+        const openCachedEditor = () => {
+            if (h.status !== 'completed' || !hasTranscriptResult(cachedResult)) return false;
+            setLastResult(cachedResult);
+            navigate('/editor');
+            return true;
+        };
         if(!h.taskId) {
-            if(h.status==='completed'){ setLastResult(historyEntryToResult(h)); navigate('/editor'); }
+            openCachedEditor();
             return;
         }
         try {
@@ -143,7 +150,8 @@ const Dashboard = () => {
                 }
             }
         } catch(_) {}
-        navigate('/tasks');
+        if (openCachedEditor()) return;
+        navigate(`/tasks/${encodeURIComponent(h.taskId)}/agent`, {state: {job: h}});
     };
 
     const settleCompletedJob = (job, fallbackJob = currentJob) => {
@@ -496,7 +504,7 @@ const Dashboard = () => {
                     sttSpeed: settings.sttSpeed||'balanced',
                     sttLanguage: 'auto',
                 });
-                navigate('/tasks', {state:{queueSubmittedAt: Date.now()}});
+                navigate('/agent', {state:{queueSubmittedAt: Date.now()}});
             } catch(err) {
                 setUploadError(friendlyTaskError(err.message || "Queue failed.", lang));
             } finally {
@@ -522,7 +530,7 @@ const Dashboard = () => {
                 queueTotal: queuedFileCount,
                 queueUpload: true,
             });
-            navigate('/tasks');
+            navigate('/agent');
             try {
                 await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark||false,
@@ -536,10 +544,10 @@ const Dashboard = () => {
                     sttLanguage: 'auto',
                 });
                 setCurrentJob(null);
-                navigate('/tasks', {replace:true, state:{queueSubmittedAt: Date.now()}});
+                navigate('/agent', {replace:true, state:{queueSubmittedAt: Date.now()}});
             } catch(err) {
                 setCurrentJob(null);
-                navigate('/tasks', {
+                navigate('/agent', {
                     replace:true,
                     state:{queueSubmitError: friendlyTaskError(err.message || "Queue failed.", lang)},
                 });
@@ -691,7 +699,7 @@ const Dashboard = () => {
                             sttSpeed: settings.sttSpeed||'balanced',
                             sttLanguage: 'auto',
                         });
-                        navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job: pendingJob}});
+                        navigate('/agent', {state: {job: pendingJob}});
                     }
                     setVideoLinkInput('');
                 } catch(err) {

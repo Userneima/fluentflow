@@ -28,6 +28,7 @@ Every persisted task result should expose:
 | `summary_status` | `completed`, `failed`, `skipped`, or `pending`. |
 | `summary_error` | Failure reason when note generation fails. |
 | `summary_skipped` | True when the task intentionally skipped AI notes. |
+| `summary_edited` / `summary_edited_at` | User edited the generated note body in the editor; `summary_markdown` remains the canonical latest note for UI, downloads, Agent API, and MCP package reads. |
 | `source_language` | Language used for transcript/note decisions. |
 | `detected_language` | Language detected by STT or post-processing. |
 | `subtitle_mode` | Example values: `source_only`, `bilingual_zh`. |
@@ -146,7 +147,7 @@ fields only for cached or legacy records.
 | `execution_mode` | Current value is `automatic`; users are not asked to approve before execution. |
 | `requires_user_confirmation` | Current value is `false`. |
 | `planning_stage` | `initial` when the plan is generated before transcript content exists; `completed` after transcript content can be used. |
-| `goal.primary` | First version only uses `course_notes` or `lecture_notes`. Tutorial, interview, translation, and knowledge-base goals are out of scope for v1. |
+| `goal.primary` | Supported user goal recorded by the current planner. New goal families must be versioned and documented instead of overloading existing values. |
 | `goal.reason` | Short explanation of why that goal is used. |
 | `material.type` | Route-level material type, such as `course_transcript_file`, `course_material`, `lecture_material`, `course_video_pending_content`, or `lecture_video_pending_content`. |
 | `material.confidence` | `high`, `medium`, or `low`; low confidence means the route is inferred from metadata only. |
@@ -265,7 +266,7 @@ Top-level shape:
 | `source` | Source type, filename, title, URL, duration, and file size. |
 | `transcript` | Transcript availability, text, preview, raw/display segments, language, subtitle and translation state. |
 | `note` | Note status, Markdown, diagnosis, modes, prompt metadata, and generation stats. |
-| `artifacts` | Download/export outputs by kind, with URL and optional local path. |
+| `artifacts` | Download/export outputs by kind. Public or agent-facing payloads should prefer URLs or artifact ids; local filesystem paths are allowed only inside trusted local runtime surfaces and must never be exposed by public APIs. |
 | `visual` | Optional visual evidence package with final screenshot evidence and generated image artifacts. |
 | `usage` | Estimated and billable processing units. |
 | `next_actions` | Agent-callable follow-up actions, such as `wait` or `regenerate_note`. |
@@ -284,7 +285,7 @@ Top-level shape:
 
 ## Frontend Runtime Normalization
 
-Frontend code should normalize external payloads through `frontend/src/lib/resultSchema.js` before mapping them into history entries, current jobs, editor state, or Agent displays.
+Frontend code should normalize external payloads through `frontend/src/lib/resultSchema.js` before mapping them into list, detail, editor, or agent-facing surfaces.
 
 The normalizer:
 

@@ -19,6 +19,33 @@ const compactTextForCache = (value, maxChars=240) => (
     value ? String(value).slice(0, maxChars) : ''
 );
 
+const asObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
+export const taskSnapshotForJob = (job={}) => asObject(job?.task_snapshot);
+
+export const currentStepFromTaskSnapshot = (snapshot={}) => {
+    const steps = Array.isArray(snapshot.steps) ? snapshot.steps : [];
+    const currentStepId = String(snapshot.current_step || '').trim();
+    return steps.find((step) => String(step?.id || '').trim() === currentStepId)
+        || steps.find((step) => ['failed', 'cancelled', 'running'].includes(String(step?.status || '').trim()))
+        || null;
+};
+
+const snapshotCurrentStage = (snapshot={}) => {
+    const step = String(snapshot.current_step || '').trim();
+    const map = {
+        source_fetch: 'downloading',
+        subtitle_parse: 'transcript_parse',
+        audio_prepare: 'audio',
+        transcription: 'stt',
+        subtitle_prepare: 'transcript_ready',
+        note_generation: 'summary',
+        result_save: 'done',
+        feishu_export: 'export',
+    };
+    return map[step] || '';
+};
+
 const minimizeJobForCache = (job) => {
     if (!job || typeof job !== 'object') return null;
     const {__cacheOnly, ...persistedJob} = job;
@@ -130,8 +157,9 @@ export const historyStatusFromJob = (job={}) => {
     const normalizedJob = normalizeJobPayload(job);
     const result = normalizedJob.result || {};
     const taskState = normalizedJob.task_state || normalizeTaskState(normalizedJob);
-    if (hasTranscriptResult(result)) return TASK_STATE_COMPLETED;
+    if (taskState === TASK_STATE_FAILED || taskState === TASK_STATE_CANCELLED) return taskState;
     if (taskState === TASK_STATE_QUEUED || taskState === TASK_STATE_RUNNING) return 'processing';
+    if (hasTranscriptResult(result)) return TASK_STATE_COMPLETED;
     return taskState === TASK_STATE_COMPLETED ? TASK_STATE_COMPLETED : (normalizedJob.status || taskState || TASK_STATE_FAILED);
 };
 
@@ -253,6 +281,7 @@ export const resultToHistoryEntry = (sourceResult, fallback={}) => {
 
 export const jobToHistoryEntry = (sourceJob) => {
     const job = normalizeJobPayload(sourceJob);
+    const snapshot = taskSnapshotForJob(job);
     const result = job.result || {};
     const entry = resultToHistoryEntry(result, {
         taskId: job.task_id,
@@ -268,33 +297,49 @@ export const jobToHistoryEntry = (sourceJob) => {
         ...entry,
         status: historyStatusFromJob(job),
         taskState: job.task_state,
+        taskSnapshot: Object.keys(snapshot).length ? snapshot : null,
         summaryStatus: result.summary_status || job.summary_status || entry.summaryStatus,
-        summaryError: result.summary_error || job.error_reason || entry.summaryError,
-        errorReason: job.error_reason || result.error_reason || entry.errorReason,
+        summaryError: result.summary_error || snapshot.failure_reason || job.error_reason || entry.summaryError,
+        errorReason: snapshot.failure_reason || job.error_reason || result.error_reason || entry.errorReason,
+        nextAction: snapshot.next_action || entry.nextAction || null,
     };
 };
 
 export const jobToCurrentJob = (sourceJob) => {
     const job = normalizeJobPayload(sourceJob);
+    const snapshot = taskSnapshotForJob(job);
+    const currentStep = currentStepFromTaskSnapshot(snapshot);
+    const route = asObject(snapshot.route);
+    const snapshotStage = snapshotCurrentStage(snapshot);
+    const legacyStage = String(job.stage || '').trim();
+    const effectiveStage = legacyStage && !['queued', 'idle'].includes(legacyStage)
+        ? legacyStage
+        : snapshotStage || legacyStage || 'upload';
     return {
         taskId: job.task_id,
         fileName: jobDisplayTitle(job),
-        stage: job.stage || 'upload',
+        stage: effectiveStage,
         taskState: job.task_state,
-        progress: job.progress ?? 0,
+        progress: snapshot.progress ?? job.progress ?? 0,
         startedAt: Date.parse(job.created_at || '') || Date.now(),
         sourceType: job.source_type || null,
         fileSizeMb: job.source_file_size_mb || null,
         resume: true,
-        sttProvider: job.metadata?.stt_provider || job.result?.stt_provider || null,
+        taskSnapshot: Object.keys(snapshot).length ? snapshot : null,
+        currentStepId: snapshot.current_step || currentStep?.id || null,
+        currentStepTitle: currentStep?.title || null,
+        currentStepDetail: currentStep?.detail || null,
+        sttProvider: route.stt_provider || job.metadata?.stt_provider || job.result?.stt_provider || null,
+        sttModel: route.stt_model || job.result?.stt_model || job.metadata?.queue_options?.stt_model || null,
         sttProgress: job.metadata?.stt_progress,
         transcribedSeconds: job.metadata?.transcribed_seconds,
         durationSeconds: job.metadata?.duration_seconds,
         sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
         sttStatus: job.metadata?.stt_status,
         azureBatchAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb ?? job.metadata?.azure_batch_audio_size_mb,
-        summaryError: job.result?.summary_error || job.error_reason || null,
-        errorReason: job.error_reason || job.result?.error_reason || null,
+        summaryError: job.result?.summary_error || snapshot.failure_reason || job.error_reason || null,
+        errorReason: snapshot.failure_reason || job.error_reason || job.result?.error_reason || null,
+        nextAction: snapshot.next_action || null,
     };
 };
 

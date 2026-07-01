@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.task_detail import build_task_snapshot
 
 router = APIRouter()
 
@@ -23,4 +24,4 @@ def get_jobs(request: Request, limit: int = 50, include_result: bool = False) ->
         if include_result
         else H.list_job_summaries(limit=limit, client_id=client_id)
     )
-    return {"jobs": jobs}
+    return {"jobs": [{**job, "task_snapshot": build_task_snapshot(job)} for job in jobs]}

@@ -225,7 +225,7 @@ const MediaText = () => {
                     sttSpeed: settings.sttSpeed || 'balanced',
                     sttLanguage: 'auto',
                 });
-                navigate('/tasks', {state: {queueSubmittedAt: Date.now()}});
+                navigate('/agent', {state: {queueSubmittedAt: Date.now()}});
             } catch (err) {
                 setUploadError(friendlyTaskError(err.message || 'Queue failed.', lang));
                 setCurrentJob(null);
@@ -371,7 +371,7 @@ const MediaText = () => {
                 setVideoLinkInput('');
                 abortRef.current = null;
                 setSubmitting(false);
-                navigate(`/tasks/${encodeURIComponent(job.task_id)}/agent`, {state: {job}});
+                navigate('/agent', {state: {job}});
                 return;
             }
         } catch (err) {
@@ -471,13 +471,15 @@ const MediaText = () => {
     const recent = history.slice(0, 6);
 
     const openRecentTask = async (item) => {
+        const cachedResult = historyEntryToResult(item);
+        const openCachedEditor = () => {
+            if (item.status !== 'completed' || !hasTranscriptResult(cachedResult)) return false;
+            setLastResult(cachedResult);
+            navigate('/editor');
+            return true;
+        };
         if (!item.taskId) {
-            if (item.status === 'completed') {
-                setLastResult(historyEntryToResult(item));
-                navigate('/editor');
-            } else {
-                navigate('/tasks');
-            }
+            openCachedEditor();
             return;
         }
         try {
@@ -488,7 +490,8 @@ const MediaText = () => {
                 return;
             }
         } catch (_) {}
-        navigate('/tasks');
+        if (openCachedEditor()) return;
+        navigate(`/tasks/${encodeURIComponent(item.taskId)}/agent`, {state: {job: item}});
     };
 
     return (

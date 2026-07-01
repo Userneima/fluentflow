@@ -1,0 +1,529 @@
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Link, useLocation, useNavigate} from 'react-router-dom';
+import {
+    ArrowRight,
+    AlertCircle,
+    CheckCircle2,
+    FileText,
+    FileVideo,
+    History,
+    LoaderCircle,
+    Plus,
+    RefreshCw,
+    SlidersHorizontal,
+    Subtitles,
+    XCircle,
+} from 'lucide-react';
+import {
+    fmtElapsed,
+    fmtBytes,
+    fmtFileSize,
+    friendlyTaskError,
+    isSttProgressUnmeasured,
+    jobDisplayTitle,
+    jobToHistoryEntry,
+    jobToCurrentJob,
+    readCachedAccountJobs,
+    sortJobsForHistoryView,
+    timeAgo,
+    useApi,
+    useApp,
+    useAuth,
+    useI18n,
+    writeCachedAccountJobs,
+} from '../app/shared.jsx';
+import {
+    isLiveTask,
+    markBackendJob,
+    normalizeTaskState,
+    TASK_STATE_QUEUED,
+    TASK_STATE_RUNNING,
+    TASK_STATE_UPLOADING,
+    TASK_STATE_COMPLETED,
+    TASK_STATE_FAILED,
+    TASK_STATE_CANCELLED,
+    TASK_STATE_CACHED_ONLY,
+} from '../lib/taskState.js';
+
+const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
+
+const isLocalJob = (job) => String(job?.client_id || '').startsWith('local-') || job?.metadata?.stt_provider === 'local';
+
+const jobFromCurrentJob = (currentJob) => {
+    if (!currentJob) return null;
+    if (currentJob.queueUpload) {
+        return {
+            task_id: currentJob.taskId || 'queue-upload',
+            status: TASK_STATE_UPLOADING,
+            task_state: TASK_STATE_UPLOADING,
+            stage: 'upload',
+            progress: currentJob.progress ?? 2,
+            source_type: 'queue_upload',
+            source_filename: currentJob.fileName,
+            source_file_size_mb: currentJob.fileSizeMb,
+            created_at: currentJob.startedAt ? new Date(currentJob.startedAt).toISOString() : new Date().toISOString(),
+            metadata: {
+                display_title: currentJob.fileName,
+                queue_total: currentJob.queueTotal,
+                stt_provider: currentJob.sttProvider || null,
+            },
+        };
+    }
+    if (!currentJob.taskId) return null;
+    return {
+        task_id: currentJob.taskId,
+        status: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : TASK_STATE_RUNNING),
+        task_state: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : TASK_STATE_RUNNING),
+        stage: currentJob.stage || 'queued',
+        progress: currentJob.progress ?? 0,
+        source_type: currentJob.sourceType || null,
+        source_filename: currentJob.fileName || currentJob.taskId,
+        source_file_size_mb: currentJob.fileSizeMb || null,
+        created_at: currentJob.startedAt ? new Date(currentJob.startedAt).toISOString() : new Date().toISOString(),
+        metadata: {
+            display_title: currentJob.fileName || currentJob.taskId,
+            stt_provider: currentJob.sttProvider || null,
+            video_source_progress: currentJob.videoSourceProgress || null,
+        },
+    };
+};
+
+const mergeJobs = (...groups) => {
+    const byId = new Map();
+    groups.flat().forEach((job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId) return;
+        const existing = byId.get(taskId);
+        const nextTs = Date.parse(job?.updated_at || job?.created_at || '') || 0;
+        const existingTs = Date.parse(existing?.updated_at || existing?.created_at || '') || 0;
+        if (!existing || nextTs >= existingTs) byId.set(taskId, job);
+    });
+    return sortJobsForHistoryView(Array.from(byId.values()));
+};
+
+const statusLabel = (job, lang) => {
+    const state = normalizeTaskState(job);
+    if (state === TASK_STATE_UPLOADING) return lang === 'zh' ? '上传中' : 'Uploading';
+    if (state === TASK_STATE_QUEUED) return lang === 'zh' ? '排队中' : 'Queued';
+    if (state === TASK_STATE_COMPLETED || state === TASK_STATE_CACHED_ONLY) return lang === 'zh' ? '已完成' : 'Completed';
+    if (state === TASK_STATE_FAILED) return lang === 'zh' ? '失败' : 'Failed';
+    if (state === TASK_STATE_CANCELLED) return lang === 'zh' ? '已取消' : 'Cancelled';
+    return lang === 'zh' ? '处理中' : 'Running';
+};
+
+const stageLabel = (job, lang) => {
+    const isZh = lang === 'zh';
+    const labels = {
+        upload: isZh ? '接收材料' : 'Receiving',
+        queued: isZh ? '等待开始' : 'Waiting',
+        resolving: isZh ? '解析链接' : 'Resolving link',
+        downloading: isZh ? '下载视频' : 'Downloading',
+        saving: isZh ? '保存来源' : 'Saving source',
+        audio: isZh ? '提取音频' : 'Extracting audio',
+        stt: isZh ? '语音转写' : 'Transcribing',
+        transcript_ready: isZh ? '整理转录' : 'Transcript ready',
+        summary: isZh ? '生成笔记' : 'Generating note',
+        export: isZh ? '导出飞书' : 'Exporting',
+    };
+    return labels[job?.stage] || statusLabel(job, lang);
+};
+
+const liveStageDetail = (job, lang) => {
+    const snapshotStep = Array.isArray(job?.task_snapshot?.steps)
+        ? job.task_snapshot.steps.find((step) => step?.id === job.task_snapshot?.current_step)
+        : null;
+    if (snapshotStep?.detail) return snapshotStep.detail;
+    const progressMeta = job?.metadata?.video_source_progress || {};
+    const loaded = progressMeta.loaded_bytes ? fmtBytes(progressMeta.loaded_bytes) : '';
+    const total = progressMeta.total_bytes ? fmtBytes(progressMeta.total_bytes) : '';
+    const byteText = loaded && total ? ` · ${loaded} / ${total}` : (loaded ? ` · ${loaded}` : '');
+    if (progressMeta.message) return `${progressMeta.message}${byteText}`;
+    if (normalizeTaskState(job) === TASK_STATE_QUEUED) {
+        return lang === 'zh' ? '已经加入队列，会按顺序开始处理。' : 'Queued and waiting for its turn.';
+    }
+    return lang === 'zh' ? '进度会在这里持续更新，离开本页也不会中断任务。' : 'Progress keeps updating here; leaving this page will not stop the task.';
+};
+
+const sourceLabel = (job, lang) => {
+    const isZh = lang === 'zh';
+    const sourceType = job?.source_type || job?.result?.source || '';
+    if (sourceType === 'transcript_file') return isZh ? '字幕文件' : 'Subtitle file';
+    if (sourceType === 'video_link') return isZh ? '视频链接' : 'Video link';
+    if (sourceType === 'queue_upload' || sourceType === 'video_file') return isZh ? '视频文件' : 'Video file';
+    if (sourceType === 'audio_file') return isZh ? '音频文件' : 'Audio file';
+    return isZh ? '素材' : 'Source';
+};
+
+const routeLabel = (job, lang) => {
+    const provider = String(
+        job?.metadata?.queue_options?.stt_provider
+        || job?.metadata?.stt_provider
+        || job?.result?.stt_provider
+        || ''
+    );
+    if (provider === 'local') return lang === 'zh' ? '本地转写' : 'Local STT';
+    if (provider === 'elevenlabs_scribe') return lang === 'zh' ? 'ElevenLabs 云端' : 'ElevenLabs cloud';
+    if (provider === 'azure_batch') return lang === 'zh' ? '历史云端' : 'Legacy cloud';
+    return lang === 'zh' ? '按任务决定' : 'Task default';
+};
+
+const fileInfoLabel = (job) => {
+    const sizeMb = Number(job?.source_file_size_mb || job?.metadata?.file_size_mb || 0) || 0;
+    const durationSec = Number(job?.result?.audio_duration_seconds || job?.source_duration_seconds || job?.metadata?.duration_seconds || 0) || 0;
+    const parts = [];
+    if (sizeMb) parts.push(fmtFileSize(sizeMb));
+    if (durationSec) parts.push(fmtElapsed(durationSec));
+    return parts.join(' · ') || '-';
+};
+
+const materialLabel = (job, lang) => {
+    const value = String(
+        job?.metadata?.material_type_label
+        || job?.metadata?.material_type
+        || job?.result?.material_type
+        || ''
+    ).trim();
+    if (value) return value;
+    return lang === 'zh' ? '待判断' : 'Pending';
+};
+
+const statePillClass = (state) => {
+    if (state === TASK_STATE_COMPLETED) return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-100';
+    if (state === TASK_STATE_FAILED || state === TASK_STATE_CANCELLED) return 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300';
+    return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200';
+};
+
+const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel, onOpenResult}) => {
+    const taskId = taskIdForJob(job);
+    const state = normalizeTaskState(job);
+    const live = isLiveTask(job);
+    const completed = state === TASK_STATE_COMPLETED || state === TASK_STATE_CACHED_ONLY;
+    const failed = state === TASK_STATE_FAILED || state === TASK_STATE_CANCELLED;
+    const progress = completed ? 100 : Math.max(0, Math.min(100, Number(job?.progress) || (state === TASK_STATE_QUEUED ? 0 : 2)));
+    const current = jobToCurrentJob(job);
+    const progressUnknown = isSttProgressUnmeasured(current);
+    const displayTitle = jobDisplayTitle(job, lang);
+    const updatedAt = Date.parse(job?.updated_at || job?.created_at || '') || 0;
+    const sourceType = job?.source_type || '';
+    const queueTotal = job?.metadata?.queue_total;
+    const SourceIcon = sourceType === 'transcript_file' ? Subtitles : FileVideo;
+    const detail = failed
+        ? friendlyTaskError(job?.error_reason || job?.result?.summary_error || '', lang)
+        : completed
+            ? (lang === 'zh' ? '处理完成，可以打开结果继续校对、下载或重生笔记。' : 'Done. Open the result to review, download, or regenerate notes.')
+            : liveStageDetail(job, lang);
+    return (
+        <article className="rounded-[24px] border border-[#dedada] bg-white p-5 shadow-[0_18px_44px_-38px_rgba(17,17,17,.45)] dark:border-white/[0.10] dark:bg-white/[0.055] dark:shadow-none">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#efeeee] text-[#111111] dark:bg-white/[0.12] dark:text-white">
+                        <SourceIcon className="size-5" strokeWidth={2.15}/>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statePillClass(state)}`}>
+                                {statusLabel(job, lang)}
+                            </span>
+                            <span className="text-[12px] font-semibold text-[#85868c] dark:text-white/55">
+                                {updatedAt ? timeAgo(updatedAt, t) : (lang === 'zh' ? '刚刚' : 'just now')}
+                            </span>
+                        </div>
+                        <h2 className="mt-2 truncate font-headline text-[17px] font-extrabold text-[#111111] dark:text-white" title={displayTitle}>
+                            {displayTitle}
+                        </h2>
+                        <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
+                            {stageLabel(job, lang)}{queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
+                        </p>
+                        <div className="mt-5">
+                            <div className="mb-2 flex items-end justify-between gap-4">
+                                <div>
+                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
+                                    <p className="mt-1 font-headline text-[24px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
+                                </div>
+                                <p className="font-headline text-[28px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progress}%</p>
+                            </div>
+                            <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
+                                {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
+                            </div>
+                            <p className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                                {detail}
+                            </p>
+                        </div>
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '来源' : 'Source'}</p>
+                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{sourceLabel(job, lang)}</p>
+                            </div>
+                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '处理路线' : 'Route'}</p>
+                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{routeLabel(job, lang)}</p>
+                            </div>
+                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '文件信息' : 'File'}</p>
+                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{fileInfoLabel(job)}</p>
+                            </div>
+                            <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
+                                <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '判断材料类型' : 'Material'}</p>
+                                <p className="mt-1 text-[13px] font-extrabold text-[#111111] dark:text-white">{materialLabel(job, lang)}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+                    {completed ? (
+                        <button type="button" disabled={!job?.result || openingTaskId === taskId} onClick={() => onOpenResult(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                            {openingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <FileText className="size-4" strokeWidth={2.15}/>}
+                            {lang === 'zh' ? '查看结果' : 'View result'}
+                        </button>
+                    ) : failed ? (
+                        <Link to="/media-text?mode=media" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                            <AlertCircle className="size-4" strokeWidth={2.15}/>
+                            {lang === 'zh' ? '重新提交' : 'Submit again'}
+                        </Link>
+                    ) : null}
+                    {live && taskId && taskId !== 'queue-upload' ? (
+                        <button type="button" disabled={cancellingTaskId === taskId} onClick={() => onCancel(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-4 text-[13px] font-extrabold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
+                            {cancellingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <XCircle className="size-4" strokeWidth={2.15}/>}
+                            {lang === 'zh' ? '取消' : 'Cancel'}
+                        </button>
+                    ) : null}
+                    {completed && !job?.result ? (
+                        <span className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#676970] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white/55">
+                            <CheckCircle2 className="size-4" strokeWidth={2.15}/>
+                            {lang === 'zh' ? '结果同步中' : 'Syncing result'}
+                        </span>
+                    ) : null}
+                </div>
+            </div>
+        </article>
+    );
+};
+
+const AgentTasks = () => {
+    const {lang, t} = useI18n();
+    const {authMode, user} = useAuth();
+    const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
+    const {getJobs, getJob, cancelJob} = useApi();
+    const location = useLocation();
+    const navigate = useNavigate();
+    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
+    const readCachedJobs = useCallback(() => readCachedAccountJobs(cacheAccountId), [cacheAccountId]);
+    const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
+    const [jobs, setJobs] = useState(() => mergeJobs(seededJob ? [seededJob] : [], readCachedJobs()));
+    const [loading, setLoading] = useState(() => readCachedJobs().length === 0);
+    const [error, setError] = useState(() => location.state?.queueSubmitError || null);
+    const [cancellingTaskId, setCancellingTaskId] = useState('');
+    const [openingTaskId, setOpeningTaskId] = useState('');
+    const locallyCancelledTaskIdsRef = useRef(new Set());
+    const currentJobRecord = useMemo(() => jobFromCurrentJob(currentJob), [currentJob]);
+    const displayJobs = useMemo(() => (
+        mergeJobs(currentJobRecord ? [currentJobRecord] : [], jobs)
+            .filter((job) => !locallyCancelledTaskIdsRef.current.has(taskIdForJob(job)))
+            .slice(0, 30)
+    ), [currentJobRecord, jobs, cancellingTaskId]);
+    const liveJobs = useMemo(() => displayJobs.filter(isLiveTask), [displayJobs]);
+    const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
+    const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
+    const totalSizeMb = displayJobs.reduce((sum, job) => sum + (Number(job?.source_file_size_mb || job?.metadata?.file_size_mb || 0) || 0), 0);
+
+    const loadJobs = useCallback(async () => {
+        const results = await Promise.allSettled([
+            getJobs(100),
+            getJobs(100, {sttProvider: 'local'}),
+        ]);
+        const fetchedJobs = results
+            .filter((result) => result.status === 'fulfilled')
+            .flatMap((result) => Array.isArray(result.value) ? result.value : [])
+            .map(markBackendJob);
+        const failedFetches = results.filter((result) => result.status === 'rejected');
+        setJobs((current) => {
+            const next = mergeJobs(readCachedJobs(), current, fetchedJobs);
+            writeCachedAccountJobs(cacheAccountId, next);
+            return failedFetches.length === results.length && current.length ? current : next;
+        });
+        setError(failedFetches.length ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。' : 'Failed to refresh tasks. Local cache is preserved.') : null);
+        setLoading(false);
+    }, [cacheAccountId, getJobs, lang, readCachedJobs]);
+
+    useEffect(() => {
+        if (location.state?.queueSubmitError || location.state?.queueSubmittedAt) {
+            navigate('/agent', {replace: true, state: {}});
+        }
+    }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
+
+    useEffect(() => {
+        let stale = false;
+        const run = async () => { if (!stale) await loadJobs(); };
+        run();
+        const timer = setInterval(run, liveJobs.length ? 5000 : 30000);
+        return () => {
+            stale = true;
+            clearInterval(timer);
+        };
+    }, [loadJobs, liveJobs.length]);
+
+    const cancelLiveJob = async (job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId) return;
+        const confirmText = lang === 'zh'
+            ? '取消这个正在处理的任务？已生成的完整结果不会保留。'
+            : 'Cancel this active task? A complete result will not be kept.';
+        if (!window.confirm(confirmText)) return;
+        locallyCancelledTaskIdsRef.current.add(taskId);
+        setCancellingTaskId(taskId);
+        setJobs((current) => current.map((item) => taskIdForJob(item) === taskId ? {
+            ...item,
+            status: 'cancelled',
+            task_state: 'cancelled',
+            error_reason: 'user_cancelled',
+            updated_at: new Date().toISOString(),
+        } : item));
+        try {
+            await cancelJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            if (currentJob?.taskId === taskId) setCurrentJob(null);
+            await loadJobs();
+        } catch (err) {
+            locallyCancelledTaskIdsRef.current.delete(taskId);
+            setError(friendlyTaskError(err.message || String(err), lang));
+            await loadJobs();
+        } finally {
+            setCancellingTaskId('');
+        }
+    };
+
+    const getJobWithFallback = async (job) => {
+        const taskId = taskIdForJob(job);
+        const primaryOptions = isLocalJob(job) ? {sttProvider: 'local'} : {};
+        try {
+            return await getJob(taskId, primaryOptions);
+        } catch (err) {
+            if (err.status !== 404 || primaryOptions.sttProvider === 'local') throw err;
+            return getJob(taskId, {sttProvider: 'local'});
+        }
+    };
+
+    const openResult = async (job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId) return;
+        const open = (sourceJob, result) => {
+            setLastResult(result);
+            addToHistory(jobToHistoryEntry({...sourceJob, result}));
+            navigate('/editor');
+        };
+        if (job.result) {
+            open(job, job.result);
+            return;
+        }
+        setOpeningTaskId(taskId);
+        try {
+            const fresh = await getJobWithFallback(job);
+            if (fresh?.result) {
+                open(fresh, fresh.result);
+                return;
+            }
+            setError(lang === 'zh' ? '这条记录暂时没有可打开的结果。请刷新后再试。' : 'This record does not have an openable result yet. Refresh and try again.');
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setOpeningTaskId('');
+        }
+    };
+
+    return (
+        <main className="ml-[var(--sidebar-offset)] h-dvh flex-1 overflow-y-auto bg-[#f8f7fb] px-6 py-5 text-[#111111] transition-[margin] duration-200 ease-out hide-scrollbar dark:bg-[#101010] dark:text-white/[0.92] lg:px-10">
+            <div className="mx-auto max-w-7xl space-y-5">
+                <header className="flex flex-col gap-4 border-b border-[#dedada] pb-5 dark:border-white/[0.10] lg:flex-row lg:items-end lg:justify-between">
+                    <div className="min-w-0">
+                        <p className="inline-flex items-center gap-2 text-[12px] font-extrabold text-[#676970] dark:text-white/[0.72]">
+                            <SlidersHorizontal className="size-4" strokeWidth={2.15}/>
+                            {lang === 'zh' ? 'Agent 工作流' : 'Agent workflow'}
+                        </p>
+                        <h1 className="mt-2 font-headline text-[24px] font-extrabold leading-tight text-[#111111] dark:text-white">
+                            {lang === 'zh' ? '处理详情' : 'Task details'}
+                        </h1>
+                        <p className="mt-1 max-w-[76ch] text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
+                            {lang === 'zh'
+                                ? '每个视频就是一条完整处理记录，进度、路线、文件信息、失败原因和结果入口都直接显示在这里。'
+                                : 'Each video is shown as one expanded processing record with progress, route, file info, recovery, and result actions.'}
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={loadJobs} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2.15}/>
+                            {lang === 'zh' ? '刷新' : 'Refresh'}
+                        </button>
+                        <Link to="/media-text?mode=media" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                            <Plus className="size-4" strokeWidth={2.15}/>
+                            {lang === 'zh' ? '添加任务' : 'Add task'}
+                        </Link>
+                    </div>
+                </header>
+
+                {error && (
+                    <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+                        {error}
+                    </div>
+                )}
+
+                <section className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
+                        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '进行中' : 'Running'}</p>
+                        <p className="mt-1 text-[22px] font-extrabold tabular-nums text-[#111111] dark:text-white">{runningCount}</p>
+                    </div>
+                    <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
+                        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '排队中' : 'Queued'}</p>
+                        <p className="mt-1 text-[22px] font-extrabold tabular-nums text-[#111111] dark:text-white">{queuedCount}</p>
+                    </div>
+                    <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
+                        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '文件大小' : 'File size'}</p>
+                        <p className="mt-1 text-[22px] font-extrabold tabular-nums text-[#111111] dark:text-white">{totalSizeMb ? fmtFileSize(totalSizeMb) : '-'}</p>
+                    </div>
+                </section>
+
+                <section className="space-y-3">
+                    {loading && !displayJobs.length && (
+                        <div className="flex h-48 items-center justify-center rounded-[22px] border border-[#dedada] bg-white text-sm font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/60">
+                            <LoaderCircle className="mr-2 size-4 animate-spin" strokeWidth={2.15}/>
+                            {lang === 'zh' ? '正在读取任务...' : 'Loading tasks...'}
+                        </div>
+                    )}
+                    {!loading && displayJobs.length === 0 && (
+                        <div className="rounded-[24px] border border-[#dedada] bg-white p-8 text-center dark:border-white/[0.10] dark:bg-white/[0.055]">
+                            <History className="mx-auto size-9 text-[#85868c] dark:text-white/45" strokeWidth={2.15}/>
+                            <h2 className="mt-3 font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                                {lang === 'zh' ? '当前没有处理记录' : 'No processing records'}
+                            </h2>
+                            <p className="mx-auto mt-2 max-w-[54ch] text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
+                                {lang === 'zh' ? '开始一个新任务后，处理进度会直接作为记录显示在这里。' : 'Start a task and its processing record will appear here.'}
+                            </p>
+                            <div className="mt-5 flex flex-wrap justify-center gap-2">
+                                <Link to="/media-text?mode=media" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111]">
+                                    <Plus className="size-4" strokeWidth={2.15}/>
+                                    {lang === 'zh' ? '开始处理' : 'Start'}
+                                </Link>
+                                <Link to="/tasks" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white">
+                                    {lang === 'zh' ? '历史记录' : 'History'}
+                                    <ArrowRight className="size-4" strokeWidth={2.15}/>
+                                </Link>
+                            </div>
+                        </div>
+                    )}
+                    {displayJobs.map((job) => (
+                        <AgentTaskCard
+                            key={taskIdForJob(job)}
+                            job={job}
+                            lang={lang}
+                            t={t}
+                            cancellingTaskId={cancellingTaskId}
+                            openingTaskId={openingTaskId}
+                            onCancel={cancelLiveJob}
+                            onOpenResult={openResult}
+                        />
+                    ))}
+                </section>
+            </div>
+        </main>
+    );
+};
+
+export default AgentTasks;

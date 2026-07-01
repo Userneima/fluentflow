@@ -1,11 +1,12 @@
 # FluentFlow 事件日志说明
 
-本文档描述第一阶段最小埋点。目标是记录真实发生的系统链路和已有用户按钮行为，用于分析处理效率、稳定性和飞书导出链路。
+本文档描述 FluentFlow 的长期事件日志口径。目标是记录真实发生的系统链路和用户动作，用于分析处理效率、稳定性、失败原因和外部同步链路。
 
 ## 基本原则
 
 - 事件日志使用本地 SQLite：`data/fluentflow_events.sqlite`。
-- 只记录长度、类型、耗时、状态、错误原因和飞书链接，不保存完整转写文本或完整 Markdown 笔记。
+- 只记录长度、类型、耗时、状态、错误原因和外部同步结果，不保存完整转写文本或完整 Markdown 笔记。
+- 事件日志是诊断和统计数据，不是结果存储；完整结果、字幕、笔记和产物归属看任务结果和 artifact。
 - 埋点是 best-effort：写入失败只记录后端 warning，不影响主业务流程。
 - 每次处理任务使用一个 `task_id` 串联导入、转写、摘要、导出和下载等事件。
 - 历史快照报告不写入事件表，历史 localStorage 数据不伪造成事件。
@@ -28,8 +29,8 @@
 | `duration_seconds` | 当前阶段耗时。 |
 | `success` | 当前事件是否成功，`true`/`false`/空。 |
 | `error_reason` | 失败原因。 |
-| `export_target` | 导出目标，例如 `lark_cli`、`lark_openapi`。 |
-| `feishu_doc_url` | 飞书文档 URL。 |
+| `export_target` | 外部导出或同步目标。当前飞书/Lark 路线使用 `lark_cli`、`lark_openapi`。 |
+| `feishu_doc_url` | 飞书/Lark 文档 URL；仅飞书/Lark 导出事件使用。 |
 | `metadata` | 少量补充信息，例如事件口径版本、运行环境、`trigger: auto/manual`、模型名、下载格式、任务终态字段。 |
 
 ## 事件定义
@@ -38,9 +39,9 @@
 | --- | --- | --- |
 | `source_imported` | `/process`、`/summarize-transcript-file` 收到并读取文件后 | 用户导入音视频或字幕/文本文件。 |
 | `audio_extracted` | `/process` 中 FFmpeg 音频处理成功后 | 音视频路径完成音频提取。字幕/文本路径不会记录此事件。 |
-| `stt_completed` | `/process` 中选定 STT 服务返回结果后 | 音视频路径完成真实转写。`metadata.stt_provider` 区分 ElevenLabs Scribe、本地 faster-whisper 和 legacy Azure；字幕/文本路径不会记录此事件。 |
+| `stt_completed` | `/process` 中选定 STT 服务返回结果后 | 音视频路径完成真实转写。`metadata.stt_provider` 区分具体转录 provider；字幕/文本路径不会记录此事件。 |
 | `transcript_cleanup_completed` | `/process`、`/summarize-transcript-file` 检测到并折叠重复幻觉后 | 机械清洗明显重复片段完成。只在实际发生清洗时记录，不代表人工确认内容正确。 |
-| `speaker_diarization_completed` | 用户开启说话人区分且真实 diarization 后端成功返回后 | 字幕段已合并真实说话人标签；本地转录走 pyannote，云端转录走 provider 返回的 speaker labels。不会用启发式猜测 speaker。 |
+| `speaker_diarization_completed` | 用户开启说话人区分且真实 diarization 后端成功返回后 | 字幕段已合并真实说话人标签。不会用启发式猜测 speaker。 |
 | `transcript_ready` | `/process` 转写完成后；`/summarize-transcript-file` 解析字幕/文本后 | 系统已有可用转写文本。 |
 | `transcript_review_completed` | 已移除，仅历史版本可能存在 | 旧版热词审阅事件。当前主流程不再产生。 |
 | `summary_completed` | AI 摘要真实成功并返回非空 Markdown 后 | 摘要生成成功，只记录 `success=true`。 |
@@ -48,8 +49,8 @@
 | `summary_fallback_used` | 已移除，仅历史版本可能存在 | 当前版本不再把原始转写伪装成摘要成功；摘要失败会进入失败态。 |
 | `summary_skipped` | 用户开启跳过 AI 摘要时 | 系统进入 transcript-only 模式，`metadata.reason=transcript_only_mode`。 |
 | `summary_regenerated` | 用户点击“重新生成”并调用 `/regenerate-summary` 后 | 用户触发重新生成摘要；不代表质量提升。 |
-| `lark_export_started` | 自动或手动飞书导出开始前 | 发起飞书导出请求，`success` 为空，`metadata.trigger` 区分 `auto`/`manual`。 |
-| `lark_export_completed` | 飞书导出返回或失败后 | 飞书导出完成，使用 `success` 区分成功/失败。 |
+| `lark_export_started` | 自动或手动飞书/Lark 导出开始前 | 发起当前外部同步请求，`success` 为空，`metadata.trigger` 区分 `auto`/`manual`。 |
+| `lark_export_completed` | 飞书/Lark 导出返回或失败后 | 当前外部同步完成，使用 `success` 区分成功/失败。 |
 | `summary_downloaded` | 用户点击摘要下载按钮后 | 用户下载摘要文件；不代表笔记可用。 |
 | `transcript_downloaded` | 用户点击转写下载按钮后 | 用户下载转写文件。 |
 | `task_failed` | 处理、摘要、导出等接口发生业务异常时 | 任务在某阶段失败。`/process` HTTP 200 不等同任务成功，业务失败以此事件为准。 |
@@ -71,11 +72,11 @@
 
 `stt_completed` 会记录粗粒度运行环境、转录服务和归一化性能指标，用于解释“本地转写耗时受设备影响”和“云端转写耗时受网络与服务端影响”的口径。`task_completed` 也会带上相同的粗粒度运行环境，方便按设备环境分组看端到端任务耗时。
 
-音视频路径的 STT 运行在独立子进程中。用户点击取消时，后端会取消后台任务并终止 STT 子进程，避免 faster-whisper 在线程池中继续占用 CPU。普通 SSE 连接断开不再等同于取消任务；后台任务会继续运行，前端可通过 `/jobs/{task_id}/events` 重新订阅进度。这个选择牺牲了跨任务复用模型缓存的速度优势；因此主流程里的 `model_cache_hit` 通常只反映子进程内部状态，不应再解读为“整个后端进程是否已经热启动”。
+不同 STT provider 的进度和取消能力不同。事件日志只记录真实完成后的 `stt_completed` 指标；进行中状态属于任务进度流，不应伪造成持久化事件。
 
-ElevenLabs 云转录不会产生 faster-whisper 的逐段本地进度，因此前端只展示云端转录中的状态和已等待时间，不伪造 STT 百分比。云端路径的取消可中断前端任务状态，但正在进行的外部 HTTP 请求无法像本地 STT 子进程一样被强制杀掉。用户在云端路径开启说话人区分时，会把 diarization 请求交给 provider；报告应按 `speaker_diarization_completed.metadata.backend` 区分云端 provider 与 pyannote。
+本地转录、云端转录和 legacy provider 的性能不能直接混算。报告必须按 `stt_provider` 分组，并说明是否包含上传、网络等待、模型加载或外部服务处理时间。
 
-ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 Whisper 专用 WAV 膨胀导致云端上传不稳定；本地 faster-whisper 路径仍使用 16kHz 单声道 WAV。Azure 相关字段只用于 legacy 任务和历史报告，不作为当前公开产品默认口径。
+外部 provider 请求可能无法像本地子进程一样被强制中断。用户取消任务时可以更新任务状态并停止后续处理，但已发出的外部请求是否真正停止取决于 provider 能力。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -90,13 +91,9 @@ ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 
 | `stt_provider_label` | 面向阅读的转录服务名称。 |
 | `stt_language` | 用户选择的语言配置；`auto` 表示交给 STT provider 自动识别。 |
 | `detected_language` | STT 服务返回的检测语言。 |
-| `elevenlabs_audio_size_mb` | ElevenLabs 上传前，FFmpeg 预处理后的 MP3 大小。 |
-| `elevenlabs_duration_seconds` | ElevenLabs 上传前的音频时长估计。 |
-| `azure_batch_audio_size_mb` | Legacy Azure Batch 上传 Blob 前，FFmpeg 预处理后的 MP3 大小。 |
-| `azure_batch_duration_seconds` | Legacy Azure Batch 上传前的音频时长估计。 |
-| `azure_batch_status` | Legacy Azure Batch 轮询返回的任务状态，例如 `NotStarted`、`Running`、`Succeeded`。 |
-| `azure_fast_inline_audio_size_mb` | 历史字段，仅旧 Azure Fast inline 任务可能存在；当前新任务不再写入。 |
-| `azure_fast_inline_duration_seconds` | 历史字段，仅旧 Azure Fast inline 任务可能存在；当前新任务不再写入。 |
+| `provider_audio_size_mb` | Provider 上传前的音频大小。旧事件可能使用 provider-specific 字段，例如 `elevenlabs_audio_size_mb` 或 `azure_batch_audio_size_mb`。 |
+| `provider_duration_seconds` | Provider 上传前的音频时长估计。旧事件可能使用 provider-specific 字段，例如 `elevenlabs_duration_seconds` 或 `azure_batch_duration_seconds`。 |
+| `legacy_provider_status` | Legacy provider 轮询状态；仅历史或兼容路径可能存在。 |
 | `audio_output_format` | `audio_extracted` 事件中的 STT 音频格式。本地路径为 `wav`，云端路径为 `mp3`。 |
 | `stt_realtime_factor` | `stt_elapsed_seconds / source_duration_seconds`。例如 `0.2` 表示转写耗时约为原音频时长的 20%。该值按本次 STT 阶段耗时计算，冷启动时会包含模型加载时间。 |
 | `model_cache_hit` | Whisper 模型是否已在后端进程内缓存。 |
@@ -188,7 +185,7 @@ ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 
 | `note_mode_covered_important_evidence_count` | 程序章节分配已覆盖的重要证据数。 |
 | `note_mode_coverage_missing_count` | 覆盖检查发现或推断仍需补入的重要遗漏数量。 |
 
-当前自动阈值为：转录文本不超过约 `20,000` 字符时使用 `direct`；超过后使用 `high_fidelity`。这个阈值不是模型上下文极限，而是质量策略起点：先保守避免长课程被过度概括，后续用真实样本再调。
+事件日志只记录请求模式、实际模式和可计算元数据；具体自动选择阈值属于笔记策略，不在事件口径中硬编码。
 
 三种模式的口径：
 
@@ -215,7 +212,8 @@ ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 
 取消口径：
 
 - 前端取消按钮会记录 `task_cancelled`，表示用户明确点击取消。
-- 后端检测到请求断开时，会终止 STT 子进程并记录 `task_completed(metadata.final_status="cancelled")`。
+- 队列/后台任务的进度订阅断开不等于取消；用户可重新订阅任务事件。
+- 旧的直接流式处理请求如果在完成前被客户端断开，可能记录 `task_completed(metadata.final_status="cancelled", completion_reason="client_disconnect")`。
 - 报表统计取消任务时优先按 `task_completed.final_status="cancelled"` 去重；统计用户取消按钮点击时再看 `task_cancelled`。
 
 ## 可计算指标
@@ -240,19 +238,16 @@ ElevenLabs 路径会把音视频预处理成压缩 MP3 后上传，避免本地 
 - 失败原因分布：按 `task_failed.error_reason` 或失败事件聚合。
 - 下载次数：`summary_downloaded`、`transcript_downloaded` 数量。
 
-## 本阶段明确不做
+## 不记录的事件类型
 
-| 不做事件 | 原因 |
-| --- | --- |
-| `note_copied` | 当前没有复制 Markdown 按钮。 |
-| `manual_review_started` | 当前没有“开始校对”入口。 |
-| `manual_review_completed` | 当前没有“完成校对”入口，也没有校对计时。 |
-| `note_marked_usable` | 当前没有“这篇笔记可直接使用”入口。 |
-| `note_marked_needs_edit` | 当前没有“需要我再改”入口。 |
-| `user_rating_submitted` | 当前没有 1-5 分评分入口。 |
-| `manual_edit_completed` | 当前没有正文编辑器，不能把提示词编辑或重新生成包装成笔记编辑。 |
+不要为不存在的用户动作或不可验证的系统判断预留事件。新增事件前先确认：
 
-这些事件应留到第二阶段，在补充明确 UI 选择权后再记录。
+- 用户是否真的触发了一个明确动作，或系统是否真的进入了一个可验证状态。
+- 事件是否能帮助诊断、统计或恢复，而不是只为了“看起来更完整”。
+- 是否会诱导系统记录正文、字幕、笔记或其他生成内容。
+- 是否已有结果字段、任务状态或 artifact 能表达同一事实。
+
+示例：如果界面没有明确的评分、标记可用、开始校对或完成校对动作，就不要记录 `user_rating_submitted`、`note_marked_usable`、`manual_review_started` 这类意图事件。
 
 ## 导出事件日志
 

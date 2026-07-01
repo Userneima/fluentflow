@@ -38,6 +38,7 @@ const jobFromHistoryEntry = (entry) => {
     if (!result?.task_id) return null;
     return {
         ...jobFromResult(result),
+        task_snapshot: entry.taskSnapshot || null,
         status: entry.status || result.summary_status || 'completed',
         source_type: entry.source || result.source || null,
         updated_at: entry.timestamp ? new Date(entry.timestamp).toISOString() : undefined,
@@ -66,6 +67,7 @@ const Processing = () => {
                 status: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : 'running'),
                 stage: currentJob.stage || 'queued',
                 progress: currentJob.progress ?? 0,
+                task_snapshot: currentJob.taskSnapshot || null,
                 source_type: currentJob.sourceType || null,
                 source_filename: currentJob.fileName || currentJob.taskId,
                 metadata: {

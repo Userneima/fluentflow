@@ -6,7 +6,6 @@ import {
     CheckCircle2,
     CircleDashed,
     FileText,
-    GitBranch,
     LoaderCircle,
     XCircle,
 } from 'lucide-react';
@@ -27,22 +26,6 @@ const statusText = (status, lang) => {
     return labels[status] || status || (isZh ? '未记录' : 'Not recorded');
 };
 
-const sourceText = (source, lang) => {
-    if (source === 'recorded') return lang === 'zh' ? '真实记录' : 'Recorded';
-    if (source === 'inferred') return lang === 'zh' ? '兼容推导' : 'Inferred';
-    return source || (lang === 'zh' ? '未记录' : 'Not recorded');
-};
-
-const confidenceText = (value, lang) => {
-    const isZh = lang === 'zh';
-    const labels = {
-        high: isZh ? '高置信度' : 'High confidence',
-        medium: isZh ? '中置信度' : 'Medium confidence',
-        low: isZh ? '低置信度' : 'Low confidence',
-    };
-    return labels[value] || value || '';
-};
-
 const statusTone = (status) => {
     if (status === 'failed') return {
         dot: 'border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
@@ -55,8 +38,8 @@ const statusTone = (status) => {
         Icon: LoaderCircle,
     };
     if (status === 'pending') return {
-        dot: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/[0.50]',
-        badge: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/[0.50]',
+        dot: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/[0.72]',
+        badge: 'border-[#dedada] bg-white text-[#85868c] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/[0.72]',
         Icon: CircleDashed,
     };
     if (status === 'skipped' || status === 'cancelled') return {
@@ -77,6 +60,124 @@ const compactValues = (items, limit = 5) => (
         .filter(Boolean)
         .slice(0, limit)
 );
+
+const decisionSentence = (entry, lang) => {
+    const isZh = lang === 'zh';
+    const decision = String(entry?.decision || '').trim();
+    if (!decision) return '';
+    return isZh ? `${decision}。` : `${decision}.`;
+};
+
+const rawValueText = (value) => {
+    if (Array.isArray(value)) {
+        return value.map((item) => rawValueText(item)).filter(Boolean).join('；');
+    }
+    if (value && typeof value === 'object') {
+        try {
+            return JSON.stringify(value, null, 2);
+        } catch {
+            return String(value);
+        }
+    }
+    return String(value || '').trim();
+};
+
+const readableDecisionText = (value, lang) => {
+    const isZh = lang === 'zh';
+    if (!isZh) return value;
+    return String(value || '')
+        .replace(/\blocal_whisper\b/g, '本地 faster-whisper')
+        .replace(/\bsource_type=video_link\b/g, '来源类型：视频链接')
+        .replace(/\bsource_type=video_file\b/g, '来源类型：视频文件')
+        .replace(/\bsource_type=transcript_file\b/g, '来源类型：字幕文件')
+        .replace(/\bsource_type=audio_file\b/g, '来源类型：音频文件')
+        .replace(/\bsource_type=video\b/g, '来源类型：视频')
+        .replace(/设置中的转写引擎：\s*local\b/g, '设置中的转写引擎：本地')
+        .replace(/转写引擎：\s*local\b/g, '转写引擎：本地')
+        .replace(/\bcontent has structured learning markers\b/g, '内容有结构化学习标记');
+};
+
+const isMaterialClassificationEntry = (entry) => {
+    const id = String(entry?.id || '').toLowerCase();
+    const title = String(entry?.title || '').toLowerCase();
+    return id === 'material_classification' || title.includes('判断材料类型') || title.includes('material classification');
+};
+
+const isCompactOverviewEntry = (entry) => {
+    const id = String(entry?.id || '').toLowerCase();
+    const title = String(entry?.title || '').toLowerCase();
+    return (
+        id === 'execution_route'
+        || id === 'subtitle_strategy'
+        || id === 'note_mode_selection'
+        || id === 'note_generation_outcome'
+        || title.includes('选择处理路线')
+        || title.includes('决定字幕呈现方式')
+        || title.includes('选择笔记生成方式')
+        || title.includes('判断笔记生成结果')
+        || title.includes('execution route')
+        || title.includes('subtitle strategy')
+        || title.includes('note mode selection')
+        || title.includes('note result')
+    );
+};
+
+const materialClassificationEvidenceLine = (entry, lang) => {
+    const isZh = lang === 'zh';
+    const rawEvidence = Array.isArray(entry?.evidence) ? entry.evidence : [entry?.evidence];
+    const readableEvidence = rawEvidence
+        .map((value) => readableDecisionText(rawValueText(value), lang))
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    const structuredMarker = readableEvidence.find((item) => (
+        item.includes('内容有结构化学习标记')
+        || item.toLowerCase().includes('structured learning markers')
+    ));
+    if (structuredMarker) {
+        return isZh ? '依据：内容有结构化学习标记' : 'Evidence: structured learning markers';
+    }
+    const usefulEvidence = readableEvidence.find((item) => ![
+        '来源',
+        '时长',
+        '语言判断',
+        'source',
+        'duration',
+        'language',
+    ].some((prefix) => item.toLowerCase().startsWith(prefix.toLowerCase())));
+    if (!usefulEvidence) return '';
+    return isZh ? `依据：${usefulEvidence}` : `Evidence: ${usefulEvidence}`;
+};
+
+const decisionLines = (entry, lang) => {
+    const isZh = lang === 'zh';
+    const decision = decisionSentence(entry, lang);
+    if (isMaterialClassificationEntry(entry)) {
+        const materialLines = [decision, materialClassificationEvidenceLine(entry, lang)]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+        return materialLines.length ? materialLines : [isZh ? '还没有形成明确结论。' : 'No clear conclusion yet.'];
+    }
+    const bodyValues = [
+        entry.reason,
+        entry.evidence,
+        entry.impact,
+        entry.warnings,
+    ]
+        .map((value) => readableDecisionText(rawValueText(value), lang))
+        .filter(Boolean);
+    const lines = [decision, ...bodyValues]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    const uniqueLines = [];
+    lines.forEach((line) => {
+        const normalized = line.replace(/[。.;；\s]/g, '');
+        if (!normalized) return;
+        if (uniqueLines.some((item) => item.replace(/[。.;；\s]/g, '') === normalized)) return;
+        uniqueLines.push(line);
+    });
+    if (uniqueLines.length) return uniqueLines;
+    return [isZh ? '还没有形成明确结论。' : 'No clear conclusion yet.'];
+};
 
 const chapterCoverageData = (pageData) => {
     const detailCoverage = pageData?.chapter_coverage;
@@ -158,17 +259,35 @@ function fallbackDecisionEntries(packageData, lang) {
     return fallback.filter((entry) => entry.title || entry.decision);
 }
 
-function decisionEntries(packageData, lang) {
+function rawDecisionEntries(packageData, lang) {
     const entries = packageData?.decision_log?.entries;
-    if (Array.isArray(entries) && entries.length) return entries;
-    return fallbackDecisionEntries(packageData, lang);
+    return Array.isArray(entries) && entries.length ? entries : fallbackDecisionEntries(packageData, lang);
 }
+
+function decisionEntries(packageData, lang) {
+    return rawDecisionEntries(packageData, lang)
+        .filter((entry) => !isCompactOverviewEntry(entry) && !isMaterialClassificationEntry(entry));
+}
+
+function materialDecisionEntry(packageData, lang) {
+    return rawDecisionEntries(packageData, lang).find(isMaterialClassificationEntry) || null;
+}
+
+const trimSentencePunctuation = (value) => (
+    String(value || '').trim().replace(/[。.;；]+$/g, '')
+);
+
+const materialJudgmentValue = (entry, lang) => {
+    if (!entry) return '';
+    const decision = trimSentencePunctuation(decisionSentence(entry, lang));
+    const evidence = materialClassificationEvidenceLine(entry, lang);
+    return [decision, evidence].filter(Boolean).join(' · ');
+};
 
 const DecisionEntry = ({entry, index, isLast, lang}) => {
     const tone = statusTone(entry.status);
     const Icon = tone.Icon;
-    const evidence = compactValues(entry.evidence, 6);
-    const warnings = compactValues(entry.warnings, 3);
+    const lines = decisionLines(entry, lang);
     return (
         <article className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
             <div className="relative flex justify-center">
@@ -177,63 +296,27 @@ const DecisionEntry = ({entry, index, isLast, lang}) => {
                     <Icon className={`size-[18px] ${entry.status === 'running' ? 'animate-spin' : ''}`} strokeWidth={2.15}/>
                 </div>
             </div>
-            <div className="min-w-0 rounded-[18px] border border-[#dedada] bg-white p-4 shadow-[0_18px_44px_-38px_rgba(17,17,17,.42)] dark:border-white/[0.14] dark:bg-white/[0.07] dark:shadow-none">
+            <div className="min-w-0 rounded-[18px] border border-[#dedada] bg-white px-4 py-3.5 shadow-[0_18px_44px_-38px_rgba(17,17,17,.42)] dark:border-white/[0.14] dark:bg-white/[0.07] dark:shadow-none">
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.65]">
-                        {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${tone.badge}`}>
-                        {statusText(entry.status, lang)}
-                    </span>
-                    <span className="rounded-full border border-[#dedada] bg-[#f7f7f7] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.16] dark:bg-white/[0.08] dark:text-white/[0.72]">
-                        {sourceText(entry.source, lang)}
-                    </span>
-                    {entry.confidence && (
-                        <span className="rounded-full border border-[#dedada] px-2 py-0.5 text-[10px] font-extrabold text-[#676970] dark:border-white/[0.16] dark:text-white/[0.72]">
-                            {confidenceText(entry.confidence, lang)}
+                    <p className="text-[12px] font-extrabold text-[#676970] dark:text-white/[0.76]">
+                        {entry.title || (lang === 'zh' ? `原始判断 ${index + 1}` : `Raw decision ${index + 1}`)}
+                    </p>
+                    {entry.status && entry.status !== 'completed' && (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${tone.badge}`}>
+                            {statusText(entry.status, lang)}
                         </span>
                     )}
                 </div>
-                <div className="mt-3 min-w-0">
-                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.70]">{entry.title}</p>
-                    <h2 className="mt-1 text-[18px] font-extrabold leading-snug text-[#111111] dark:text-white">
-                        {entry.decision || (lang === 'zh' ? '等待判断' : 'Pending decision')}
-                    </h2>
-                </div>
-                {entry.reason && (
-                    <p className="mt-3 text-[13px] font-semibold leading-6 text-[#2f3035] dark:text-white/[0.82]">
-                        {entry.reason}
-                    </p>
-                )}
-                {evidence.length > 0 && (
-                    <div className="mt-4">
-                        <p className="mb-2 text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.64]">
-                            {lang === 'zh' ? '证据摘要' : 'Evidence summary'}
+                <div className="mt-2 space-y-1.5">
+                    {lines.slice(0, 3).map((line, lineIndex) => (
+                        <p
+                            key={`${entry.id || index}-${lineIndex}`}
+                            className={`${lineIndex === 0 ? 'text-[16px] font-extrabold text-[#111111] dark:text-white' : 'text-[13px] font-semibold text-[#3f4148] dark:text-white/[0.80]'} leading-6 whitespace-pre-wrap break-words`}
+                        >
+                            {line}
                         </p>
-                        <div className="flex flex-wrap gap-1.5">
-                            {evidence.map((item) => (
-                                <span key={item} className="rounded-[10px] border border-[#dedada] bg-[#fbfbfb] px-2.5 py-1 text-[12px] font-bold leading-5 text-[#57585d] dark:border-white/[0.16] dark:bg-white/[0.075] dark:text-white/[0.78]">
-                                    {item}
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                {entry.impact && (
-                    <div className="mt-4 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.16] dark:bg-white/[0.07] dark:text-white/[0.78]">
-                        <span className="mr-1 font-extrabold text-[#111111] dark:text-white/[0.90]">{lang === 'zh' ? '影响：' : 'Impact: '}</span>
-                        {entry.impact}
-                    </div>
-                )}
-                {warnings.length > 0 && (
-                    <div className="mt-3 space-y-1.5">
-                        {warnings.map((item) => (
-                            <p key={item} className="rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2 text-[12px] font-bold leading-5 text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
-                                {item}
-                            </p>
-                        ))}
-                    </div>
-                )}
+                    ))}
+                </div>
             </div>
         </article>
     );
@@ -241,7 +324,7 @@ const DecisionEntry = ({entry, index, isLast, lang}) => {
 
 const StatBlock = ({label, value}) => (
     <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] p-3 dark:border-white/[0.10] dark:bg-white/[0.04]">
-        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.45]">{label}</p>
+        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/[0.72]">{label}</p>
         <p className="mt-1 truncate text-[14px] font-extrabold text-[#111111] dark:text-white">{value}</p>
     </div>
 );
@@ -259,7 +342,7 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
         <section className="border-y border-[#dedada] py-5 dark:border-white/[0.10]">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.45]">
+                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.72]">
                         {isZh ? 'Chapter Coverage 证据表' : 'Chapter coverage evidence'}
                     </p>
                     <h2 className="font-headline text-[20px] font-extrabold text-[#111111] dark:text-white">
@@ -279,9 +362,9 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
             {chapters.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
                     {chapters.map((chapter) => (
-                        <span key={chapter.chapter_id || chapter.title} className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-bold text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/[0.62]">
+                        <span key={chapter.chapter_id || chapter.title} className="rounded-full border border-[#dedada] bg-white px-3 py-1 text-[12px] font-bold text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/[0.76]">
                             {chapter.order ? `${chapter.order}. ` : ''}{chapter.title || chapter.chapter_id}
-                            <span className="ml-1 text-[#85868c] dark:text-white/[0.40]">({chapter.evidence_count ?? 0})</span>
+                            <span className="ml-1 text-[#85868c] dark:text-white/[0.66]">({chapter.evidence_count ?? 0})</span>
                         </span>
                     ))}
                 </div>
@@ -289,7 +372,7 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
 
             {visibleEvidence.length > 0 && (
                 <div className="mt-4 overflow-x-auto rounded-[16px] border border-[#dedada] dark:border-white/[0.10]">
-                    <div className="grid min-w-[46rem] grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] border-b border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[11px] font-extrabold text-[#85868c] dark:border-white/[0.10] dark:bg-white/[0.035] dark:text-white/[0.42]">
+                    <div className="grid min-w-[46rem] grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] border-b border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[11px] font-extrabold text-[#85868c] dark:border-white/[0.10] dark:bg-white/[0.035] dark:text-white/[0.72]">
                         <span>ID</span>
                         <span>{isZh ? '重要性' : 'Weight'}</span>
                         <span>{isZh ? '证据内容' : 'Evidence'}</span>
@@ -299,53 +382,37 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
                         {visibleEvidence.map((item) => (
                             <div key={item.evidence_id} className="grid grid-cols-[5rem_7rem_minmax(0,1fr)_9rem] gap-0 px-3 py-3 text-[12px] leading-5">
                                 <span className="font-extrabold text-[#111111] dark:text-white">{item.evidence_id}</span>
-                                <span className="font-bold text-[#676970] dark:text-white/[0.58]">
+                                <span className="font-bold text-[#676970] dark:text-white/[0.76]">
                                     {item.importance ?? '-'} / 5
                                     {item.covered === false && <span className="ml-1 text-amber-700 dark:text-amber-200">{isZh ? '待补' : 'open'}</span>}
                                 </span>
                                 <span className="min-w-0 pr-4 font-semibold text-[#2f3035] dark:text-white/[0.76]">
                                     {item.text}
                                     {Array.isArray(item.keywords) && item.keywords.length > 0 && (
-                                        <span className="ml-2 text-[#85868c] dark:text-white/[0.42]">
+                                        <span className="ml-2 text-[#85868c] dark:text-white/[0.68]">
                                             {item.keywords.slice(0, 3).join(' / ')}
                                         </span>
                                     )}
                                     {Array.isArray(item.covered_by_chapter_ids) && item.covered_by_chapter_ids.length > 0 && (
-                                        <span className="ml-2 text-[#85868c] dark:text-white/[0.42]">
+                                        <span className="ml-2 text-[#85868c] dark:text-white/[0.68]">
                                             {isZh ? '章节' : 'Chapter'} {item.covered_by_chapter_ids.slice(0, 3).join(', ')}
                                         </span>
                                     )}
                                 </span>
-                                <span className="font-bold text-[#676970] dark:text-white/[0.54]">{rangeText(item, lang)}</span>
+                                <span className="font-bold text-[#676970] dark:text-white/[0.74]">{rangeText(item, lang)}</span>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
             {hiddenCount > 0 && (
-                <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/[0.45]">
+                <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/[0.72]">
                     {isZh ? `还有 ${hiddenCount} 条证据未在此处展开。` : `${hiddenCount} more evidence rows hidden here.`}
                 </p>
             )}
         </section>
     );
 };
-
-const actionToneClass = (tone) => {
-    if (tone === 'danger') {
-        return 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200 dark:hover:bg-red-400/15';
-    }
-    if (tone === 'primary') {
-        return 'border-[#111111] bg-[#111111] text-white hover:bg-[#2a2a2a] dark:border-white dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]';
-    }
-    return 'border-[#dedada] bg-white text-[#111111] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]';
-};
-
-const visibleActions = (actions=[]) => (
-    (Array.isArray(actions) ? actions : [])
-        .filter((action) => action?.enabled !== false)
-        .filter((action) => ['open_result', 'regenerate_note', 'cancel', 'delete', 'resubmit'].includes(action.id))
-);
 
 const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
@@ -392,8 +459,24 @@ const videoSourceProgressFromJob = (job) => {
     };
 };
 
+const snapshotStepToStage = (step) => ({
+    source_fetch: 'downloading',
+    subtitle_parse: 'transcript_parse',
+    audio_prepare: 'audio',
+    transcription: 'stt',
+    subtitle_prepare: 'transcript_ready',
+    note_generation: 'summary',
+    result_save: 'done',
+    feishu_export: 'export',
+}[String(step || '').trim()] || '');
+
 const mergeLiveSnapshotPageData = (nextData, currentData) => {
-    if (!currentData?.data_quality?.cached_snapshot) return nextData;
+    const mergedData = {
+        ...nextData,
+        note: nextData?.note || currentData?.note || null,
+        processing_plan: nextData?.processing_plan || currentData?.processing_plan || null,
+    };
+    if (!currentData?.data_quality?.cached_snapshot) return mergedData;
     const currentTask = currentData.task || {};
     const nextTask = nextData?.task || {};
     const currentStage = String(currentTask.stage || '').toLowerCase();
@@ -405,9 +488,9 @@ const mergeLiveSnapshotPageData = (nextData, currentData) => {
     const nextIsTerminal = ['completed', 'failed', 'cancelled'].includes(String(nextTask.status || nextTask.stage || '').toLowerCase())
         || ['done', 'failed', 'cancelled'].includes(nextStage);
     const currentIsAhead = (liveStageRank[currentStage] ?? 0) > (liveStageRank[nextStage] ?? 0) || currentProgress > nextProgress;
-    if (!currentIsLive || nextIsTerminal || !currentIsAhead) return nextData;
+    if (!currentIsLive || nextIsTerminal || !currentIsAhead) return mergedData;
     return {
-        ...nextData,
+        ...mergedData,
         task: {
             ...nextTask,
             status: currentTask.status,
@@ -417,13 +500,13 @@ const mergeLiveSnapshotPageData = (nextData, currentData) => {
             duration_seconds: nextTask.duration_seconds ?? currentTask.duration_seconds,
         },
         source: {
-            ...(nextData?.source || {}),
+            ...(mergedData?.source || {}),
             video_source_progress: currentData.source?.video_source_progress || nextData?.source?.video_source_progress || null,
             file_size_mb: nextData?.source?.file_size_mb ?? currentData.source?.file_size_mb,
             duration_seconds: nextData?.source?.duration_seconds ?? currentData.source?.duration_seconds,
         },
         data_quality: {
-            ...(nextData?.data_quality || {}),
+            ...(mergedData?.data_quality || {}),
             cached_snapshot: currentData.data_quality?.cached_snapshot || nextData?.data_quality?.cached_snapshot || false,
             used_cached_live_overlay: true,
         },
@@ -434,6 +517,7 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
     if (!job || typeof job !== 'object') return null;
     const taskId = taskIdForJob(job) || fallbackTaskId;
     if (!taskId) return null;
+    const snapshot = job.task_snapshot && typeof job.task_snapshot === 'object' ? job.task_snapshot : {};
     const result = job.result && typeof job.result === 'object' ? job.result : {};
     const metadata = job.metadata && typeof job.metadata === 'object' ? job.metadata : {};
     const videoSource = metadata.video_source && typeof metadata.video_source === 'object' ? metadata.video_source : {};
@@ -450,9 +534,27 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
         || result.filename
         || taskId
     );
-    const status = videoProgress ? 'running' : normalizeTaskState(job);
-    const stage = videoProgress ? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading') : (job.stage || (status === 'completed' ? 'done' : status === 'failed' ? 'failed' : 'queued'));
-    const diagnosis = noteGenerationDiagnosis(result, lang);
+    const status = videoProgress ? 'running' : (snapshot.overall_status || normalizeTaskState(job));
+    const snapshotStage = snapshotStepToStage(snapshot.current_step);
+    const legacyStage = String(job.stage || '').trim();
+    const effectiveLegacyStage = legacyStage && !['queued', 'idle'].includes(legacyStage) ? legacyStage : '';
+    const stage = videoProgress
+        ? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')
+        : (effectiveLegacyStage || snapshotStage || legacyStage || (status === 'completed' ? 'done' : status === 'failed' ? 'failed' : 'queued'));
+    const generatedDiagnosis = noteGenerationDiagnosis(result, lang);
+    const diagnosis = snapshot.failure_reason ? {
+        ...generatedDiagnosis,
+        status: status === 'failed' ? 'failed' : 'warning',
+        severity: status === 'failed' ? 'error' : 'warning',
+        title: status === 'failed'
+            ? (lang === 'zh' ? '任务处理失败' : 'Task failed')
+            : (lang === 'zh' ? '需要复查' : 'Review needed'),
+        detail: snapshot.failure_reason,
+        nextAction: snapshot.next_action || '',
+        next_action: snapshot.next_action || '',
+        canRegenerate: true,
+        retryable: true,
+    } : generatedDiagnosis;
     const noteStatus = result.summary_skipped
         ? 'skipped'
         : result.summary_markdown
@@ -470,7 +572,9 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
             task_id: taskId,
             status,
             stage,
-            progress: Number.isFinite(progressValue) && progressValue > 0
+            progress: Number.isFinite(Number(snapshot.progress))
+                ? Number(snapshot.progress)
+                : Number.isFinite(progressValue) && progressValue > 0
                 ? progressValue
                 : videoProgress?.progress ?? (status === 'completed' ? 100 : 0),
             source_type: job.source_type || result.source || null,
@@ -482,6 +586,8 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
             updated_at: job.updated_at || null,
             video_source_progress: videoProgress,
         },
+        task_snapshot: Object.keys(snapshot).length ? snapshot : null,
+        timeline: Array.isArray(snapshot.steps) ? snapshot.steps : [],
         title,
         source: {
             type: job.source_type || result.source || null,
@@ -533,17 +639,18 @@ const pageDataFromJobSnapshot = (job, fallbackTaskId, lang) => {
             next_action: diagnosis.nextAction || '',
             retryable: !!diagnosis.canRegenerate,
         },
-        actions: result.summary_markdown ? [{
+        actions: Array.isArray(snapshot.actions) && snapshot.actions.length ? snapshot.actions : (result.summary_markdown ? [{
             id: 'open_result',
             label: lang === 'zh' ? '打开结果' : 'Open result',
             method: 'GET',
             path: `/jobs/${taskId}`,
             enabled: true,
             tone: 'primary',
-        }] : [],
-        artifacts: result.artifacts || null,
+        }] : []),
+        artifacts: snapshot.artifacts || result.artifacts || null,
         chapter_coverage: result.chapter_coverage || null,
         data_quality: {
+            ...(snapshot.data_quality || {}),
             cached_snapshot: true,
         },
     };
@@ -560,8 +667,6 @@ const AgentTrace = () => {
     const [loading, setLoading] = useState(!initialPageData);
     const [error, setError] = useState(null);
     const [pageData, setPageData] = useState(() => initialPageData);
-    const [actionBusy, setActionBusy] = useState(null);
-    const [actionError, setActionError] = useState(null);
     const isZh = lang === 'zh';
 
     const readJson = async (path, options={}) => {
@@ -637,54 +742,10 @@ const AgentTrace = () => {
         };
     }, [pageData?.task?.status, pageData?.task?.stage, taskId]);
 
-    const runAction = async (action) => {
-        if (!action || actionBusy) return;
-        setActionBusy(action.id);
-        setActionError(null);
-        try {
-            if (action.id === 'resubmit' || action.method === 'NAVIGATE') {
-                navigate(action.path || '/');
-                return;
-            }
-            if (action.id === 'open_result') {
-                const response = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}`);
-                const job = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(job?.detail || `HTTP ${response.status}`);
-                if (job?.result) setLastResult(job.result);
-                navigate('/editor');
-                return;
-            }
-            const response = await apiFetch(`${API_BASE}${action.path}`, {method: action.method || 'POST'});
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(data?.detail || `HTTP ${response.status}`);
-            if (action.id === 'delete') {
-                navigate('/tasks');
-                return;
-            }
-            if (action.id === 'regenerate_note' && data?.result) {
-                setLastResult(data.result);
-                navigate('/editor');
-                return;
-            }
-            await loadTaskDetail();
-        } catch (exc) {
-            setActionError(exc.message || String(exc));
-        } finally {
-            setActionBusy(null);
-        }
-    };
-
     const title = pageData?.task?.title || pageData?.title || taskId;
     const decisions = useMemo(() => decisionEntries(pageData, lang), [pageData, lang]);
+    const materialEntry = useMemo(() => materialDecisionEntry(pageData, lang), [pageData, lang]);
     const chapterCoverage = useMemo(() => chapterCoverageData(pageData), [pageData]);
-    const diagnosis = pageData?.diagnosis || pageData?.note?.diagnosis || {};
-    const actions = visibleActions(pageData?.actions);
-    const taskStateText = String(pageData?.task?.stage || pageData?.task?.status || '').toLowerCase();
-    const taskProgress = Number(pageData?.task?.progress) || 0;
-    const taskFailed = ['failed', 'error', 'cancelled'].includes(taskStateText);
-    const taskCompleted = !taskFailed && (['done', 'completed'].includes(taskStateText) || taskProgress >= 100);
-    const nextStepActions = taskCompleted ? actions.filter((action) => action.id !== 'open_result') : actions;
-    const showNextStepPanel = taskFailed || diagnosis.severity === 'error' || nextStepActions.length > 0;
 
     if (loading) {
         return (
@@ -715,16 +776,16 @@ const AgentTrace = () => {
                 <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/[0.55] dark:hover:text-white">
+                            <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/[0.74] dark:hover:text-white">
                                 <ArrowLeft className="size-3.5" strokeWidth={2.15}/>
                                 {isZh ? '历史记录' : 'History'}
                             </Link>
-                            <span className="text-[#a2a3a8] dark:text-white/[0.35]">/</span>
+                            <span className="text-[#a2a3a8] dark:text-white/[0.55]">/</span>
                             <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">
                                 {isZh ? '处理详情' : 'Task details'}
                             </h1>
                         </div>
-                        <p className="mt-1 max-w-[72ch] truncate text-[13px] leading-5 text-[#676970] dark:text-white/[0.60]" title={title}>
+                        <p className="mt-1 max-w-[72ch] truncate text-[13px] leading-5 text-[#676970] dark:text-white/[0.74]" title={title}>
                             {title}
                         </p>
                     </div>
@@ -736,18 +797,19 @@ const AgentTrace = () => {
                     </div>
                 </header>
 
-                <TaskProgressOverview pageData={pageData}/>
+                <TaskProgressOverview pageData={pageData} materialJudgment={materialJudgmentValue(materialEntry, lang)}/>
 
                 <ChapterCoverageEvidence coverage={chapterCoverage} lang={lang}/>
 
-                <div className={showNextStepPanel ? "grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.55fr)]" : "min-w-0"}>
+                {decisions.length > 0 && (
+                <div className="min-w-0">
                     <section className="min-w-0 space-y-4">
                         <div>
-                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.64]">
-                                {isZh ? '判断推进流' : 'Decision stream'}
+                            <p className="text-[12px] font-extrabold text-[#676970] dark:text-white/[0.76]">
+                                {isZh ? '判断记录' : 'Decision records'}
                             </p>
                             <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                                {isZh ? '关键判断、依据和影响' : 'Key decisions, evidence, and impact'}
+                                {isZh ? '原始判断字段' : 'Raw decision fields'}
                             </h2>
                         </div>
                         <div className="space-y-3">
@@ -760,66 +822,10 @@ const AgentTrace = () => {
                                     lang={lang}
                                 />
                             ))}
-                            {!decisions.length && (
-                                <div className="rounded-[18px] border border-[#dedada] bg-white p-6 text-[13px] font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/[0.58]">
-                                    {isZh ? '当前任务还没有可展示的判断记录。' : 'No decision records are available for this task yet.'}
-                                </div>
-                            )}
                         </div>
                     </section>
-
-                    {showNextStepPanel && (
-                    <aside className="space-y-5 xl:border-l xl:border-[#dedada] xl:pl-5 xl:dark:border-white/[0.10]">
-                        <section>
-                            <div className="mb-3 flex items-center gap-2">
-                                <GitBranch className="size-4 text-[#676970] dark:text-white/[0.70]" strokeWidth={2.15}/>
-                                <div>
-                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.64]">
-                                        {isZh ? '下一步' : 'Next step'}
-                                    </p>
-                                    <h2 className="font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                                        {diagnosis.title || (isZh ? '复查结果' : 'Review result')}
-                                    </h2>
-                                </div>
-                            </div>
-                            <div className="space-y-2 text-[13px] leading-5 text-[#676970] dark:text-white/[0.60]">
-                                <p className={`rounded-[14px] border p-3 font-semibold ${
-                                    diagnosis.severity === 'error'
-                                        ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200'
-                                        : 'border-[#dedada] bg-white dark:border-white/[0.10] dark:bg-white/[0.055]'
-                                }`}>
-                                    {diagnosis.detail || diagnosis.next_action || (isZh ? '打开编辑器复查正文，必要时重生笔记。' : 'Open the editor to review the result, and regenerate the note if needed.')}
-                                </p>
-                                {diagnosis.next_action && diagnosis.next_action !== diagnosis.detail && (
-                                    <p className="rounded-[14px] border border-[#dedada] bg-white p-3 font-semibold dark:border-white/[0.10] dark:bg-white/[0.055]">
-                                        {diagnosis.next_action}
-                                    </p>
-                                )}
-                                {nextStepActions.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 pt-1">
-                                        {nextStepActions.map((action) => (
-                                            <button
-                                                key={action.id}
-                                                type="button"
-                                                disabled={!!actionBusy}
-                                                onClick={() => runAction(action)}
-                                                className={`inline-flex h-9 items-center rounded-[12px] border px-3 text-[12px] font-extrabold transition disabled:cursor-not-allowed disabled:opacity-55 ${actionToneClass(action.tone)}`}
-                                            >
-                                                {actionBusy === action.id ? (isZh ? '处理中...' : 'Working...') : action.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                                {actionError && (
-                                    <p className="rounded-[14px] border border-red-200 bg-red-50 p-3 font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
-                                        {actionError}
-                                    </p>
-                                )}
-                            </div>
-                        </section>
-                    </aside>
-                    )}
                 </div>
+                )}
             </div>
         </main>
     );

@@ -54,8 +54,8 @@ _SIZE_ALIASES: dict[str, str] = {
     "base": DEFAULT_MODEL_SIZE,
     "small": DEFAULT_MODEL_SIZE,
     "medium": "medium",
-    "large-v2": "large-v2",
-    "large-v3": "large-v3",
+    "large-v2": DEFAULT_MODEL_SIZE,
+    "large-v3": DEFAULT_MODEL_SIZE,
 }
 
 

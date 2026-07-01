@@ -45,6 +45,7 @@ export const sanitizeSettings = (settings={}) => {
     if (!SUPPORTED_FRONTEND_NOTE_MODES.has(next.noteMode)) {
         next.noteMode = 'auto';
     }
+    next.sttModel = normalizeSttModel(next.sttModel);
     next.larkExportRoute = larkExportRouteFromSettings(next);
     next.larkViaCli = isLocalLarkExportRoute(next.larkExportRoute);
     return next;
@@ -150,5 +151,5 @@ export const cloudSttMissingMessage = (lang) => (
 export const azureSpeechMissingMessage = cloudSttMissingMessage;
 
 export const normalizeSttModel = (model) => (
-    model === 'large-v3' || model === 'medium' ? model : DEFAULT_STT_MODEL
+    DEFAULT_STT_MODEL
 );
