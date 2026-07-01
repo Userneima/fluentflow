@@ -59,7 +59,7 @@ If a field is unknown, mark it as unknown and resolve it before editing.
 | UI confirmation needed | Yes when changing major UI, information architecture, page responsibility, navigation, or visible workflow meaning. State who confirms before editing. |
 | Agent/MCP parity needed | Yes when adding or changing a user-facing workflow that an external agent may need to submit, wait for, inspect, retry, export, or diagnose. Use `docs/agent_mcp_parity.md`. |
 | Changelog needed | Yes for user-visible behavior, maintainer-visible workflow, deployment, schema, auth/quota, integration, rollback, or migration impact. Record under `Unreleased`. |
-| Commit allowed | Yes/no. If yes, define the commit boundary and validation required before commit. If dirty unrelated changes exist, stage only intended hunks/files. |
+| Commit expected | Yes by default for completed execution work. Define the commit boundary and validation required before commit. If dirty unrelated changes exist, stage only intended hunks/files or stop when the boundary is unclear. |
 | Report format | Final report must cover: changed files, validation run, what was intentionally not done, and remaining risk. |
 
 ## Clean Worktree Start Gate
@@ -75,7 +75,7 @@ Then choose one path:
 | State | Required action |
 | --- | --- |
 | Clean worktree | Proceed with the task brief. |
-| Dirty, all changes belong to this work unit | Continue, validate when complete, and commit only if explicitly requested. |
+| Dirty, all changes belong to this work unit | Continue, validate when complete, and create a checkpoint commit unless the user asked not to commit. |
 | Dirty, unrelated changes exist and do not overlap target files | Continue carefully, leave them untouched, and report them in the final summary. |
 | Dirty changes overlap target files or ownership is unclear | Stop and report the ambiguity before editing. |
 
@@ -132,10 +132,12 @@ brief:
 1. Did the work solve the stated problem without expanding scope?
 2. Were validation commands run, or was each skipped check justified?
 3. Did Agent/MCP parity, changelog, and UI confirmation get handled when needed?
-4. Is the commit boundary clear, even if this thread is not allowed to commit?
+4. Is the commit boundary clear enough to create the default checkpoint commit?
 5. Are remaining risks or blocked follow-ups stated plainly?
 
-Do not create a commit unless the user or task brief explicitly asks for one.
-If a commit is requested but not created, the final report must say exactly why,
-for example: unrelated dirty changes, skipped validation, exploratory work, or
+Completed execution tasks should end with a local checkpoint commit by default.
+Do not commit when the user asked not to, validation was skipped or failed, the
+work is still exploratory, or unrelated dirty changes make the boundary unclear.
+If the default commit is not created, the final report must say exactly why, for
+example: unrelated dirty changes, skipped validation, exploratory work, or
 missing user confirmation.

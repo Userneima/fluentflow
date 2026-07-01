@@ -90,6 +90,7 @@
 
 ### 维护者变化
 
+- 执行任务完成后默认创建本地 checkpoint commit；如果验证未跑、工作仍在探索、或脏改动边界不清，则必须先拆分或说明未提交原因。
 - 任务结果新增笔记正文保存接口 `PATCH /jobs/{task_id}/summary`，保存后继续更新既有 `summary_markdown` 字段和 Markdown artifact；Agent API / MCP 读取任务包时无需新增工具即可拿到最新正文。
 - Agent 工作流入口调整不改变 Agent API / MCP 合约；它只选择已有任务详情页，任务包字段和 MCP 工具无需同步扩展。
 - 新增 Agent 执行任务卡入口机制，帮助主对话和执行对话在开工前明确范围、验证、parity、changelog 和 commit 边界。
