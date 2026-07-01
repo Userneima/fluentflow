@@ -713,6 +713,12 @@ def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     assert "return await readJson(path, {localExecution: true});" in source
     assert "actions: Array.isArray(snapshot.actions) && snapshot.actions.length ? snapshot.actions" in source
     assert "id: 'open_result'" in source
+    assert "const canOpenResult = Boolean(" in source
+    assert "const openResult = async () => {" in source
+    assert "const job = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}`)" in source
+    assert "setLastResult(job.result);" in source
+    assert "navigate('/editor');" in source
+    assert "to=\"/editor\"" not in source
     assert "查看结果" in source
     assert "request: apiRequest" not in source
     assert "apiRequest(" not in source

@@ -667,6 +667,7 @@ const AgentTrace = () => {
     const [loading, setLoading] = useState(!initialPageData);
     const [error, setError] = useState(null);
     const [pageData, setPageData] = useState(() => initialPageData);
+    const [openingResult, setOpeningResult] = useState(false);
     const isZh = lang === 'zh';
 
     const readJson = async (path, options={}) => {
@@ -746,6 +747,30 @@ const AgentTrace = () => {
     const decisions = useMemo(() => decisionEntries(pageData, lang), [pageData, lang]);
     const materialEntry = useMemo(() => materialDecisionEntry(pageData, lang), [pageData, lang]);
     const chapterCoverage = useMemo(() => chapterCoverageData(pageData), [pageData]);
+    const canOpenResult = Boolean(
+        pageData?.actions?.some((action) => action?.id === 'open_result' && action?.enabled !== false)
+        || pageData?.transcript?.available
+        || String(pageData?.note?.markdown || '').trim()
+    );
+
+    const openResult = async () => {
+        if (!canOpenResult || openingResult) return;
+        setOpeningResult(true);
+        setError(null);
+        try {
+            const job = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}`);
+            if (job?.result) {
+                setLastResult(job.result);
+                navigate('/editor');
+                return;
+            }
+            setError(isZh ? '这条记录暂时没有可打开的结果。请返回处理记录刷新后再试。' : 'This record does not have an openable result yet. Go back to records, refresh, and try again.');
+        } catch (exc) {
+            setError(exc.message || String(exc));
+        } finally {
+            setOpeningResult(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -789,12 +814,14 @@ const AgentTrace = () => {
                             {title}
                         </p>
                     </div>
-                    <div className="flex flex-wrap gap-2 lg:justify-end">
-                        <Link to="/editor" className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
-                            <FileText className="size-4" strokeWidth={2.15}/>
-                            {isZh ? '查看结果' : 'View result'}
-                        </Link>
-                    </div>
+                    {canOpenResult && (
+                        <div className="flex flex-wrap gap-2 lg:justify-end">
+                            <button type="button" onClick={openResult} disabled={openingResult} className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-55 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                {openingResult ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <FileText className="size-4" strokeWidth={2.15}/>}
+                                {openingResult ? (isZh ? '打开中...' : 'Opening...') : (isZh ? '查看结果' : 'View result')}
+                            </button>
+                        </div>
+                    )}
                 </header>
 
                 <TaskProgressOverview pageData={pageData} materialJudgment={materialJudgmentValue(materialEntry, lang)}/>
