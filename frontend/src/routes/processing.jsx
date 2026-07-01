@@ -102,15 +102,15 @@ const Processing = () => {
                         <Workflow size={24} strokeWidth={2.4}/>
                     </div>
                     <p className="text-[12px] font-extrabold uppercase tracking-[0.16em] text-[#85868c] dark:text-white/45">
-                        {isZh ? 'Agent 工作流' : 'Agent workflow'}
+                        {isZh ? '处理记录' : 'Processing records'}
                     </p>
                     <h1 className="mt-3 max-w-2xl font-headline text-[24px] font-extrabold leading-tight tracking-normal text-[#111111] dark:text-white md:text-[28px]">
                         {isZh ? '选择一个任务查看处理详情' : 'Choose a task to view its workflow'}
                     </h1>
                     <p className="mt-3 max-w-2xl text-[15px] font-semibold leading-7 text-[#6f7177] dark:text-white/60">
                         {isZh
-                            ? 'Agent 工作流现在按具体任务组织。提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。'
-                            : 'Agent workflow is organized by task. After submitting a link or uploading media, this entry opens the current task progress, decisions, failure details, and next action.'}
+                            ? '处理记录现在按具体任务组织。提交链接或上传素材后，这里会直接打开当前任务的进度、判断依据、失败原因和下一步操作。'
+                            : 'Processing records are organized by task. After submitting a link or uploading media, this entry opens the current task progress, decisions, failure details, and next action.'}
                     </p>
                     <div className="mt-7 flex flex-wrap gap-3">
                         <Link
@@ -121,11 +121,11 @@ const Processing = () => {
                             {isZh ? '开始处理' : 'Start'}
                         </Link>
                         <Link
-                            to="/tasks"
+                            to="/agent"
                             className="inline-flex h-12 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-5 text-[14px] font-extrabold text-[#111111] transition hover:border-[#111111] dark:border-white/[0.14] dark:bg-white/[0.06] dark:text-white dark:hover:border-white/45"
                         >
                             <ListChecks size={18} strokeWidth={2.4}/>
-                            {isZh ? '历史记录' : 'History'}
+                            {isZh ? '处理记录' : 'Processing records'}
                             <ArrowRight size={16} strokeWidth={2.4}/>
                         </Link>
                     </div>

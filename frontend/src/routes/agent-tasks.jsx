@@ -1,7 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router-dom';
 import {
-    ArrowRight,
     AlertCircle,
     CheckCircle2,
     FileText,
@@ -23,7 +22,6 @@ import {
     jobToCurrentJob,
     readCachedAccountJobs,
     sortJobsForHistoryView,
-    timeAgo,
     useApi,
     useApp,
     useAuth,
@@ -46,6 +44,67 @@ import {
 const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
 const isLocalJob = (job) => String(job?.client_id || '').startsWith('local-') || job?.metadata?.stt_provider === 'local';
+
+const formatTaskDateTime = (value, lang) => {
+    const date = new Date(value || '');
+    if (Number.isNaN(date.getTime())) return lang === 'zh' ? '时间未知' : 'Unknown time';
+    try {
+        return new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-US', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        }).format(date).replace(/\//g, '-').replace(',', '');
+    } catch (_) {
+        return lang === 'zh' ? '时间未知' : 'Unknown time';
+    }
+};
+
+const formatProcessingElapsed = (seconds) => {
+    const total = Math.max(0, Math.round(Number(seconds) || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hours > 0) return `${hours}h${minutes}min`;
+    if (minutes > 0) return secs > 0 ? `${minutes}min${secs}s` : `${minutes}min`;
+    return `${secs}s`;
+};
+
+const taskProcessingTimeLabel = (job, lang) => {
+    const result = job?.result || {};
+    const metadata = job?.metadata || {};
+    const explicitElapsed = Number(
+        result.stt_elapsed_seconds
+        || metadata.stt_elapsed_seconds
+        || metadata.total_duration_seconds
+        || 0
+    );
+    const createdAt = Date.parse(job?.created_at || '');
+    const updatedAt = Date.parse(job?.updated_at || '');
+    const fallbackElapsed = Number.isFinite(createdAt) && Number.isFinite(updatedAt) && updatedAt > createdAt
+        ? (updatedAt - createdAt) / 1000
+        : 0;
+    const elapsed = explicitElapsed > 0 ? explicitElapsed : fallbackElapsed;
+    if (!elapsed) return statusLabel(job, lang);
+    const sourceDuration = Number(
+        result.audio_duration_seconds
+        || job?.source_duration_seconds
+        || metadata.duration_seconds
+        || 0
+    );
+    const explicitFactor = Number(result.stt_realtime_factor || metadata.stt_realtime_factor || 0);
+    const factor = explicitFactor > 0 ? explicitFactor : (sourceDuration > 0 ? elapsed / sourceDuration : 0);
+    const elapsedLabel = formatProcessingElapsed(elapsed);
+    if (factor > 0) {
+        const percent = Math.max(1, Math.round(factor * 100));
+        return lang === 'zh'
+            ? `${elapsedLabel}（占原时长 ${percent}%）`
+            : `${elapsedLabel} (${percent}% of original)`;
+    }
+    return lang === 'zh' ? `${elapsedLabel}（处理耗时）` : `${elapsedLabel} elapsed`;
+};
 
 const jobFromCurrentJob = (currentJob) => {
     if (!currentJob) return null;
@@ -190,14 +249,58 @@ const fileInfoLabel = (job) => {
     return parts.join(' · ') || '-';
 };
 
+const materialTypeLabel = (value, lang) => {
+    const isZh = lang === 'zh';
+    const labels = {
+        course_transcript_file: isZh ? '课程字幕文件' : 'Course subtitle file',
+        course_material: isZh ? '课程材料' : 'Course material',
+        lecture_material: isZh ? '讲座材料' : 'Lecture material',
+        course_video_pending_content: isZh ? '待转录课程视频' : 'Course video pending transcript',
+        lecture_video_pending_content: isZh ? '待转录讲座视频' : 'Lecture video pending transcript',
+        course_or_lecture_pending_content: isZh ? '学习材料' : 'Learning material',
+        course_notes: isZh ? '课程材料' : 'Course material',
+        lecture_notes: isZh ? '讲座材料' : 'Lecture material',
+        course: isZh ? '课程材料' : 'Course material',
+        lecture: isZh ? '讲座材料' : 'Lecture material',
+        interview: isZh ? '访谈材料' : 'Interview material',
+        meeting: isZh ? '会议材料' : 'Meeting material',
+        research: isZh ? '研究材料' : 'Research material',
+        career_talk: isZh ? '经验访谈' : 'Career talk',
+        product_training: isZh ? '产品培训' : 'Product training',
+    };
+    return labels[String(value || '').trim()] || String(value || '').trim();
+};
+
+const materialDecisionFromLog = (job) => {
+    const entries = job?.decision_log?.entries || job?.result?.decision_log?.entries || [];
+    if (!Array.isArray(entries)) return '';
+    const entry = entries.find((item) => {
+        const id = String(item?.id || '').toLowerCase();
+        const title = String(item?.title || '').toLowerCase();
+        return id === 'material_classification' || title.includes('判断材料类型') || title.includes('material classification');
+    });
+    const status = String(entry?.status || '').toLowerCase();
+    const decision = String(entry?.decision || '').trim();
+    if (!decision || status === 'pending' || decision === '待判断' || decision.toLowerCase() === 'pending') return '';
+    return decision;
+};
+
 const materialLabel = (job, lang) => {
     const value = String(
         job?.metadata?.material_type_label
         || job?.metadata?.material_type
         || job?.result?.material_type
+        || job?.result?.processing_plan?.material?.type
+        || job?.result?.processing_plan?.goal?.primary
         || ''
     ).trim();
-    if (value) return value;
+    if (value) return materialTypeLabel(value, lang);
+    const loggedDecision = materialDecisionFromLog(job);
+    if (loggedDecision) return loggedDecision;
+    const completed = normalizeTaskState(job) === TASK_STATE_COMPLETED || normalizeTaskState(job) === TASK_STATE_CACHED_ONLY;
+    if (completed && (job?.result || job?.summary_status === 'completed')) {
+        return lang === 'zh' ? '学习材料' : 'Learning material';
+    }
     return lang === 'zh' ? '待判断' : 'Pending';
 };
 
@@ -207,7 +310,7 @@ const statePillClass = (state) => {
     return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200';
 };
 
-const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel, onOpenResult}) => {
+const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, onOpenResult}) => {
     const taskId = taskIdForJob(job);
     const state = normalizeTaskState(job);
     const live = isLiveTask(job);
@@ -225,6 +328,7 @@ const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel,
             ? (lang === 'zh' ? '处理完成，可以打开结果继续校对、下载或重生笔记。' : 'Done. Open the result to review, download, or regenerate notes.')
             : liveStageDetail(job, lang);
     const progressLabel = progressUnknown && live ? (lang === 'zh' ? '处理中' : 'Working') : `${progress}%`;
+    const subtitle = completed ? taskProcessingTimeLabel(job, lang) : stageLabel(job, lang);
     const metaItems = [
         {label: lang === 'zh' ? '来源' : 'Source', value: sourceLabel(job, lang)},
         {label: lang === 'zh' ? '处理路线' : 'Route', value: routeLabel(job, lang)},
@@ -240,14 +344,14 @@ const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel,
                             {statusLabel(job, lang)}
                         </span>
                         <span className="text-[12px] font-semibold text-[#85868c] dark:text-white/55">
-                            {updatedAt ? timeAgo(updatedAt, t) : (lang === 'zh' ? '刚刚' : 'just now')}
+                            {formatTaskDateTime(job?.updated_at || job?.created_at, lang)}
                         </span>
                     </div>
                     <h2 className="mt-2 truncate font-headline text-[17px] font-extrabold text-[#111111] dark:text-white" title={displayTitle}>
                         {displayTitle}
                     </h2>
                     <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
-                        {completed ? statusLabel(job, lang) : stageLabel(job, lang)}
+                        {subtitle}
                         {!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`}
                         {queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
                     </p>
@@ -309,7 +413,7 @@ const AgentTaskCard = ({job, lang, t, cancellingTaskId, openingTaskId, onCancel,
 };
 
 const AgentTasks = () => {
-    const {lang, t} = useI18n();
+    const {lang} = useI18n();
     const {authMode, user} = useAuth();
     const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
     const {getJobs, getJob, cancelJob} = useApi();
@@ -333,7 +437,6 @@ const AgentTasks = () => {
     const liveJobs = useMemo(() => displayJobs.filter(isLiveTask), [displayJobs]);
     const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
     const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
-    const totalSizeMb = displayJobs.reduce((sum, job) => sum + (Number(job?.source_file_size_mb || job?.metadata?.file_size_mb || 0) || 0), 0);
 
     const loadJobs = useCallback(async () => {
         const results = await Promise.allSettled([
@@ -445,16 +548,11 @@ const AgentTasks = () => {
                     <div className="min-w-0">
                         <p className="inline-flex items-center gap-2 text-[12px] font-extrabold text-[#676970] dark:text-white/[0.72]">
                             <SlidersHorizontal className="size-4" strokeWidth={2.15}/>
-                            {lang === 'zh' ? 'Agent 工作流' : 'Agent workflow'}
+                            {lang === 'zh' ? '处理记录' : 'Processing records'}
                         </p>
                         <h1 className="mt-2 font-headline text-[24px] font-extrabold leading-tight text-[#111111] dark:text-white">
-                            {lang === 'zh' ? '处理详情' : 'Task details'}
+                            {lang === 'zh' ? '处理记录' : 'Processing records'}
                         </h1>
-                        <p className="mt-1 max-w-[76ch] text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
-                            {lang === 'zh'
-                                ? '每个视频就是一条完整处理记录，进度、路线、文件信息、失败原因和结果入口都直接显示在这里。'
-                                : 'Each video is shown as one expanded processing record with progress, route, file info, recovery, and result actions.'}
-                        </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <button type="button" onClick={loadJobs} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
@@ -484,8 +582,8 @@ const AgentTasks = () => {
                         <p className="mt-1 text-[22px] font-extrabold tabular-nums text-[#111111] dark:text-white">{queuedCount}</p>
                     </div>
                     <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
-                        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '文件大小' : 'File size'}</p>
-                        <p className="mt-1 text-[22px] font-extrabold tabular-nums text-[#111111] dark:text-white">{totalSizeMb ? fmtFileSize(totalSizeMb) : '-'}</p>
+                        <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '历史记录' : 'History records'}</p>
+                        <p className="mt-1 text-[22px] font-extrabold tabular-nums text-[#111111] dark:text-white">{displayJobs.length}</p>
                     </div>
                 </section>
 
@@ -510,10 +608,6 @@ const AgentTasks = () => {
                                     <Plus className="size-4" strokeWidth={2.15}/>
                                     {lang === 'zh' ? '开始处理' : 'Start'}
                                 </Link>
-                                <Link to="/tasks" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white">
-                                    {lang === 'zh' ? '历史记录' : 'History'}
-                                    <ArrowRight className="size-4" strokeWidth={2.15}/>
-                                </Link>
                             </div>
                         </div>
                     )}
@@ -522,7 +616,6 @@ const AgentTasks = () => {
                             key={taskIdForJob(job)}
                             job={job}
                             lang={lang}
-                            t={t}
                             cancellingTaskId={cancellingTaskId}
                             openingTaskId={openingTaskId}
                             onCancel={cancelLiveJob}

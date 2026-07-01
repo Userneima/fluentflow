@@ -1,7 +1,6 @@
 import {useEffect, useState, useRef, useCallback} from 'react';
 import {Link, useLocation} from 'react-router-dom';
 import {
-    Activity,
     FilePenLine,
     FileText,
     Hand,
@@ -39,9 +38,8 @@ const isAgentWorkflowRoute = (pathname) => (
 );
 
 const isNavItemActive = (itemPath, pathname) => {
-    if (itemPath === '/') return pathname === '/';
+    if (itemPath === '/app') return pathname === '/app';
     if (itemPath === '/agent') return isAgentWorkflowRoute(pathname);
-    if (itemPath === '/tasks') return !isAgentWorkflowRoute(pathname) && (pathname === '/tasks' || pathname.startsWith('/tasks/'));
     return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
 };
 
@@ -108,10 +106,9 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     }, [agentAccessOpen]);
 
     const fullItems = [
-        {path:'/', icon:LayoutGrid, k:'nav.dashboard'},
+        {path:'/app', icon:LayoutGrid, k:'nav.dashboard'},
         {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
         {path:'/agent', icon:SlidersHorizontal, k:'nav.processing'},
-        {path:'/tasks', icon:Activity, k:'nav.tasks'},
         {path:'/editor', icon:FilePenLine, k:'nav.editor'},
         ...(user?.role === 'admin' ? [{path:'/admin', icon:ShieldCheck, k:'nav.admin'}] : []),
         {path:'/settings', icon:Settings, k:'nav.settings'},
@@ -145,7 +142,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
             <div className={`flex h-full min-h-0 flex-col ${collapsed ? 'px-2.5 py-5' : 'px-4 py-5'}`}>
                 <div className={`flex h-16 items-center ${collapsed ? 'mb-3 flex-col justify-center gap-1' : 'mb-3 justify-between gap-2'}`}>
                     <Link
-                        to="/"
+                        to="/app"
                         className={`flex min-w-0 items-center rounded-[14px] transition hover:bg-surface-container-low focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${collapsed ? 'h-8 w-10 justify-center p-0' : 'gap-2.5 w-full px-2.5 py-2'}`}
                         aria-label="FluentFlow"
                         title={collapsed ? 'FluentFlow' : undefined}

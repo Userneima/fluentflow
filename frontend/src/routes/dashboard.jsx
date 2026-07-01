@@ -269,7 +269,7 @@ const Dashboard = () => {
                     }
                     currentTaskRef.current = null;
                     const errorText = persistFailedTaskJob(job, job.error_reason, currentJob);
-                    setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在历史记录里。` : `${errorText} Saved in History.`));
+                    setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在处理记录里。` : `${errorText} Saved in processing records.`));
                 }
             } catch(err) {
                 if(!stale && err?.status === 404) {
@@ -323,7 +323,7 @@ const Dashboard = () => {
                     source_file_size_mb: currentJob.fileSizeMb,
                     metadata: {stt_provider: currentJob.sttProvider},
                 }, err.message || 'Failed to resume task.', currentJob);
-                setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在历史记录里。` : `${errorText} Saved in History.`));
+                setUploadError(currentJob.guestTrial ? errorText : (lang === 'zh' ? `${errorText} 已保存在处理记录里。` : `${errorText} Saved in processing records.`));
             }
         }).finally(() => {
             if(abortRef.current === ac) abortRef.current = null;
@@ -891,16 +891,16 @@ const Dashboard = () => {
                         </Link>
 
                         <Link
-                            to="/tasks"
+                            to="/agent"
                             className="group relative min-h-[17.25rem] overflow-hidden rounded-[0.5rem] border border-white/40 p-6 text-white shadow-[0_26px_80px_rgba(15,23,42,0.12)] transition hover:-translate-y-1 dark:border-white/10 dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)]"
                             style={{backgroundImage:'radial-gradient(circle at 62% 34%, rgba(167,139,250,.28), transparent 10%), radial-gradient(circle at 50% 42%, rgba(99,102,241,.18), transparent 24%), linear-gradient(180deg, rgba(2,6,23,0.12), rgba(49,46,129,0.82)), linear-gradient(145deg,#101827,#182f69 52%,#17214d 100%)'}}
                         >
                             <div className="relative flex h-full flex-col justify-between">
                                 <div>
-                                    <span className="inline-flex rounded-[0.3rem] bg-violet-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-violet-950">HISTORY</span>
-                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '历史记录' : 'History'}</h3>
+                                    <span className="inline-flex rounded-[0.3rem] bg-violet-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-violet-950">RECORDS</span>
+                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '处理记录' : 'Processing records'}</h3>
                                     <p className="mt-2 max-w-[16rem] text-[0.88rem] leading-5 text-white/72">
-                                        {lang === 'zh' ? '查看过去的材料、失败记录、进行中的任务和下载产物。' : 'Review previous materials, failures, active runs, and downloads.'}
+                                        {lang === 'zh' ? '查看处理进度、失败原因、历史结果和下载产物。' : 'Review progress, failures, past results, and downloads.'}
                                     </p>
                                 </div>
                                 <div className="mt-4 flex flex-wrap gap-1.5">
@@ -945,7 +945,7 @@ const Dashboard = () => {
                                         </button>
                                     )}
                                     {currentJob.resume && !currentJob.guestTrial ? (
-                                        <Link to="/tasks" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-3 text-xs font-bold text-white hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
+                                        <Link to="/agent" className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-3 text-xs font-bold text-white hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
                                             <SvgIcon name="monitoring" className="h-4 w-4"/>{t('dash.viewTasks')}
                                         </Link>
                                     ) : (
@@ -995,7 +995,7 @@ const Dashboard = () => {
                                 <h3 className="font-headline text-[24px] font-extrabold text-[#111111] dark:text-white">{t('dash.recent')}</h3>
                                 <p className="mt-1 text-sm font-medium text-[#777] dark:text-white/55">{lang === 'zh' ? '最近完成和处理中任务会显示在这里。' : 'Recent completed and active tasks appear here.'}</p>
                             </div>
-                            <Link to="/tasks" className="rounded-full bg-[#efeeee] px-4 py-2 text-xs font-extrabold text-[#111111] hover:bg-[#e8e5e5] dark:bg-white/[0.12] dark:text-white dark:hover:bg-white/[0.18]">{t('dash.viewAll')}</Link>
+                            <Link to="/agent" className="rounded-full bg-[#efeeee] px-4 py-2 text-xs font-extrabold text-[#111111] hover:bg-[#e8e5e5] dark:bg-white/[0.12] dark:text-white dark:hover:bg-white/[0.18]">{t('dash.viewAll')}</Link>
                         </div>
                         <div className="rounded-[24px] border border-[#e4e0e0] bg-white p-4 shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                             {history.length === 0 ? (
@@ -1038,7 +1038,7 @@ const Dashboard = () => {
             );
         };
 
-/* History route lives in frontend/src/routes/tasks.jsx */
+/* Legacy history route lives in frontend/src/routes/tasks.jsx; primary record UI is /agent. */
 
 /* ═══════════════ Processing ═══════════════ */
 

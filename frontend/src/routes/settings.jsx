@@ -146,8 +146,8 @@ const Settings = () => {
                     <h1 className="font-headline text-2xl font-extrabold tracking-tight text-[#111111] dark:text-white">{t('set.title')}</h1>
                     <p className="mt-2 max-w-[62ch] text-sm font-semibold leading-relaxed text-[#676970] dark:text-white/58">
                         {lang === 'zh'
-                            ? '这里只维护长期偏好、凭证和本机数据。单次任务判断放在 Agent 工作流里解释。'
-                            : 'Long-term preferences, credentials, and local data live here. Per-task decisions are explained in Agent workflow.'}
+                            ? '这里只维护长期偏好、凭证和本机数据。单次任务判断放在处理记录里解释。'
+                            : 'Long-term preferences, credentials, and local data live here. Per-task decisions are explained in processing records.'}
                     </p>
                 </header>
 

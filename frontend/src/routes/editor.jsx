@@ -1078,8 +1078,8 @@ const Editor = () => {
                     <SvgIcon name="edit_note" className="mb-4 text-6xl text-[#8a8a8a] dark:text-white/40"/>
                     <h2 className="mb-2 font-headline text-2xl font-extrabold text-[#111111] dark:text-white">{t('edit.noResult')}</h2>
                     <p className="mb-6 text-sm font-semibold leading-relaxed text-[#666] dark:text-white/60">{t('edit.noResultDesc')}</p>
-                    <Link to="/" className="inline-flex items-center gap-2 rounded-[14px] bg-[#111111] px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
-                        <SvgIcon name="upload_file" className="text-lg"/>{t('dash.selectFile')}
+                    <Link to="/agent" className="inline-flex items-center gap-2 rounded-[14px] bg-[#111111] px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
+                        <SvgIcon name="monitoring" className="text-lg"/>{t('edit.chooseRecord')}
                     </Link>
                                             </div>
             </main>
@@ -1803,7 +1803,7 @@ const Editor = () => {
                                 <div className="flex justify-end border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">
                                     <Link to={agentWorkflowHref} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#dedada] bg-white px-3 text-[12px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
                                         <SvgIcon name="route" className="text-sm"/>
-                                        {lang === 'zh' ? 'Agent 工作流' : 'Agent workflow'}
+                                        {lang === 'zh' ? '处理记录' : 'Processing records'}
                                     </Link>
                                 </div>
                             </section>

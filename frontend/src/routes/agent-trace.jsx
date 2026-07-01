@@ -762,9 +762,9 @@ const AgentTrace = () => {
         return (
             <main className="ml-[var(--sidebar-offset)] flex min-h-dvh flex-1 flex-col items-center justify-center gap-4 bg-[#f8f7fb] p-8 transition-[margin] duration-200 ease-out dark:bg-[#101010]">
                 <div className="rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>
-                <button type="button" onClick={() => navigate('/tasks')} className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                <button type="button" onClick={() => navigate('/agent')} className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
                     <ArrowLeft className="size-4" strokeWidth={2.15}/>
-                    {isZh ? '返回历史记录' : 'Back to History'}
+                    {isZh ? '返回处理记录' : 'Back to records'}
                 </button>
             </main>
         );
@@ -776,9 +776,9 @@ const AgentTrace = () => {
                 <header className="flex flex-col gap-3 border-b border-[#dedada] pb-4 dark:border-white/[0.10] lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <Link to="/tasks" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/[0.74] dark:hover:text-white">
+                            <Link to="/agent" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#676970] transition hover:text-[#111111] dark:text-white/[0.74] dark:hover:text-white">
                                 <ArrowLeft className="size-3.5" strokeWidth={2.15}/>
-                                {isZh ? '历史记录' : 'History'}
+                                {isZh ? '处理记录' : 'Processing records'}
                             </Link>
                             <span className="text-[#a2a3a8] dark:text-white/[0.55]">/</span>
                             <h1 className="font-headline text-[22px] font-extrabold leading-tight text-[#111111] dark:text-white">

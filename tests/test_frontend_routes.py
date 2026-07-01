@@ -96,7 +96,7 @@ def test_video_link_failures_are_preserved_in_background_tasks() -> None:
     assert "cacheJobRecord" in shared
     assert "cacheJobRecord" in job_morph
     assert "persistFailedTaskJob" in dashboard
-    assert "已保存在历史记录里" in dashboard
+    assert "已保存在处理记录里" in dashboard
     assert "taskFailureDetail" in tasks
     assert "job.error_reason || job.result?.summary_error" in tasks
 
@@ -112,6 +112,7 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "navigate('/agent', {state: {job: pendingJob}})" in dashboard
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
+    assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
     assert "mergeJobs(seededJob ? [seededJob] : [], readCachedJobs())" in agent_tasks
     assert "displayJobs.map((job) => (" in agent_tasks
     assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
@@ -119,6 +120,31 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "subscribeJobEvents(job.task_id" not in media_text
     assert "TaskProgressOverview" in agent_trace
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
+
+
+def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
+    app_entry = Path("frontend/src/app.jsx").read_text(encoding="utf-8")
+    app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
+    side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+    landing = Path("frontend/src/routes/landing.jsx").read_text(encoding="utf-8")
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    about = Path("frontend/src/routes/about.jsx").read_text(encoding="utf-8")
+
+    assert "const Landing = lazy(() => import('./routes/landing.jsx'))" in app_entry
+    assert '<Route path="/" element={<Landing/>}/>' in app_entry
+    assert '<Route path="/*" element={' in app_entry
+    assert 'path="/app" element={<Dashboard/>}' in app_shell
+    assert 'path="*" element={<Navigate to="/app" replace/>}' in app_shell
+    assert "{path:'/app', icon:LayoutGrid, k:'nav.dashboard'}" in side_nav
+    assert 'to="/app"' in side_nav
+    assert "把长视频变成可复查的学习笔记" in landing
+    assert "ElevenLabs 云端转录" in landing
+    assert "to=\"/media-text\"" in landing
+    assert "to=\"/agent\"" in editor
+    assert "edit.chooseRecord" in editor
+    assert "to=\"/app\"" in about
+    assert "—" not in landing
+    assert "–" not in landing
 
 
 def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> None:
@@ -494,7 +520,7 @@ def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
 
     assert "summaryFailureNextStep" in source
     assert "agentWorkflowHref" in source
-    assert "Agent 工作流" in source
+    assert "处理记录" in source
     assert "生成详情" not in source
     assert "summaryCompactMeta" not in source
     assert "summaryGenerationMeta" not in source
@@ -846,8 +872,13 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
     assert "queuedCount" in source
     assert "runningCount" in source
-    assert "处理详情" in source
-    assert "每个视频就是一条完整处理记录" in source
+    assert "历史记录" in source
+    assert "{displayJobs.length}" in source
+    assert "totalSizeMb" not in source
+    assert "文件大小' : 'File size" not in source
+    assert "处理记录" in source
+    assert "每个视频就是一条完整处理记录" not in source
+    assert "Each video is shown as one expanded processing record" not in source
     assert "点开单条任务，再看处理详情" not in source
     assert "查看详情" not in source
     assert "查看结果" in source
@@ -858,8 +889,23 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "routeLabel(job, lang)" in source
     assert "fileInfoLabel(job)" in source
     assert "materialLabel(job, lang)" in source
+    assert "const materialTypeLabel = (value, lang) => {" in source
+    assert "const materialDecisionFromLog = (job) => {" in source
+    assert "job?.result?.processing_plan?.material?.type" in source
+    assert "job?.result?.processing_plan?.goal?.primary" in source
+    assert "id === 'material_classification'" in source
+    assert "return lang === 'zh' ? '学习材料' : 'Learning material';" in source
+    assert "const formatTaskDateTime = (value, lang) => {" in source
+    assert "formatTaskDateTime(job?.updated_at || job?.created_at, lang)" in source
+    assert "const taskProcessingTimeLabel = (job, lang) => {" in source
+    assert "result.stt_elapsed_seconds" in source
+    assert "result.audio_duration_seconds" in source
+    assert "占原时长 ${percent}%" in source
+    assert "const subtitle = completed ? taskProcessingTimeLabel(job, lang) : stageLabel(job, lang);" in source
+    assert "timeAgo" not in source
+    assert "t={t}" not in source
     assert 'to="/media-text?mode=media"' in source
-    assert 'to="/tasks"' in source
+    assert 'to="/tasks"' not in source
     assert "ml-[var(--sidebar-offset)]" in source
 
 
@@ -880,11 +926,11 @@ def test_processing_page_uses_compact_tool_header() -> None:
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "<header" not in source
-    assert "Agent 工作流" in source
+    assert "处理记录" in source
     assert "任务解释" not in source
     assert "展示本次任务的处理路线、判断依据和失败恢复建议。" not in source
     assert "{isZh ? '开始处理' : 'Start'}" in source
-    assert "{isZh ? '历史记录' : 'History'}" in source
+    assert "{isZh ? '处理记录' : 'Processing records'}" in source
     assert "{isZh ? '长期设置' : 'Settings'}" not in source
     assert "FLUENTFLOW AGENT" not in source
     assert "text-[34px]" not in source
@@ -984,14 +1030,17 @@ def test_sidebar_collapse_keeps_navigation_vertical_rhythm() -> None:
     assert "size-[22px]" not in source
 
 
-def test_sidebar_agent_task_detail_highlights_agent_workflow_not_history() -> None:
+def test_sidebar_uses_processing_records_without_history_entry() -> None:
     source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
+    app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
 
     assert "const isAgentWorkflowRoute = (pathname) => (" in source
     assert "pathname === '/agent' || pathname === '/processing' || /^\\/tasks\\/[^/]+\\/agent\\/?$/.test(pathname)" in source
     assert "if (itemPath === '/agent') return isAgentWorkflowRoute(pathname);" in source
     assert "{path:'/agent', icon:SlidersHorizontal, k:'nav.processing'}" in source
-    assert "if (itemPath === '/tasks') return !isAgentWorkflowRoute(pathname) && (pathname === '/tasks' || pathname.startsWith('/tasks/'));" in source
+    assert "{path:'/tasks'" not in source
+    assert "if (itemPath === '/tasks')" not in source
+    assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
     assert "const active = isNavItemActive(it.path, loc.pathname);" in source
 
 
@@ -1027,7 +1076,7 @@ def test_secondary_surfaces_use_current_ui_language() -> None:
     assert "dark:hover:bg-white/[0.88]" in prompt_dialog
     assert "rounded-sm" not in settings
     assert "hover:bg-blue" not in settings
-    assert "单次任务判断放在 Agent 工作流里解释" in settings
+    assert "单次任务判断放在处理记录里解释" in settings
 
 
 def test_about_terms_privacy_and_changelog_are_split_pages() -> None:
