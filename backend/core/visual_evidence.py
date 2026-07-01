@@ -42,6 +42,12 @@ def _plain_without_images(markdown: str) -> str:
     return _plain_markdown(_IMAGE_RE.sub("", markdown or ""))
 
 
+def _slug_match(left: str, right: str) -> bool:
+    lhs = _plain_markdown(left)
+    rhs = _plain_markdown(right)
+    return bool(lhs and rhs and (lhs in rhs or rhs in lhs))
+
+
 def _artifact_by_filename(frame_artifacts: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     indexed: dict[str, dict[str, Any]] = {}
     for artifact in frame_artifacts:
@@ -268,4 +274,61 @@ def rewrite_note_image_references(markdown: str, frame_artifacts: list[dict[str,
     return _IMAGE_RE.sub(replace, markdown or "")
 
 
-__all__ = ["build_visual_evidence_from_note_images", "rewrite_note_image_references"]
+def inject_visual_evidence_references(markdown: str, selections: list[dict[str, Any]]) -> str:
+    """Insert selected frame references near their planned note sections.
+
+    The semantic decision comes from the visual planning/selection models. This
+    helper only performs deterministic placement and leaves final density and
+    low-value filtering to ``build_visual_evidence_from_note_images``.
+    """
+    text = markdown or ""
+    if not text.strip() or not selections:
+        return text
+
+    existing_targets = {_image_target_name(match.group(2)) for match in _IMAGE_RE.finditer(text)}
+    pending = [
+        selection for selection in selections
+        if isinstance(selection, dict)
+        and _text(selection.get("filename"))
+        and _text(selection.get("caption"))
+        and Path(_text(selection.get("filename"))).name not in existing_targets
+    ]
+    if not pending:
+        return text
+
+    lines = text.splitlines()
+    inserted_indices: set[int] = set()
+    fallback_lines: list[str] = []
+    for selection in pending:
+        filename = Path(_text(selection.get("filename"))).name
+        caption = _text(selection.get("caption"))
+        note_section = _text(selection.get("note_section"))
+        image_line = f"![{caption}]({filename})"
+        insert_at: int | None = None
+        if note_section:
+            for index, line in enumerate(lines):
+                match = _HEADING_RE.match(line)
+                if match and _slug_match(match.group(1), note_section):
+                    insert_at = index + 1
+                    while insert_at < len(lines) and not lines[insert_at].strip():
+                        insert_at += 1
+                    break
+        if insert_at is None:
+            fallback_lines.append(image_line)
+            continue
+        while insert_at in inserted_indices:
+            insert_at += 1
+        lines.insert(insert_at, image_line)
+        inserted_indices.add(insert_at)
+
+    next_text = "\n".join(lines).strip()
+    if fallback_lines:
+        next_text = f"{next_text}\n\n## 视觉证据\n\n" + "\n\n".join(fallback_lines)
+    return re.sub(r"\n{3,}", "\n\n", next_text).strip()
+
+
+__all__ = [
+    "build_visual_evidence_from_note_images",
+    "inject_visual_evidence_references",
+    "rewrite_note_image_references",
+]

@@ -50,6 +50,30 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
                     "chapters": [{"chapter_id": "CH01", "title": "Core", "evidence_ids": ["E001"]}],
                 },
                 "artifacts": {"summary_md": {"filename": "demo.md", "url": "/jobs/task-agent/artifacts/summary_md"}},
+                "visual_requests": [
+                    {
+                        "id": "vr_001",
+                        "note_section": "核心概念",
+                        "start_seconds": 10,
+                        "end_seconds": 20,
+                        "reason": "这里需要展示核心示意图。",
+                        "query": "选择清晰的核心示意图",
+                        "priority": "high",
+                        "max_images": 1,
+                    }
+                ],
+                "visual_frame_selections": [
+                    {
+                        "request_id": "vr_001",
+                        "note_section": "核心概念",
+                        "filename": "visual_001.jpg",
+                        "caption": "核心示意图",
+                        "reason": "这张图最清晰。",
+                        "confidence": "high",
+                        "timestamp_seconds": 12.5,
+                    }
+                ],
+                "visual_evidence_pipeline": "text_plan_qwen_local_window",
                 "visual_evidence": [
                     {
                         "id": "visual_001",
@@ -110,6 +134,9 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["visual"]["evidence"][0]["artifact_url"] == "/jobs/task-agent/artifacts/frame?file=visual_001.jpg"
     assert package["visual"]["evidence"][0]["reason"] == "这一帧展示了课程中的核心示意图。"
     assert package["visual"]["artifacts"]["visual_001"]["filename"] == "visual/visual_001.jpg"
+    assert package["visual"]["pipeline"] == "text_plan_qwen_local_window"
+    assert package["visual"]["requests"][0]["id"] == "vr_001"
+    assert package["visual"]["frame_selections"][0]["request_id"] == "vr_001"
     assert package["next_actions"] == []
 
 

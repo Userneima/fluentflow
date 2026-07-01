@@ -139,6 +139,55 @@ _MULTIMODAL_CONTENT_POLICY: Final[str] = """
 - 不确定的画面直接跳过不要选。
 """
 
+_VISUAL_REQUEST_PLANNER_SYSTEM: Final[str] = """# Role: FluentFlow 视觉证据规划器
+
+你会收到：
+1. 已生成的结构化笔记
+2. 带时间戳的转录片段
+
+你的任务不是选图，而是判断哪些笔记段落真的需要截图辅助理解，并给出最小时间窗。
+
+只在截图能明显帮助用户复习时提出请求，例如：流程图、架构图、公式、代码、表格、PPT 关键页、产品界面、演示步骤、数据图表、关键对比。
+不要为封面、目录、纯标题页、人物讲话、字幕条或普通口播段落提出请求。
+
+输出严格 JSON，不要写解释：
+{
+  "requests": [
+    {
+      "note_section": "笔记中的相关标题或段落名",
+      "start_seconds": 12.3,
+      "end_seconds": 28.0,
+      "reason": "为什么这里需要截图，面向用户",
+      "query": "给视觉模型看的画面筛选目标",
+      "priority": "high|medium|low",
+      "max_images": 1
+    }
+  ]
+}
+
+最多 8 个请求。宁可返回空数组，也不要凑数。"""
+
+_VISUAL_FRAME_SELECTOR_SYSTEM: Final[str] = """# Role: FluentFlow 局部截图选择器
+
+你会收到一个截图需求和该时间窗内的少量候选帧。请选择最能帮助用户理解笔记内容的 0-1 张。
+
+优先选择：流程图、架构图、公式、代码、表格、数据图、关键界面、演示步骤、清晰的 PPT 正文页。
+排除：封面、目录、纯标题页、过渡页、纯人物讲话、字幕条、模糊/黑屏/白屏、重复或与需求无关的画面。
+
+输出严格 JSON，不要写解释：
+{
+  "selected": [
+    {
+      "filename": "ts_0004_0.jpg",
+      "caption": "一句中文图注，说明这张图支持的知识点",
+      "reason": "为什么选它，面向用户",
+      "confidence": "high|medium|low"
+    }
+  ]
+}
+
+如果候选帧都不值得放入笔记，返回 {"selected": []}。"""
+
 # 分段提炼时使用（减轻最终合并输入长度）
 _INTERIM_SYSTEM: Final[str] = f"""你是 FluentFlow 的预处理助手。输入为 Whisper 转录的一小段原文。
 请用简洁的中文 Markdown 输出：
@@ -342,6 +391,21 @@ class MultimodalSummaryResult:
     markdown: str
     frame_count: int
     transcript_length: int
+
+
+@dataclass(frozen=True)
+class VisualRequestPlanResult:
+    requests: list[dict[str, Any]]
+    raw_response: str
+    provider: str
+    model: str
+
+
+@dataclass(frozen=True)
+class VisualFrameSelectionResult:
+    selections: list[dict[str, Any]]
+    provider: str
+    model: str
 
 
 @dataclass(frozen=True)
@@ -636,6 +700,270 @@ def _normalize_note_mode(mode: str | None) -> str:
 
 def can_use_multimodal(provider: str | None) -> bool:
     return (provider or "").strip().lower() == "qwen"
+
+
+def _seconds(value: Any, fallback: float = 0.0) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _compact_timestamped_segments(
+    segments: list[dict[str, Any]],
+    *,
+    max_chars: int = 45_000,
+) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    total_chars = 0
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        text = str(segment.get("text_zh") or segment.get("text") or "").strip()
+        if not text:
+            continue
+        start = _seconds(segment.get("start"))
+        end = _seconds(segment.get("end"), start)
+        item = {
+            "index": index,
+            "start_seconds": round(start, 1),
+            "end_seconds": round(max(start, end), 1),
+            "text": text[:260],
+        }
+        item_len = len(item["text"]) + 48
+        if compacted and total_chars + item_len > max_chars:
+            break
+        compacted.append(item)
+        total_chars += item_len
+    return compacted
+
+
+def _segment_bounds(segments: list[dict[str, Any]]) -> tuple[float, float]:
+    starts: list[float] = []
+    ends: list[float] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        starts.append(_seconds(segment.get("start")))
+        ends.append(_seconds(segment.get("end"), starts[-1]))
+    return (min(starts) if starts else 0.0, max(ends) if ends else 0.0)
+
+
+def _coerce_visual_requests(
+    payload: dict[str, Any],
+    segments: list[dict[str, Any]],
+    *,
+    max_requests: int,
+) -> list[dict[str, Any]]:
+    raw_items = payload.get("requests") if isinstance(payload, dict) else None
+    if not isinstance(raw_items, list):
+        return []
+    min_bound, max_bound = _segment_bounds(segments)
+    requests: list[dict[str, Any]] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        note_section = str(item.get("note_section") or item.get("section") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        query = str(item.get("query") or reason).strip()
+        if not reason or not query:
+            continue
+        start = _seconds(item.get("start_seconds") or item.get("start"))
+        end = _seconds(item.get("end_seconds") or item.get("end"), start + 8.0)
+        if max_bound > 0:
+            start = min(max(start, min_bound), max_bound)
+            end = min(max(end, start + 1.0), max_bound)
+        if end <= start:
+            end = start + 8.0
+        if end - start > 60.0:
+            midpoint = start + (end - start) / 2
+            start = max(0.0, midpoint - 20.0)
+            end = midpoint + 20.0
+        priority = str(item.get("priority") or "medium").strip().lower()
+        if priority not in {"high", "medium", "low"}:
+            priority = "medium"
+        try:
+            max_images = min(max(int(item.get("max_images") or 1), 0), 2)
+        except (TypeError, ValueError):
+            max_images = 1
+        if max_images <= 0:
+            continue
+        requests.append({
+            "id": f"vr_{len(requests) + 1:03d}",
+            "note_section": note_section[:120],
+            "start_seconds": round(start, 1),
+            "end_seconds": round(end, 1),
+            "reason": reason[:240],
+            "query": query[:240],
+            "priority": priority,
+            "max_images": max_images,
+        })
+        if len(requests) >= max_requests:
+            break
+    return requests
+
+
+def visual_requests_to_frame_segments(requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert semantic screenshot requests into mechanical frame extraction windows."""
+    segments: list[dict[str, Any]] = []
+    for request in requests:
+        if not isinstance(request, dict):
+            continue
+        segments.append({
+            "start": request.get("start_seconds"),
+            "end": request.get("end_seconds"),
+            "text": request.get("query") or request.get("reason") or "",
+            "visual_request_id": request.get("id"),
+            "note_section": request.get("note_section"),
+            "query": request.get("query"),
+            "reason": request.get("reason"),
+        })
+    return segments
+
+
+def plan_visual_evidence_requests(
+    summary_markdown: str,
+    transcript_segments: list[dict[str, Any]],
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    max_requests: int = 8,
+) -> VisualRequestPlanResult:
+    """Ask the text model where screenshots would materially improve the note."""
+    provider_name = _normalize_provider(provider)
+    client = _get_client(provider=provider_name, api_key=api_key)
+    m = _normalize_model(provider_name, model)
+    compact_segments = _compact_timestamped_segments(transcript_segments)
+    if not summary_markdown.strip() or not compact_segments:
+        return VisualRequestPlanResult(requests=[], raw_response="", provider=provider_name, model=m)
+    user = json.dumps(
+        {
+            "summary_markdown": summary_markdown[:35_000],
+            "timestamped_segments": compact_segments,
+        },
+        ensure_ascii=False,
+    )
+    raw = _chat(client, m, _VISUAL_REQUEST_PLANNER_SYSTEM, user, temperature=0.1)
+    payload = _extract_json_object(raw)
+    return VisualRequestPlanResult(
+        requests=_coerce_visual_requests(payload, transcript_segments, max_requests=max_requests),
+        raw_response=raw,
+        provider=provider_name,
+        model=m,
+    )
+
+
+def _candidate_frames_for_request(
+    request: dict[str, Any],
+    frame_metadata: list[dict[str, Any]],
+    *,
+    max_frames: int = 8,
+) -> list[dict[str, Any]]:
+    request_id = str(request.get("id") or "")
+    start = _seconds(request.get("start_seconds"))
+    end = _seconds(request.get("end_seconds"), start)
+    candidates: list[dict[str, Any]] = []
+    for frame in frame_metadata:
+        if not isinstance(frame, dict) or not frame.get("path"):
+            continue
+        frame_request_id = str(frame.get("visual_request_id") or "")
+        timestamp = _seconds(frame.get("timestamp_seconds"))
+        if frame_request_id and request_id and frame_request_id == request_id:
+            candidates.append(frame)
+        elif start <= timestamp <= max(start, end):
+            candidates.append(frame)
+    candidates = sorted(candidates, key=lambda item: _seconds(item.get("timestamp_seconds")))
+    if len(candidates) <= max_frames:
+        return candidates
+    indices = [round(i * (len(candidates) - 1) / (max_frames - 1)) for i in range(max_frames)]
+    return [candidates[index] for index in indices]
+
+
+def _coerce_visual_frame_selection(
+    payload: dict[str, Any],
+    request: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    raw_items = payload.get("selected") if isinstance(payload, dict) else None
+    if not isinstance(raw_items, list):
+        return []
+    filenames = {Path(str(frame.get("path"))).name: frame for frame in candidates}
+    selections: list[dict[str, Any]] = []
+    max_images = int(request.get("max_images") or 1)
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        filename = Path(str(item.get("filename") or "")).name
+        frame = filenames.get(filename)
+        if not frame:
+            continue
+        caption = str(item.get("caption") or item.get("reason") or request.get("reason") or "").strip()
+        if not caption:
+            continue
+        confidence = str(item.get("confidence") or "medium").strip().lower()
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "medium"
+        if confidence == "low":
+            continue
+        selections.append({
+            "request_id": request.get("id"),
+            "note_section": request.get("note_section") or "",
+            "filename": filename,
+            "caption": caption[:140],
+            "reason": str(item.get("reason") or request.get("reason") or caption).strip()[:240],
+            "confidence": confidence,
+            "timestamp_seconds": frame.get("timestamp_seconds"),
+        })
+        if len(selections) >= max_images:
+            break
+    return selections
+
+
+def select_visual_evidence_frames(
+    visual_requests: list[dict[str, Any]],
+    frame_metadata: list[dict[str, Any]],
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    provider: str | None = "qwen",
+    max_total_images: int = 8,
+) -> VisualFrameSelectionResult:
+    """Ask the vision model to choose frames inside each requested time window."""
+    provider_name = _normalize_provider(provider)
+    if not can_use_multimodal(provider_name):
+        raise ValueError(f"Provider {provider_name} does not support multimodal")
+    client = _get_client(provider=provider_name, api_key=api_key)
+    m = _normalize_model(provider_name, model)
+    selections: list[dict[str, Any]] = []
+    for request in visual_requests:
+        if len(selections) >= max_total_images:
+            break
+        candidates = _candidate_frames_for_request(request, frame_metadata)
+        image_paths = [str(frame["path"]) for frame in candidates if frame.get("path")]
+        if not image_paths:
+            continue
+        user = json.dumps(
+            {
+                "request": request,
+                "candidate_frames": [
+                    {
+                        "filename": Path(str(frame.get("path"))).name,
+                        "timestamp_seconds": frame.get("timestamp_seconds"),
+                    }
+                    for frame in candidates
+                ],
+            },
+            ensure_ascii=False,
+        )
+        raw = _vision_chat(client, m, _VISUAL_FRAME_SELECTOR_SYSTEM, user, image_paths, temperature=0.1)
+        payload = _extract_json_object(raw)
+        selections.extend(_coerce_visual_frame_selection(payload, request, candidates))
+    return VisualFrameSelectionResult(
+        selections=selections[:max_total_images],
+        provider=provider_name,
+        model=m,
+    )
 
 
 def _resolve_note_mode(mode: str, transcript_length: int) -> str:
@@ -1398,12 +1726,17 @@ __all__ = [
     "HIGH_FIDELITY_NOTICE_CHARS",
     "SummaryResult",
     "MultimodalSummaryResult",
+    "VisualRequestPlanResult",
+    "VisualFrameSelectionResult",
     "SegmentTranslationResult",
     "BilingualSegmentResult",
     "can_use_multimodal",
     "generate_bilingual_segments_zh",
+    "plan_visual_evidence_requests",
+    "select_visual_evidence_frames",
     "translate_segments_to_zh",
     "summarize_transcript_with_metadata",
     "summarize_transcript_with_frames",
     "summarize_transcript_to_markdown",
+    "visual_requests_to_frame_segments",
 ]

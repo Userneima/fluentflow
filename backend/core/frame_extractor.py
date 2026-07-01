@@ -145,41 +145,67 @@ def _extract_scene_frames(
     return results
 
 
+def _segment_capture_timestamps(segment: dict[str, Any]) -> list[float]:
+    try:
+        start = max(0.0, float(segment.get("start") or 0))
+    except (TypeError, ValueError):
+        return []
+    try:
+        end = float(segment.get("end")) if segment.get("end") is not None else start
+    except (TypeError, ValueError):
+        end = start
+    end = max(start, end)
+    if end - start < 1.5:
+        return [round(start, 1)]
+    mid = start + (end - start) / 2
+    tail = max(start, end - 0.4)
+    timestamps = [start, mid, tail]
+    deduped: list[float] = []
+    for ts in timestamps:
+        rounded = round(ts, 1)
+        if not deduped or abs(rounded - deduped[-1]) >= 1.0:
+            deduped.append(rounded)
+    return deduped
+
+
 def _extract_timepoint_frames(
     video_path: str,
     output_dir: Path,
     segments: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Extract one frame at each segment start time."""
+    """Extract local candidate frames around requested transcript time windows."""
     results: list[dict[str, Any]] = []
     seen_timestamps: set[float] = set()
-    for segment in segments:
-        try:
-            ts = round(float(segment.get("start") or 0), 1)
-        except (TypeError, ValueError):
-            continue
-        if ts in seen_timestamps:
-            continue
-        seen_timestamps.add(ts)
-        mm = int(ts // 60)
-        ss = int(ts % 60)
-        filename = f"ts_{mm:02d}{ss:02d}.jpg"
-        output = output_dir / filename
-        cmd = [
-            _ffmpeg_path(),
-            "-y",
-            "-ss", str(ts),
-            "-i", str(video_path),
-            "-frames:v", "1",
-            "-q:v", "2",
-            str(output),
-        ]
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
-        except subprocess.CalledProcessError:
-            continue
-        if output.is_file():
-            results.append(_frame_record(output, ts, "timepoint"))
+    for segment_index, segment in enumerate(segments, start=1):
+        for ts in _segment_capture_timestamps(segment):
+            if ts in seen_timestamps:
+                continue
+            seen_timestamps.add(ts)
+            mm = int(ts // 60)
+            ss = int(ts % 60)
+            tenth = int(round((ts - int(ts)) * 10))
+            filename = f"ts_{mm:02d}{ss:02d}_{tenth:d}.jpg"
+            output = output_dir / filename
+            cmd = [
+                _ffmpeg_path(),
+                "-y",
+                "-ss", str(ts),
+                "-i", str(video_path),
+                "-frames:v", "1",
+                "-q:v", "2",
+                str(output),
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+            except subprocess.CalledProcessError:
+                continue
+            if output.is_file():
+                record = _frame_record(output, ts, "timepoint")
+                for key in ("visual_request_id", "note_section", "query", "reason"):
+                    if segment.get(key):
+                        record[key] = segment.get(key)
+                record["segment_index"] = segment_index
+                results.append(record)
     return results
 
 
@@ -271,12 +297,13 @@ def extract_candidate_frames(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     scene_frames: list[dict[str, Any]] = []
-    try:
-        scene_frames = _extract_scene_frames(
-            video_path, output_dir, threshold=scene_threshold, max_frames=max_scene_frames
-        )
-    except Exception as exc:
-        logger.warning("Scene frame extraction failed: %s", exc)
+    if max_scene_frames > 0:
+        try:
+            scene_frames = _extract_scene_frames(
+                video_path, output_dir, threshold=scene_threshold, max_frames=max_scene_frames
+            )
+        except Exception as exc:
+            logger.warning("Scene frame extraction failed: %s", exc)
 
     timepoint_frames: list[dict[str, Any]] = []
     if segments:

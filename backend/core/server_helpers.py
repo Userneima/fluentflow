@@ -475,12 +475,12 @@ try:
     from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
     from backend.core.frame_extractor import extract_candidate_frames
     from backend.core.keyframe_provider import extract_keyframes
-    from backend.core.visual_evidence import build_visual_evidence_from_note_images, rewrite_note_image_references
+    from backend.core.visual_evidence import build_visual_evidence_from_note_images, inject_visual_evidence_references, rewrite_note_image_references
     from backend.core.local_stt import transcribe_audio, get_or_load_model
     from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
     from backend.core.elevenlabs_stt import transcribe_audio_scribe
     from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh
+    from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
     from backend.core.lark_exporter import export_markdown_to_lark
     from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
     from backend.core.note_title import resolve_lark_doc_title
@@ -545,7 +545,10 @@ except ImportError:
     from core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
     from core.elevenlabs_stt import transcribe_audio_scribe
     from core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from core.ai_summarizer import generate_bilingual_segments_zh, summarize_transcript_to_markdown, summarize_transcript_with_metadata, translate_segments_to_zh
+    from core.frame_extractor import extract_candidate_frames
+    from core.keyframe_provider import extract_keyframes
+    from core.visual_evidence import build_visual_evidence_from_note_images, inject_visual_evidence_references, rewrite_note_image_references
+    from core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
     from core.lark_exporter import export_markdown_to_lark
     from core.lark_cli_exporter import export_markdown_via_lark_cli
     from core.note_title import resolve_lark_doc_title

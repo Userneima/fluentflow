@@ -36,6 +36,8 @@ Every persisted task result should expose:
 | `artifacts` | Downloadable outputs keyed by artifact kind. |
 | `visual_evidence` | Optional Agent-selected screenshot evidence points for note sections. These are final note-level decisions, not raw frame candidates. |
 | `visual_artifacts` | Optional generated image artifacts attached to `visual_evidence`. |
+| `visual_requests` | Optional text-model screenshot requests with note section, time window, reason, and query before frame extraction. |
+| `visual_frame_selections` | Optional vision-model selections from local candidate windows before final artifact promotion and density filtering. |
 | `frame_artifacts` | Legacy/raw candidate frame artifacts. These may exist when the runtime extracted frames for multimodal review, but they are not final note screenshots unless promoted into `visual_evidence`. |
 | `requested_note_mode` | User-requested note mode. |
 | `resolved_note_mode` | Actual note mode used after planning/fallback. |
@@ -228,6 +230,20 @@ Visual evidence is the result contract for screenshots that help explain a speci
 | `artifact_kind` | Artifact key when a generated image exists. |
 | `artifact_url` | Downloadable or embeddable image URL. Must not expose local filesystem paths. |
 
+`visual_requests` records why the system attempted to capture screenshots. It is safe for Agent API and MCP task packages because it contains only normalized note context and media timestamps:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable request id within the task, such as `vr_001`. |
+| `note_section` | Note heading or section the screenshot should support. |
+| `start_seconds` / `end_seconds` | Local media time window to inspect. Long model-proposed ranges should be clamped before extraction. |
+| `reason` | User-facing reason why a screenshot may help. |
+| `query` | Short visual target for the vision selector. |
+| `priority` | `high`, `medium`, or `low`. |
+| `max_images` | Upper bound for selected images from this request. |
+
+`visual_frame_selections` records the vision model's local-window choices before final artifact promotion. It may include `request_id`, `filename`, `caption`, `reason`, `confidence`, and `timestamp_seconds`. It is diagnostic/intermediate data; UI and exports should prefer final `visual_evidence` and `visual_artifacts`.
+
 `visual_artifacts` is a keyed object for image outputs. Each value follows the same artifact shape as `artifacts` and may add:
 
 | Field | Meaning |
@@ -237,6 +253,8 @@ Visual evidence is the result contract for screenshots that help explain a speci
 | `provider` | Runtime provider that generated the artifact. |
 
 Raw `frame_artifacts` are compatibility/candidate outputs. They may be exposed for diagnostics or future visual review, but UI should not present them as final note screenshots unless `visual_evidence` promotes them with a concrete reason and section association.
+
+The default automated pipeline is `text_plan_qwen_local_window`: the text note model first proposes screenshot requests from the generated note and timestamped transcript, then Qwen inspects only the requested local frame windows, and the existing visual evidence policy promotes or removes Markdown image references. Qwen should not rewrite the whole note merely to add screenshots.
 
 Final note screenshots must pass the visual evidence policy before they are shown or exported:
 
@@ -267,7 +285,7 @@ Top-level shape:
 | `transcript` | Transcript availability, text, preview, raw/display segments, language, subtitle and translation state. |
 | `note` | Note status, Markdown, diagnosis, modes, prompt metadata, and generation stats. |
 | `artifacts` | Download/export outputs by kind. Public or agent-facing payloads should prefer URLs or artifact ids; local filesystem paths are allowed only inside trusted local runtime surfaces and must never be exposed by public APIs. |
-| `visual` | Optional visual evidence package with final screenshot evidence and generated image artifacts. |
+| `visual` | Optional visual evidence package with final screenshot evidence, generated image artifacts, screenshot requests, frame selections, status, reason, and pipeline. |
 | `usage` | Estimated and billable processing units. |
 | `next_actions` | Agent-callable follow-up actions, such as `wait` or `regenerate_note`. |
 | `processing_plan` | Same Processing Plan v1 object exposed on the result, generated on read for old tasks when missing. |

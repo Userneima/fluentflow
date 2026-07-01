@@ -186,6 +186,49 @@ def _agent_visual_evidence(result: dict[str, Any], visual_artifacts: dict[str, d
     return payload
 
 
+def _agent_visual_requests(result: dict[str, Any]) -> list[dict[str, Any]]:
+    requests = result.get("visual_requests")
+    if not isinstance(requests, list):
+        return []
+    payload: list[dict[str, Any]] = []
+    for item in requests:
+        if not isinstance(item, dict):
+            continue
+        entry = {
+            "id": _text(item.get("id")),
+            "note_section": _text(item.get("note_section")),
+            "start_seconds": item.get("start_seconds"),
+            "end_seconds": item.get("end_seconds"),
+            "reason": _text(item.get("reason")),
+            "query": _text(item.get("query")),
+            "priority": _text(item.get("priority")),
+            "max_images": item.get("max_images"),
+        }
+        payload.append({field: value for field, value in entry.items() if value not in (None, "")})
+    return payload
+
+
+def _agent_visual_frame_selections(result: dict[str, Any]) -> list[dict[str, Any]]:
+    selections = result.get("visual_frame_selections")
+    if not isinstance(selections, list):
+        return []
+    payload: list[dict[str, Any]] = []
+    for item in selections:
+        if not isinstance(item, dict):
+            continue
+        entry = {
+            "request_id": _text(item.get("request_id")),
+            "note_section": _text(item.get("note_section")),
+            "filename": _text(item.get("filename")),
+            "caption": _text(item.get("caption")),
+            "reason": _text(item.get("reason")),
+            "confidence": _text(item.get("confidence")),
+            "timestamp_seconds": item.get("timestamp_seconds"),
+        }
+        payload.append({field: value for field, value in entry.items() if value not in (None, "")})
+    return payload
+
+
 def _next_actions(job: dict[str, Any], diagnosis: dict[str, Any]) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     if diagnosis.get("retryable") and diagnosis.get("code") != "note_completed":
@@ -229,6 +272,8 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
     artifacts = _agent_artifacts(task_id, result, artifact_root)
     visual_artifacts = _agent_visual_artifacts(task_id, result, artifact_root)
     visual_evidence = _agent_visual_evidence(result, visual_artifacts)
+    visual_requests = _agent_visual_requests(result)
+    visual_frame_selections = _agent_visual_frame_selections(result)
     note_status = diagnosis["status"]
     if result.get("summary_skipped"):
         note_status = "skipped"
@@ -294,6 +339,11 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
             "available": bool(visual_evidence),
             "evidence": visual_evidence,
             "artifacts": visual_artifacts,
+            "requests": visual_requests,
+            "frame_selections": visual_frame_selections,
+            "status": result.get("visual_evidence_status"),
+            "reason": result.get("visual_evidence_reason"),
+            "pipeline": result.get("visual_evidence_pipeline"),
             "candidate_frame_count": len(result.get("frame_artifacts") or []) if isinstance(result.get("frame_artifacts"), list) else 0,
         },
         "usage": {

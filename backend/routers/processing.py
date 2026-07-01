@@ -451,34 +451,14 @@ async def process_video(
             H.upsert_job(task_id=task_id_value, status="running", stage="audio", progress=20)
             yield H._sse({"stage": "audio", "progress": 20})
 
-            # ── Stage 1.5: Frame extraction (video only, multimodal provider) ──
+            # ── Stage 1.5: Visual evidence placeholders ──
+            # Actual frame extraction happens after the text note exists, so the
+            # text model can request only the time windows where screenshots help.
             frame_paths: list[str] = []
             frame_metadata: list[dict[str, Any]] = []
-            if source_type == "video" and H.can_use_multimodal(ai_provider):
-                try:
-                    frames_output_dir = H._artifact_storage_dir() / task_id_value / "frames"
-                    frames_output_dir.mkdir(parents=True, exist_ok=True)
-                    keyframe_result = await loop.run_in_executor(
-                        None,
-                        lambda: H.extract_keyframes(
-                            str(in_path),
-                            frames_output_dir,
-                            segments=None,
-                            scene_threshold=0.3,
-                            max_scene_frames=30,
-                        ),
-                    )
-                    frame_paths = [str(f["path"]) for f in keyframe_result.frames]
-                    frame_metadata = keyframe_result.frames
-                    if keyframe_result.skipped_reason:
-                        H.logger.info(
-                            "Frame extraction skipped for %s via %s: %s",
-                            task_id_value,
-                            keyframe_result.provider,
-                            keyframe_result.skipped_reason,
-                        )
-                except Exception as exc:
-                    H.logger.warning("Frame extraction failed for %s: %s", task_id_value, exc)
+            visual_requests: list[dict[str, Any]] = []
+            visual_selections: list[dict[str, Any]] = []
+            visual_evidence_error: str | None = None
 
             # ── Stage 2: STT transcription ─────────────────────
             current_stage = "stt"
@@ -1142,27 +1122,68 @@ async def process_video(
                     duration_seconds=duration_sec,
                     current_prompt_preset=prompt_preset,
                 )
-                if frame_paths and H.can_use_multimodal(ai_provider):
-                    multimodal_result = await loop.run_in_executor(
-                        None,
-                        lambda: H.summarize_transcript_with_frames(
-                            transcript_text,
-                            frame_paths,
-                            api_key=kwargs.get("api_key"),
-                            model=kwargs.get("model"),
-                            provider=kwargs.get("provider", "qwen"),
-                        ),
-                    )
-                    summary_md = multimodal_result.markdown
-                else:
-                    summary_result = await loop.run_in_executor(
-                        None,
-                        lambda: H.summarize_transcript_with_metadata(transcript_text, **kwargs),
-                    )
-                    summary_md = summary_result.markdown
+                summary_result = await loop.run_in_executor(
+                    None,
+                    lambda: H.summarize_transcript_with_metadata(transcript_text, **kwargs),
+                )
+                summary_md = summary_result.markdown
                 if not summary_md.strip():
                     raise ValueError("AI summarization returned empty result")
                 summary_status = "completed"
+                if source_type == "video" and segments_payload:
+                    try:
+                        visual_plan = await loop.run_in_executor(
+                            None,
+                            lambda: H.plan_visual_evidence_requests(
+                                summary_md,
+                                segments_payload,
+                                api_key=kwargs.get("api_key"),
+                                model=kwargs.get("model"),
+                                provider=kwargs.get("provider"),
+                            ),
+                        )
+                        visual_requests = visual_plan.requests
+                        if visual_requests:
+                            frames_output_dir = H._artifact_storage_dir() / task_id_value / "frames"
+                            frames_output_dir.mkdir(parents=True, exist_ok=True)
+                            keyframe_result = await loop.run_in_executor(
+                                None,
+                                lambda: H.extract_keyframes(
+                                    str(in_path),
+                                    frames_output_dir,
+                                    segments=H.visual_requests_to_frame_segments(visual_requests),
+                                    scene_threshold=0.3,
+                                    max_scene_frames=0,
+                                    min_gap_seconds=0.8,
+                                ),
+                            )
+                            frame_paths = [str(f["path"]) for f in keyframe_result.frames]
+                            frame_metadata = keyframe_result.frames
+                            if keyframe_result.skipped_reason:
+                                visual_evidence_error = keyframe_result.skipped_reason
+                                H.logger.info(
+                                    "Frame extraction skipped for %s via %s: %s",
+                                    task_id_value,
+                                    keyframe_result.provider,
+                                    keyframe_result.skipped_reason,
+                                )
+                        if frame_metadata:
+                            visual_api_key = (qwen_api_key or "").strip()
+                            if not visual_api_key and (kwargs.get("provider") == "qwen"):
+                                visual_api_key = kwargs.get("api_key") or ""
+                            visual_selection = await loop.run_in_executor(
+                                None,
+                                lambda: H.select_visual_evidence_frames(
+                                    visual_requests,
+                                    frame_metadata,
+                                    api_key=visual_api_key or None,
+                                    provider="qwen",
+                                ),
+                            )
+                            visual_selections = visual_selection.selections
+                    except Exception as exc:
+                        visual_evidence_error = H._friendly_error_message(exc)
+                        H.logger.warning("Visual evidence planning failed for %s: %s", task_id_value, exc)
                 H.log_event(
                     task_id=task_id_value,
                     event_name="summary_completed",
@@ -1182,7 +1203,9 @@ async def process_video(
                         requested_note_mode=note_mode_plan.get("requested_note_mode") or (summary_result.requested_mode if summary_result is not None else None),
                         **H._summary_result_metadata(summary_result),
                         **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
-                        multimodal=(bool(frame_paths and H.can_use_multimodal(ai_provider)) or None),
+                        visual_request_count=len(visual_requests) if visual_requests else None,
+                        visual_selection_count=len(visual_selections) if visual_selections else None,
+                        visual_evidence_error=visual_evidence_error,
                         frame_count=len(frame_paths) if frame_paths else None,
                     ),
                 )
@@ -1291,6 +1314,11 @@ async def process_video(
                 prompt_preset=(prompt_preset or "").strip() or None,
                 prompt_preset_label=(prompt_preset_label or "").strip() or None,
             )
+            if visual_requests:
+                result["visual_requests"] = visual_requests
+            if visual_selections:
+                result["visual_frame_selections"] = visual_selections
+                summary_md = H.inject_visual_evidence_references(summary_md, visual_selections)
 
             # Register frame files as artifacts
             if frame_paths:
@@ -1308,6 +1336,10 @@ async def process_video(
                             "contrast",
                             "edge_contrast",
                             "low_information",
+                            "visual_request_id",
+                            "note_section",
+                            "query",
+                            "reason",
                         ):
                             if fm.get(key) is not None:
                                 art[key] = fm.get(key)
@@ -1317,7 +1349,7 @@ async def process_video(
                         H.logger.warning("Frame artifact write failed for %s: %s", task_id_value, exc)
                 if frame_artifacts:
                     result["frame_artifacts"] = frame_artifacts
-                    result["multimodal_summary"] = True
+                    result["visual_evidence_pipeline"] = "text_plan_qwen_local_window"
                     result["frame_count"] = len(frame_artifacts)
                     summary_md = H.rewrite_note_image_references(summary_md, frame_artifacts)
                     result["summary_markdown"] = summary_md
@@ -1326,6 +1358,23 @@ async def process_video(
                         frame_artifacts,
                         provider=frame_artifacts[0].get("provider"),
                     ))
+                elif visual_requests:
+                    summary_md = str(result.get("summary_markdown") or summary_md)
+                    result["visual_evidence"] = []
+                    result["visual_artifacts"] = {}
+                    result["visual_evidence_status"] = "unavailable"
+                    result["visual_evidence_reason"] = (
+                        visual_evidence_error
+                        or "截图候选帧没有成功写入产物，最终笔记不插入截图。"
+                    )
+            elif visual_requests:
+                result["visual_evidence"] = []
+                result["visual_artifacts"] = {}
+                result["visual_evidence_status"] = "unavailable"
+                result["visual_evidence_reason"] = (
+                    visual_evidence_error
+                    or "文本模型提出了截图需求，但当前任务没有生成可用候选帧。"
+                )
 
             # ── Stage 4: Lark export (optional) ───────────────
             if do_lark:

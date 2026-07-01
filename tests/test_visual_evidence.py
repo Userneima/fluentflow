@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from backend.core.visual_evidence import build_visual_evidence_from_note_images, rewrite_note_image_references
+from backend.core.ai_summarizer import _coerce_visual_requests, visual_requests_to_frame_segments
+from backend.core.visual_evidence import (
+    build_visual_evidence_from_note_images,
+    inject_visual_evidence_references,
+    rewrite_note_image_references,
+)
 
 
 def test_build_visual_evidence_from_agent_selected_note_images() -> None:
@@ -148,3 +153,87 @@ def test_visual_evidence_density_caps_short_notes() -> None:
 
     assert len(payload["visual_evidence"]) == 2
     assert "scene_0003.jpg" not in payload["summary_markdown"]
+
+
+def test_coerce_visual_requests_clamps_long_windows() -> None:
+    requests = _coerce_visual_requests(
+        {
+            "requests": [
+                {
+                    "note_section": "核心流程",
+                    "start_seconds": 10,
+                    "end_seconds": 140,
+                    "reason": "这里需要展示流程图",
+                    "query": "选择清晰的流程图页面",
+                    "priority": "urgent",
+                    "max_images": 3,
+                }
+            ]
+        },
+        [{"start": 0, "end": 180, "text": "segment"}],
+        max_requests=8,
+    )
+
+    assert requests[0]["id"] == "vr_001"
+    assert requests[0]["priority"] == "medium"
+    assert requests[0]["max_images"] == 2
+    assert requests[0]["end_seconds"] - requests[0]["start_seconds"] <= 60
+
+
+def test_visual_requests_to_frame_segments_preserves_request_context() -> None:
+    segments = visual_requests_to_frame_segments([
+        {
+            "id": "vr_001",
+            "note_section": "核心流程",
+            "start_seconds": 12,
+            "end_seconds": 18,
+            "reason": "流程图",
+            "query": "清晰流程图",
+        }
+    ])
+
+    assert segments == [
+        {
+            "start": 12,
+            "end": 18,
+            "text": "清晰流程图",
+            "visual_request_id": "vr_001",
+            "note_section": "核心流程",
+            "query": "清晰流程图",
+            "reason": "流程图",
+        }
+    ]
+
+
+def test_inject_visual_evidence_references_near_matching_heading() -> None:
+    markdown = "## 核心流程\n\n这里说明流程。\n\n## 结论\n\n这里是结论。"
+    injected = inject_visual_evidence_references(
+        markdown,
+        [
+            {
+                "note_section": "核心流程",
+                "filename": "ts_0004_0.jpg",
+                "caption": "流程图展示关键步骤",
+            }
+        ],
+    )
+
+    assert "## 核心流程\n\n![流程图展示关键步骤](ts_0004_0.jpg)" in injected
+
+
+def test_injected_visual_reference_can_be_promoted() -> None:
+    markdown = inject_visual_evidence_references(
+        "## 核心流程\n\n这里说明流程。",
+        [{"note_section": "核心流程", "filename": "ts_0004_0.jpg", "caption": "流程图展示关键步骤"}],
+    )
+    rewritten = rewrite_note_image_references(
+        markdown,
+        [{"filename": "frames/ts_0004_0.jpg", "url": "/jobs/task/artifacts/frame?file=ts_0004_0.jpg"}],
+    )
+    payload = build_visual_evidence_from_note_images(
+        rewritten,
+        [{"filename": "frames/ts_0004_0.jpg", "url": "/jobs/task/artifacts/frame?file=ts_0004_0.jpg"}],
+    )
+
+    assert payload["visual_evidence_status"] == "completed"
+    assert payload["visual_evidence"][0]["note_section"] == "核心流程"
