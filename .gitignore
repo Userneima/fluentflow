@@ -30,6 +30,8 @@ docs/private/
 !.agents/skills/fluentflow-frontend-change/SKILL.md
 !.agents/skills/fluentflow-video-source-debug/
 !.agents/skills/fluentflow-video-source-debug/SKILL.md
+!.agents/skills/fluentflow-git-workflow/
+!.agents/skills/fluentflow-git-workflow/SKILL.md
 .claude/
 .superpowers/
 CONTEXT.md

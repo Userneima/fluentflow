@@ -2,6 +2,11 @@
 
 Last updated: 2026-06-29
 
+Status: superseded as the macro priority anchor by
+`docs/current_version_plan.md`. Keep this file as historical context for the
+ElevenLabs and Agent workflow transition, but use the current version plan for
+new phase selection.
+
 This document is the short execution anchor for the next stage of FluentFlow. If a future task conflicts with this document, prioritize the path below unless the product direction has explicitly changed.
 
 ## Core Focus

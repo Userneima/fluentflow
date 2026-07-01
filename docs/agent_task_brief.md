@@ -1,21 +1,48 @@
 # Agent Task Brief
 
 This document is the entry mechanism for FluentFlow execution conversations. Use
-it before non-trivial work so each thread has one clear boundary, one validation
-standard, and one commit decision.
+it before cross-file, workflow, backend state, deployment, or contract-changing
+work so each thread has one clear boundary, one validation standard, and one
+commit decision.
 
 It does not replace `AGENTS.md`, `docs/versioning_strategy.md`,
-`docs/agent_mcp_parity.md`, or `docs/ui_design_system.md`. It is the short
-handoff layer that points each execution thread to the right checks.
+`docs/agent_mcp_parity.md`, `docs/ui_design_system.md`, or
+`docs/workflow_design_system.md`. It is the short handoff layer that points each
+execution thread to the right checks.
 
 ## When To Use
 
-Use this brief before work that changes product behavior, UI, backend logic,
-data meaning, scripts, docs with maintainer impact, deployment, tests, or commit
-history.
+Use this brief before work that adds pages, changes user workflows, changes
+backend state/queue/auth/Agent API behavior, affects deployment or contracts, or
+spans multiple modules.
 
 Trivial typo fixes or one-off read-only investigation can skip a written brief,
 but the final response should still state what was checked.
+
+## Work Unit Size
+
+One execution turn should finish one coherent, verifiable work unit. A work unit
+can touch several files, but it should have one user or maintainer outcome and
+one clear validation path.
+
+Split the request into stages before editing when it includes any of these:
+
+- More than one product workflow, for example history records plus editor plus
+  export.
+- More than one risk area, for example UI plus queue semantics plus auth.
+- Backend, frontend, docs, and tests all moving for different reasons.
+- A change that cannot be verified with a small, relevant check.
+- Work whose success criteria are still fuzzy.
+
+Use this staged-plan shape:
+
+```md
+Stage 1: outcome, files/surfaces, validation, stop condition
+Stage 2: outcome, files/surfaces, validation, stop condition
+```
+
+Execute the current stage only. After it passes validation, report what remains
+instead of silently continuing into the next stage.
 
 ## Task Brief Template
 
@@ -37,7 +64,7 @@ If a field is unknown, mark it as unknown and resolve it before editing.
 
 ## Clean Worktree Start Gate
 
-Before non-trivial file edits, run:
+Before those file edits, run:
 
 ```bash
 git status --short
@@ -48,13 +75,13 @@ Then choose one path:
 | State | Required action |
 | --- | --- |
 | Clean worktree | Proceed with the task brief. |
-| Dirty, all changes belong to this work unit | Continue, then validate and commit the work unit when complete. |
-| Dirty, unrelated changes exist | Do not stack new edits on the same worktree. First split/checkpoint existing changes, move this task to a clean worktree, or keep the turn read-only. |
-| Dirty, ownership is unclear | Stop and report the ambiguity before editing. |
+| Dirty, all changes belong to this work unit | Continue, validate when complete, and commit only if explicitly requested. |
+| Dirty, unrelated changes exist and do not overlap target files | Continue carefully, leave them untouched, and report them in the final summary. |
+| Dirty changes overlap target files or ownership is unclear | Stop and report the ambiguity before editing. |
 
-This gate is what makes automatic checkpoint commits possible. If the start
-state is already mixed, the end state will not have a trustworthy commit
-boundary.
+This gate protects the commit boundary. If the start state is already mixed,
+do not stage unrelated changes or create a checkpoint unless the user explicitly
+asks for that boundary.
 
 ## Main And Execution Conversation Split
 
@@ -108,8 +135,7 @@ brief:
 4. Is the commit boundary clear, even if this thread is not allowed to commit?
 5. Are remaining risks or blocked follow-ups stated plainly?
 
-If the work unit is complete, validated, clearly scoped, and independently
-reversible, create a normal checkpoint commit unless the user or task brief
-forbids commits. If a commit is not created, the final report must say exactly
-why, for example: unrelated dirty changes, skipped validation, exploratory work,
-or missing user confirmation.
+Do not create a commit unless the user or task brief explicitly asks for one.
+If a commit is requested but not created, the final report must say exactly why,
+for example: unrelated dirty changes, skipped validation, exploratory work, or
+missing user confirmation.
