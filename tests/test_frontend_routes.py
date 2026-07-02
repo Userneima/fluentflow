@@ -286,6 +286,18 @@ def test_history_failed_video_link_records_can_be_retried_without_status_flicker
     assert "stats.live > 0" in source
 
 
+def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+
+    assert "const failedProgressLabel = state === TASK_STATE_CANCELLED" in source
+    assert "failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)" in source
+    assert "{!completed && !failed ? (" in source
+    assert "{failed ? (" in source
+    assert "rounded-[18px] border border-red-200 bg-red-50/80" in source
+    assert "style={{width: `${progress}%`}}" in source
+    assert "failed ? 'bg-red-500' : 'bg-[#111111] dark:bg-white'" not in source
+
+
 def test_tasks_delete_cached_only_without_task_id_locally() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 

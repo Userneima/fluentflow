@@ -327,7 +327,14 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
         : completed
             ? (lang === 'zh' ? '处理完成，可以打开结果继续校对、下载或重生笔记。' : 'Done. Open the result to review, download, or regenerate notes.')
             : liveStageDetail(job, lang);
-    const progressLabel = progressUnknown && live ? (lang === 'zh' ? '处理中' : 'Working') : `${progress}%`;
+    const failedProgressLabel = state === TASK_STATE_CANCELLED
+        ? (lang === 'zh' ? '已取消' : 'Cancelled')
+        : (lang === 'zh' ? '未完成' : 'Incomplete');
+    const progressLabel = failed
+        ? failedProgressLabel
+        : progressUnknown && live
+            ? (lang === 'zh' ? '处理中' : 'Working')
+            : `${progress}%`;
     const subtitle = completed ? taskProcessingTimeLabel(job, lang) : stageLabel(job, lang);
     const metaItems = [
         {label: lang === 'zh' ? '来源' : 'Source', value: sourceLabel(job, lang)},
@@ -352,11 +359,11 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                     </h2>
                     <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
                         {subtitle}
-                        {!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`}
+                        {failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)}
                         {queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
                     </p>
 
-                    {!completed ? (
+                    {!completed && !failed ? (
                         <div className="mt-4">
                             <div className="mb-2 flex items-end justify-between gap-4">
                                 <div>
@@ -366,7 +373,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                                 <p className="font-headline text-[24px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progressLabel}</p>
                             </div>
                             <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
-                                {!progressUnknown && <div className={`h-full rounded-full transition-all duration-500 ${failed ? 'bg-red-500' : 'bg-[#111111] dark:bg-white'}`} style={{width: `${progress}%`}}/>}
+                                {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
                             </div>
                             <p className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
                                 {detail}
@@ -400,6 +407,22 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                     ) : null}
                 </div>
             </div>
+            {failed ? (
+                <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50/80 px-4 py-3 dark:border-red-500/20 dark:bg-red-500/10">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                            <p className="text-[12px] font-extrabold text-red-700 dark:text-red-200">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
+                            <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
+                        </div>
+                        <span className="inline-flex h-8 shrink-0 items-center rounded-[12px] border border-red-200 bg-white px-3 text-[12px] font-extrabold text-red-700 dark:border-red-500/25 dark:bg-white/[0.08] dark:text-red-200">
+                            {progressLabel}
+                        </span>
+                    </div>
+                    <p className="mt-3 rounded-[14px] border border-red-200 bg-white px-3 py-2 text-[12px] font-semibold leading-5 text-red-800 dark:border-red-500/20 dark:bg-white/[0.06] dark:text-red-100">
+                        {detail}
+                    </p>
+                </div>
+            ) : null}
             <div className="mt-4 grid gap-2 md:grid-cols-4">
                 {metaItems.map((item) => (
                     <div key={item.label} className="min-w-0 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.04]">
