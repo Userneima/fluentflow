@@ -264,8 +264,8 @@ const landingCopy = {
 const displayType = "[font-family:'Techna_Sans','Techna Sans','Avenir_Next','Nunito_Sans','Inter','ui-rounded','SF_Pro_Display',system-ui,sans-serif]";
 const bodyType = "[font-family:'Avenir_Next','Inter','ui-rounded','SF_Pro_Text',system-ui,sans-serif]";
 const dataType = "[font-family:'SF_Mono','ui-monospace','Menlo','Consolas',monospace]";
-const lightGrain = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.78' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.48'/%3E%3C/svg%3E\")";
-const darkGrain = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.74' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' fill='white' opacity='.30'/%3E%3C/svg%3E\")";
+const lightGrain = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23n)' opacity='.62'/%3E%3C/svg%3E\")";
+const darkGrain = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.88' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23n)' fill='white' opacity='.42'/%3E%3C/svg%3E\")";
 const interactiveMotion = 'transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out';
 const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2a8f75]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fff8ec] dark:focus-visible:ring-[#8fd9c0]/50 dark:focus-visible:ring-offset-[#111612]';
 const sectionShell = 'mx-auto max-w-7xl px-5 sm:px-6 lg:px-8';
@@ -324,8 +324,8 @@ const HeroVisual = ({copy}) => (
             }
         `}</style>
         <div className="absolute left-8 top-12 h-28 w-[72%] rounded-full bg-[linear-gradient(90deg,rgba(42,143,117,.20),rgba(245,176,86,.20),rgba(119,169,230,.16))] blur-2xl"/>
-        <article className="relative z-10 overflow-hidden rounded-[34px] border border-[#d2dfd2] bg-white/92 shadow-[0_38px_104px_-70px_rgba(55,73,48,.92)] backdrop-blur dark:border-white/[0.14] dark:bg-[#171d18]/96">
-            <div className="flex h-14 items-center gap-2 border-b border-[#dce5d8] bg-[#f5f7f1]/92 px-5 dark:border-white/[0.10] dark:bg-white/[0.055]">
+        <article className="relative z-10 overflow-hidden rounded-[34px] border border-white/70 bg-white/84 shadow-[inset_0_1px_0_rgba(255,255,255,.72),0_38px_104px_-70px_rgba(55,73,48,.92)] backdrop-blur-md dark:border-white/[0.16] dark:bg-[#171d18]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,.08),0_38px_104px_-72px_rgba(0,0,0,.86)]">
+            <div className="flex h-14 items-center gap-2 border-b border-[#dce5d8]/86 bg-[#f5f7f1]/76 px-5 backdrop-blur-md dark:border-white/[0.10] dark:bg-white/[0.07]">
                 <span className="size-3 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
                 <span className="size-3 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
                 <span className="size-3 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
@@ -486,13 +486,14 @@ const Landing = () => {
         className={`relative h-dvh overflow-y-auto scroll-smooth bg-[#fff8ec] text-[#17201b] motion-reduce:scroll-auto dark:bg-[#111612] dark:text-[#f7f1e5] ${bodyType}`}
     >
         <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_18%_10%,rgba(42,143,117,.16),transparent_28rem),radial-gradient(circle_at_84%_12%,rgba(245,176,86,.18),transparent_30rem),linear-gradient(180deg,#fff8ec_0%,#f6fbf2_52%,#fffaf0_100%)] dark:bg-[radial-gradient(circle_at_18%_10%,rgba(143,217,192,.12),transparent_28rem),radial-gradient(circle_at_84%_12%,rgba(245,176,86,.10),transparent_30rem),linear-gradient(180deg,#111612_0%,#161d18_55%,#111612_100%)]"/>
-        <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.10] mix-blend-multiply dark:hidden" style={{backgroundImage: lightGrain}}/>
-        <div className="pointer-events-none fixed inset-0 z-0 hidden opacity-[0.055] mix-blend-screen dark:block" style={{backgroundImage: darkGrain}}/>
+        <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.16] mix-blend-multiply dark:hidden" style={{backgroundImage: lightGrain}}/>
+        <div className="pointer-events-none fixed inset-0 z-0 hidden opacity-[0.085] mix-blend-screen dark:block" style={{backgroundImage: darkGrain}}/>
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_52%_0%,rgba(255,255,255,.42),transparent_25rem),linear-gradient(135deg,rgba(255,255,255,.24),rgba(255,255,255,0)_44%)] opacity-[0.38] dark:bg-[radial-gradient(circle_at_52%_0%,rgba(255,255,255,.10),transparent_25rem),linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,0)_46%)] dark:opacity-[0.16]"/>
         <a href="#homepage-hero" className={`sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-[#17201b] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#fff8ec] dark:focus:bg-[#f7f1e5] dark:focus:text-[#17201b] ${focusRing}`}>
             Skip to main content
         </a>
 
-        <header className="sticky top-0 z-40 border-b border-[#dce5d8]/90 bg-[#fff8ec]/78 backdrop-blur-xl dark:border-white/[0.11] dark:bg-[#111612]/86">
+        <header className="sticky top-0 z-40 border-b border-[#dce5d8]/90 bg-[#fff8ec]/72 shadow-[inset_0_1px_0_rgba(255,255,255,.68)] backdrop-blur-xl dark:border-white/[0.11] dark:bg-[#111612]/82 dark:shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
             <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between gap-5 px-5 sm:px-6 lg:px-8">
                 <Link to="/" className={`flex min-w-0 items-center gap-3 rounded-[16px] ${focusRing}`} aria-label="FluentFlow">
                     <LogoMark/>
@@ -569,7 +570,7 @@ const Landing = () => {
             <HeroVisual copy={copy.heroVisual}/>
         </section>
 
-        <section id="workflow" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-white/58 backdrop-blur-sm dark:border-white/[0.10] dark:bg-white/[0.035]">
+        <section id="workflow" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-white/64 shadow-[inset_0_1px_0_rgba(255,255,255,.58)] backdrop-blur-md dark:border-white/[0.10] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
             <div className={`${sectionShell} py-16 lg:py-24`}>
                 <SectionHeader
                     eyebrow={copy.workflow.eyebrow}
@@ -602,7 +603,7 @@ const Landing = () => {
                     const icons = [BookOpenText, ScanSearch, Captions, FileText, Image, Download];
                     const Icon = icons[index] || BookOpenText;
                     return (
-                        <article key={title} className={`rounded-[28px] border border-[#dce5d8] bg-white/72 p-5 shadow-[0_20px_58px_-46px_rgba(46,73,58,.45)] backdrop-blur ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#9fcab8] hover:bg-white dark:border-white/[0.11] dark:bg-white/[0.055] dark:hover:border-[#8fd9c0]/45`}>
+                        <article key={title} className={`rounded-[28px] border border-white/68 bg-white/68 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,.62),0_20px_58px_-46px_rgba(46,73,58,.45)] backdrop-blur-md ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#9fcab8] hover:bg-white/82 dark:border-white/[0.12] dark:bg-white/[0.065] dark:shadow-[inset_0_1px_0_rgba(255,255,255,.06)] dark:hover:border-[#8fd9c0]/45`}>
                             <Icon className="size-6 text-[#2f7c66] dark:text-[#8fd9c0]" strokeWidth={2.05} aria-hidden="true"/>
                             <h3 className={`mt-5 ${displayType} text-xl font-semibold leading-tight tracking-normal text-[#17201b] dark:text-[#f7f1e5]`}>{title}</h3>
                             <p className="mt-3 text-sm font-medium leading-6 text-[#626d64] dark:text-white/[0.66]">{desc}</p>
@@ -612,7 +613,7 @@ const Landing = () => {
             </div>
         </section>
 
-        <section id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/70 backdrop-blur-sm dark:border-white/[0.10] dark:bg-[#8fd9c0]/5">
+        <section id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/72 shadow-[inset_0_1px_0_rgba(255,255,255,.58)] backdrop-blur-md dark:border-white/[0.10] dark:bg-[#8fd9c0]/6 dark:shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
             <div className={`${sectionShell} grid gap-10 py-16 lg:grid-cols-[0.86fr_1.14fr] lg:items-center lg:py-24`}>
                 <div>
                     <p className={eyebrowClass}>{copy.sources.eyebrow}</p>
@@ -625,7 +626,7 @@ const Landing = () => {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                     {sourceIconItems.map(([key, Icon, tone]) => (
-                        <div key={key} className="flex min-h-[76px] items-center gap-3 rounded-[24px] border border-[#d2dfd2] bg-white/78 px-4 py-3 shadow-[0_16px_42px_-38px_rgba(46,73,58,.35)] dark:border-white/[0.12] dark:bg-white/[0.055]">
+                        <div key={key} className="flex min-h-[76px] items-center gap-3 rounded-[24px] border border-white/68 bg-white/70 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,.58),0_16px_42px_-38px_rgba(46,73,58,.35)] backdrop-blur-md dark:border-white/[0.12] dark:bg-white/[0.065] dark:shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
                             <span className={`flex size-10 shrink-0 items-center justify-center rounded-[15px] shadow-[inset_0_0_0_1px_rgba(23,32,27,.10)] ${tone}`}>
                                 <Icon className="size-5" strokeWidth={2.25} aria-hidden="true"/>
                             </span>
@@ -647,7 +648,7 @@ const Landing = () => {
                     const icons = [FileText, Captions, Film, CheckCircle2];
                     const Icon = icons[index] || FileText;
                     return (
-                        <article key={title} className="rounded-[28px] border border-[#dce5d8] bg-white/72 p-5 shadow-[0_18px_52px_-44px_rgba(46,73,58,.42)] dark:border-white/[0.11] dark:bg-white/[0.055]">
+                        <article key={title} className="rounded-[28px] border border-white/68 bg-white/68 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,.62),0_18px_52px_-44px_rgba(46,73,58,.42)] backdrop-blur-md dark:border-white/[0.11] dark:bg-white/[0.065] dark:shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
                             <Icon className="size-6 text-[#2f7c66] dark:text-[#8fd9c0]" strokeWidth={2.05} aria-hidden="true"/>
                             <h3 className={`mt-5 ${displayType} text-xl font-semibold leading-tight tracking-normal text-[#17201b] dark:text-[#f7f1e5]`}>{title}</h3>
                             <p className="mt-3 text-sm font-medium leading-6 text-[#626d64] dark:text-white/[0.66]">{desc}</p>

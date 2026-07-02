@@ -154,6 +154,12 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "lightGrain" in landing
     assert "feTurbulence" in landing
     assert "mix-blend-multiply" in landing
+    assert "opacity-[0.16] mix-blend-multiply" in landing
+    assert "opacity-[0.085] mix-blend-screen" in landing
+    assert "width='96' height='96'" in landing
+    assert "baseFrequency='.92'" in landing
+    assert "backdrop-blur-md" in landing
+    assert "shadow-[inset_0_1px_0_rgba(255,255,255,.72)" in landing
     assert "font-black" not in landing
     assert "text-sm font-medium text-[#5f6a61]" in landing
     assert "text-sm font-semibold text-[#fff8ec]" in landing
@@ -190,7 +196,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "transition-[color,background-color,border-color,box-shadow,transform,opacity]" in landing
     assert "dark:text-white/[0.68] md:flex" in landing
     assert "dark:bg-[#111612]" in landing
-    assert 'id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/70 backdrop-blur-sm dark:border-white/[0.10] dark:bg-[#8fd9c0]/5"' in landing
+    assert 'id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/72 shadow-[inset_0_1px_0_rgba(255,255,255,.58)] backdrop-blur-md dark:border-white/[0.10] dark:bg-[#8fd9c0]/6' in landing
     assert "flashcard" not in landing.lower()
     assert "quiz" not in landing.lower()
     assert "podcast" not in landing.lower()
