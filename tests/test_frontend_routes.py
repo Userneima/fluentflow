@@ -137,12 +137,22 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert 'path="*" element={<Navigate to="/app" replace/>}' in app_shell
     assert "{path:'/app', icon:LayoutGrid, k:'nav.dashboard'}" in side_nav
     assert 'to="/app"' in side_nav
-    assert "把长视频变成可复查的学习笔记" in landing
-    assert "ElevenLabs 云端转录" in landing
+    assert "把想学的长视频，先变成高质量笔记" in landing
+    assert "先得到结构化笔记、字幕和关键画面" in landing
+    assert "少暂停，少倒回，少做机械整理" in landing
+    assert "现在先有笔记再学习" in landing
+    assert "保守字幕纠错" in landing
+    assert "公开视频平台可能限制下载或字幕访问" in landing
+    assert "一份能继续学习、复查和导出的记录" in landing
     assert "to=\"/media-text\"" in landing
-    assert "dark:text-white/[0.72] md:flex" in landing
-    assert "dark:bg-[#211d16] dark:text-[#f8f1e6]" in landing
-    assert 'id="use-cases" className="bg-[#171512] text-[#f5f1e9] dark:bg-[#15130f] dark:text-[#f5f1e9]"' in landing
+    assert "href=\"#workflow\"" in landing
+    assert "to=\"/agent\"" in landing
+    assert "dark:text-white/[0.70] md:flex" in landing
+    assert "dark:bg-[#211d16]" in landing
+    assert 'id="use-cases" className="border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]"' in landing
+    assert "flashcard" not in landing.lower()
+    assert "quiz" not in landing.lower()
+    assert "podcast" not in landing.lower()
     assert "to=\"/agent\"" in editor
     assert "edit.chooseRecord" in editor
     assert "to=\"/app\"" in about
