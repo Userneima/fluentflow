@@ -149,8 +149,15 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "to=\"/agent\"" in landing
     assert "h-dvh overflow-y-auto" in landing
     assert "motion-reduce:scroll-auto" in landing
+    assert "Techna Sans" in landing
     assert "Avenir_Next" in landing
-    assert "bg-[radial-gradient(circle_at_1px_1px,rgba(23,32,27,.16)_1px,transparent_0)]" in landing
+    assert "lightGrain" in landing
+    assert "feTurbulence" in landing
+    assert "mix-blend-multiply" in landing
+    assert "font-black" not in landing
+    assert "text-sm font-medium text-[#5f6a61]" in landing
+    assert "text-sm font-semibold text-[#fff8ec]" in landing
+    assert "text-[42px] font-bold leading-[1.06]" in landing
     assert "ff-motion-demo" in landing
     assert "prefers-reduced-motion: reduce" in landing
     assert "Scanning timeline" in landing
