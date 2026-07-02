@@ -107,6 +107,7 @@
 
 ### 维护者变化
 
+- 新增 `fluentflow-homepage-design` 项目 skill，用于官网首页审校和改版前判断，避免通用设计 skill 把首页带回深色工具页、泛 AI 模板或不适合中文学习产品的字体方向。
 - 部署自检中的视频截图插图检查改为要求百炼 / DashScope 视觉选择 Key，而不再强制主摘要服务商必须设置为 Qwen；DeepSeek/OpenAI 生成文本笔记时也可配合 Qwen 视觉模型完成局部截图选择。
 - 新增 `docs/git_checkpoint_workflow.md` 作为 Git checkpoint 单一操作手册；`AGENTS.md`、执行任务 brief 和 git workflow skill 只保留索引，避免多处规则互相冲突。
 - 执行任务完成后默认创建本地 checkpoint commit；如果验证未跑、工作仍在探索、或脏改动边界不清，则必须先拆分或说明未提交原因。

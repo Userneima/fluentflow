@@ -1,0 +1,4 @@
+interface:
+  display_name: "FluentFlow Homepage Design"
+  short_description: "Homepage design gate for FluentFlow"
+  default_prompt: "Use $fluentflow-homepage-design before changing or reviewing the FluentFlow public homepage."

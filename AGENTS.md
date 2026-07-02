@@ -18,6 +18,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Versioning and release: `docs/versioning_strategy.md`, `docs/release_process.md`.
 - Project skills: `.agents/skills/`.
 - Changelog: `docs/changelog.md`.
+- Homepage design skill: `.agents/skills/fluentflow-homepage-design`.
 
 ## Common Commands
 
@@ -40,6 +41,8 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
   first and execute one stage at a time.
 - Repeated FluentFlow workflows should use the matching project skill in
   `.agents/skills/` when one applies.
+- Public homepage review or redesign should use `fluentflow-homepage-design`
+  before generic visual polish skills.
 - Before file edits, run `git status --short`. If dirty changes overlap the
   target files or make the commit boundary unclear, stop and ask/split first.
   If they are unrelated, continue carefully and report that they were left untouched.

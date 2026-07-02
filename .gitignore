@@ -32,6 +32,10 @@ docs/private/
 !.agents/skills/fluentflow-video-source-debug/SKILL.md
 !.agents/skills/fluentflow-git-workflow/
 !.agents/skills/fluentflow-git-workflow/SKILL.md
+!.agents/skills/fluentflow-homepage-design/
+!.agents/skills/fluentflow-homepage-design/SKILL.md
+!.agents/skills/fluentflow-homepage-design/agents/
+!.agents/skills/fluentflow-homepage-design/agents/openai.yaml
 .claude/
 .superpowers/
 CONTEXT.md
