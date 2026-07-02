@@ -183,6 +183,10 @@ Required for homepage implementation:
 - browser verification on desktop and mobile
 - light and dark mode screenshots or direct visual observations
 - real scroll check from hero to bottom CTA
+- verify in the user's already-open browser window when possible. Do not launch
+  a temporary Edge/Chrome profile for homepage screenshots unless the user
+  explicitly approves it; if automation cannot inspect the current window, give
+  the localhost URL and ask the user to view it there.
 
 Do not report a homepage redesign as complete if the page cannot scroll, if the
 CTA is unreachable, or if desktop/mobile/dark mode were not actually inspected.

@@ -45,6 +45,12 @@ verification task.
 - Use browser screenshot verification when changing important visual layout,
   responsive behavior, dark mode, or interactions that build output cannot
   prove.
+- For browser verification, prefer the user's already-open Edge/Chrome product
+  window. Do not start a fresh browser profile such as a temporary Edge
+  `--user-data-dir` unless the user explicitly approves it first; a fresh
+  profile loses cookies/login state and can look like a newly installed browser.
+  If the existing window cannot be automated, give the local URL and ask the
+  user to inspect it in that window.
 
 ## Do Not
 

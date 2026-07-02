@@ -43,6 +43,10 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
   `.agents/skills/` when one applies.
 - Public homepage review or redesign should use `fluentflow-homepage-design`
   before generic visual polish skills.
+- Browser verification should use the user's already-open product window first
+  when available. Do not launch a temporary browser profile for visual checks
+  unless the user explicitly approves it; if automation cannot inspect the
+  existing window, provide the local URL and ask the user to view it there.
 - Before file edits, run `git status --short`. If dirty changes overlap the
   target files or make the commit boundary unclear, stop and ask/split first.
   If they are unrelated, continue carefully and report that they were left untouched.
