@@ -158,6 +158,11 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "opacity-[0.085] mix-blend-screen" in landing
     assert "width='96' height='96'" in landing
     assert "baseFrequency='.92'" in landing
+    assert "lightPageFrost" in landing
+    assert "darkPageFrost" in landing
+    assert "baseFrequency='1.18'" in landing
+    assert "opacity-[0.24] mix-blend-multiply" in landing
+    assert "backgroundSize: '160px 160px, 5px 5px'" in landing
     assert "backdrop-blur-md" in landing
     assert "shadow-[inset_0_1px_0_rgba(255,255,255,.72)" in landing
     assert "font-black" not in landing

@@ -266,6 +266,8 @@ const bodyType = "[font-family:'Avenir_Next','Inter','ui-rounded','SF_Pro_Text',
 const dataType = "[font-family:'SF_Mono','ui-monospace','Menlo','Consolas',monospace]";
 const lightGrain = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23n)' opacity='.62'/%3E%3C/svg%3E\")";
 const darkGrain = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.88' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23n)' fill='white' opacity='.42'/%3E%3C/svg%3E\")";
+const lightPageFrost = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.18' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23f)' opacity='.50'/%3E%3C/svg%3E\")";
+const darkPageFrost = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.08' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23f)' fill='white' opacity='.36'/%3E%3C/svg%3E\")";
 const interactiveMotion = 'transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out';
 const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2a8f75]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fff8ec] dark:focus-visible:ring-[#8fd9c0]/50 dark:focus-visible:ring-offset-[#111612]';
 const sectionShell = 'mx-auto max-w-7xl px-5 sm:px-6 lg:px-8';
@@ -489,6 +491,20 @@ const Landing = () => {
         <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.16] mix-blend-multiply dark:hidden" style={{backgroundImage: lightGrain}}/>
         <div className="pointer-events-none fixed inset-0 z-0 hidden opacity-[0.085] mix-blend-screen dark:block" style={{backgroundImage: darkGrain}}/>
         <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_52%_0%,rgba(255,255,255,.42),transparent_25rem),linear-gradient(135deg,rgba(255,255,255,.24),rgba(255,255,255,0)_44%)] opacity-[0.38] dark:bg-[radial-gradient(circle_at_52%_0%,rgba(255,255,255,.10),transparent_25rem),linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,0)_46%)] dark:opacity-[0.16]"/>
+        <div
+            className="pointer-events-none fixed inset-0 z-0 opacity-[0.24] mix-blend-multiply dark:hidden"
+            style={{
+                backgroundImage: `${lightPageFrost}, radial-gradient(circle, rgba(23,32,27,.18) 0 0.55px, transparent 0.7px)`,
+                backgroundSize: '160px 160px, 5px 5px',
+            }}
+        />
+        <div
+            className="pointer-events-none fixed inset-0 z-0 hidden opacity-[0.12] mix-blend-screen dark:block"
+            style={{
+                backgroundImage: `${darkPageFrost}, radial-gradient(circle, rgba(255,255,255,.26) 0 0.55px, transparent 0.75px)`,
+                backgroundSize: '160px 160px, 6px 6px',
+            }}
+        />
         <a href="#homepage-hero" className={`sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-[#17201b] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#fff8ec] dark:focus:bg-[#f7f1e5] dark:focus:text-[#17201b] ${focusRing}`}>
             Skip to main content
         </a>
