@@ -177,9 +177,16 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "使用暗黑模式" in landing
     assert "ff-motion-demo" in landing
     assert "ff-proof-stage" in landing
-    assert "ff-carousel-slide" in landing
-    assert "ffCarouselSlide" in landing
-    assert "ffBrowserProgress" in landing
+    assert "carouselStepMs = 6500" in landing
+    assert "role=\"tablist\"" in landing
+    assert "role=\"tab\"" in landing
+    assert "aria-selected={isActive}" in landing
+    assert "onMouseEnter={() => showStep(index)}" in landing
+    assert "onFocus={() => showStep(index)}" in landing
+    assert "onClick={() => selectStep(index)}" in landing
+    assert "setIsManual(true)" in landing
+    assert "rounded-[26px]" in landing
+    assert "rounded-[22px]" in landing
     assert "fluentflow.app/video-note" in landing
     assert "prefers-reduced-motion: reduce" in landing
     assert "Study workspace" in landing

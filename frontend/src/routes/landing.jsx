@@ -32,6 +32,7 @@ const LogoMark = () => (
 );
 
 const timeline = ['00:00', '18:42', '39:10', '1:12:44'];
+const carouselStepMs = 6500;
 
 const sourceIconItems = [
     ['courses', BookOpenText, 'bg-[#f4d98c] text-[#5c4214] dark:bg-[#f4d98c] dark:text-[#36240b]'],
@@ -291,21 +292,53 @@ const SectionHeader = ({eyebrow, title, desc}) => (
     </div>
 );
 
-const HeroVisual = ({copy}) => (
-    <div className="ff-motion-demo relative min-h-[500px] lg:min-h-[540px]" aria-label={copy.label}>
+const HeroVisual = ({copy}) => {
+    const [selectedStep, setSelectedStep] = useState(0);
+    const [previewStep, setPreviewStep] = useState(null);
+    const [isManual, setIsManual] = useState(false);
+    const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+    const activeStep = previewStep ?? selectedStep;
+    const proofSteps = [
+        {id: 'input', marker: '01', label: 'Input', title: copy.upload},
+        {id: 'notes', marker: '02', label: 'Notes', title: copy.notes},
+        {id: 'review', marker: '03', label: 'Review', title: copy.compare},
+        {id: 'export', marker: '04', label: 'Export', title: copy.export},
+    ];
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        const updateMotionPreference = () => setPrefersReducedMotion(mediaQuery.matches);
+        updateMotionPreference();
+        mediaQuery.addEventListener('change', updateMotionPreference);
+        return () => mediaQuery.removeEventListener('change', updateMotionPreference);
+    }, []);
+
+    useEffect(() => {
+        if (prefersReducedMotion || isManual || previewStep !== null) return undefined;
+        const timer = window.setInterval(() => {
+            setSelectedStep((current) => (current + 1) % proofSteps.length);
+        }, carouselStepMs);
+        return () => window.clearInterval(timer);
+    }, [isManual, previewStep, prefersReducedMotion, proofSteps.length]);
+
+    const showStep = (index) => setPreviewStep(index);
+    const clearPreview = () => setPreviewStep(null);
+    const selectStep = (index) => {
+        setSelectedStep(index);
+        setPreviewStep(null);
+        setIsManual(true);
+    };
+
+    const slideClass = (index, extra = '') => `ff-proof-stage absolute inset-x-4 top-4 grid min-h-[306px] content-center rounded-[22px] border p-5 text-[#17201b] shadow-[0_18px_52px_-40px_rgba(46,73,58,.45)] transition-[opacity,transform] duration-500 ease-out dark:text-[#f7f1e5] sm:inset-x-6 sm:min-h-[330px] sm:p-6 ${activeStep === index ? 'z-10 opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'z-0 pointer-events-none translate-y-3 scale-[0.985] opacity-0'} ${extra}`;
+
+    return (
+    <div className="ff-motion-demo relative min-h-[520px] lg:min-h-[560px]" aria-label={copy.label}>
         <style>{`
-            @keyframes ffCarouselSlide {
-                0%, 22% { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
-                27%, 100% { opacity: 0; transform: translateY(12px) scale(.985); pointer-events: none; }
-            }
             @keyframes ffSceneScan {
                 0%, 12% { transform: translateX(0); opacity: .7; }
                 48%, 78% { transform: translateX(190px); opacity: 1; }
                 100% { transform: translateX(0); opacity: .7; }
-            }
-            @keyframes ffBrowserProgress {
-                0% { transform: scaleX(.12); }
-                100% { transform: scaleX(1); }
             }
             @keyframes ffNoteLine {
                 0%, 18% { transform: scaleX(.22); opacity: .52; }
@@ -316,51 +349,67 @@ const HeroVisual = ({copy}) => (
                     animation: none !important;
                     transform: none !important;
                 }
-                .ff-motion-demo .ff-carousel-slide {
-                    display: none !important;
-                    opacity: 1 !important;
-                }
-                .ff-motion-demo .ff-carousel-slide:last-child {
-                    display: grid !important;
+                .ff-motion-demo .ff-proof-stage {
+                    transition: none !important;
                 }
             }
         `}</style>
         <div className="absolute left-8 top-12 h-28 w-[72%] rounded-full bg-[linear-gradient(90deg,rgba(42,143,117,.20),rgba(245,176,86,.20),rgba(119,169,230,.16))] blur-2xl"/>
-        <article className="relative z-10 overflow-hidden rounded-[34px] border border-white/70 bg-white/84 shadow-[inset_0_1px_0_rgba(255,255,255,.72),0_38px_104px_-70px_rgba(55,73,48,.92)] backdrop-blur-md dark:border-white/[0.16] dark:bg-[#171d18]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,.08),0_38px_104px_-72px_rgba(0,0,0,.86)]">
-            <div className="flex h-14 items-center gap-2 border-b border-[#dce5d8]/86 bg-[#f5f7f1]/76 px-5 backdrop-blur-md dark:border-white/[0.10] dark:bg-white/[0.07]">
-                <span className="size-3 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
-                <span className="size-3 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
-                <span className="size-3 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
-                <span className={`ml-3 hidden min-w-0 rounded-full bg-white px-4 py-1.5 text-[11px] font-semibold text-[#5f6a61] shadow-sm dark:bg-white/[0.08] dark:text-white/[0.64] sm:block ${dataType}`}>
+        <article className="relative z-10 overflow-hidden rounded-[26px] border border-white/70 bg-white/84 shadow-[inset_0_1px_0_rgba(255,255,255,.72),0_38px_104px_-70px_rgba(55,73,48,.92)] backdrop-blur-md dark:border-white/[0.16] dark:bg-[#171d18]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,.08),0_38px_104px_-72px_rgba(0,0,0,.86)]">
+            <div className="flex h-[52px] items-center gap-2 border-b border-[#dce5d8]/86 bg-[#f5f7f1]/76 px-4 backdrop-blur-md dark:border-white/[0.10] dark:bg-white/[0.07] sm:px-5">
+                <span className="size-2.5 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
+                <span className="size-2.5 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
+                <span className="size-2.5 rounded-full bg-[#d0d5d0] dark:bg-white/[0.26]"/>
+                <span className={`ml-2 hidden min-w-0 rounded-[12px] bg-white px-4 py-1.5 text-[11px] font-semibold text-[#5f6a61] shadow-sm dark:bg-white/[0.08] dark:text-white/[0.64] sm:block ${dataType}`}>
                     {copy.path}
                 </span>
             </div>
 
-            <div className="px-5 pt-5 sm:px-7">
+            <div className="px-4 pt-4 sm:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className={`${dataType} rounded-full bg-[#e7f7ed] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#276f5b] dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]`}>
+                    <span className={`${dataType} rounded-[12px] bg-[#e7f7ed] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#276f5b] dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]`}>
                         {copy.eyebrow}
                     </span>
                     <span className={`${dataType} text-[11px] font-medium text-[#5f6a61] dark:text-white/[0.62]`}>{copy.anchor}</span>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#dce5d8] dark:bg-white/[0.12]">
-                    <span className="ff-animated block h-full origin-left rounded-full bg-[linear-gradient(90deg,#2a8f75,#f4d98c,#77a9e6)]" style={{animation: 'ffBrowserProgress 12s linear infinite'}}/>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Homepage product proof steps">
+                    {proofSteps.map((step, index) => {
+                        const isActive = activeStep === index;
+                        return (
+                            <button
+                                key={step.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={isActive}
+                                aria-controls={`ff-proof-panel-${step.id}`}
+                                onMouseEnter={() => showStep(index)}
+                                onMouseLeave={clearPreview}
+                                onFocus={() => showStep(index)}
+                                onBlur={clearPreview}
+                                onClick={() => selectStep(index)}
+                                className={`group min-w-0 rounded-[15px] border px-3 py-2 text-left ${interactiveMotion} ${isActive ? 'border-[#2a8f75]/55 bg-[#17201b] text-[#fff8ec] shadow-[0_12px_34px_-24px_rgba(23,32,27,.62)] dark:border-[#8fd9c0]/45 dark:bg-[#f7f1e5] dark:text-[#17201b]' : 'border-[#dce5d8] bg-white/64 text-[#5f6a61] hover:border-[#9fcab8] hover:bg-white/84 hover:text-[#17201b] dark:border-white/[0.12] dark:bg-white/[0.055] dark:text-white/[0.62] dark:hover:border-[#8fd9c0]/35 dark:hover:bg-white/[0.10] dark:hover:text-white'} ${focusRing}`}
+                            >
+                                <span className={`${dataType} block text-[10px] font-semibold uppercase tracking-[0.14em] ${isActive ? 'text-[#8fd9c0] dark:text-[#276f5b]' : 'text-[#2f7c66] dark:text-[#8fd9c0]'}`}>{step.marker} {step.label}</span>
+                                <span className="mt-1 block truncate text-xs font-semibold leading-tight">{step.title}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
-            <div className="relative min-h-[365px] px-5 pb-6 pt-5 sm:min-h-[390px] sm:px-7">
-                <section className="ff-proof-stage ff-carousel-slide ff-animated absolute inset-x-5 top-5 grid min-h-[320px] content-center rounded-[28px] border border-[#d9dfd1] bg-white p-5 text-[#17201b] shadow-[0_20px_58px_-42px_rgba(46,73,58,.45)] dark:border-white/[0.13] dark:bg-[#20251f] dark:text-[#f7f1e5] sm:inset-x-7 sm:min-h-[345px] sm:p-7" style={{animation: 'ffCarouselSlide 12s ease-in-out infinite'}}>
+            <div className="relative min-h-[350px] px-4 pb-5 pt-4 sm:min-h-[374px] sm:px-6">
+                <section id="ff-proof-panel-input" role="tabpanel" aria-hidden={activeStep !== 0} className={slideClass(0, 'border-[#d9dfd1] bg-white dark:border-white/[0.13] dark:bg-[#20251f]')}>
                     <div className="flex items-start justify-between gap-3">
                         <div>
-                            <p className={`${dataType} text-[10px] font-semibold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>01 Input</p>
-                            <h2 className="mt-3 text-2xl font-semibold leading-tight">{copy.upload}</h2>
+                            <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>01 Input</p>
+                            <h2 className="mt-3 text-[26px] font-semibold leading-tight">{copy.upload}</h2>
                             <p className="mt-2 text-sm font-medium text-[#5f6a61] dark:text-white/[0.68]">{copy.uploadMeta}</p>
                         </div>
-                        <span className="flex size-12 shrink-0 items-center justify-center rounded-[18px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
+                        <span className="flex size-12 shrink-0 items-center justify-center rounded-[16px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
                             <UploadCloud className="size-5" strokeWidth={2.25} aria-hidden="true"/>
                         </span>
                     </div>
-                    <div className="mt-8 rounded-[22px] bg-[#17201b] p-4 text-[#fff8ec]">
+                    <div className="mt-8 rounded-[18px] bg-[#17201b] p-4 text-[#fff8ec]">
                         <div className="flex items-center gap-2 text-sm font-semibold">
                             <Play className="size-4 fill-current" strokeWidth={2.4} aria-hidden="true"/>
                             <span>{copy.uploadHint}</span>
@@ -375,13 +424,13 @@ const HeroVisual = ({copy}) => (
                     </div>
                 </section>
 
-                <section className="ff-proof-stage ff-carousel-slide ff-animated absolute inset-x-5 top-5 grid min-h-[320px] content-center rounded-[28px] border border-[#cfe6d4] bg-[#f3fbf2] p-5 text-[#17201b] opacity-0 shadow-[0_20px_58px_-42px_rgba(46,73,58,.45)] dark:border-[#8fd9c0]/24 dark:bg-[#14251b] dark:text-[#f7f1e5] sm:inset-x-7 sm:min-h-[345px] sm:p-7" style={{animation: 'ffCarouselSlide 12s ease-in-out infinite 3s'}}>
-                    <p className={`${dataType} text-[10px] font-semibold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>02 Notes</p>
+                <section id="ff-proof-panel-notes" role="tabpanel" aria-hidden={activeStep !== 1} className={slideClass(1, 'border-[#cfe6d4] bg-[#f3fbf2] dark:border-[#8fd9c0]/24 dark:bg-[#14251b]')}>
+                    <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>02 Notes</p>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-2xl font-semibold leading-tight">{copy.notes}</h2>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#2f7c66] shadow-sm dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]">{copy.anchor}</span>
+                        <h2 className="text-[26px] font-semibold leading-tight">{copy.notes}</h2>
+                        <span className="rounded-[13px] bg-white px-3 py-1 text-xs font-semibold text-[#2f7c66] shadow-sm dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]">{copy.anchor}</span>
                     </div>
-                    <div className="mt-7 rounded-[24px] border border-[#c7dfcc] bg-white p-5 dark:border-[#8fd9c0]/22 dark:bg-[#101612]">
+                    <div className="mt-7 rounded-[19px] border border-[#c7dfcc] bg-white p-5 dark:border-[#8fd9c0]/22 dark:bg-[#101612]">
                         <p className={`${displayType} text-2xl font-semibold leading-tight text-[#17201b] dark:text-[#f7f1e5]`}>{copy.noteTitle}</p>
                         {[copy.noteBulletOne, copy.noteBulletTwo].map((item, index) => (
                             <div key={item} className="mt-4 flex items-center gap-3">
@@ -393,18 +442,18 @@ const HeroVisual = ({copy}) => (
                     </div>
                 </section>
 
-                <section className="ff-proof-stage ff-carousel-slide ff-animated absolute inset-x-5 top-5 grid min-h-[320px] content-center rounded-[28px] border border-[#ecd8b8] bg-[#fff9ec] p-5 text-[#17201b] opacity-0 shadow-[0_20px_58px_-42px_rgba(46,73,58,.45)] dark:border-[#f5d19a]/30 dark:bg-[#241d13] dark:text-[#f7f1e5] sm:inset-x-7 sm:min-h-[345px] sm:p-7" style={{animation: 'ffCarouselSlide 12s ease-in-out infinite 6s'}}>
+                <section id="ff-proof-panel-review" role="tabpanel" aria-hidden={activeStep !== 2} className={slideClass(2, 'border-[#ecd8b8] bg-[#fff9ec] dark:border-[#f5d19a]/30 dark:bg-[#241d13]')}>
                     <div className="grid gap-5 sm:grid-cols-[0.9fr_1.1fr] sm:items-center">
-                        <div className="rounded-[24px] bg-[#17201b] p-4 text-[#fff8ec]">
+                        <div className="rounded-[18px] bg-[#17201b] p-4 text-[#fff8ec]">
                             <div className="flex items-center gap-2 text-xs font-semibold">
                                 <Play className="size-3.5 fill-current" strokeWidth={2.4} aria-hidden="true"/>
                                 <span>{copy.compareHint}</span>
                             </div>
-                            <div className="mt-4 aspect-video rounded-[18px] bg-[radial-gradient(circle_at_42%_28%,rgba(143,217,192,.34),transparent_28%),linear-gradient(145deg,#31483d,#111612_72%)]"/>
+                            <div className="mt-4 aspect-video rounded-[15px] bg-[radial-gradient(circle_at_42%_28%,rgba(143,217,192,.34),transparent_28%),linear-gradient(145deg,#31483d,#111612_72%)]"/>
                         </div>
                         <div>
-                            <p className={`${dataType} text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a5a1f] dark:text-[#f4d98c]`}>03 Review</p>
-                            <h2 className="mt-3 text-2xl font-semibold leading-tight">{copy.compare}</h2>
+                            <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#8a5a1f] dark:text-[#f4d98c]`}>03 Review</p>
+                            <h2 className="mt-3 text-[26px] font-semibold leading-tight">{copy.compare}</h2>
                             <div className="mt-5 grid gap-2">
                                 <p className="rounded-[14px] bg-white px-3 py-2 text-xs font-medium text-[#76664e] dark:bg-white/[0.10] dark:text-white/[0.70]">{copy.original}</p>
                                 <p className="rounded-[14px] bg-[#e7f7ed] px-3 py-2 text-xs font-semibold text-[#246b57] dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]">{copy.corrected}</p>
@@ -414,17 +463,17 @@ const HeroVisual = ({copy}) => (
                     </div>
                 </section>
 
-                <section className="ff-proof-stage ff-carousel-slide ff-animated absolute inset-x-5 top-5 grid min-h-[320px] content-center rounded-[28px] border border-[#d4dfc3] bg-[#f6faed] p-5 text-[#17201b] opacity-0 shadow-[0_20px_58px_-42px_rgba(46,73,58,.45)] dark:border-[#d5e6b9]/24 dark:bg-[#1d2414] dark:text-[#f7f1e5] sm:inset-x-7 sm:min-h-[345px] sm:p-7" style={{animation: 'ffCarouselSlide 12s ease-in-out infinite 9s'}}>
+                <section id="ff-proof-panel-export" role="tabpanel" aria-hidden={activeStep !== 3} className={slideClass(3, 'border-[#d4dfc3] bg-[#f6faed] dark:border-[#d5e6b9]/24 dark:bg-[#1d2414]')}>
                     <div className="mx-auto max-w-sm text-center">
-                        <span className="mx-auto flex size-14 items-center justify-center rounded-[20px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
+                        <span className="mx-auto flex size-14 items-center justify-center rounded-[17px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
                             <Download className="size-6" strokeWidth={2.2} aria-hidden="true"/>
                         </span>
-                        <p className={`${dataType} mt-6 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#5b6d28] dark:text-[#d8e6b9]`}>04 Export</p>
-                        <h2 className="mt-3 text-3xl font-semibold leading-tight">{copy.export}</h2>
+                        <p className={`${dataType} mt-6 text-xs font-bold uppercase tracking-[0.16em] text-[#5b6d28] dark:text-[#d8e6b9]`}>04 Export</p>
+                        <h2 className="mt-3 text-[28px] font-semibold leading-tight">{copy.export}</h2>
                         <p className="mt-3 text-sm font-medium text-[#64704d] dark:text-[#d8e6b9]">{copy.finalNote}</p>
                         <div className="mt-7 flex flex-wrap justify-center gap-2">
                             {copy.exportHint.split(' · ').map((item) => (
-                                <span key={item} className="rounded-full border border-[#ccd9b7] bg-white px-4 py-2 text-xs font-semibold text-[#46552a] dark:border-white/[0.16] dark:bg-white/[0.10] dark:text-white/[0.78]">{item}</span>
+                                <span key={item} className="rounded-[13px] border border-[#ccd9b7] bg-white px-4 py-2 text-xs font-semibold text-[#46552a] dark:border-white/[0.16] dark:bg-white/[0.10] dark:text-white/[0.78]">{item}</span>
                             ))}
                         </div>
                     </div>
@@ -432,7 +481,8 @@ const HeroVisual = ({copy}) => (
             </div>
         </article>
     </div>
-);
+    );
+};
 
 const WorkflowCard = ({tone, title, items}) => {
     const isAfter = tone === 'after';
