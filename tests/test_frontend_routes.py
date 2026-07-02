@@ -138,11 +138,11 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "{path:'/app', icon:LayoutGrid, k:'nav.dashboard'}" in side_nav
     assert 'to="/app"' in side_nav
     assert "Turn long videos into study-ready notes first." in landing
-    assert "Get structured notes, transcript and subtitles, and key moments before you study with the video." in landing
-    assert "Pause less. Rewind less. Clean up less." in landing
+    assert "Upload a course, lecture, recording, or video link. FluentFlow prepares the note, transcript, and key moments before you study." in landing
+    assert "Ready to study with the video." in landing
     assert "Study with notes ready, not with a pause button under your finger." in landing
     assert "Accepted transcript fixes can show original text, corrected text, reason, confidence, and time." in landing
-    assert "Public video platforms may restrict media or caption access." in landing
+    assert "Public platforms may restrict access." in landing
     assert "A record you can study, review, and export." in landing
     assert "to=\"/media-text\"" in landing
     assert "href=\"#workflow\"" in landing
@@ -158,12 +158,34 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "text-sm font-medium text-[#5f6a61]" in landing
     assert "text-sm font-semibold text-[#fff8ec]" in landing
     assert "text-[42px] font-bold leading-[1.06]" in landing
+    assert "fluentflow-landing-language" in landing
+    assert "fluentflow-landing-theme" in landing
+    assert "setLanguage(value)" in landing
+    assert "ThemeIcon" in landing
+    assert "Use dark mode" in landing
+    assert "使用暗黑模式" in landing
     assert "ff-motion-demo" in landing
+    assert "ff-proof-stage" in landing
+    assert "ff-carousel-slide" in landing
+    assert "ffCarouselSlide" in landing
+    assert "ffBrowserProgress" in landing
+    assert "fluentflow.app/video-note" in landing
     assert "prefers-reduced-motion: reduce" in landing
-    assert "Scanning timeline" in landing
-    assert "Generating notes" in landing
-    assert "Transcript and key moment highlighted." in landing
+    assert "Study workspace" in landing
+    assert "Upload / paste a long video" in landing
+    assert "Notes generated first" in landing
+    assert "Compare and correct" in landing
+    assert "Export study asset" in landing
+    assert "Markdown" in landing
+    assert "PDF" in landing
+    assert "Feishu" in landing
     assert "Fix accepted" in landing
+    assert "MicVocal" in landing
+    assert "MonitorPlay" in landing
+    assert "FileVideo2" in landing
+    assert "Link2" in landing
+    assert "bg-[#f4d98c] text-[#5c4214]" in landing
+    assert "bg-[#dff7e8]" not in landing
     assert "[text-wrap:balance]" in landing
     assert "transition-[color,background-color,border-color,box-shadow,transform,opacity]" in landing
     assert "dark:text-white/[0.68] md:flex" in landing
