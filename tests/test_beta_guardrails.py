@@ -56,6 +56,47 @@ def test_auth_login_sets_cookie(monkeypatch) -> None:
     assert jobs.status_code == 200
 
 
+def test_local_vite_origin_can_preflight_login_with_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_AUTH_MODE", "accounts")
+    monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+
+    with TestClient(main.app) as client:
+        response = client.options(
+            "/auth/login",
+            headers={
+                "Origin": "http://127.0.0.1:5174",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type,x-fluentflow-client-id",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5174"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_external_origin_does_not_receive_wildcard_login_cors(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_AUTH_MODE", "accounts")
+    monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+
+    with TestClient(main.app) as client:
+        response = client.options(
+            "/auth/login",
+            headers={
+                "Origin": "https://example.invalid",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type,x-fluentflow-client-id",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.headers.get("access-control-allow-origin") != "*"
+
+
 def test_queue_file_limit_rejects_before_persistence(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_MAX_QUEUE_FILES", "1")
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
