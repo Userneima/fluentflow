@@ -140,6 +140,9 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "把长视频变成可复查的学习笔记" in landing
     assert "ElevenLabs 云端转录" in landing
     assert "to=\"/media-text\"" in landing
+    assert "dark:text-white/[0.72] md:flex" in landing
+    assert "dark:bg-[#211d16] dark:text-[#f8f1e6]" in landing
+    assert 'id="use-cases" className="bg-[#171512] text-[#f5f1e9] dark:bg-[#15130f] dark:text-[#f5f1e9]"' in landing
     assert "to=\"/agent\"" in editor
     assert "edit.chooseRecord" in editor
     assert "to=\"/app\"" in about
