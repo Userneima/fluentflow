@@ -523,6 +523,32 @@ def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
     assert "segment?.text_zh" in download
 
 
+def test_editor_surfaces_transcript_correction_without_overwriting_raw_transcript() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
+    correction = Path("frontend/src/lib/transcriptCorrection.js").read_text(encoding="utf-8")
+
+    assert "transcriptCorrectionInfo(result)" in source
+    assert "transcriptCorrectionStatusText(correctionInfo, lang)" in source
+    assert "const showCorrectionDisclosure = !!(" in source
+    assert "字幕纠错记录" in source
+    assert "查看修正" in source
+    assert "这里只展示通过后端验证并被接受的高置信修正" in source
+    assert "转录原文保留未覆盖" in source
+    assert "const sourceSegments = pickTranscriptSegments(result);" in source
+    assert "corrected_segments" not in source
+    assert "const jobData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}`)" in agent_trace
+    assert "mergeTranscriptCorrectionData(detailData, jobData)" in agent_trace
+    assert "mergeTranscriptCorrectionData(detailData, packageData)" in agent_trace
+    assert "TranscriptCorrectionDisclosure pageData={pageData} lang={lang}" in agent_trace
+    assert "笔记使用了修正后的字幕" in agent_trace
+    assert "原始转录未被覆盖" in agent_trace
+    assert "payload.note_generation_transcript_source" in correction
+    assert "transcript.note_input_source" in correction
+    assert "payload.transcript_corrections || transcript.corrections" in correction
+    assert "noteUsesCorrected" in correction
+
+
 def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
@@ -716,7 +742,7 @@ def test_editor_agent_workflow_link_requires_real_task_id() -> None:
 def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
-    assert "API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
+    assert "API_BASE, apiFetch, fmtTime, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
     assert "noteGenerationDiagnosis" in source
     assert "readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`)" in source
     assert "readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
@@ -744,7 +770,7 @@ def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
     assert "const stage = videoProgress" in source
     assert "? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')" in source
     assert "video_source_progress: videoProgress" in source
-    assert "mergeLiveSnapshotPageData(detailData, current || initialPageData)" in source
+    assert "mergeLiveSnapshotPageData(mergedDetailData, current || initialPageData)" in source
     assert "const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang)" in source
     assert "const [loading, setLoading] = useState(!initialPageData)" in source
     assert "const [pageData, setPageData] = useState(() => initialPageData)" in source

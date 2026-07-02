@@ -63,6 +63,11 @@ import {
     useSettings,
 } from '../app/shared.jsx';
 import PromptTemplateDialog from '../components/PromptTemplateDialog.jsx';
+import {
+    formatCorrectionConfidence,
+    transcriptCorrectionInfo,
+    transcriptCorrectionStatusText,
+} from '../lib/transcriptCorrection.js';
 
 const jobOptionsForResult = (result) => (
     normalizeSttProvider(result?.stt_provider) === 'local'
@@ -237,6 +242,7 @@ const Editor = () => {
     const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
     const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
+    const [correctionDetailsOpen, setCorrectionDetailsOpen] = useState(false);
     const mediaRef = useRef(null);
     const mediaInputRef = useRef(null);
     const transcriptScrollRef = useRef(null);
@@ -549,6 +555,12 @@ const Editor = () => {
         })()
         : -1;
     const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;
+    const correctionInfo = useMemo(() => transcriptCorrectionInfo(result), [result]);
+    const correctionStatusText = transcriptCorrectionStatusText(correctionInfo, lang);
+    const showCorrectionDisclosure = !!(
+        correctionInfo.ran
+        && (correctionInfo.hasAcceptedCorrections || correctionInfo.status === 'no_changes' || correctionInfo.status === 'completed')
+    );
     const updateMediaCurrentTime = useCallback((time, options={}) => {
         const next = Math.max(0, Number(time) || 0);
         setMediaCurrentTime(next);
@@ -1217,6 +1229,72 @@ const Editor = () => {
                 </div>
             </div>
         )}
+        {correctionDetailsOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
+                <div className="flex max-h-[82vh] w-full max-w-4xl flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
+                    <div className="flex items-start justify-between gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
+                        <div className="min-w-0">
+                            <h2 className="flex items-center gap-2 font-headline text-xl font-extrabold text-[#111111] dark:text-white">
+                                <SvgIcon name="auto_fix_high" className="text-primary"/>
+                                {lang === 'zh' ? '字幕纠错记录' : 'Transcript corrections'}
+                                <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-bold text-primary dark:bg-white/[0.08] dark:text-white">{correctionInfo.corrections.length}</span>
+                            </h2>
+                            <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
+                                {lang === 'zh'
+                                    ? '这里只展示通过后端验证并被接受的高置信修正；编辑器里的转录原文仍保留原始字幕，方便回溯。'
+                                    : 'Only high-confidence corrections accepted by backend validation are shown. The editor transcript still keeps the original subtitles for traceability.'}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={()=>setCorrectionDetailsOpen(false)}
+                            className="flex h-9 w-9 items-center justify-center rounded-[13px] bg-[#efeeee] text-[#666] transition hover:bg-[#e4e0e0] hover:text-[#111111] dark:bg-white/[0.08] dark:text-white/60 dark:hover:bg-white/[0.12] dark:hover:text-white"
+                        >
+                            <SvgIcon name="close" className="text-lg"/>
+                        </button>
+                    </div>
+                    <div className="flex-1 space-y-4 overflow-y-auto p-5">
+                        {correctionInfo.corrections.length === 0 ? (
+                            <div className="rounded-[18px] bg-[#f8f7fb] px-5 py-8 text-center text-sm font-medium text-[#666] dark:bg-white/[0.06] dark:text-white/60">
+                                {lang === 'zh' ? '没有已接受的字幕修正。' : 'No accepted transcript corrections.'}
+                            </div>
+                        ) : correctionInfo.corrections.map((item, idx) => (
+                            <article key={`${item.segment_index ?? idx}-${item.start ?? ''}`} className="overflow-hidden rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                <div className="flex flex-wrap items-center gap-3 bg-[#f8f7fb] px-4 py-3 text-xs font-semibold text-[#666] dark:bg-white/[0.04] dark:text-white/60">
+                                    <button
+                                        type="button"
+                                        onClick={()=>{ setCorrectionDetailsOpen(false); seekToSegment(item); }}
+                                        className="font-mono font-bold text-primary hover:underline"
+                                    >
+                                        {item.start != null ? fmtTime(item.start) : (lang === 'zh' ? '无时间点' : 'No time')}
+                                    </button>
+                                    <span>#{Number.isFinite(Number(item.segment_index)) ? Number(item.segment_index) + 1 : idx + 1}</span>
+                                    <span>{lang === 'zh' ? '置信度' : 'Confidence'} {formatCorrectionConfidence(item.confidence, lang)}</span>
+                                    {(item.provider || item.model) && <span className="truncate">{[item.provider, item.model].filter(Boolean).join(' · ')}</span>}
+                                </div>
+                                <div className="space-y-3 p-4">
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="rounded-[14px] border border-red-500/10 bg-red-50/70 p-3 dark:bg-red-500/10">
+                                            <p className="mb-1 text-[10px] font-bold text-red-600 dark:text-red-300">{lang === 'zh' ? '原始字幕' : 'Original'}</p>
+                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{item.original_text || '-'}</p>
+                                        </div>
+                                        <div className="rounded-[14px] border border-emerald-500/10 bg-emerald-50/80 p-3 dark:bg-emerald-500/10">
+                                            <p className="mb-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">{lang === 'zh' ? '修正后' : 'Corrected'}</p>
+                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{item.corrected_text || '-'}</p>
+                                        </div>
+                                    </div>
+                                    {item.reason && (
+                                        <div className="rounded-[14px] bg-[#f8f7fb] p-3 text-xs font-semibold leading-relaxed text-[#666] dark:bg-white/[0.06] dark:text-white/62">
+                                            <span className="font-bold text-[#111111] dark:text-white">{lang === 'zh' ? '原因：' : 'Reason: '}</span>{item.reason}
+                                        </div>
+                                    )}
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        )}
         {editRecordsOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
                 <div className="flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
@@ -1506,6 +1584,31 @@ const Editor = () => {
                                             />
                                         </div>
                                     </div>
+                                    {showCorrectionDisclosure && (
+                                        <div className="mt-3 flex flex-col gap-2 rounded-[16px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.08] sm:flex-row sm:items-center sm:justify-between">
+                                            <div className="flex min-w-0 items-start gap-2">
+                                                <SvgIcon name="auto_fix_high" className="mt-0.5 flex-shrink-0 text-[15px] text-primary dark:text-white"/>
+                                                <p className="min-w-0 text-xs font-semibold leading-relaxed text-[#4b5563] dark:text-white/72">
+                                                    {correctionStatusText}
+                                                    {correctionInfo.hasAcceptedCorrections && (
+                                                        <span className="ml-1 text-[#666] dark:text-white/55">
+                                                            {lang === 'zh' ? '转录原文保留未覆盖。' : 'Original transcript remains traceable.'}
+                                                        </span>
+                                                    )}
+                                                </p>
+                                            </div>
+                                            {correctionInfo.corrections.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={()=>setCorrectionDetailsOpen(true)}
+                                                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#c7d2fe] bg-white px-3 text-[12px] font-extrabold text-primary transition hover:bg-[#f8f7fb] dark:border-white/[0.14] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
+                                                >
+                                                    <SvgIcon name="visibility" className="text-sm"/>
+                                                    {lang === 'zh' ? '查看修正' : 'View corrections'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                         {activeReviewMode === 'video' && currentVideoSegment ? (
                             <div className="min-h-0 flex-1 overflow-hidden p-4">
