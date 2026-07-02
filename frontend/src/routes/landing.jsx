@@ -4,292 +4,199 @@ import {
     BookOpenText,
     Captions,
     CheckCircle2,
-    ChevronRight,
     Download,
     FileText,
     Film,
     Image,
-    Languages,
-    MonitorPlay,
     Play,
     RotateCcw,
     ScanSearch,
-    Sparkles,
     UploadCloud,
 } from 'lucide-react';
-import {useI18n} from '../app/shared.jsx';
 
 const LogoMark = () => (
-    <span className="flex size-10 items-center justify-center rounded-[14px] bg-[#171512] text-[#f8f2e8] shadow-[0_18px_42px_-28px_rgba(37,30,18,.72)] dark:bg-[#f4efe4] dark:text-[#171512]">
-        <svg viewBox="0 0 64 64" className="size-[30px]" fill="none" aria-hidden="true">
-            <rect x="17" y="19" width="28" height="26" rx="8" fill="currentColor"/>
-            <rect x="43" y="25" width="8" height="14" rx="4" fill="currentColor"/>
-            <path d="M24 29h13M24 36h9" stroke="var(--ff-logo-line, #171512)" strokeWidth="4.2" strokeLinecap="round" className="[--ff-logo-line:#171512] dark:[--ff-logo-line:#f4efe4]"/>
+    <span className="flex size-10 items-center justify-center rounded-[15px] bg-[#17201b] text-[#fff8ec] shadow-[0_18px_42px_-28px_rgba(23,32,27,.7)] dark:bg-[#f7f1e5] dark:text-[#17201b]">
+        <svg viewBox="0 0 64 64" className="size-[29px]" fill="none" aria-hidden="true">
+            <rect x="16" y="18" width="30" height="28" rx="10" fill="currentColor"/>
+            <rect x="44" y="25" width="8" height="14" rx="4" fill="currentColor"/>
+            <path d="M25 29h12M25 36h8" stroke="var(--ff-logo-line, #17201b)" strokeWidth="4.1" strokeLinecap="round" className="[--ff-logo-line:#17201b] dark:[--ff-logo-line:#f7f1e5]"/>
         </svg>
     </span>
 );
 
-const content = {
-    zh: {
-        nav: {
-            product: '笔记质量',
-            workflow: '学习方式',
-            useCases: '来源',
-            app: '进入应用',
-            start: '开始处理视频',
-        },
-        hero: {
-            label: '长视频学习笔记',
-            title: '把想学的长视频，先变成高质量笔记',
-            desc: '把课程、讲座、录屏和视频链接交给 FluentFlow。先得到结构化笔记、字幕和关键画面，再对着视频学习，只改少数不准确处。',
-            primary: '开始处理视频',
-            secondary: '看学习流程',
-            note: '视频仍是学习主线，FluentFlow 先处理笔记整理。',
-        },
-        preview: {
-            source: '课程视频 01:12:44',
-            title: '生成后的学习笔记',
-            chapter: '03 注意力机制为什么有效',
-            bullets: ['先读章节结论，再回到视频验证推导。', '例子、术语和截图都保留来源位置。', '字幕修正会列出原文、改法和原因。'],
-            subtitle: '字幕 18:42',
-            subtitleText: 'The query and key vectors compare each token against the current context.',
-            visual: '关键画面',
-            timeline: ['00:00', '18:42', '39:10', '01:12'],
-        },
-        beforeAfter: {
-            eyebrow: '学习方式变化',
-            title: '少暂停，少倒回，少做机械整理',
-            beforeTitle: '以前边看边记',
-            afterTitle: '现在先有笔记再学习',
-            before: [
-                ['打开长视频', '一小时课程刚开始就要判断怎么记。'],
-                ['频繁暂停倒回', '错过一句话就回放，注意力被切碎。'],
-                ['手动整理格式', '看完还要重排章节、例子和结论。'],
-            ],
-            after: [
-                ['先生成笔记', '章节、字幕和关键画面先准备好。'],
-                ['对着视频学习', '重点看内容，只在不确定处回到原视频。'],
-                ['少量修正', '改掉少数识别或理解不准的地方。'],
-            ],
-        },
-        quality: {
-            eyebrow: '什么叫高质量',
-            title: '不是一段摘要，而是一份可复查的学习资产',
-            items: [
-                ['结构化章节', '按主题、概念、例子和结论整理，适合先浏览再深入看视频。'],
-                ['重要例子和推导', '把课程里的关键步骤留下来，避免只得到泛泛总结。'],
-                ['字幕原文保留', '转录和字幕仍可查看，笔记内容能回到来源。'],
-                ['保守字幕纠错', '高置信修正会列出原文、修正、原因和时间点。'],
-                ['关键画面', '当本地视频可用时，截图作为复查锚点进入笔记。'],
-                ['可导出结果', 'Markdown、PDF 和飞书导出让笔记继续沉淀。'],
-            ],
-        },
-        sources: {
-            eyebrow: '不同来源都能开始',
-            title: '课程、讲座、录屏、本地文件和公开视频链接',
-            desc: '公开视频平台可能限制下载或字幕访问，本地上传和字幕文件是最可靠的路线。',
-            items: ['课程视频', '讲座回放', '屏幕录制', '本地音视频', '字幕或文本文件', '支持的公开视频链接'],
-        },
-        outputs: {
-            eyebrow: '最后留下什么',
-            title: '一份能继续学习、复查和导出的记录',
-            items: [
-                ['结构化笔记', '先读章节和要点，再带着问题看视频。'],
-                ['字幕和转录', '保留原文，便于听不清或识别错误时回查。'],
-                ['关键画面', '公式、图表、代码和界面片段可作为复习锚点。'],
-                ['处理记录', '运行中、失败、完成、下载和重新处理都集中管理。'],
-            ],
-        },
-        cta: {
-            title: '把下一条想学的视频交给 FluentFlow',
-            desc: '从一条真实课程或讲座开始。先生成笔记，再对着视频学习和修正。',
-            primary: '开始处理视频',
-            secondary: '查看处理记录',
-        },
-    },
-    en: {
-        nav: {
-            product: 'Note quality',
-            workflow: 'Study flow',
-            useCases: 'Sources',
-            app: 'Open app',
-            start: 'Start video',
-        },
-        hero: {
-            label: 'Long-video study notes',
-            title: 'Turn long learning videos into high-quality notes first',
-            desc: 'Give FluentFlow courses, lectures, recordings, and video links. Get notes, subtitles, and key visuals before studying with the video.',
-            primary: 'Start video',
-            secondary: 'See study flow',
-            note: 'The video stays central. FluentFlow removes the note-taking friction first.',
-        },
-        preview: {
-            source: 'Course video 01:12:44',
-            title: 'Prepared study note',
-            chapter: '03 Why attention works',
-            bullets: ['Read the chapter conclusion before replaying the proof.', 'Examples, terms, and screenshots keep source positions.', 'Transcript corrections show original, fix, reason, and time.'],
-            subtitle: 'Subtitle 18:42',
-            subtitleText: 'The query and key vectors compare each token against the current context.',
-            visual: 'Key visual',
-            timeline: ['00:00', '18:42', '39:10', '01:12'],
-        },
-        beforeAfter: {
-            eyebrow: 'Study flow',
-            title: 'Pause less, rewind less, clean up less',
-            beforeTitle: 'Before: note while watching',
-            afterTitle: 'After: study with notes ready',
-            before: [
-                ['Open a long video', 'You must decide what to capture from the first minute.'],
-                ['Pause and rewind', 'One missed sentence breaks attention and sends you back.'],
-                ['Clean the format', 'After watching, chapters and examples still need manual cleanup.'],
-            ],
-            after: [
-                ['Generate the note first', 'Chapters, subtitles, and key visuals are prepared upfront.'],
-                ['Study with the video', 'Focus on the lesson and revisit the source only when needed.'],
-                ['Fix a few details', 'Correct the small number of uncertain recognition or wording issues.'],
-            ],
-        },
-        quality: {
-            eyebrow: 'What quality means',
-            title: 'Not a summary. A reviewable study asset',
-            items: [
-                ['Structured chapters', 'Themes, concepts, examples, and conclusions are shaped for preview and deep study.'],
-                ['Examples and reasoning', 'Important course steps stay visible instead of being flattened into generic summary.'],
-                ['Source transcript', 'Transcript and subtitles remain available, so the note can be checked against source.'],
-                ['Conservative correction', 'Accepted fixes show original text, corrected text, reason, confidence, and time.'],
-                ['Key visuals', 'When local video is available, screenshots become review anchors in the note.'],
-                ['Exportable result', 'Markdown, PDF, and Feishu export turn the result into a lasting asset.'],
-            ],
-        },
-        sources: {
-            eyebrow: 'Source coverage',
-            title: 'Courses, lectures, recordings, local files, and supported public links',
-            desc: 'Public platforms may restrict media or caption access. Local upload and subtitle files are the most reliable path.',
-            items: ['Course videos', 'Lecture replays', 'Screen recordings', 'Local audio or video', 'Subtitle or text files', 'Supported public links'],
-        },
-        outputs: {
-            eyebrow: 'What you keep',
-            title: 'A record you can study, review, and export',
-            items: [
-                ['Structured note', 'Read the sections first, then study the video with better questions.'],
-                ['Subtitles and transcript', 'Keep source text for unclear audio and recognition errors.'],
-                ['Key visuals', 'Formulas, charts, code, and screens can become review anchors.'],
-                ['Processing records', 'Running, failed, completed, downloads, and retries stay in one place.'],
-            ],
-        },
-        cta: {
-            title: 'Give FluentFlow the next video you want to learn',
-            desc: 'Start with one real course or lecture. Generate the note first, then study and correct it with the video.',
-            primary: 'Start video',
-            secondary: 'View records',
-        },
-    },
-};
+const timeline = ['00:00', '18:42', '39:10', '1:12:44'];
 
-const qualityIcons = [BookOpenText, ScanSearch, Captions, Languages, Image, Download];
-const outputIcons = [FileText, Captions, Film, CheckCircle2];
+const sourceItems = [
+    'Courses',
+    'Lectures',
+    'Screen recordings',
+    'Local video or audio',
+    'Subtitle files',
+    'Supported public links',
+];
 
-const displayType = "[font-family:'Songti_SC','Noto_Serif_CJK_SC','Source_Han_Serif_SC','STSong',serif]";
-const bodyType = "[font-family:'PingFang_SC','Inter','Hiragino_Sans_GB','Microsoft_YaHei',sans-serif]";
+const qualityItems = [
+    ['Structured chapters', 'Concepts, examples, and conclusions are shaped before you start watching.'],
+    ['Important reasoning', 'Key steps stay visible instead of being flattened into a generic summary.'],
+    ['Transcript review', 'Subtitles and transcript stay available so the note can be checked against source.'],
+    ['Conservative correction', 'Accepted transcript fixes can show original text, corrected text, reason, confidence, and time.'],
+    ['Key moments', 'When local video is available, visual anchors help you return to formulas, code, slides, or screens.'],
+    ['Exportable result', 'Markdown, PDF, and Feishu exports turn the result into a lasting study asset.'],
+];
+
+const outputItems = [
+    ['Prepared note', 'Read the structure first, then study the video with better questions.'],
+    ['Transcript and subtitles', 'Keep source text for unclear audio and recognition errors.'],
+    ['Key visuals', 'Use important frames as review anchors when video evidence is available.'],
+    ['Processing record', 'Running, failed, completed, downloads, and retries stay in one place.'],
+];
+
+const displayType = "[font-family:'Avenir_Next','Nunito_Sans','Inter','ui-rounded','SF_Pro_Display',system-ui,sans-serif]";
+const bodyType = "[font-family:'Avenir_Next','Inter','ui-rounded','SF_Pro_Text',system-ui,sans-serif]";
 const dataType = "[font-family:'SF_Mono','ui-monospace','Menlo','Consolas',monospace]";
 const interactiveMotion = 'transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out';
-const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a86b25]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f0e6] dark:focus-visible:ring-[#d6a466]/50 dark:focus-visible:ring-offset-[#0f0e0c]';
-const primaryButton = `inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#171512] px-6 text-sm font-extrabold text-[#f8f2e8] shadow-[0_16px_44px_-26px_rgba(37,30,18,.78)] ${interactiveMotion} hover:-translate-y-0.5 hover:bg-[#2d261e] hover:shadow-[0_20px_56px_-30px_rgba(37,30,18,.88)] active:translate-y-px dark:bg-[#f4efe4] dark:text-[#171512] dark:shadow-none dark:hover:bg-[#e7dcc9] ${focusRing}`;
-const secondaryButton = `inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full border border-[#cdbb9f] bg-[#fbf4e8]/76 px-6 text-sm font-extrabold text-[#171512] ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#b48a55] hover:bg-[#f0e2cf] active:translate-y-px dark:border-white/[0.20] dark:bg-white/[0.06] dark:text-white/[0.9] dark:hover:border-[#d6a466]/55 dark:hover:bg-white/[0.11] ${focusRing}`;
+const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2a8f75]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fff8ec] dark:focus-visible:ring-[#8fd9c0]/50 dark:focus-visible:ring-offset-[#111612]';
 const sectionShell = 'mx-auto max-w-7xl px-5 sm:px-6 lg:px-8';
-const eyebrowClass = `${dataType} text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#9a6428] dark:text-[#d6a466]`;
+const eyebrowClass = `${dataType} text-[11px] font-black uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`;
+const primaryButton = `inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#17201b] px-6 text-sm font-black text-[#fff8ec] shadow-[0_18px_46px_-28px_rgba(23,32,27,.82)] ${interactiveMotion} hover:-translate-y-0.5 hover:bg-[#24352d] hover:shadow-[0_24px_58px_-32px_rgba(23,32,27,.88)] active:translate-y-px dark:bg-[#f7f1e5] dark:text-[#17201b] dark:shadow-none dark:hover:bg-[#e9dcc8] ${focusRing}`;
+const secondaryButton = `inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full border border-[#d2dfd2] bg-white/72 px-6 text-sm font-black text-[#17201b] shadow-[0_16px_38px_-32px_rgba(46,73,58,.45)] ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#9fcab8] hover:bg-[#f4fbf5] active:translate-y-px dark:border-white/[0.16] dark:bg-white/[0.06] dark:text-white/[0.9] dark:hover:border-[#8fd9c0]/45 dark:hover:bg-white/[0.10] ${focusRing}`;
 
-const SectionHeader = ({eyebrow, title, desc, narrow=false}) => (
-    <div className={narrow ? 'max-w-3xl' : 'grid gap-5 lg:grid-cols-[0.85fr_1fr] lg:items-end'}>
+const SectionHeader = ({eyebrow, title, desc}) => (
+    <div className="grid gap-5 lg:grid-cols-[0.85fr_1fr] lg:items-end">
         <div>
             <p className={eyebrowClass}>{eyebrow}</p>
-            <h2 className={`mt-4 max-w-[13em] ${displayType} text-[34px] font-semibold leading-[1.08] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[44px]`}>
+            <h2 className={`mt-4 max-w-[12em] ${displayType} text-[34px] font-black leading-[1.04] tracking-normal text-[#17201b] [text-wrap:balance] dark:text-[#f7f1e5] sm:text-[46px]`}>
                 {title}
             </h2>
         </div>
         {desc ? (
-            <p className="max-w-[58ch] text-base font-semibold leading-relaxed text-[#6f6558] dark:text-white/[0.68]">
+            <p className="max-w-[60ch] text-base font-semibold leading-relaxed text-[#626d64] dark:text-white/[0.68]">
                 {desc}
             </p>
         ) : null}
     </div>
 );
 
-const StudyAssetPreview = ({copy}) => (
-    <div className="relative lg:pl-6">
-        <div className="absolute -left-3 top-8 hidden h-52 w-28 rounded-[28px] bg-[#c99755]/24 blur-2xl dark:bg-[#8f5f24]/24 lg:block"/>
-        <div className="relative overflow-hidden rounded-[30px] border border-[#d7c6ad] bg-[#fff9ee] shadow-[0_38px_110px_-74px_rgba(39,31,20,.9)] dark:border-white/[0.12] dark:bg-[#18150f] dark:shadow-none">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_12%,rgba(187,122,45,.12),transparent_28%),linear-gradient(120deg,transparent,rgba(187,122,45,.08)_55%,transparent)] dark:bg-[radial-gradient(circle_at_16%_12%,rgba(214,164,102,.16),transparent_28%),linear-gradient(120deg,transparent,rgba(214,164,102,.08)_55%,transparent)]"/>
-            <div className="relative grid gap-0 lg:grid-cols-[1fr_0.72fr]">
-                <div className="p-4 sm:p-5">
-                    <div className="relative overflow-hidden rounded-[22px] border border-[#ded0bb] bg-[#fffdf8] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.8)] [background-image:linear-gradient(to_bottom,rgba(124,96,57,.13)_1px,transparent_1px)] [background-size:100%_38px] dark:border-white/[0.11] dark:bg-[#211d16] dark:shadow-none dark:[background-image:linear-gradient(to_bottom,rgba(255,255,255,.08)_1px,transparent_1px)]">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <p className={`${dataType} text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#9a6428] dark:text-[#d6a466]`}>{copy.source}</p>
-                            <span className={`${dataType} rounded-full border border-[#d7cbbb] bg-[#fffaf2]/72 px-3 py-1 text-[11px] font-extrabold text-[#5f5649] dark:border-white/[0.16] dark:bg-white/[0.055] dark:text-white/[0.68]`}>ElevenLabs</span>
-                        </div>
-                        <h2 className={`mt-5 ${displayType} text-[28px] font-semibold leading-[1.12] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8]`}>{copy.title}</h2>
-                        <div className="mt-5 rounded-[20px] bg-[#171512] p-4 text-[#f7f1e8] shadow-[inset_0_1px_0_rgba(255,255,255,.08)] dark:bg-[#2a241b]">
-                            <p className={`${dataType} text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#d6a466]`}>{copy.chapter}</p>
-                            <div className="mt-4 space-y-3">
-                                {copy.bullets.map((item) => (
-                                    <p key={item} className="rounded-[14px] border border-white/[0.08] bg-white/[0.075] px-3 py-2 text-sm font-semibold leading-6 text-white/[0.88]">
-                                        {item}
-                                    </p>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+const HeroVisual = () => (
+    <div className="ff-motion-demo relative min-h-[620px] lg:min-h-[640px]" aria-label="Animated demo: FluentFlow scans a long video and prepares reviewable study notes">
+        <style>{`
+            @keyframes ffScan {
+                0%, 11% { transform: translateX(0); opacity: .55; }
+                36% { transform: translateX(250px); opacity: 1; }
+                54% { transform: translateX(250px); opacity: .9; }
+                78%, 100% { transform: translateX(0); opacity: .55; }
+            }
+            @keyframes ffPulseRibbon {
+                0%, 18%, 100% { transform: scaleX(.7); opacity: .42; }
+                30%, 54% { transform: scaleX(1); opacity: 1; }
+                72% { transform: scaleX(.85); opacity: .58; }
+            }
+            @keyframes ffGenerate {
+                0%, 20% { opacity: 0; transform: translateY(12px) scale(.98); }
+                31%, 100% { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            @keyframes ffHighlight {
+                0%, 48%, 100% { box-shadow: inset 0 0 0 1px rgba(42,143,117,.18); background: rgba(242,251,244,.92); }
+                58%, 78% { box-shadow: inset 0 0 0 2px rgba(42,143,117,.6), 0 14px 28px rgba(42,143,117,.16); background: rgba(231,247,237,.98); }
+            }
+            @keyframes ffFix {
+                0%, 62% { opacity: .28; transform: translateY(8px); }
+                74%, 100% { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes ffCursor {
+                0%, 66% { opacity: 0; transform: translate(18px, -8px) rotate(-8deg); }
+                78%, 88% { opacity: 1; transform: translate(0, 0) rotate(-8deg); }
+                100% { opacity: 0; transform: translate(0, 0) rotate(-8deg); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .ff-motion-demo .ff-animated {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+            }
+        `}</style>
+        <div className="absolute left-2 top-12 h-24 w-[74%] rounded-full bg-[linear-gradient(90deg,rgba(42,143,117,.18),rgba(245,176,86,.18),rgba(119,169,230,.14))] blur-2xl"/>
+        <div className="absolute left-0 top-24 z-10 w-[320px] rotate-[-3deg] overflow-hidden rounded-[32px] border border-[#d6dfd2] bg-[#17201b] p-4 text-[#fff8ec] shadow-[0_34px_92px_-62px_rgba(23,32,27,.88)] dark:border-white/[0.14]">
+            <div className="relative aspect-[16/10] overflow-hidden rounded-[24px] bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,.35),transparent_17%),linear-gradient(145deg,rgba(245,176,86,.5),transparent_45%),linear-gradient(155deg,#365143,#131714_70%)]">
+                <span className="absolute inset-x-5 bottom-5 h-2 rounded-full bg-white/18"/>
+                <span className="ff-animated absolute bottom-5 left-5 h-2 w-16 origin-left rounded-full bg-[#8fd9c0]" style={{animation: 'ffPulseRibbon 6.4s ease-in-out infinite'}}/>
+                <span className="ff-animated absolute bottom-1 left-5 h-[92%] w-[3px] rounded-full bg-[#fff8ec]/90 shadow-[0_0_20px_rgba(143,217,192,.8)]" style={{animation: 'ffScan 6.4s ease-in-out infinite'}}/>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+                <div>
+                    <p className={`${dataType} text-[11px] font-black uppercase tracking-[0.12em] text-[#b9dccd]`}>Scanning timeline</p>
+                    <p className="mt-1 text-sm font-black">Course lecture · 1:12:44</p>
                 </div>
-                <div className="border-t border-[#e2d5c0] bg-[#f4eadb]/88 p-4 dark:border-white/[0.10] dark:bg-[#120f0b] lg:border-l lg:border-t-0">
-                    <div className="rounded-[22px] border border-[#d9cdbc] bg-[#fffaf2] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.78)] dark:border-white/[0.11] dark:bg-white/[0.06] dark:shadow-none">
-                        <div className="flex items-center gap-3">
-                            <span className="flex size-10 items-center justify-center rounded-[14px] bg-[#171512] text-[#f8f2e8] dark:bg-[#f4efe4] dark:text-[#171512]">
-                                <Play className="size-5" strokeWidth={2.15} aria-hidden="true"/>
-                            </span>
-                            <div>
-                                <p className={`${dataType} text-[11px] font-extrabold text-[#8a765a] dark:text-white/[0.56]`}>{copy.subtitle}</p>
-                                <p className="text-sm font-black text-[#171512] dark:text-[#f7f1e8]">Transformer lecture</p>
-                            </div>
-                        </div>
-                        <p className="mt-4 text-sm font-semibold leading-6 text-[#5f5649] dark:text-white/[0.68]">{copy.subtitleText}</p>
-                        <div className={`mt-5 grid grid-cols-4 gap-2 text-[10px] font-extrabold tabular-nums text-[#7a6b58] dark:text-white/[0.48] ${dataType}`}>
-                            {copy.timeline.map((item) => <span key={item}>{item}</span>)}
-                        </div>
-                        <div className="mt-2 grid grid-cols-4 gap-1">
-                            {copy.timeline.map((item, index) => (
-                                <span key={`${item}-segment`} className={`h-2 rounded-full ${index === 1 ? 'bg-[#bb7a2d]' : 'bg-[#dccdb8] dark:bg-white/[0.14]'}`}/>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="mt-3 overflow-hidden rounded-[22px] border border-[#d9cdbc] bg-[#201a12] dark:border-white/[0.11]">
-                        <div className="aspect-[16/10] bg-[linear-gradient(135deg,rgba(214,164,102,.32),transparent_42%),radial-gradient(circle_at_24%_24%,rgba(255,255,255,.24),transparent_18%),linear-gradient(160deg,#2b241a,#15110d_58%,#5a3a19)]"/>
-                        <div className="flex items-center justify-between gap-3 border-t border-white/[0.10] px-4 py-3">
-                            <span className="text-xs font-extrabold text-[#f7f1e8]">{copy.visual}</span>
-                            <MonitorPlay className="size-4 text-[#d6a466]" strokeWidth={2.15} aria-hidden="true"/>
-                        </div>
-                    </div>
-                </div>
+                <span className="flex size-10 items-center justify-center rounded-full bg-white text-[#17201b]">
+                    <Play className="size-4 fill-current" strokeWidth={2.4} aria-hidden="true"/>
+                </span>
             </div>
         </div>
+
+        <article className="absolute right-0 top-0 z-20 w-[min(540px,88%)] rounded-[34px] border border-[#d8e0d2] bg-white/92 p-5 shadow-[0_38px_104px_-70px_rgba(55,73,48,.92)] backdrop-blur dark:border-white/[0.13] dark:bg-[#182018]/92">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className={`${dataType} rounded-full bg-[#e7f7ed] px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-[#2f7c66] dark:bg-[#8fd9c0]/12 dark:text-[#8fd9c0]`}>Generating notes</span>
+                <span className={`${dataType} text-[11px] font-black text-[#7b867c] dark:text-white/[0.52]`}>18:42 source anchor</span>
+            </div>
+            <h2 className={`ff-animated mt-5 ${displayType} text-[32px] font-black leading-[1.08] tracking-normal text-[#17201b] [text-wrap:balance] dark:text-[#f7f1e5] sm:text-[38px]`} style={{animation: 'ffGenerate 6.4s ease-in-out infinite'}}>
+                03 Why attention works
+            </h2>
+            <div className="ff-animated mt-5 rounded-[24px] border border-[#d7eadb] bg-[#f2fbf4] p-4 dark:border-[#8fd9c0]/18 dark:bg-[#8fd9c0]/8" style={{animation: 'ffGenerate 6.4s ease-in-out infinite 360ms'}}>
+                <p className="text-sm font-black text-[#17201b] dark:text-[#f7f1e5]">Read the chapter conclusion first.</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6a61] dark:text-white/[0.66]">
+                    Query and key vectors compare each token against the current context. Examples, terms, and frames keep source positions.
+                </p>
+            </div>
+            <div className="ff-animated mt-4 rounded-[24px] border border-[#d4e6f4] bg-[#eef7ff] p-4 dark:border-[#77a9e6]/20 dark:bg-[#77a9e6]/10" style={{animation: 'ffHighlight 6.4s ease-in-out infinite'}}>
+                <p className="text-sm font-black text-[#17201b] dark:text-[#f7f1e5]">Transcript and key moment highlighted.</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[#526476] dark:text-white/[0.66]">
+                    18:42 · “compare each token against the current context”
+                </p>
+            </div>
+            <div className="ff-animated relative mt-4 rounded-[24px] border border-[#eadfca] bg-[#fff7e8] p-4 dark:border-[#f5b056]/18 dark:bg-[#f5b056]/10" style={{animation: 'ffFix 6.4s ease-in-out infinite'}}>
+                <span className="ff-animated absolute right-5 top-4 rounded-full bg-[#17201b] px-3 py-1 text-[11px] font-black text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]" style={{animation: 'ffCursor 6.4s ease-in-out infinite'}}>
+                    Fix accepted
+                </span>
+                <p className="text-sm font-black text-[#17201b] dark:text-[#f7f1e5]">User fixes one uncertain detail.</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[#6d614f] dark:text-white/[0.66]">
+                    Original transcript stays traceable, while the study note uses the corrected wording.
+                </p>
+            </div>
+            <div className={`mt-5 grid grid-cols-4 gap-2 text-[10px] font-black tabular-nums text-[#768278] dark:text-white/[0.44] ${dataType}`}>
+                {timeline.map((item) => <span key={item}>{item}</span>)}
+            </div>
+            <div className="mt-2 grid grid-cols-4 gap-1">
+                {timeline.map((item, index) => (
+                    <span key={`${item}-ribbon`} className={`h-2 origin-left rounded-full ${index === 1 ? 'ff-animated bg-[#2a8f75]' : 'bg-[#dbe7dc] dark:bg-white/[0.14]'}`} style={index === 1 ? {animation: 'ffPulseRibbon 6.4s ease-in-out infinite'} : undefined}/>
+                ))}
+            </div>
+        </article>
+
+        <aside className="absolute bottom-6 left-4 z-10 w-[min(330px,72%)] rounded-[30px] border border-[#c9ead4] bg-[#dbf6e4]/92 p-5 shadow-[0_26px_70px_-52px_rgba(45,100,65,.7)] backdrop-blur dark:border-[#8fd9c0]/18 dark:bg-[#8fd9c0]/12">
+            <p className={`${dataType} text-[11px] font-black uppercase tracking-[0.12em] text-[#2f7c66] dark:text-[#8fd9c0]`}>Study with the video</p>
+            <p className="mt-2 text-lg font-black leading-snug text-[#17201b] dark:text-[#f7f1e5]">Pause less. Rewind less. Clean up less.</p>
+            <p className="mt-2 text-sm font-semibold leading-6 text-[#4d6658] dark:text-white/[0.66]">The video stays central. FluentFlow prepares the note before you study.</p>
+        </aside>
     </div>
 );
 
-const StepList = ({title, items, tone}) => {
+const WorkflowCard = ({tone, title, items}) => {
     const isAfter = tone === 'after';
     const Icon = isAfter ? CheckCircle2 : RotateCcw;
     return (
-        <article className={`rounded-[28px] border p-5 sm:p-6 ${isAfter ? 'border-[#d5b987] bg-[#fff7e9] dark:border-[#d6a466]/28 dark:bg-[#d6a466]/10' : 'border-[#dfd4c4] bg-[#fbf5ec] dark:border-white/[0.12] dark:bg-white/[0.055]'}`}>
+        <article className={`rounded-[30px] border p-5 sm:p-6 ${isAfter ? 'border-[#bfe6ca] bg-[#ecfbf1] dark:border-[#8fd9c0]/22 dark:bg-[#8fd9c0]/10' : 'border-[#dbe0d6] bg-white/74 dark:border-white/[0.12] dark:bg-white/[0.055]'}`}>
             <div className="flex items-center gap-3">
-                <span className={`flex size-11 items-center justify-center rounded-[16px] ${isAfter ? 'bg-[#bb7a2d] text-[#171512]' : 'bg-[#171512] text-[#f8f2e8] dark:bg-[#f4efe4] dark:text-[#171512]'}`}>
-                    <Icon className="size-5" strokeWidth={2.15} aria-hidden="true"/>
+                <span className={`flex size-11 items-center justify-center rounded-[16px] ${isAfter ? 'bg-[#2a8f75] text-white' : 'bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]'}`}>
+                    <Icon className="size-5" strokeWidth={2.2} aria-hidden="true"/>
                 </span>
-                <h3 className={`text-[22px] font-extrabold text-[#171512] dark:text-[#f7f1e8] ${bodyType}`}>{title}</h3>
+                <h3 className={`${displayType} text-[24px] font-black leading-tight tracking-normal text-[#17201b] dark:text-[#f7f1e5]`}>{title}</h3>
             </div>
             <div className="mt-5 space-y-4">
                 {items.map(([itemTitle, desc]) => (
-                    <div key={itemTitle} className="grid gap-1 border-t border-[#dfd4c4] pt-4 dark:border-white/[0.10]">
-                        <p className="text-sm font-black text-[#171512] dark:text-[#f7f1e8]">{itemTitle}</p>
-                        <p className="text-sm font-semibold leading-6 text-[#6f6558] dark:text-white/[0.66]">{desc}</p>
+                    <div key={itemTitle} className="grid gap-1 border-t border-[#dbe0d6] pt-4 dark:border-white/[0.10]">
+                        <p className="text-sm font-black text-[#17201b] dark:text-[#f7f1e5]">{itemTitle}</p>
+                        <p className="text-sm font-semibold leading-6 text-[#626d64] dark:text-white/[0.66]">{desc}</p>
                     </div>
                 ))}
             </div>
@@ -297,145 +204,184 @@ const StepList = ({title, items, tone}) => {
     );
 };
 
-const Landing = () => {
-    const {lang} = useI18n();
-    const isZh = lang === 'zh';
-    const copy = content[isZh ? 'zh' : 'en'];
+const Landing = () => (
+    <main
+        id="main-content"
+        className={`relative h-dvh overflow-y-auto scroll-smooth bg-[#fff8ec] text-[#17201b] motion-reduce:scroll-auto dark:bg-[#111612] dark:text-[#f7f1e5] ${bodyType} before:pointer-events-none before:fixed before:inset-0 before:z-0 before:bg-[radial-gradient(circle_at_1px_1px,rgba(23,32,27,.16)_1px,transparent_0)] before:bg-[length:18px_18px] before:opacity-[0.10] dark:before:bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,.18)_1px,transparent_0)] dark:before:opacity-[0.08]`}
+    >
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_18%_10%,rgba(42,143,117,.16),transparent_28rem),radial-gradient(circle_at_84%_12%,rgba(245,176,86,.18),transparent_30rem),linear-gradient(180deg,#fff8ec_0%,#f6fbf2_52%,#fffaf0_100%)] dark:bg-[radial-gradient(circle_at_18%_10%,rgba(143,217,192,.12),transparent_28rem),radial-gradient(circle_at_84%_12%,rgba(245,176,86,.10),transparent_30rem),linear-gradient(180deg,#111612_0%,#161d18_55%,#111612_100%)]"/>
+        <a href="#homepage-hero" className={`sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-[#17201b] focus:px-4 focus:py-2 focus:text-sm focus:font-black focus:text-[#fff8ec] dark:focus:bg-[#f7f1e5] dark:focus:text-[#17201b] ${focusRing}`}>
+            Skip to main content
+        </a>
 
-    return (
-        <main id="main-content" className={`h-dvh overflow-y-auto scroll-smooth bg-[#f6f0e6] text-[#171512] motion-reduce:scroll-auto dark:bg-[#0f0e0c] dark:text-[#f7f1e8] ${bodyType}`}>
-            <a href="#homepage-hero" className={`sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-[#171512] focus:px-4 focus:py-2 focus:text-sm focus:font-extrabold focus:text-[#f8f2e8] dark:focus:bg-[#f4efe4] dark:focus:text-[#171512] ${focusRing}`}>
-                跳到主要内容
-            </a>
-            <header className="sticky top-0 z-40 border-b border-[#dfd4c4]/85 bg-[#f6f0e6]/88 backdrop-blur-xl dark:border-white/[0.12] dark:bg-[#0f0e0c]/92">
-                <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-5 px-5 sm:px-6 lg:px-8">
-                    <Link to="/" className={`flex min-w-0 items-center gap-3 rounded-[16px] ${focusRing}`} aria-label="FluentFlow">
-                        <LogoMark/>
-                        <span className="truncate text-base font-black tracking-normal">FluentFlow</span>
+        <header className="sticky top-0 z-40 border-b border-[#dce5d8]/90 bg-[#fff8ec]/78 backdrop-blur-xl dark:border-white/[0.11] dark:bg-[#111612]/86">
+            <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between gap-5 px-5 sm:px-6 lg:px-8">
+                <Link to="/" className={`flex min-w-0 items-center gap-3 rounded-[16px] ${focusRing}`} aria-label="FluentFlow">
+                    <LogoMark/>
+                    <span className={`truncate text-base font-black tracking-normal ${displayType}`}>FluentFlow</span>
+                </Link>
+                <nav className="hidden items-center gap-7 text-sm font-black text-[#5f6a61] dark:text-white/[0.68] md:flex">
+                    <a href="#workflow" className={`${interactiveMotion} rounded-full px-1 hover:text-[#17201b] dark:hover:text-white ${focusRing}`}>Study flow</a>
+                    <a href="#quality" className={`${interactiveMotion} rounded-full px-1 hover:text-[#17201b] dark:hover:text-white ${focusRing}`}>Note quality</a>
+                    <a href="#sources" className={`${interactiveMotion} rounded-full px-1 hover:text-[#17201b] dark:hover:text-white ${focusRing}`}>Sources</a>
+                </nav>
+                <div className="flex shrink-0 items-center gap-2">
+                    <Link to="/app" className={`hidden h-10 touch-manipulation items-center justify-center rounded-full border border-[#dce5d8] bg-white/60 px-4 text-sm font-black text-[#17201b] ${interactiveMotion} hover:bg-[#f4fbf5] active:translate-y-px dark:border-white/[0.15] dark:bg-white/[0.055] dark:text-white/[0.88] dark:hover:bg-white/[0.10] sm:inline-flex ${focusRing}`}>
+                        Open app
                     </Link>
-                    <nav className="hidden items-center gap-7 text-sm font-bold text-[#6f6558] dark:text-white/[0.70] md:flex">
-                        <a href="#product" className={`${interactiveMotion} rounded-full px-1 hover:text-[#171512] dark:hover:text-white ${focusRing}`}>{copy.nav.product}</a>
-                        <a href="#workflow" className={`${interactiveMotion} rounded-full px-1 hover:text-[#171512] dark:hover:text-white ${focusRing}`}>{copy.nav.workflow}</a>
-                        <a href="#use-cases" className={`${interactiveMotion} rounded-full px-1 hover:text-[#171512] dark:hover:text-white ${focusRing}`}>{copy.nav.useCases}</a>
-                    </nav>
-                    <div className="flex shrink-0 items-center gap-2">
-                        <Link to="/app" className={`hidden h-10 touch-manipulation items-center justify-center rounded-full border border-[#d7cbbb] bg-[#f9f4eb]/65 px-4 text-sm font-extrabold text-[#171512] ${interactiveMotion} hover:bg-[#efe4d5] active:translate-y-px dark:border-white/[0.18] dark:bg-white/[0.055] dark:text-white/[0.88] dark:hover:bg-white/[0.10] sm:inline-flex ${focusRing}`}>
-                            {copy.nav.app}
-                        </Link>
-                        <Link to="/media-text" className={`inline-flex h-10 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#171512] px-4 text-sm font-extrabold text-[#f8f2e8] ${interactiveMotion} hover:bg-[#2d261e] active:translate-y-px dark:bg-[#f4efe4] dark:text-[#171512] dark:hover:bg-[#e7dcc9] ${focusRing}`}>
-                            {copy.nav.start}
-                            <ArrowRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
-                        </Link>
-                    </div>
+                    <Link to="/media-text" className={`inline-flex h-10 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#17201b] px-4 text-sm font-black text-[#fff8ec] ${interactiveMotion} hover:bg-[#24352d] active:translate-y-px dark:bg-[#f7f1e5] dark:text-[#17201b] dark:hover:bg-[#e9dcc8] ${focusRing}`}>
+                        Start a video
+                        <ArrowRight className="size-4" strokeWidth={2.25} aria-hidden="true"/>
+                    </Link>
                 </div>
-            </header>
+            </div>
+        </header>
 
-            <section id="homepage-hero" className={`${sectionShell} grid min-h-[calc(100dvh-68px)] scroll-mt-24 items-center gap-10 py-10 sm:py-12 lg:grid-cols-[0.88fr_1.12fr] lg:py-14`}>
-                <div className="max-w-3xl">
-                    <p className={eyebrowClass}>{copy.hero.label}</p>
-                    <h1 className={`mt-5 max-w-[11.8em] ${displayType} text-[40px] font-semibold leading-[1.08] tracking-normal text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[54px] lg:text-[62px]`}>
-                        {copy.hero.title}
-                    </h1>
-                    <p className="mt-6 max-w-[58ch] text-[17px] font-medium leading-8 text-[#665d51] [text-wrap:pretty] dark:text-white/[0.72]">
-                        {copy.hero.desc}
+        <section id="homepage-hero" className={`${sectionShell} relative z-10 grid min-h-[calc(100dvh-70px)] scroll-mt-24 items-center gap-10 py-10 sm:py-12 lg:grid-cols-[0.9fr_1.1fr] lg:py-14`}>
+            <div className="max-w-3xl">
+                <p className={eyebrowClass}>Long-video study notes</p>
+                <h1 className={`mt-5 max-w-[10.4em] ${displayType} text-[44px] font-black leading-[1.02] tracking-normal text-[#17201b] [text-wrap:balance] dark:text-[#f7f1e5] sm:text-[62px] lg:text-[78px]`}>
+                    Turn long videos into study-ready notes first.
+                </h1>
+                <p className="mt-6 max-w-[62ch] text-[17px] font-semibold leading-8 text-[#5f6a61] [text-wrap:pretty] dark:text-white/[0.70] sm:text-[18px]">
+                    Give FluentFlow courses, lectures, screen recordings, and video links. Get structured notes, transcript and subtitles, and key moments before you study with the video. Then fix only the few uncertain details.
+                </p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                    <Link to="/media-text" className={primaryButton}>
+                        Start processing
+                        <ArrowRight className="size-4" strokeWidth={2.25} aria-hidden="true"/>
+                    </Link>
+                    <a href="#workflow" className={secondaryButton}>
+                        See the study flow
+                    </a>
+                </div>
+                <p className={`${dataType} mt-5 max-w-[54ch] text-[12px] font-black leading-6 text-[#6f7b70] dark:text-white/[0.54]`}>
+                    FluentFlow does not replace watching. It removes the note-taking drag before you begin.
+                </p>
+            </div>
+            <HeroVisual/>
+        </section>
+
+        <section id="workflow" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-white/58 backdrop-blur-sm dark:border-white/[0.10] dark:bg-white/[0.035]">
+            <div className={`${sectionShell} py-16 lg:py-24`}>
+                <SectionHeader
+                    eyebrow="Before / After"
+                    title="Study with notes ready, not with a pause button under your finger."
+                    desc="The learning path still runs through the video. FluentFlow simply prepares the note, transcript, and review anchors first."
+                />
+                <div className="mt-10 grid gap-4 lg:grid-cols-2">
+                    <WorkflowCard
+                        tone="before"
+                        title="Before"
+                        items={[
+                            ['Open a long video', 'You must decide what to capture from the first minute.'],
+                            ['Pause and rewind', 'One missed sentence breaks attention and sends you back.'],
+                            ['Clean the note later', 'After watching, chapters and examples still need manual cleanup.'],
+                        ]}
+                    />
+                    <WorkflowCard
+                        tone="after"
+                        title="After"
+                        items={[
+                            ['Generate notes first', 'Chapters, subtitles, and key moments are prepared upfront.'],
+                            ['Study with the video', 'Focus on the lesson and revisit the source only when needed.'],
+                            ['Fix a few details', 'Correct the small number of uncertain recognition or wording issues.'],
+                        ]}
+                    />
+                </div>
+            </div>
+        </section>
+
+        <section id="quality" className={`${sectionShell} relative z-10 scroll-mt-24 py-16 lg:py-24`}>
+            <SectionHeader
+                eyebrow="What quality means"
+                title="Not a summary. A reviewable study asset."
+                desc="High-quality notes are structured, source-grounded, and useful after the first read."
+            />
+            <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {qualityItems.map(([title, desc], index) => {
+                    const icons = [BookOpenText, ScanSearch, Captions, FileText, Image, Download];
+                    const Icon = icons[index] || BookOpenText;
+                    return (
+                        <article key={title} className={`rounded-[28px] border border-[#dce5d8] bg-white/72 p-5 shadow-[0_20px_58px_-46px_rgba(46,73,58,.45)] backdrop-blur ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#9fcab8] hover:bg-white dark:border-white/[0.11] dark:bg-white/[0.055] dark:hover:border-[#8fd9c0]/45`}>
+                            <Icon className="size-6 text-[#2f7c66] dark:text-[#8fd9c0]" strokeWidth={2.05} aria-hidden="true"/>
+                            <h3 className={`mt-5 ${displayType} text-xl font-black leading-tight tracking-normal text-[#17201b] dark:text-[#f7f1e5]`}>{title}</h3>
+                            <p className="mt-3 text-sm font-semibold leading-6 text-[#626d64] dark:text-white/[0.66]">{desc}</p>
+                        </article>
+                    );
+                })}
+            </div>
+        </section>
+
+        <section id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/70 backdrop-blur-sm dark:border-white/[0.10] dark:bg-[#8fd9c0]/5">
+            <div className={`${sectionShell} grid gap-10 py-16 lg:grid-cols-[0.86fr_1.14fr] lg:items-center lg:py-24`}>
+                <div>
+                    <p className={eyebrowClass}>Source coverage</p>
+                    <h2 className={`mt-4 max-w-[12em] ${displayType} text-[34px] font-black leading-[1.04] tracking-normal text-[#17201b] [text-wrap:balance] dark:text-[#f7f1e5] sm:text-[46px]`}>
+                        Courses, lectures, recordings, files, and supported public links.
+                    </h2>
+                    <p className="mt-5 max-w-[60ch] text-base font-semibold leading-relaxed text-[#626d64] dark:text-white/[0.66]">
+                        Public video platforms may restrict media or caption access. Local upload and subtitle files are the most reliable path.
                     </p>
-                    <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                        <Link to="/media-text" className={primaryButton}>
-                            {copy.hero.primary}
-                            <ArrowRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
-                        </Link>
-                        <a href="#workflow" className={secondaryButton}>
-                            {copy.hero.secondary}
-                            <ChevronRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
-                        </a>
-                    </div>
-                    <p className={`${dataType} mt-5 max-w-[46ch] text-[12px] font-extrabold leading-6 text-[#806f5a] dark:text-white/[0.58]`}>{copy.hero.note}</p>
                 </div>
-                <StudyAssetPreview copy={copy.preview}/>
-            </section>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    {sourceItems.map((item) => (
+                        <div key={item} className="flex min-h-[76px] items-center gap-3 rounded-[24px] border border-[#d2dfd2] bg-white/78 px-4 py-3 shadow-[0_16px_42px_-38px_rgba(46,73,58,.35)] dark:border-white/[0.12] dark:bg-white/[0.055]">
+                            <span className="flex size-10 shrink-0 items-center justify-center rounded-[15px] bg-[#dff7e8] text-[#2f7c66] dark:bg-[#8fd9c0]/13 dark:text-[#8fd9c0]">
+                                <UploadCloud className="size-5" strokeWidth={2.1} aria-hidden="true"/>
+                            </span>
+                            <p className="text-sm font-black leading-tight text-[#17201b] dark:text-[#f7f1e5]">{item}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </section>
 
-            <section id="workflow" className="scroll-mt-24 border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]">
-                <div className={`${sectionShell} py-16 lg:py-24`}>
-                    <SectionHeader eyebrow={copy.beforeAfter.eyebrow} title={copy.beforeAfter.title}/>
-                    <div className="mt-10 grid gap-4 lg:grid-cols-2">
-                        <StepList title={copy.beforeAfter.beforeTitle} items={copy.beforeAfter.before} tone="before"/>
-                        <StepList title={copy.beforeAfter.afterTitle} items={copy.beforeAfter.after} tone="after"/>
-                    </div>
-                </div>
-            </section>
+        <section className={`${sectionShell} relative z-10 py-16 lg:py-24`}>
+            <SectionHeader
+                eyebrow="What you keep"
+                title="A record you can study, review, and export."
+                desc="The output is not a disposable chat answer. It becomes a place to revisit the video, check the transcript, and keep the result."
+            />
+            <div className="mt-10 grid gap-4 lg:grid-cols-4">
+                {outputItems.map(([title, desc], index) => {
+                    const icons = [FileText, Captions, Film, CheckCircle2];
+                    const Icon = icons[index] || FileText;
+                    return (
+                        <article key={title} className="rounded-[28px] border border-[#dce5d8] bg-white/72 p-5 shadow-[0_18px_52px_-44px_rgba(46,73,58,.42)] dark:border-white/[0.11] dark:bg-white/[0.055]">
+                            <Icon className="size-6 text-[#2f7c66] dark:text-[#8fd9c0]" strokeWidth={2.05} aria-hidden="true"/>
+                            <h3 className={`mt-5 ${displayType} text-xl font-black leading-tight tracking-normal text-[#17201b] dark:text-[#f7f1e5]`}>{title}</h3>
+                            <p className="mt-3 text-sm font-semibold leading-6 text-[#626d64] dark:text-white/[0.66]">{desc}</p>
+                        </article>
+                    );
+                })}
+            </div>
+        </section>
 
-            <section id="product" className={`${sectionShell} scroll-mt-24 py-16 lg:py-24`}>
-                <SectionHeader eyebrow={copy.quality.eyebrow} title={copy.quality.title}/>
-                <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {copy.quality.items.map(([title, desc], index) => {
-                        const Icon = qualityIcons[index] || Sparkles;
-                        return (
-                            <article key={title} className={`rounded-[26px] border border-[#dfd4c4] bg-[#fffaf3] p-5 ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#c6a16a] dark:border-white/[0.11] dark:bg-white/[0.055] dark:hover:border-[#d6a466]/45`}>
-                                <Icon className="size-6 text-[#9a6428] dark:text-[#d6a466]" strokeWidth={2.05} aria-hidden="true"/>
-                                <h3 className="mt-5 text-xl font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{title}</h3>
-                                <p className="mt-3 text-sm font-semibold leading-6 text-[#6f6558] dark:text-white/[0.66]">{desc}</p>
-                            </article>
-                        );
-                    })}
+        <section className={`${sectionShell} relative z-10 pb-16 lg:pb-24`}>
+            <div className="overflow-hidden rounded-[36px] border border-[#21362c] bg-[#17201b] p-6 text-[#fff8ec] shadow-[0_28px_80px_-48px_rgba(23,32,27,.82)] sm:p-8 lg:flex lg:items-center lg:justify-between lg:gap-10 dark:border-white/[0.12]">
+                <div className="pointer-events-none absolute inset-x-0 h-24 bg-[linear-gradient(90deg,rgba(143,217,192,.22),rgba(245,176,86,.18),rgba(119,169,230,.16))] blur-3xl"/>
+                <div className="relative max-w-2xl">
+                    <p className={`${dataType} text-[11px] font-black uppercase tracking-[0.16em] text-[#8fd9c0]`}>Start with one real video</p>
+                    <h2 className={`mt-3 ${displayType} text-[34px] font-black leading-[1.04] tracking-normal [text-wrap:balance] sm:text-[48px]`}>
+                        Give FluentFlow the next video you want to learn.
+                    </h2>
+                    <p className="mt-4 text-base font-semibold leading-relaxed text-white/[0.72]">
+                        Start with a real course, lecture, or recording. Generate the note first, then study and correct it with the video.
+                    </p>
                 </div>
-            </section>
-
-            <section id="use-cases" className="scroll-mt-24 border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]">
-                <div className={`${sectionShell} grid gap-10 py-16 lg:grid-cols-[0.86fr_1.14fr] lg:items-center lg:py-24`}>
-                    <div>
-                        <p className={eyebrowClass}>{copy.sources.eyebrow}</p>
-                        <h2 className={`mt-4 max-w-[13em] ${displayType} text-[34px] font-semibold leading-[1.08] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[44px]`}>{copy.sources.title}</h2>
-                        <p className="mt-5 max-w-[58ch] text-base font-semibold leading-relaxed text-[#6f6558] dark:text-white/[0.66]">{copy.sources.desc}</p>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        {copy.sources.items.map((item) => (
-                            <div key={item} className="flex min-h-[74px] items-center gap-3 rounded-[22px] border border-[#dfd4c4] bg-[#fffaf3] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.06]">
-                                <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#bb7a2d] text-[#171512] dark:bg-[#d6a466]">
-                                    <UploadCloud className="size-5" strokeWidth={2.1} aria-hidden="true"/>
-                                </span>
-                                <p className="text-sm font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{item}</p>
-                            </div>
-                        ))}
-                    </div>
+                <div className="relative mt-8 flex flex-col gap-3 sm:flex-row lg:mt-0">
+                    <Link to="/media-text" className="inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#fff8ec] px-6 text-sm font-black text-[#17201b] transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out hover:-translate-y-0.5 hover:bg-[#e9dcc8] active:translate-y-px">
+                        Start processing
+                        <ArrowRight className="size-4" strokeWidth={2.25} aria-hidden="true"/>
+                    </Link>
+                    <Link to="/agent" className="inline-flex h-12 touch-manipulation items-center justify-center rounded-full border border-white/[0.18] bg-white/[0.06] px-6 text-sm font-black text-white transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out hover:-translate-y-0.5 hover:bg-white/[0.12] active:translate-y-px">
+                        View processing records
+                    </Link>
                 </div>
-            </section>
-
-            <section className={`${sectionShell} py-16 lg:py-24`}>
-                <SectionHeader eyebrow={copy.outputs.eyebrow} title={copy.outputs.title} narrow/>
-                <div className="mt-10 grid gap-4 lg:grid-cols-4">
-                    {copy.outputs.items.map(([title, desc], index) => {
-                        const Icon = outputIcons[index] || FileText;
-                        return (
-                            <article key={title} className="rounded-[26px] border border-[#dfd4c4] bg-[#fffaf3] p-5 dark:border-white/[0.11] dark:bg-white/[0.055]">
-                                <Icon className="size-6 text-[#9a6428] dark:text-[#d6a466]" strokeWidth={2.05} aria-hidden="true"/>
-                                <h3 className="mt-5 text-xl font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{title}</h3>
-                                <p className="mt-3 text-sm font-semibold leading-6 text-[#6f6558] dark:text-white/[0.66]">{desc}</p>
-                            </article>
-                        );
-                    })}
-                </div>
-            </section>
-
-            <section className={`${sectionShell} pb-16 lg:pb-24`}>
-                <div className="rounded-[32px] border border-[#dfd4c4] bg-[#fff8ee] p-6 sm:p-8 lg:flex lg:items-center lg:justify-between lg:gap-10 dark:border-white/[0.12] dark:bg-white/[0.055]">
-                    <div className="max-w-2xl">
-                        <p className={eyebrowClass}>{copy.cta.primary}</p>
-                        <h2 className={`mt-3 ${displayType} text-[34px] font-semibold leading-[1.08] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[44px]`}>{copy.cta.title}</h2>
-                        <p className="mt-4 text-base font-semibold leading-relaxed text-[#6f6558] dark:text-white/[0.68]">{copy.cta.desc}</p>
-                    </div>
-                    <div className="mt-8 flex flex-col gap-3 sm:flex-row lg:mt-0">
-                        <Link to="/media-text" className={primaryButton}>
-                            {copy.cta.primary}
-                            <ArrowRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
-                        </Link>
-                        <Link to="/agent" className={secondaryButton}>
-                            {copy.cta.secondary}
-                        </Link>
-                    </div>
-                </div>
-            </section>
-        </main>
-    );
-};
+            </div>
+        </section>
+    </main>
+);
 
 export default Landing;

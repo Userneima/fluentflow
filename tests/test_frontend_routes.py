@@ -137,24 +137,31 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert 'path="*" element={<Navigate to="/app" replace/>}' in app_shell
     assert "{path:'/app', icon:LayoutGrid, k:'nav.dashboard'}" in side_nav
     assert 'to="/app"' in side_nav
-    assert "把想学的长视频，先变成高质量笔记" in landing
-    assert "先得到结构化笔记、字幕和关键画面" in landing
-    assert "少暂停，少倒回，少做机械整理" in landing
-    assert "现在先有笔记再学习" in landing
-    assert "保守字幕纠错" in landing
-    assert "公开视频平台可能限制下载或字幕访问" in landing
-    assert "一份能继续学习、复查和导出的记录" in landing
+    assert "Turn long videos into study-ready notes first." in landing
+    assert "Get structured notes, transcript and subtitles, and key moments before you study with the video." in landing
+    assert "Pause less. Rewind less. Clean up less." in landing
+    assert "Study with notes ready, not with a pause button under your finger." in landing
+    assert "Accepted transcript fixes can show original text, corrected text, reason, confidence, and time." in landing
+    assert "Public video platforms may restrict media or caption access." in landing
+    assert "A record you can study, review, and export." in landing
     assert "to=\"/media-text\"" in landing
     assert "href=\"#workflow\"" in landing
     assert "to=\"/agent\"" in landing
     assert "h-dvh overflow-y-auto" in landing
     assert "motion-reduce:scroll-auto" in landing
-    assert "Songti_SC" in landing
+    assert "Avenir_Next" in landing
+    assert "bg-[radial-gradient(circle_at_1px_1px,rgba(23,32,27,.16)_1px,transparent_0)]" in landing
+    assert "ff-motion-demo" in landing
+    assert "prefers-reduced-motion: reduce" in landing
+    assert "Scanning timeline" in landing
+    assert "Generating notes" in landing
+    assert "Transcript and key moment highlighted." in landing
+    assert "Fix accepted" in landing
     assert "[text-wrap:balance]" in landing
     assert "transition-[color,background-color,border-color,box-shadow,transform,opacity]" in landing
-    assert "dark:text-white/[0.70] md:flex" in landing
-    assert "dark:bg-[#2a241b]" in landing
-    assert 'id="use-cases" className="scroll-mt-24 border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]"' in landing
+    assert "dark:text-white/[0.68] md:flex" in landing
+    assert "dark:bg-[#111612]" in landing
+    assert 'id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/70 backdrop-blur-sm dark:border-white/[0.10] dark:bg-[#8fd9c0]/5"' in landing
     assert "flashcard" not in landing.lower()
     assert "quiz" not in landing.lower()
     assert "podcast" not in landing.lower()
