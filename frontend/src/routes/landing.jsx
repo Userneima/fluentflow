@@ -31,7 +31,6 @@ const LogoMark = () => (
     </span>
 );
 
-const timeline = ['00:00', '18:42', '39:10', '1:12:44'];
 const carouselStepMs = 6500;
 
 const sourceIconItems = [
@@ -70,25 +69,53 @@ const landingCopy = {
             note: '',
         },
         heroVisual: {
-            label: 'Animated product proof scene: upload a long video, generate notes, compare uncertain details, and export the study asset',
-            eyebrow: 'Study workspace',
+            label: 'Animated product walkthrough: input a long video, process source material, study beside the note, and export review assets',
             path: 'fluentflow.app/video-note',
+            inputStep: 'Input',
+            processingStep: 'Processing',
+            studyStep: 'Study / Review',
+            exportStep: 'Export',
             upload: 'Upload / paste a long video',
-            uploadMeta: 'Course lecture · 1:12:44',
-            uploadHint: 'video link + local file',
-            notes: 'Notes generated first',
-            noteTitle: '03 Why attention works',
-            noteBulletOne: 'Structured chapter and conclusion',
-            noteBulletTwo: 'Transcript line and key moment anchor',
-            anchor: '18:42 source anchor',
-            compare: 'Compare and correct',
-            compareHint: 'Watch beside the note',
-            original: 'Original: "context windows"',
-            corrected: 'Corrected: "attention window"',
-            accepted: 'Fix accepted',
-            export: 'Export study asset',
-            exportHint: 'Markdown · PDF · Feishu',
-            finalNote: 'Ready to study with the video.',
+            uploadMeta: 'Paste a course URL',
+            uploadSource: 'https://course.example.com/attention-lecture',
+            uploadHint: 'Identifying long-video source',
+            uploadQueued: 'Notes, transcript, key moments',
+            uploadSubtitle: 'URL detected',
+            uploadTitle: 'Course lecture: attention mechanisms',
+            uploadType: 'Learning material · public link',
+            uploadDuration: '1:12:44 video',
+            uploadDecision: 'Ready for study-note generation',
+            uploadProgress: 'Source check in progress',
+            processing: 'Processing the video',
+            processingMeta: 'Course lecture identified',
+            processingMaterial: 'Long lecture · note-first route',
+            processingStageTranscript: 'Transcript and subtitles',
+            processingStageTranscriptStatus: 'Done',
+            processingStageFrames: 'Key moments',
+            processingStageFramesStatus: 'Running',
+            processingStageNotes: 'Study notes',
+            processingStageNotesStatus: 'Next',
+            processingProgress: 'Processing 64%',
+            processingHint: 'Preparing reviewable source material',
+            study: 'Study beside the video',
+            studyTime: '18:42',
+            studyCaption: '"Attention narrows what each token compares."',
+            studyNoteTitle: '03 Why attention works',
+            studyConclusion: 'Attention limits the comparison window.',
+            studyAnchor: '18:42 source anchor',
+            studyFix: 'One uncertain line ready to check',
+            export: 'Export',
+            exportMediaTitle: 'Video and audio',
+            exportMediaVideo: 'Video file',
+            exportMediaAudio: 'Audio track',
+            exportMediaSubtitles: 'Subtitles',
+            exportMediaFrames: 'Key frames',
+            exportNotesTitle: 'Notes and review',
+            exportNotesMarkdown: 'Markdown',
+            exportNotesPdf: 'PDF',
+            exportNotesFeishu: 'Feishu',
+            exportNotesPackage: 'Study note package',
+            finalNote: 'Ready to keep studying later.',
         },
         workflow: {
             eyebrow: 'Before / After',
@@ -178,25 +205,53 @@ const landingCopy = {
             note: '',
         },
         heroVisual: {
-            label: '动态产品证明场景：上传长视频，生成笔记，对照修正，再导出学习资产',
-            eyebrow: '学习工作区',
+            label: '动态产品演示：输入长视频，处理素材，对照笔记学习，再导出复查资产',
             path: 'fluentflow.app/video-note',
+            inputStep: '输入',
+            processingStep: '处理中',
+            studyStep: '学习 / 复查',
+            exportStep: '导出',
             upload: '上传或粘贴长视频',
-            uploadMeta: '课程讲座 · 1:12:44',
-            uploadHint: '视频链接 + 本地文件',
-            notes: '先生成学习笔记',
-            noteTitle: '03 注意力机制为什么有效',
-            noteBulletOne: '结构化章节和结论先出现',
-            noteBulletTwo: '字幕行和关键画面可回查',
-            anchor: '18:42 来源锚点',
-            compare: '对照视频修正',
-            compareHint: '视频和笔记并排复查',
-            original: '原文："上下文窗口"',
-            corrected: '修正："注意力窗口"',
-            accepted: '已接受修正',
-            export: '导出学习资产',
-            exportHint: 'Markdown · PDF · 飞书',
-            finalNote: '准备好对着视频学习。',
+            uploadMeta: '粘贴课程链接',
+            uploadSource: 'https://course.example.com/attention-lecture',
+            uploadHint: '正在识别长视频来源',
+            uploadQueued: '笔记、转录、关键画面',
+            uploadSubtitle: '已识别链接',
+            uploadTitle: '课程讲座：注意力机制',
+            uploadType: '学习材料 · 公开视频链接',
+            uploadDuration: '1:12:44 视频',
+            uploadDecision: '可生成学习笔记',
+            uploadProgress: '正在检查来源',
+            processing: '正在处理视频',
+            processingMeta: '已识别课程讲座',
+            processingMaterial: '长讲座 · 先生成笔记路线',
+            processingStageTranscript: '转录和字幕',
+            processingStageTranscriptStatus: '完成',
+            processingStageFrames: '关键画面',
+            processingStageFramesStatus: '进行中',
+            processingStageNotes: '学习笔记',
+            processingStageNotesStatus: '下一步',
+            processingProgress: '处理 64%',
+            processingHint: '正在准备可复查的来源材料',
+            study: '对照视频学习',
+            studyTime: '18:42',
+            studyCaption: '“注意力会收窄每个 token 需要比较的范围。”',
+            studyNoteTitle: '03 注意力机制为什么有效',
+            studyConclusion: '注意力会限制比较窗口。',
+            studyAnchor: '18:42 来源锚点',
+            studyFix: '一处不确定内容待核对',
+            export: '导出',
+            exportMediaTitle: '视频和音频',
+            exportMediaVideo: '视频文件',
+            exportMediaAudio: '音频轨道',
+            exportMediaSubtitles: '字幕',
+            exportMediaFrames: '关键画面',
+            exportNotesTitle: '笔记相关',
+            exportNotesMarkdown: 'Markdown',
+            exportNotesPdf: 'PDF',
+            exportNotesFeishu: '飞书',
+            exportNotesPackage: '学习笔记包',
+            finalNote: '之后可以继续复习。',
         },
         workflow: {
             eyebrow: '前后对比',
@@ -299,10 +354,27 @@ const HeroVisual = ({copy}) => {
     const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
     const activeStep = previewStep ?? selectedStep;
     const proofSteps = [
-        {id: 'input', marker: '01', label: 'Input', title: copy.upload},
-        {id: 'notes', marker: '02', label: 'Notes', title: copy.notes},
-        {id: 'review', marker: '03', label: 'Review', title: copy.compare},
-        {id: 'export', marker: '04', label: 'Export', title: copy.export},
+        {id: 'input', marker: '01', label: copy.inputStep, title: copy.upload},
+        {id: 'processing', marker: '02', label: copy.processingStep, title: copy.processing},
+        {id: 'study', marker: '03', label: copy.studyStep, title: copy.study},
+        {id: 'export', marker: '04', label: copy.exportStep, title: copy.export},
+    ];
+    const processingStages = [
+        [copy.processingStageTranscript, copy.processingStageTranscriptStatus, 'done'],
+        [copy.processingStageFrames, copy.processingStageFramesStatus, 'running'],
+        [copy.processingStageNotes, copy.processingStageNotesStatus, 'next'],
+    ];
+    const mediaExports = [
+        [copy.exportMediaVideo, Film],
+        [copy.exportMediaAudio, MicVocal],
+        [copy.exportMediaSubtitles, Captions],
+        [copy.exportMediaFrames, Image],
+    ];
+    const noteExports = [
+        [copy.exportNotesMarkdown, FileText],
+        [copy.exportNotesPdf, Download],
+        [copy.exportNotesFeishu, BookOpenText],
+        [copy.exportNotesPackage, CheckCircle2],
     ];
 
     useEffect(() => {
@@ -340,9 +412,21 @@ const HeroVisual = ({copy}) => {
                 48%, 78% { transform: translateX(190px); opacity: 1; }
                 100% { transform: translateX(0); opacity: .7; }
             }
-            @keyframes ffNoteLine {
-                0%, 18% { transform: scaleX(.22); opacity: .52; }
-                46%, 100% { transform: scaleX(1); opacity: 1; }
+            @keyframes ffInputType {
+                0%, 14% { clip-path: inset(0 100% 0 0); }
+                42%, 100% { clip-path: inset(0 0 0 0); }
+            }
+            @keyframes ffInputCaret {
+                0%, 100% { opacity: 0; }
+                45%, 58% { opacity: 1; }
+            }
+            @keyframes ffCardPop {
+                0%, 38% { opacity: 0; transform: translateY(10px) scale(.985); }
+                54%, 100% { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            @keyframes ffProgressGrow {
+                0%, 46% { transform: scaleX(.18); }
+                78%, 100% { transform: scaleX(.72); }
             }
             @media (prefers-reduced-motion: reduce) {
                 .ff-motion-demo .ff-animated {
@@ -366,13 +450,7 @@ const HeroVisual = ({copy}) => {
             </div>
 
             <div className="px-4 pt-4 sm:px-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className={`${dataType} rounded-[12px] bg-[#e7f7ed] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#276f5b] dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]`}>
-                        {copy.eyebrow}
-                    </span>
-                    <span className={`${dataType} text-[11px] font-medium text-[#5f6a61] dark:text-white/[0.62]`}>{copy.anchor}</span>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Homepage product proof steps">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Homepage product proof steps">
                     {proofSteps.map((step, index) => {
                         const isActive = activeStep === index;
                         return (
@@ -387,9 +465,9 @@ const HeroVisual = ({copy}) => {
                                 onFocus={() => showStep(index)}
                                 onBlur={clearPreview}
                                 onClick={() => selectStep(index)}
-                                className={`group min-w-0 rounded-[15px] border px-3 py-2 text-left ${interactiveMotion} ${isActive ? 'border-[#2a8f75]/55 bg-[#17201b] text-[#fff8ec] shadow-[0_12px_34px_-24px_rgba(23,32,27,.62)] dark:border-[#8fd9c0]/45 dark:bg-[#f7f1e5] dark:text-[#17201b]' : 'border-[#dce5d8] bg-white/64 text-[#5f6a61] hover:border-[#9fcab8] hover:bg-white/84 hover:text-[#17201b] dark:border-white/[0.12] dark:bg-white/[0.055] dark:text-white/[0.62] dark:hover:border-[#8fd9c0]/35 dark:hover:bg-white/[0.10] dark:hover:text-white'} ${focusRing}`}
+                                className={`group min-w-0 rounded-[15px] border px-3 py-2 text-left ${interactiveMotion} ${isActive ? 'border-[#2a8f75]/55 bg-[#17201b] text-[#fff8ec] shadow-[0_12px_34px_-24px_rgba(23,32,27,.62)] dark:border-[#8fd9c0]/48 dark:bg-[#20392f] dark:text-[#f7f1e5]' : 'border-[#dce5d8] bg-white/64 text-[#5f6a61] hover:border-[#9fcab8] hover:bg-white/84 hover:text-[#17201b] dark:border-white/[0.12] dark:bg-white/[0.055] dark:text-white/[0.62] dark:hover:border-[#8fd9c0]/35 dark:hover:bg-white/[0.10] dark:hover:text-white'} ${focusRing}`}
                             >
-                                <span className={`${dataType} block text-[10px] font-semibold uppercase tracking-[0.14em] ${isActive ? 'text-[#8fd9c0] dark:text-[#276f5b]' : 'text-[#2f7c66] dark:text-[#8fd9c0]'}`}>{step.marker} {step.label}</span>
+                                <span className={`${dataType} block text-[10px] font-semibold uppercase tracking-[0.14em] ${isActive ? 'text-[#8fd9c0] dark:text-[#a7efd8]' : 'text-[#2f7c66] dark:text-[#8fd9c0]'}`}>{step.marker} {step.label}</span>
                                 <span className="mt-1 block truncate text-xs font-semibold leading-tight">{step.title}</span>
                             </button>
                         );
@@ -397,85 +475,161 @@ const HeroVisual = ({copy}) => {
                 </div>
             </div>
 
-            <div className="relative min-h-[350px] px-4 pb-5 pt-4 sm:min-h-[374px] sm:px-6">
+            <div className="relative min-h-[650px] px-4 pb-5 pt-4 sm:min-h-[430px] sm:px-6">
                 <section id="ff-proof-panel-input" role="tabpanel" aria-hidden={activeStep !== 0} className={slideClass(0, 'border-[#d9dfd1] bg-white dark:border-white/[0.13] dark:bg-[#20251f]')}>
                     <div className="flex items-start justify-between gap-3">
                         <div>
-                            <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>01 Input</p>
-                            <h2 className="mt-3 text-[26px] font-semibold leading-tight">{copy.upload}</h2>
-                            <p className="mt-2 text-sm font-medium text-[#5f6a61] dark:text-white/[0.68]">{copy.uploadMeta}</p>
+                            <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>01 {copy.inputStep}</p>
+                            <h2 className="mt-2 text-[24px] font-semibold leading-tight">{copy.upload}</h2>
                         </div>
-                        <span className="flex size-12 shrink-0 items-center justify-center rounded-[16px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
-                            <UploadCloud className="size-5" strokeWidth={2.25} aria-hidden="true"/>
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
+                            <UploadCloud className="size-[18px]" strokeWidth={2.25} aria-hidden="true"/>
                         </span>
                     </div>
-                    <div className="mt-8 rounded-[18px] bg-[#17201b] p-4 text-[#fff8ec]">
-                        <div className="flex items-center gap-2 text-sm font-semibold">
-                            <Play className="size-4 fill-current" strokeWidth={2.4} aria-hidden="true"/>
-                            <span>{copy.uploadHint}</span>
+                    <div className="mt-4 grid gap-2.5">
+                        <div className="rounded-[16px] border border-[#d9dfd1] bg-[#f7faf4] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,.72)] dark:border-white/[0.12] dark:bg-[#111612]">
+                            <p className={`${dataType} text-[10px] font-bold uppercase tracking-[0.14em] text-[#2f7c66] dark:text-[#8fd9c0]`}>{copy.uploadMeta}</p>
+                            <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[13px] bg-white px-3 py-1.5 text-xs font-semibold text-[#17201b] shadow-sm dark:bg-white/[0.08] dark:text-[#f7f1e5]">
+                                <Link2 className="size-3.5 shrink-0 text-[#2a8f75] dark:text-[#8fd9c0]" strokeWidth={2.25} aria-hidden="true"/>
+                                <span className="ff-animated min-w-0 truncate" style={{animation: 'ffInputType 4.8s steps(38,end) infinite'}}>{copy.uploadSource}</span>
+                                <span className="ff-animated h-4 w-px shrink-0 bg-[#2a8f75] dark:bg-[#8fd9c0]" style={{animation: 'ffInputCaret 4.8s ease-in-out infinite'}}/>
+                            </div>
                         </div>
-                        <div className="relative mt-4 h-2.5 rounded-full bg-white/20">
-                            <span className="absolute inset-y-0 left-0 w-[64%] rounded-full bg-[#f4d98c]"/>
-                            <span className="ff-animated absolute -top-2 left-2 h-7 w-[3px] rounded-full bg-[#8fd9c0] shadow-[0_0_18px_rgba(143,217,192,.86)]" style={{animation: 'ffSceneScan 3s ease-in-out infinite'}}/>
-                        </div>
-                        <div className={`mt-3 grid grid-cols-4 gap-2 text-[10px] font-medium tabular-nums text-white/64 ${dataType}`}>
-                            {timeline.map((item) => <span key={item}>{item}</span>)}
+
+                        <div className="ff-animated rounded-[17px] bg-[#17201b] p-3.5 text-[#fff8ec] shadow-[0_18px_42px_-34px_rgba(23,32,27,.72)]" style={{animation: 'ffCardPop 4.8s ease-out infinite'}}>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <Play className="size-4 shrink-0 fill-current" strokeWidth={2.4} aria-hidden="true"/>
+                                        <p className="truncate text-sm font-semibold">{copy.uploadTitle}</p>
+                                    </div>
+                                    <p className="mt-1 text-xs font-medium text-white/66">{copy.uploadType}</p>
+                                </div>
+                                <span className={`${dataType} rounded-full bg-white/[0.10] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#f4d98c]`}>
+                                    {copy.uploadDuration}
+                                </span>
+                            </div>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-[0.9fr_1.1fr]">
+                                <p className="rounded-[12px] bg-white/[0.08] px-3 py-2 text-xs font-semibold text-white/82">{copy.uploadSubtitle}</p>
+                                <p className="rounded-[12px] bg-[#20392f] px-3 py-2 text-xs font-semibold text-[#d7f8eb]">{copy.uploadDecision}</p>
+                            </div>
+                            <div className="mt-3">
+                                <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/62">
+                                    <span>{copy.uploadProgress}</span>
+                                    <span>{copy.uploadQueued}</span>
+                                </div>
+                                <div className="relative mt-2 h-2.5 overflow-hidden rounded-full bg-white/18">
+                                    <span className="ff-animated absolute inset-y-0 left-0 w-full origin-left rounded-full bg-[#f4d98c]" style={{animation: 'ffProgressGrow 4.8s ease-in-out infinite', transform: 'scaleX(.72)'}}/>
+                                    <span className="ff-animated absolute -top-2 left-2 h-7 w-[3px] rounded-full bg-[#8fd9c0] shadow-[0_0_18px_rgba(143,217,192,.86)]" style={{animation: 'ffSceneScan 4.8s ease-in-out infinite'}}/>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </section>
 
-                <section id="ff-proof-panel-notes" role="tabpanel" aria-hidden={activeStep !== 1} className={slideClass(1, 'border-[#cfe6d4] bg-[#f3fbf2] dark:border-[#8fd9c0]/24 dark:bg-[#14251b]')}>
-                    <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>02 Notes</p>
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-[26px] font-semibold leading-tight">{copy.notes}</h2>
-                        <span className="rounded-[13px] bg-white px-3 py-1 text-xs font-semibold text-[#2f7c66] shadow-sm dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]">{copy.anchor}</span>
-                    </div>
-                    <div className="mt-7 rounded-[19px] border border-[#c7dfcc] bg-white p-5 dark:border-[#8fd9c0]/22 dark:bg-[#101612]">
-                        <p className={`${displayType} text-2xl font-semibold leading-tight text-[#17201b] dark:text-[#f7f1e5]`}>{copy.noteTitle}</p>
-                        {[copy.noteBulletOne, copy.noteBulletTwo].map((item, index) => (
-                            <div key={item} className="mt-4 flex items-center gap-3">
-                                <span className="size-2 rounded-full bg-[#2a8f75]"/>
-                                <span className="text-sm font-medium text-[#4f5f53] dark:text-white/[0.72]">{item}</span>
-                                <span className="ff-animated h-1.5 origin-left flex-1 rounded-full bg-[#b6d9c0] dark:bg-[#467d65]" style={{animation: `ffNoteLine 3s ease-in-out infinite ${index * 0.35}s`}}/>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-
-                <section id="ff-proof-panel-review" role="tabpanel" aria-hidden={activeStep !== 2} className={slideClass(2, 'border-[#ecd8b8] bg-[#fff9ec] dark:border-[#f5d19a]/30 dark:bg-[#241d13]')}>
-                    <div className="grid gap-5 sm:grid-cols-[0.9fr_1.1fr] sm:items-center">
-                        <div className="rounded-[18px] bg-[#17201b] p-4 text-[#fff8ec]">
-                            <div className="flex items-center gap-2 text-xs font-semibold">
-                                <Play className="size-3.5 fill-current" strokeWidth={2.4} aria-hidden="true"/>
-                                <span>{copy.compareHint}</span>
-                            </div>
-                            <div className="mt-4 aspect-video rounded-[15px] bg-[radial-gradient(circle_at_42%_28%,rgba(143,217,192,.34),transparent_28%),linear-gradient(145deg,#31483d,#111612_72%)]"/>
-                        </div>
+                <section id="ff-proof-panel-processing" role="tabpanel" aria-hidden={activeStep !== 1} className={slideClass(1, 'border-[#cfe6d4] bg-[#f3fbf2] dark:border-[#8fd9c0]/24 dark:bg-[#14251b]')}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                            <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#8a5a1f] dark:text-[#f4d98c]`}>03 Review</p>
-                            <h2 className="mt-3 text-[26px] font-semibold leading-tight">{copy.compare}</h2>
-                            <div className="mt-5 grid gap-2">
-                                <p className="rounded-[14px] bg-white px-3 py-2 text-xs font-medium text-[#76664e] dark:bg-white/[0.10] dark:text-white/[0.70]">{copy.original}</p>
-                                <p className="rounded-[14px] bg-[#e7f7ed] px-3 py-2 text-xs font-semibold text-[#246b57] dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]">{copy.corrected}</p>
+                            <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#2f7c66] dark:text-[#8fd9c0]`}>02 {copy.processingStep}</p>
+                            <h2 className="mt-2 text-[26px] font-semibold leading-tight">{copy.processing}</h2>
+                        </div>
+                        <span className="inline-flex items-center gap-2 rounded-[13px] bg-white px-3 py-1.5 text-xs font-semibold text-[#2f7c66] shadow-sm dark:bg-[#8fd9c0]/16 dark:text-[#a7efd8]">
+                            <ScanSearch className="size-3.5" strokeWidth={2.2} aria-hidden="true"/>
+                            {copy.processingProgress}
+                        </span>
+                    </div>
+                    <div className="mt-5 rounded-[19px] border border-[#c7dfcc] bg-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.72)] dark:border-[#8fd9c0]/22 dark:bg-[#101612]">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-semibold text-[#17201b] dark:text-[#f7f1e5]">{copy.processingMeta}</p>
+                                <p className="mt-1 text-xs font-medium text-[#5f6a61] dark:text-white/[0.66]">{copy.processingMaterial}</p>
                             </div>
-                            <p className="mt-4 inline-flex rounded-full bg-[#17201b] px-3 py-1 text-xs font-semibold text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">{copy.accepted}</p>
+                            <span className={`${dataType} rounded-full bg-[#edf7ee] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#2f5940] dark:bg-[#20392f] dark:text-[#d7f8eb]`}>{copy.processingHint}</span>
+                        </div>
+                        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#dfe9dc] dark:bg-white/[0.12]">
+                            <span className="ff-animated block h-full origin-left rounded-full bg-[#2a8f75] dark:bg-[#8fd9c0]" style={{animation: 'ffProgressGrow 6.5s ease-in-out infinite', transform: 'scaleX(.64)'}}/>
+                        </div>
+                        <div className="mt-4 grid gap-2.5">
+                            {processingStages.map(([name, status, tone], index) => (
+                                <div key={name} className="flex items-center gap-3 rounded-[15px] border border-[#d9e7d6] bg-[#f8fbf5] px-3 py-2.5 dark:border-white/[0.10] dark:bg-white/[0.06]">
+                                    <span className={`flex size-7 shrink-0 items-center justify-center rounded-[10px] ${tone === 'done' ? 'bg-[#2a8f75] text-white dark:bg-[#8fd9c0] dark:text-[#111612]' : tone === 'running' ? 'bg-[#f4d98c] text-[#5c4214]' : 'bg-[#e8eee2] text-[#5f6a61] dark:bg-white/[0.10] dark:text-white/[0.66]'}`}>
+                                        {tone === 'done' ? <CheckCircle2 className="size-4" strokeWidth={2.4} aria-hidden="true"/> : <span className={`${dataType} text-[10px] font-bold`}>{index + 1}</span>}
+                                    </span>
+                                    <span className="min-w-0 flex-1 text-sm font-semibold text-[#17201b] dark:text-[#f7f1e5]">{name}</span>
+                                    <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-[#5f6a61] shadow-sm dark:bg-[#111612] dark:text-white/[0.70]">{status}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                <section id="ff-proof-panel-study" role="tabpanel" aria-hidden={activeStep !== 2} className={slideClass(2, 'border-[#ecd8b8] bg-[#fff9ec] dark:border-[#f5d19a]/30 dark:bg-[#241d13]')}>
+                    <div>
+                        <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#8a5a1f] dark:text-[#f4d98c]`}>03 {copy.studyStep}</p>
+                        <h2 className="mt-2 text-[26px] font-semibold leading-tight">{copy.study}</h2>
+                    </div>
+                    <div className="mt-5 grid gap-4 sm:grid-cols-[0.94fr_1.06fr]">
+                        <div className="rounded-[18px] bg-[#17201b] p-4 text-[#fff8ec] shadow-[0_16px_40px_-34px_rgba(23,32,27,.72)]">
+                            <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+                                <span className="flex items-center gap-2">
+                                    <Play className="size-3.5 fill-current" strokeWidth={2.4} aria-hidden="true"/>
+                                    {copy.studyTime}
+                                </span>
+                                <span className="rounded-full bg-white/[0.10] px-2.5 py-1 text-[#8fd9c0]">{copy.uploadDuration}</span>
+                            </div>
+                            <div className="mt-3 aspect-video rounded-[15px] bg-[radial-gradient(circle_at_42%_28%,rgba(143,217,192,.34),transparent_28%),linear-gradient(145deg,#31483d,#111612_72%)]"/>
+                            <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-white/18">
+                                <span className="block h-full w-[42%] rounded-full bg-[#f4d98c]"/>
+                            </div>
+                            <p className="mt-3 rounded-[13px] bg-white/[0.08] px-3 py-2 text-xs font-medium leading-5 text-white/76">{copy.studyCaption}</p>
+                        </div>
+                        <div className="rounded-[18px] border border-[#e4d4b8] bg-white/84 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.72)] dark:border-white/[0.13] dark:bg-white/[0.08]">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                <h3 className="text-[21px] font-semibold leading-tight text-[#17201b] dark:text-[#f7f1e5]">{copy.studyNoteTitle}</h3>
+                                <span className="rounded-full bg-[#fff3d5] px-2.5 py-1 text-[10px] font-bold text-[#765321] dark:bg-[#f4d98c]/16 dark:text-[#f4d98c]">{copy.studyAnchor}</span>
+                            </div>
+                            <p className="mt-3 rounded-[14px] bg-[#f7f1e5] px-3 py-2 text-sm font-semibold leading-6 text-[#4b3e2b] dark:bg-[#111612] dark:text-[#f7f1e5]">{copy.studyConclusion}</p>
+                            <div className="mt-4 grid gap-2">
+                                {[copy.processingStageTranscript, copy.processingStageFrames].map((item) => (
+                                    <div key={item} className="flex items-center gap-3">
+                                        <span className="size-2 rounded-full bg-[#2a8f75] dark:bg-[#8fd9c0]"/>
+                                        <span className="text-xs font-semibold text-[#76664e] dark:text-white/[0.70]">{item}</span>
+                                        <span className="h-1.5 flex-1 rounded-full bg-[#ead8b6] dark:bg-white/[0.12]"/>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="mt-4 rounded-[13px] border border-[#f1d093] bg-[#fff7e8] px-3 py-2 text-xs font-semibold text-[#765321] dark:border-[#f4d98c]/22 dark:bg-[#f4d98c]/10 dark:text-[#f4d98c]">{copy.studyFix}</p>
                         </div>
                     </div>
                 </section>
 
                 <section id="ff-proof-panel-export" role="tabpanel" aria-hidden={activeStep !== 3} className={slideClass(3, 'border-[#d4dfc3] bg-[#f6faed] dark:border-[#d5e6b9]/24 dark:bg-[#1d2414]')}>
-                    <div className="mx-auto max-w-sm text-center">
-                        <span className="mx-auto flex size-14 items-center justify-center rounded-[17px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
-                            <Download className="size-6" strokeWidth={2.2} aria-hidden="true"/>
-                        </span>
-                        <p className={`${dataType} mt-6 text-xs font-bold uppercase tracking-[0.16em] text-[#5b6d28] dark:text-[#d8e6b9]`}>04 Export</p>
-                        <h2 className="mt-3 text-[28px] font-semibold leading-tight">{copy.export}</h2>
-                        <p className="mt-3 text-sm font-medium text-[#64704d] dark:text-[#d8e6b9]">{copy.finalNote}</p>
-                        <div className="mt-7 flex flex-wrap justify-center gap-2">
-                            {copy.exportHint.split(' · ').map((item) => (
-                                <span key={item} className="rounded-[13px] border border-[#ccd9b7] bg-white px-4 py-2 text-xs font-semibold text-[#46552a] dark:border-white/[0.16] dark:bg-white/[0.10] dark:text-white/[0.78]">{item}</span>
-                            ))}
+                    <div>
+                        <p className={`${dataType} text-xs font-bold uppercase tracking-[0.16em] text-[#5b6d28] dark:text-[#d8e6b9]`}>04 {copy.exportStep}</p>
+                        <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+                            <h2 className="text-[28px] font-semibold leading-tight">{copy.export}</h2>
+                            <p className="text-xs font-semibold text-[#64704d] dark:text-[#d8e6b9]">{copy.finalNote}</p>
                         </div>
+                    </div>
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                        {[
+                            [copy.exportMediaTitle, mediaExports],
+                            [copy.exportNotesTitle, noteExports],
+                        ].map(([title, items]) => (
+                            <div key={title} className="rounded-[18px] border border-[#ccd9b7] bg-white/82 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.72)] dark:border-white/[0.14] dark:bg-white/[0.08]">
+                                <p className="text-sm font-semibold text-[#17201b] dark:text-[#f7f1e5]">{title}</p>
+                                <div className="mt-4 grid grid-cols-2 gap-2">
+                                    {items.map(([item, Icon]) => (
+                                        <div key={item} className="flex items-center gap-3 rounded-[13px] border border-[#dde7cf] bg-[#fbfdf7] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.06]">
+                                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[11px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
+                                                <Icon className="size-4" strokeWidth={2.2} aria-hidden="true"/>
+                                            </span>
+                                            <span className="text-xs font-semibold text-[#46552a] dark:text-white/[0.76]">{item}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </section>
             </div>

@@ -139,7 +139,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert 'to="/app"' in side_nav
     assert "Turn long videos into study-ready notes first." in landing
     assert "Upload a course, lecture, recording, or video link. FluentFlow prepares the note, transcript, and key moments before you study." in landing
-    assert "Ready to study with the video." in landing
+    assert "Ready to keep studying later." in landing
     assert "Study with notes ready, not with a pause button under your finger." in landing
     assert "Accepted transcript fixes can show original text, corrected text, reason, confidence, and time." in landing
     assert "Public platforms may restrict access." in landing
@@ -189,15 +189,47 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "rounded-[22px]" in landing
     assert "fluentflow.app/video-note" in landing
     assert "prefers-reduced-motion: reduce" in landing
-    assert "Study workspace" in landing
+    assert "Study workspace" not in landing
+    assert "学习工作区" not in landing
+    assert "{copy.eyebrow}" not in landing
     assert "Upload / paste a long video" in landing
-    assert "Notes generated first" in landing
-    assert "Compare and correct" in landing
-    assert "Export study asset" in landing
+    assert "https://course.example.com/attention-lecture" in landing
+    assert "Course lecture: attention mechanisms" in landing
+    assert "Source check in progress" in landing
+    assert "正在检查来源" in landing
+    assert "ffInputType" in landing
+    assert "ffCardPop" in landing
+    assert "ffProgressGrow" in landing
+    assert "course-link.mp4" not in landing
+    assert "课程录屏链接.mp4" not in landing
+    assert "ff-proof-panel-processing" in landing
+    assert "ff-proof-panel-study" in landing
+    assert "Processing the video" in landing
+    assert "正在处理视频" in landing
+    assert "Study / Review" in landing
+    assert "学习 / 复查" in landing
+    assert "Transcript and subtitles" in landing
+    assert "Key moments" in landing
+    assert "Study notes" in landing
+    assert "Notes generated first" not in landing
+    assert "dark:bg-[#20392f] dark:text-[#d7f8eb]" in landing
+    assert "dark:border-[#8fd9c0]/48 dark:bg-[#20392f] dark:text-[#f7f1e5]" in landing
+    assert "Compare and correct" not in landing
+    assert "Export study asset" not in landing
+    assert "Study beside the video" in landing
+    assert "对照视频学习" in landing
+    assert "Video and audio" in landing
+    assert "视频和音频" in landing
+    assert "Notes and review" in landing
+    assert "笔记相关" in landing
+    assert "Video file" in landing
+    assert "Audio track" in landing
+    assert "Subtitles" in landing
+    assert "Key frames" in landing
     assert "Markdown" in landing
     assert "PDF" in landing
     assert "Feishu" in landing
-    assert "Fix accepted" in landing
+    assert "Fix accepted" not in landing
     assert "MicVocal" in landing
     assert "MonitorPlay" in landing
     assert "FileVideo2" in landing
