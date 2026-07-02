@@ -147,9 +147,14 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "to=\"/media-text\"" in landing
     assert "href=\"#workflow\"" in landing
     assert "to=\"/agent\"" in landing
+    assert "h-dvh overflow-y-auto" in landing
+    assert "motion-reduce:scroll-auto" in landing
+    assert "Songti_SC" in landing
+    assert "[text-wrap:balance]" in landing
+    assert "transition-[color,background-color,border-color,box-shadow,transform,opacity]" in landing
     assert "dark:text-white/[0.70] md:flex" in landing
-    assert "dark:bg-[#211d16]" in landing
-    assert 'id="use-cases" className="border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]"' in landing
+    assert "dark:bg-[#2a241b]" in landing
+    assert 'id="use-cases" className="scroll-mt-24 border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]"' in landing
     assert "flashcard" not in landing.lower()
     assert "quiz" not in landing.lower()
     assert "podcast" not in landing.lower()

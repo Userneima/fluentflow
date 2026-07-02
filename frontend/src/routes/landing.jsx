@@ -189,17 +189,21 @@ const content = {
 const qualityIcons = [BookOpenText, ScanSearch, Captions, Languages, Image, Download];
 const outputIcons = [FileText, Captions, Film, CheckCircle2];
 
-const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bb7a2d]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f0e6] dark:focus-visible:ring-[#d6a466]/45 dark:focus-visible:ring-offset-[#0f0e0c]';
-const primaryButton = `inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#171512] px-6 text-sm font-extrabold text-[#f8f2e8] transition hover:bg-[#2d261e] active:translate-y-px dark:bg-[#f4efe4] dark:text-[#171512] dark:hover:bg-[#e7dcc9] ${focusRing}`;
-const secondaryButton = `inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d7cbbb] bg-[#f9f4eb]/70 px-6 text-sm font-extrabold text-[#171512] transition hover:bg-[#efe4d5] active:translate-y-px dark:border-white/[0.18] dark:bg-white/[0.055] dark:text-white/[0.9] dark:hover:bg-white/[0.10] ${focusRing}`;
+const displayType = "[font-family:'Songti_SC','Noto_Serif_CJK_SC','Source_Han_Serif_SC','STSong',serif]";
+const bodyType = "[font-family:'PingFang_SC','Inter','Hiragino_Sans_GB','Microsoft_YaHei',sans-serif]";
+const dataType = "[font-family:'SF_Mono','ui-monospace','Menlo','Consolas',monospace]";
+const interactiveMotion = 'transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out';
+const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a86b25]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f0e6] dark:focus-visible:ring-[#d6a466]/50 dark:focus-visible:ring-offset-[#0f0e0c]';
+const primaryButton = `inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#171512] px-6 text-sm font-extrabold text-[#f8f2e8] shadow-[0_16px_44px_-26px_rgba(37,30,18,.78)] ${interactiveMotion} hover:-translate-y-0.5 hover:bg-[#2d261e] hover:shadow-[0_20px_56px_-30px_rgba(37,30,18,.88)] active:translate-y-px dark:bg-[#f4efe4] dark:text-[#171512] dark:shadow-none dark:hover:bg-[#e7dcc9] ${focusRing}`;
+const secondaryButton = `inline-flex h-12 touch-manipulation items-center justify-center gap-2 rounded-full border border-[#cdbb9f] bg-[#fbf4e8]/76 px-6 text-sm font-extrabold text-[#171512] ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#b48a55] hover:bg-[#f0e2cf] active:translate-y-px dark:border-white/[0.20] dark:bg-white/[0.06] dark:text-white/[0.9] dark:hover:border-[#d6a466]/55 dark:hover:bg-white/[0.11] ${focusRing}`;
 const sectionShell = 'mx-auto max-w-7xl px-5 sm:px-6 lg:px-8';
-const eyebrowClass = 'text-[12px] font-extrabold uppercase tracking-[0.16em] text-[#9a6428] dark:text-[#d6a466]';
+const eyebrowClass = `${dataType} text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#9a6428] dark:text-[#d6a466]`;
 
 const SectionHeader = ({eyebrow, title, desc, narrow=false}) => (
     <div className={narrow ? 'max-w-3xl' : 'grid gap-5 lg:grid-cols-[0.85fr_1fr] lg:items-end'}>
         <div>
             <p className={eyebrowClass}>{eyebrow}</p>
-            <h2 className="mt-4 max-w-[13em] font-headline text-[34px] font-black leading-[1.02] text-[#171512] dark:text-[#f7f1e8] sm:text-[44px]">
+            <h2 className={`mt-4 max-w-[13em] ${displayType} text-[34px] font-semibold leading-[1.08] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[44px]`}>
                 {title}
             </h2>
         </div>
@@ -212,22 +216,23 @@ const SectionHeader = ({eyebrow, title, desc, narrow=false}) => (
 );
 
 const StudyAssetPreview = ({copy}) => (
-    <div className="relative">
-        <div className="absolute -left-5 top-8 hidden h-44 w-24 rounded-[28px] bg-[#dcc49d]/55 blur-2xl dark:bg-[#8f5f24]/28 lg:block"/>
-        <div className="relative overflow-hidden rounded-[30px] border border-[#d9cdbc] bg-[#fffaf2] shadow-[0_34px_110px_-72px_rgba(39,31,20,.82)] dark:border-white/[0.12] dark:bg-[#171510] dark:shadow-none">
-            <div className="grid gap-0 lg:grid-cols-[1fr_0.74fr]">
+    <div className="relative lg:pl-6">
+        <div className="absolute -left-3 top-8 hidden h-52 w-28 rounded-[28px] bg-[#c99755]/24 blur-2xl dark:bg-[#8f5f24]/24 lg:block"/>
+        <div className="relative overflow-hidden rounded-[30px] border border-[#d7c6ad] bg-[#fff9ee] shadow-[0_38px_110px_-74px_rgba(39,31,20,.9)] dark:border-white/[0.12] dark:bg-[#18150f] dark:shadow-none">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_12%,rgba(187,122,45,.12),transparent_28%),linear-gradient(120deg,transparent,rgba(187,122,45,.08)_55%,transparent)] dark:bg-[radial-gradient(circle_at_16%_12%,rgba(214,164,102,.16),transparent_28%),linear-gradient(120deg,transparent,rgba(214,164,102,.08)_55%,transparent)]"/>
+            <div className="relative grid gap-0 lg:grid-cols-[1fr_0.72fr]">
                 <div className="p-4 sm:p-5">
-                    <div className="rounded-[22px] border border-[#ded2c1] bg-[#f9f4eb] p-4 dark:border-white/[0.11] dark:bg-white/[0.055]">
+                    <div className="relative overflow-hidden rounded-[22px] border border-[#ded0bb] bg-[#fffdf8] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.8)] [background-image:linear-gradient(to_bottom,rgba(124,96,57,.13)_1px,transparent_1px)] [background-size:100%_38px] dark:border-white/[0.11] dark:bg-[#211d16] dark:shadow-none dark:[background-image:linear-gradient(to_bottom,rgba(255,255,255,.08)_1px,transparent_1px)]">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#9a6428] dark:text-[#d6a466]">{copy.source}</p>
-                            <span className="rounded-full border border-[#d7cbbb] px-3 py-1 text-[11px] font-extrabold text-[#5f5649] dark:border-white/[0.16] dark:text-white/[0.68]">ElevenLabs</span>
+                            <p className={`${dataType} text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#9a6428] dark:text-[#d6a466]`}>{copy.source}</p>
+                            <span className={`${dataType} rounded-full border border-[#d7cbbb] bg-[#fffaf2]/72 px-3 py-1 text-[11px] font-extrabold text-[#5f5649] dark:border-white/[0.16] dark:bg-white/[0.055] dark:text-white/[0.68]`}>ElevenLabs</span>
                         </div>
-                        <h2 className="mt-5 font-headline text-[28px] font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{copy.title}</h2>
-                        <div className="mt-5 rounded-[20px] bg-[#171512] p-4 text-[#f7f1e8] dark:bg-[#211d16]">
-                            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#d6a466]">{copy.chapter}</p>
+                        <h2 className={`mt-5 ${displayType} text-[28px] font-semibold leading-[1.12] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8]`}>{copy.title}</h2>
+                        <div className="mt-5 rounded-[20px] bg-[#171512] p-4 text-[#f7f1e8] shadow-[inset_0_1px_0_rgba(255,255,255,.08)] dark:bg-[#2a241b]">
+                            <p className={`${dataType} text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#d6a466]`}>{copy.chapter}</p>
                             <div className="mt-4 space-y-3">
                                 {copy.bullets.map((item) => (
-                                    <p key={item} className="rounded-[14px] bg-white/[0.08] px-3 py-2 text-sm font-bold leading-6 text-white/[0.88]">
+                                    <p key={item} className="rounded-[14px] border border-white/[0.08] bg-white/[0.075] px-3 py-2 text-sm font-semibold leading-6 text-white/[0.88]">
                                         {item}
                                     </p>
                                 ))}
@@ -235,19 +240,19 @@ const StudyAssetPreview = ({copy}) => (
                         </div>
                     </div>
                 </div>
-                <div className="border-t border-[#e2d7c7] bg-[#f4eadb] p-4 dark:border-white/[0.10] dark:bg-[#120f0b] lg:border-l lg:border-t-0">
-                    <div className="rounded-[22px] border border-[#d9cdbc] bg-[#fffaf2] p-4 dark:border-white/[0.11] dark:bg-white/[0.06]">
+                <div className="border-t border-[#e2d5c0] bg-[#f4eadb]/88 p-4 dark:border-white/[0.10] dark:bg-[#120f0b] lg:border-l lg:border-t-0">
+                    <div className="rounded-[22px] border border-[#d9cdbc] bg-[#fffaf2] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.78)] dark:border-white/[0.11] dark:bg-white/[0.06] dark:shadow-none">
                         <div className="flex items-center gap-3">
                             <span className="flex size-10 items-center justify-center rounded-[14px] bg-[#171512] text-[#f8f2e8] dark:bg-[#f4efe4] dark:text-[#171512]">
-                                <Play className="size-5" strokeWidth={2.15}/>
+                                <Play className="size-5" strokeWidth={2.15} aria-hidden="true"/>
                             </span>
                             <div>
-                                <p className="text-[11px] font-extrabold text-[#8a765a] dark:text-white/[0.56]">{copy.subtitle}</p>
+                                <p className={`${dataType} text-[11px] font-extrabold text-[#8a765a] dark:text-white/[0.56]`}>{copy.subtitle}</p>
                                 <p className="text-sm font-black text-[#171512] dark:text-[#f7f1e8]">Transformer lecture</p>
                             </div>
                         </div>
                         <p className="mt-4 text-sm font-semibold leading-6 text-[#5f5649] dark:text-white/[0.68]">{copy.subtitleText}</p>
-                        <div className="mt-5 grid grid-cols-4 gap-2 text-[10px] font-extrabold text-[#7a6b58] dark:text-white/[0.48]">
+                        <div className={`mt-5 grid grid-cols-4 gap-2 text-[10px] font-extrabold tabular-nums text-[#7a6b58] dark:text-white/[0.48] ${dataType}`}>
                             {copy.timeline.map((item) => <span key={item}>{item}</span>)}
                         </div>
                         <div className="mt-2 grid grid-cols-4 gap-1">
@@ -257,10 +262,10 @@ const StudyAssetPreview = ({copy}) => (
                         </div>
                     </div>
                     <div className="mt-3 overflow-hidden rounded-[22px] border border-[#d9cdbc] bg-[#201a12] dark:border-white/[0.11]">
-                        <div className="aspect-[16/10] bg-[linear-gradient(135deg,rgba(214,164,102,.32),transparent_42%),radial-gradient(circle_at_24%_24%,rgba(255,255,255,.28),transparent_18%),linear-gradient(160deg,#2b241a,#15110d_58%,#5a3a19)]"/>
+                        <div className="aspect-[16/10] bg-[linear-gradient(135deg,rgba(214,164,102,.32),transparent_42%),radial-gradient(circle_at_24%_24%,rgba(255,255,255,.24),transparent_18%),linear-gradient(160deg,#2b241a,#15110d_58%,#5a3a19)]"/>
                         <div className="flex items-center justify-between gap-3 border-t border-white/[0.10] px-4 py-3">
                             <span className="text-xs font-extrabold text-[#f7f1e8]">{copy.visual}</span>
-                            <MonitorPlay className="size-4 text-[#d6a466]" strokeWidth={2.15}/>
+                            <MonitorPlay className="size-4 text-[#d6a466]" strokeWidth={2.15} aria-hidden="true"/>
                         </div>
                     </div>
                 </div>
@@ -276,9 +281,9 @@ const StepList = ({title, items, tone}) => {
         <article className={`rounded-[28px] border p-5 sm:p-6 ${isAfter ? 'border-[#d5b987] bg-[#fff7e9] dark:border-[#d6a466]/28 dark:bg-[#d6a466]/10' : 'border-[#dfd4c4] bg-[#fbf5ec] dark:border-white/[0.12] dark:bg-white/[0.055]'}`}>
             <div className="flex items-center gap-3">
                 <span className={`flex size-11 items-center justify-center rounded-[16px] ${isAfter ? 'bg-[#bb7a2d] text-[#171512]' : 'bg-[#171512] text-[#f8f2e8] dark:bg-[#f4efe4] dark:text-[#171512]'}`}>
-                    <Icon className="size-5" strokeWidth={2.15}/>
+                    <Icon className="size-5" strokeWidth={2.15} aria-hidden="true"/>
                 </span>
-                <h3 className="font-headline text-[22px] font-black text-[#171512] dark:text-[#f7f1e8]">{title}</h3>
+                <h3 className={`text-[22px] font-extrabold text-[#171512] dark:text-[#f7f1e8] ${bodyType}`}>{title}</h3>
             </div>
             <div className="mt-5 space-y-4">
                 {items.map(([itemTitle, desc]) => (
@@ -298,7 +303,10 @@ const Landing = () => {
     const copy = content[isZh ? 'zh' : 'en'];
 
     return (
-        <main className="min-h-dvh bg-[#f6f0e6] text-[#171512] dark:bg-[#0f0e0c] dark:text-[#f7f1e8]">
+        <main id="main-content" className={`h-dvh overflow-y-auto scroll-smooth bg-[#f6f0e6] text-[#171512] motion-reduce:scroll-auto dark:bg-[#0f0e0c] dark:text-[#f7f1e8] ${bodyType}`}>
+            <a href="#homepage-hero" className={`sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-[#171512] focus:px-4 focus:py-2 focus:text-sm focus:font-extrabold focus:text-[#f8f2e8] dark:focus:bg-[#f4efe4] dark:focus:text-[#171512] ${focusRing}`}>
+                跳到主要内容
+            </a>
             <header className="sticky top-0 z-40 border-b border-[#dfd4c4]/85 bg-[#f6f0e6]/88 backdrop-blur-xl dark:border-white/[0.12] dark:bg-[#0f0e0c]/92">
                 <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-5 px-5 sm:px-6 lg:px-8">
                     <Link to="/" className={`flex min-w-0 items-center gap-3 rounded-[16px] ${focusRing}`} aria-label="FluentFlow">
@@ -306,47 +314,47 @@ const Landing = () => {
                         <span className="truncate text-base font-black tracking-normal">FluentFlow</span>
                     </Link>
                     <nav className="hidden items-center gap-7 text-sm font-bold text-[#6f6558] dark:text-white/[0.70] md:flex">
-                        <a href="#product" className="transition hover:text-[#171512] dark:hover:text-white">{copy.nav.product}</a>
-                        <a href="#workflow" className="transition hover:text-[#171512] dark:hover:text-white">{copy.nav.workflow}</a>
-                        <a href="#use-cases" className="transition hover:text-[#171512] dark:hover:text-white">{copy.nav.useCases}</a>
+                        <a href="#product" className={`${interactiveMotion} rounded-full px-1 hover:text-[#171512] dark:hover:text-white ${focusRing}`}>{copy.nav.product}</a>
+                        <a href="#workflow" className={`${interactiveMotion} rounded-full px-1 hover:text-[#171512] dark:hover:text-white ${focusRing}`}>{copy.nav.workflow}</a>
+                        <a href="#use-cases" className={`${interactiveMotion} rounded-full px-1 hover:text-[#171512] dark:hover:text-white ${focusRing}`}>{copy.nav.useCases}</a>
                     </nav>
                     <div className="flex shrink-0 items-center gap-2">
-                        <Link to="/app" className={`hidden h-10 items-center justify-center rounded-full border border-[#d7cbbb] bg-[#f9f4eb]/65 px-4 text-sm font-extrabold text-[#171512] transition hover:bg-[#efe4d5] active:translate-y-px dark:border-white/[0.18] dark:bg-white/[0.055] dark:text-white/[0.88] dark:hover:bg-white/[0.10] sm:inline-flex ${focusRing}`}>
+                        <Link to="/app" className={`hidden h-10 touch-manipulation items-center justify-center rounded-full border border-[#d7cbbb] bg-[#f9f4eb]/65 px-4 text-sm font-extrabold text-[#171512] ${interactiveMotion} hover:bg-[#efe4d5] active:translate-y-px dark:border-white/[0.18] dark:bg-white/[0.055] dark:text-white/[0.88] dark:hover:bg-white/[0.10] sm:inline-flex ${focusRing}`}>
                             {copy.nav.app}
                         </Link>
-                        <Link to="/media-text" className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#171512] px-4 text-sm font-extrabold text-[#f8f2e8] transition hover:bg-[#2d261e] active:translate-y-px dark:bg-[#f4efe4] dark:text-[#171512] dark:hover:bg-[#e7dcc9] ${focusRing}`}>
+                        <Link to="/media-text" className={`inline-flex h-10 touch-manipulation items-center justify-center gap-2 rounded-full bg-[#171512] px-4 text-sm font-extrabold text-[#f8f2e8] ${interactiveMotion} hover:bg-[#2d261e] active:translate-y-px dark:bg-[#f4efe4] dark:text-[#171512] dark:hover:bg-[#e7dcc9] ${focusRing}`}>
                             {copy.nav.start}
-                            <ArrowRight className="size-4" strokeWidth={2.2}/>
+                            <ArrowRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
                         </Link>
                     </div>
                 </div>
             </header>
 
-            <section className={`${sectionShell} grid min-h-[calc(100dvh-68px)] items-center gap-10 py-10 sm:py-12 lg:grid-cols-[0.88fr_1.12fr] lg:py-14`}>
+            <section id="homepage-hero" className={`${sectionShell} grid min-h-[calc(100dvh-68px)] scroll-mt-24 items-center gap-10 py-10 sm:py-12 lg:grid-cols-[0.88fr_1.12fr] lg:py-14`}>
                 <div className="max-w-3xl">
                     <p className={eyebrowClass}>{copy.hero.label}</p>
-                    <h1 className="mt-5 max-w-[11em] font-headline text-[42px] font-black leading-[1.02] tracking-normal text-[#171512] dark:text-[#f7f1e8] sm:text-[56px] lg:text-[68px]">
+                    <h1 className={`mt-5 max-w-[11.8em] ${displayType} text-[40px] font-semibold leading-[1.08] tracking-normal text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[54px] lg:text-[62px]`}>
                         {copy.hero.title}
                     </h1>
-                    <p className="mt-6 max-w-[60ch] text-[17px] font-semibold leading-8 text-[#665d51] dark:text-white/[0.72]">
+                    <p className="mt-6 max-w-[58ch] text-[17px] font-medium leading-8 text-[#665d51] [text-wrap:pretty] dark:text-white/[0.72]">
                         {copy.hero.desc}
                     </p>
                     <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                         <Link to="/media-text" className={primaryButton}>
                             {copy.hero.primary}
-                            <ArrowRight className="size-4" strokeWidth={2.2}/>
+                            <ArrowRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
                         </Link>
                         <a href="#workflow" className={secondaryButton}>
                             {copy.hero.secondary}
-                            <ChevronRight className="size-4" strokeWidth={2.2}/>
+                            <ChevronRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
                         </a>
                     </div>
-                    <p className="mt-5 max-w-[46ch] text-sm font-bold text-[#806f5a] dark:text-white/[0.58]">{copy.hero.note}</p>
+                    <p className={`${dataType} mt-5 max-w-[46ch] text-[12px] font-extrabold leading-6 text-[#806f5a] dark:text-white/[0.58]`}>{copy.hero.note}</p>
                 </div>
                 <StudyAssetPreview copy={copy.preview}/>
             </section>
 
-            <section id="workflow" className="border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]">
+            <section id="workflow" className="scroll-mt-24 border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]">
                 <div className={`${sectionShell} py-16 lg:py-24`}>
                     <SectionHeader eyebrow={copy.beforeAfter.eyebrow} title={copy.beforeAfter.title}/>
                     <div className="mt-10 grid gap-4 lg:grid-cols-2">
@@ -356,14 +364,14 @@ const Landing = () => {
                 </div>
             </section>
 
-            <section id="product" className={`${sectionShell} py-16 lg:py-24`}>
+            <section id="product" className={`${sectionShell} scroll-mt-24 py-16 lg:py-24`}>
                 <SectionHeader eyebrow={copy.quality.eyebrow} title={copy.quality.title}/>
                 <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {copy.quality.items.map(([title, desc], index) => {
                         const Icon = qualityIcons[index] || Sparkles;
                         return (
-                            <article key={title} className="rounded-[26px] border border-[#dfd4c4] bg-[#fffaf3] p-5 transition hover:-translate-y-0.5 hover:border-[#c6a16a] dark:border-white/[0.11] dark:bg-white/[0.055] dark:hover:border-[#d6a466]/45">
-                                <Icon className="size-6 text-[#9a6428] dark:text-[#d6a466]" strokeWidth={2.05}/>
+                            <article key={title} className={`rounded-[26px] border border-[#dfd4c4] bg-[#fffaf3] p-5 ${interactiveMotion} hover:-translate-y-0.5 hover:border-[#c6a16a] dark:border-white/[0.11] dark:bg-white/[0.055] dark:hover:border-[#d6a466]/45`}>
+                                <Icon className="size-6 text-[#9a6428] dark:text-[#d6a466]" strokeWidth={2.05} aria-hidden="true"/>
                                 <h3 className="mt-5 text-xl font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{title}</h3>
                                 <p className="mt-3 text-sm font-semibold leading-6 text-[#6f6558] dark:text-white/[0.66]">{desc}</p>
                             </article>
@@ -372,18 +380,18 @@ const Landing = () => {
                 </div>
             </section>
 
-            <section id="use-cases" className="border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]">
+            <section id="use-cases" className="scroll-mt-24 border-y border-[#dfd4c4] bg-[#fff8ee] dark:border-white/[0.10] dark:bg-[#15130f]">
                 <div className={`${sectionShell} grid gap-10 py-16 lg:grid-cols-[0.86fr_1.14fr] lg:items-center lg:py-24`}>
                     <div>
-                        <p className="text-[12px] font-extrabold uppercase tracking-[0.16em] text-[#d6a466]">{copy.sources.eyebrow}</p>
-                        <h2 className="mt-4 max-w-[13em] font-headline text-[34px] font-black leading-[1.02] text-[#171512] dark:text-[#f7f1e8] sm:text-[44px]">{copy.sources.title}</h2>
+                        <p className={eyebrowClass}>{copy.sources.eyebrow}</p>
+                        <h2 className={`mt-4 max-w-[13em] ${displayType} text-[34px] font-semibold leading-[1.08] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[44px]`}>{copy.sources.title}</h2>
                         <p className="mt-5 max-w-[58ch] text-base font-semibold leading-relaxed text-[#6f6558] dark:text-white/[0.66]">{copy.sources.desc}</p>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                         {copy.sources.items.map((item) => (
                             <div key={item} className="flex min-h-[74px] items-center gap-3 rounded-[22px] border border-[#dfd4c4] bg-[#fffaf3] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                 <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-[#bb7a2d] text-[#171512] dark:bg-[#d6a466]">
-                                    <UploadCloud className="size-5" strokeWidth={2.1}/>
+                                    <UploadCloud className="size-5" strokeWidth={2.1} aria-hidden="true"/>
                                 </span>
                                 <p className="text-sm font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{item}</p>
                             </div>
@@ -399,7 +407,7 @@ const Landing = () => {
                         const Icon = outputIcons[index] || FileText;
                         return (
                             <article key={title} className="rounded-[26px] border border-[#dfd4c4] bg-[#fffaf3] p-5 dark:border-white/[0.11] dark:bg-white/[0.055]">
-                                <Icon className="size-6 text-[#9a6428] dark:text-[#d6a466]" strokeWidth={2.05}/>
+                                <Icon className="size-6 text-[#9a6428] dark:text-[#d6a466]" strokeWidth={2.05} aria-hidden="true"/>
                                 <h3 className="mt-5 text-xl font-black leading-tight text-[#171512] dark:text-[#f7f1e8]">{title}</h3>
                                 <p className="mt-3 text-sm font-semibold leading-6 text-[#6f6558] dark:text-white/[0.66]">{desc}</p>
                             </article>
@@ -412,13 +420,13 @@ const Landing = () => {
                 <div className="rounded-[32px] border border-[#dfd4c4] bg-[#fff8ee] p-6 sm:p-8 lg:flex lg:items-center lg:justify-between lg:gap-10 dark:border-white/[0.12] dark:bg-white/[0.055]">
                     <div className="max-w-2xl">
                         <p className={eyebrowClass}>{copy.cta.primary}</p>
-                        <h2 className="mt-3 font-headline text-[34px] font-black leading-[1.04] text-[#171512] dark:text-[#f7f1e8] sm:text-[44px]">{copy.cta.title}</h2>
+                        <h2 className={`mt-3 ${displayType} text-[34px] font-semibold leading-[1.08] text-[#171512] [text-wrap:balance] dark:text-[#f7f1e8] sm:text-[44px]`}>{copy.cta.title}</h2>
                         <p className="mt-4 text-base font-semibold leading-relaxed text-[#6f6558] dark:text-white/[0.68]">{copy.cta.desc}</p>
                     </div>
                     <div className="mt-8 flex flex-col gap-3 sm:flex-row lg:mt-0">
                         <Link to="/media-text" className={primaryButton}>
                             {copy.cta.primary}
-                            <ArrowRight className="size-4" strokeWidth={2.2}/>
+                            <ArrowRight className="size-4" strokeWidth={2.2} aria-hidden="true"/>
                         </Link>
                         <Link to="/agent" className={secondaryButton}>
                             {copy.cta.secondary}
