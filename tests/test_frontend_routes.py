@@ -209,7 +209,9 @@ def test_frontend_cloud_stt_defaults_to_elevenlabs() -> None:
     assert '<option value="qwen">Qwen</option>' in settings
     assert "credentialConfigured(credentialStatus, 'dashscope_api_key')" in settings
     assert "set.dashscopeKey" in settings
-    assert "百炼 / DashScope API Key" in settings
+    assert "'set.dashscopeKey':'百炼 / DashScope API Key'" in shared
+    assert "用于 Qwen 视觉模型选择视频截图；摘要仍可使用 DeepSeek 或 OpenAI。" in settings
+    assert "百炼 / DashScope API Key，用于 Qwen 视觉模型的局部截图选择" not in settings
     assert "已配置，留空则保留" in settings
     assert "已配置，输入新 Key 可替换" in settings
     assert "Qwen API Key" not in settings

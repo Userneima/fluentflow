@@ -400,8 +400,8 @@ const Settings = () => {
                                             <label className={fieldLabelClass}>{t('set.dashscopeKey')}</label>
                                             <p className="text-xs leading-relaxed text-on-surface-variant">
                                                 {lang === 'zh'
-                                                    ? '百炼 / DashScope API Key，用于 Qwen 视觉模型的局部截图选择；摘要服务商可以继续使用 DeepSeek 或 OpenAI。'
-                                                    : 'Bailian / DashScope API Key for Qwen visual local-window screenshot selection. The summary provider can stay on DeepSeek or OpenAI.'}
+                                                    ? '用于 Qwen 视觉模型选择视频截图；摘要仍可使用 DeepSeek 或 OpenAI。'
+                                                    : 'Used by the Qwen vision model to select video screenshots. Summaries can still use DeepSeek or OpenAI.'}
                                             </p>
                                             <p className="text-xs leading-relaxed text-on-surface-variant">{secretRetentionText(credentialConfigured(credentialStatus, 'dashscope_api_key'))}</p>
                                             <div className="flex gap-2">
