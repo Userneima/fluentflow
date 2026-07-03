@@ -624,15 +624,30 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
 
     assert "larkExportRouteFromSettings(settings)" in settings
     assert "LARK_EXPORT_ROUTE_OPENAPI" in settings
     assert "LARK_EXPORT_ROUTE_LOCAL_CLI" in settings
+    assert "LARK_EXPORT_ROUTE_USER_OAUTH" in settings
+    assert "export const LARK_EXPORT_ROUTE_USER_OAUTH = 'user_oauth'" in settings_model
+    assert "return legacyViaCli ? LARK_EXPORT_ROUTE_LOCAL_CLI : LARK_EXPORT_ROUTE_USER_OAUTH" in settings_model
     assert "larkExportRouteFromSettings(settings)" not in processing
     assert "set.larkExportRoute" in shared
     assert "fd.append(\"lark_export_route\", larkRoute)" in shared
     assert "payloadOptions.lark_export_route = larkRoute" in shared
     assert "id=\"workLarkViaCli\"" not in processing
+    assert "getFeishuConnection" in shared
+    assert "startFeishuOAuth" in shared
+    assert "disconnectFeishu" in shared
+    assert "连接飞书账号" in settings
+    assert "Feishu exports write into your own Feishu space" in settings
+    assert "larkExportRoute === LARK_EXPORT_ROUTE_OPENAPI" in settings
+    assert "isUserOAuthLarkExportRoute(larkExportRoute)" in editor
+    assert "setFeishuExportPromptOpen(true)" in editor
+    assert "err?.status === 409" in editor
+    assert "当前导出路线会写入你自己的飞书空间" in editor
 
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:

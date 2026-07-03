@@ -135,9 +135,11 @@ export {
     NOTE_MODE_OPTIONS,
     LARK_EXPORT_ROUTE_OPENAPI,
     LARK_EXPORT_ROUTE_LOCAL_CLI,
+    LARK_EXPORT_ROUTE_USER_OAUTH,
     normalizeLarkExportRoute,
     larkExportRouteFromSettings,
     isLocalLarkExportRoute,
+    isUserOAuthLarkExportRoute,
     normalizeAiModel,
     sanitizeSettings,
     sensitivePatchFromSettings,
@@ -702,8 +704,31 @@ export const useApi = () => {
         if(!r.ok) throw new Error('Credential save failed');
         return await r.json();
     };
+    const getFeishuConnection = async () => {
+        const r = await apiFetch(`${API_BASE}/account/feishu/connection`);
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data.connection || {connected: false};
+    };
+    const startFeishuOAuth = async (nextUrl="/settings") => {
+        const r = await apiFetch(`${API_BASE}/account/feishu/oauth/start`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({next_url: nextUrl}),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        if(!data.authorize_url) throw new Error('Feishu authorize URL is unavailable');
+        return data;
+    };
+    const disconnectFeishu = async () => {
+        const r = await apiFetch(`${API_BASE}/account/feishu/disconnect`, {method: "POST"});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data.connection || {connected: false};
+    };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkHealth};
 };
 
 export const useSettings = () => {

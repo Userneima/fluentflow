@@ -41,6 +41,7 @@ import {
     isCloudSttProvider,
     isLocalHistoryResult,
     isLocalLarkExportRoute,
+    isUserOAuthLarkExportRoute,
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobToHistoryEntry,
@@ -143,7 +144,7 @@ const Editor = () => {
         addLarkExport,
         runtimeConfig,
     } = useApp();
-    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, saveSummaryEdit, getCredentialsStatus} = useApi();
+    const {processVideoSSE, fetchJobSourceFile, fetchJobArtifactFile, fetchGuestTrialArtifactFile, uploadJobPlaybackAudio, recordEvent, getJob, getGuestTrialJob, saveTranscriptEdit, saveSummaryEdit, getCredentialsStatus, getFeishuConnection, startFeishuOAuth} = useApi();
     const {loadSettings, saveSettings} = useSettings();
     const [exporting, setExporting] = useState(false);
     const [regenerating, setRegenerating] = useState(false);
@@ -153,6 +154,8 @@ const Editor = () => {
     const [larkUrl, setLarkUrl] = useState(null);
     const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
     const [retranscribeConfirmOpen, setRetranscribeConfirmOpen] = useState(false);
+    const [feishuExportPromptOpen, setFeishuExportPromptOpen] = useState(false);
+    const [feishuExportConnecting, setFeishuExportConnecting] = useState(false);
     const [visualEvidenceVisible, setVisualEvidenceVisible] = useState(true);
     const summaryRef = useRef(null);
     const retranscribeInputRef = useRef(null);
@@ -820,8 +823,18 @@ const Editor = () => {
             return;
         }
         setExporting(true);
+        let larkExportRoute = larkExportRouteFromSettings(loadSettings());
         try {
             const settings = loadSettings();
+            larkExportRoute = larkExportRouteFromSettings(settings);
+            if (isUserOAuthLarkExportRoute(larkExportRoute)) {
+                const connection = await getFeishuConnection();
+                if (!connection?.connected) {
+                    setFeishuExportPromptOpen(true);
+                    showToast(lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间。' : 'Connect Feishu first so exports go to your own space.', false);
+                    return;
+                }
+            }
             const fd = new FormData();
             fd.append('markdown', summary || '');
             fd.append('title', fileNameStem(resultDownloadName));
@@ -829,7 +842,6 @@ const Editor = () => {
             if(result.source) fd.append('source_type', result.source);
             if(result.filename) fd.append('source_filename', result.filename);
             if(durSec > 0) fd.append('source_duration_seconds', String(durSec));
-            const larkExportRoute = larkExportRouteFromSettings(settings);
             fd.append('lark_export_route', larkExportRoute);
             fd.append('lark_via_cli', isLocalLarkExportRoute(larkExportRoute) ? 'true' : 'false');
             const headers = shouldUseLocalSingleUserClientId()
@@ -840,7 +852,10 @@ const Editor = () => {
             if(!r.ok) {
                 const d = data.detail;
                 const msg = Array.isArray(d) ? d.map(x=>x.msg||x).join('; ') : (d || 'Export failed');
-                throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+                const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+                err.status = r.status;
+                err.payload = data;
+                throw err;
             }
             const exportUrl = data.url || null;
             if(!exportUrl && !data.dry_run) throw new Error(data.msg || 'No document URL returned');
@@ -848,8 +863,27 @@ const Editor = () => {
             const dispTitle = data.doc_title || fileNameStem(resultDownloadName) || "Export";
             if(exportUrl) addLarkExport({url:exportUrl, title: dispTitle, timestamp:Date.now()});
             showToast(t('edit.exportDone'));
-        } catch(err) { showToast(t('edit.exportFail')+': '+err.message, false); }
+        } catch(err) {
+            if (isUserOAuthLarkExportRoute(larkExportRoute) && err?.status === 409) {
+                setFeishuExportPromptOpen(true);
+                showToast(lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间。' : 'Connect Feishu first so exports go to your own space.', false);
+            } else {
+                showToast(t('edit.exportFail')+': '+err.message, false);
+            }
+        }
         finally { setExporting(false); }
+    };
+
+    const connectFeishuForExport = async () => {
+        setFeishuExportConnecting(true);
+        try {
+            const nextUrl = `${window.location.pathname || '/editor'}${window.location.search || ''}`;
+            const data = await startFeishuOAuth(nextUrl);
+            window.location.assign(data.authorize_url);
+        } catch (err) {
+            showToast(`${lang === 'zh' ? '连接飞书失败' : 'Feishu connection failed'}: ${err.message || String(err)}`, false);
+            setFeishuExportConnecting(false);
+        }
     };
 
     const handleRegenerate = async () => {
@@ -1148,6 +1182,58 @@ const Editor = () => {
                     <SvgIcon name="close" className="text-sm"/>
                 </button>
                                                 </div>
+        )}
+        {feishuExportPromptOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="feishuExportPromptTitle">
+                <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
+                    <div className="flex items-start gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
+                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white">
+                            <SvgIcon name="cloud_done" className=""/>
+                        </div>
+                        <div className="min-w-0">
+                            <h2 id="feishuExportPromptTitle" className="font-headline text-xl font-extrabold text-[#111111] dark:text-white">
+                                {lang === 'zh' ? '先连接飞书账号' : 'Connect Feishu first'}
+                            </h2>
+                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
+                                {lang === 'zh'
+                                    ? '当前导出路线会写入你自己的飞书空间。连接一次后，之后导出不需要填写 App ID、Secret 或 token。'
+                                    : 'This export route writes to your own Feishu space. Connect once; future exports do not ask for app IDs, secrets, or tokens.'}
+                            </p>
+                            <div className="mt-4 rounded-[16px] border border-[#e4e0e0] bg-[#f8f7fb] p-3 text-xs font-semibold leading-relaxed text-on-surface-variant dark:border-white/[0.12] dark:bg-white/[0.06]">
+                                {lang === 'zh'
+                                    ? '连接完成后回到编辑器，再点击“导出到飞书”。'
+                                    : 'After connecting, return to the editor and click Export to Lark again.'}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex flex-col-reverse gap-3 px-6 py-4 sm:flex-row sm:justify-end">
+                        <button
+                            type="button"
+                            onClick={()=>setFeishuExportPromptOpen(false)}
+                            className="rounded-[13px] bg-[#efeeee] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
+                        >
+                            {t('edit.cancel')}
+                        </button>
+                        <Link
+                            to="/settings#export"
+                            onClick={()=>setFeishuExportPromptOpen(false)}
+                            className="inline-flex items-center justify-center gap-2 rounded-[13px] border border-[#dedada] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:text-white dark:hover:bg-white/[0.10]"
+                        >
+                            <SvgIcon name="settings" className="text-base"/>
+                            {lang === 'zh' ? '去设置页' : 'Open Settings'}
+                        </Link>
+                        <button
+                            type="button"
+                            onClick={connectFeishuForExport}
+                            disabled={feishuExportConnecting}
+                            className="inline-flex items-center justify-center gap-2 rounded-[13px] bg-[#111111] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2a2a2a] disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
+                        >
+                            <SvgIcon name={feishuExportConnecting ? 'sync' : 'cloud_done'} className={`text-base ${feishuExportConnecting ? 'animate-spin' : ''}`}/>
+                            {lang === 'zh' ? '连接飞书' : 'Connect Feishu'}
+                        </button>
+                    </div>
+                </div>
+            </div>
         )}
         {regenerateConfirmOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">

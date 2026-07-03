@@ -13,12 +13,14 @@ export const NOTE_MODE_OPTIONS = [
 
 export const LARK_EXPORT_ROUTE_OPENAPI = 'openapi';
 export const LARK_EXPORT_ROUTE_LOCAL_CLI = 'local_cli';
+export const LARK_EXPORT_ROUTE_USER_OAUTH = 'user_oauth';
 
 export const normalizeLarkExportRoute = (value, legacyViaCli=false) => {
     const route = String(value || '').trim();
     if (route === LARK_EXPORT_ROUTE_LOCAL_CLI || route === 'lark_cli') return LARK_EXPORT_ROUTE_LOCAL_CLI;
+    if (route === LARK_EXPORT_ROUTE_USER_OAUTH || route === 'feishu_user' || route === 'feishu_user_oauth' || route === 'lark_user_oauth') return LARK_EXPORT_ROUTE_USER_OAUTH;
     if (route === LARK_EXPORT_ROUTE_OPENAPI || route === 'lark_openapi') return LARK_EXPORT_ROUTE_OPENAPI;
-    return legacyViaCli ? LARK_EXPORT_ROUTE_LOCAL_CLI : LARK_EXPORT_ROUTE_OPENAPI;
+    return legacyViaCli ? LARK_EXPORT_ROUTE_LOCAL_CLI : LARK_EXPORT_ROUTE_USER_OAUTH;
 };
 
 export const larkExportRouteFromSettings = (settings={}) => (
@@ -26,6 +28,7 @@ export const larkExportRouteFromSettings = (settings={}) => (
 );
 
 export const isLocalLarkExportRoute = (route) => normalizeLarkExportRoute(route) === LARK_EXPORT_ROUTE_LOCAL_CLI;
+export const isUserOAuthLarkExportRoute = (route) => normalizeLarkExportRoute(route) === LARK_EXPORT_ROUTE_USER_OAUTH;
 
 export const normalizeAiModel = (provider, model) => {
     const p = provider === 'openai' ? 'openai' : (provider === 'qwen' ? 'qwen' : 'deepseek');
