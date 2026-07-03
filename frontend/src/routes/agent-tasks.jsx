@@ -339,7 +339,9 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
     const state = normalizeTaskState(job);
     const live = isLiveTask(job);
     const completed = state === TASK_STATE_COMPLETED || state === TASK_STATE_CACHED_ONLY;
-    const failed = state === TASK_STATE_FAILED || state === TASK_STATE_CANCELLED;
+    const cancelled = state === TASK_STATE_CANCELLED;
+    const failedTerminal = state === TASK_STATE_FAILED;
+    const failed = failedTerminal || cancelled;
     const terminal = completed || failed;
     const progress = completed ? 100 : Math.max(0, Math.min(100, Number(job?.progress) || (state === TASK_STATE_QUEUED ? 0 : 2)));
     const current = jobToCurrentJob(job);
@@ -436,21 +438,11 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                     ) : null}
                 </div>
             </div>
-            {failed ? (
-                <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50/80 px-4 py-3 dark:border-red-500/20 dark:bg-red-500/10">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                            <p className="text-[12px] font-extrabold text-red-700 dark:text-red-200">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
-                            <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
-                        </div>
-                        <span className="inline-flex h-8 shrink-0 items-center rounded-[12px] border border-red-200 bg-white px-3 text-[12px] font-extrabold text-red-700 dark:border-red-500/25 dark:bg-white/[0.08] dark:text-red-200">
-                            {progressLabel}
-                        </span>
-                    </div>
-                    <p className="mt-3 rounded-[14px] border border-red-200 bg-white px-3 py-2 text-[12px] font-semibold leading-5 text-red-800 dark:border-red-500/20 dark:bg-white/[0.06] dark:text-red-100">
-                        {detail}
-                    </p>
-                </div>
+            {failedTerminal && detail ? (
+                <p className="mt-3 inline-flex max-w-full items-start gap-2 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-semibold leading-5 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" strokeWidth={2.15}/>
+                    <span className="min-w-0 break-words">{detail}</span>
+                </p>
             ) : null}
             <div className="mt-4 grid gap-2 md:grid-cols-4">
                 {metaItems.map((item) => (
