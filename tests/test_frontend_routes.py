@@ -208,6 +208,20 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "正在处理视频" in landing
     assert "Study / Review" in landing
     assert "学习 / 复查" in landing
+    assert "Video" in landing
+    assert "视频区域" in landing
+    assert "Transcript" in landing
+    assert "字幕" in landing
+    assert "Note editor" in landing
+    assert "笔记编辑区" in landing
+    assert "Note title" in landing
+    assert "笔记标题" in landing
+    assert "Chapter title" in landing
+    assert "章节标题" in landing
+    assert "Note content" in landing
+    assert "笔记内容" in landing
+    assert "Source anchor" in landing
+    assert "来源锚点" in landing
     assert "Transcript and subtitles" in landing
     assert "Key moments" in landing
     assert "Study notes" in landing

@@ -99,11 +99,18 @@ const landingCopy = {
             processingHint: 'Preparing reviewable source material',
             study: 'Study beside the video',
             studyTime: '18:42',
+            studyVideoLabel: 'Video',
+            studyTranscriptLabel: 'Transcript',
             studyCaption: '"Attention narrows what each token compares."',
-            studyNoteTitle: '03 Why attention works',
-            studyConclusion: 'Attention limits the comparison window.',
+            studyNoteArea: 'Note editor',
+            studyNoteTitleLabel: 'Note title',
+            studyNoteTitle: 'Note title',
+            studyChapterLabel: 'Chapter title',
+            studyChapterTitle: 'Chapter title',
+            studyNoteContentLabel: 'Note content',
+            studyConclusion: 'Note content',
+            studyAnchorLabel: 'Source anchor',
             studyAnchor: '18:42 source anchor',
-            studyFix: 'One uncertain line ready to check',
             export: 'Export',
             exportMediaTitle: 'Video and audio',
             exportMediaVideo: 'Video file',
@@ -235,11 +242,18 @@ const landingCopy = {
             processingHint: '正在准备可复查的来源材料',
             study: '对照视频学习',
             studyTime: '18:42',
+            studyVideoLabel: '视频区域',
+            studyTranscriptLabel: '字幕',
             studyCaption: '“注意力会收窄每个 token 需要比较的范围。”',
-            studyNoteTitle: '03 注意力机制为什么有效',
-            studyConclusion: '注意力会限制比较窗口。',
+            studyNoteArea: '笔记编辑区',
+            studyNoteTitleLabel: '笔记标题',
+            studyNoteTitle: '笔记标题',
+            studyChapterLabel: '章节标题',
+            studyChapterTitle: '章节标题',
+            studyNoteContentLabel: '笔记内容',
+            studyConclusion: '笔记内容',
+            studyAnchorLabel: '来源锚点',
             studyAnchor: '18:42 来源锚点',
-            studyFix: '一处不确定内容待核对',
             export: '导出',
             exportMediaTitle: '视频和音频',
             exportMediaVideo: '视频文件',
@@ -402,6 +416,7 @@ const HeroVisual = ({copy}) => {
         setIsManual(true);
     };
 
+    const proofViewportHeight = activeStep === 2 ? 'min-h-[960px]' : 'min-h-[720px]';
     const slideClass = (index, extra = '') => `ff-proof-stage absolute inset-x-4 top-4 grid min-h-[306px] content-center rounded-[22px] border p-5 text-[#17201b] shadow-[0_18px_52px_-40px_rgba(46,73,58,.45)] transition-[opacity,transform] duration-500 ease-out dark:text-[#f7f1e5] sm:inset-x-6 sm:min-h-[330px] sm:p-6 ${activeStep === index ? 'z-10 opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'z-0 pointer-events-none translate-y-3 scale-[0.985] opacity-0'} ${extra}`;
 
     return (
@@ -475,7 +490,7 @@ const HeroVisual = ({copy}) => {
                 </div>
             </div>
 
-            <div className="relative min-h-[650px] px-4 pb-5 pt-4 sm:min-h-[430px] sm:px-6">
+            <div className={`relative ${proofViewportHeight} px-4 pb-5 pt-4 sm:min-h-[480px] sm:px-6`}>
                 <section id="ff-proof-panel-input" role="tabpanel" aria-hidden={activeStep !== 0} className={slideClass(0, 'border-[#d9dfd1] bg-white dark:border-white/[0.13] dark:bg-[#20251f]')}>
                     <div className="flex items-start justify-between gap-3">
                         <div>
@@ -570,35 +585,44 @@ const HeroVisual = ({copy}) => {
                     </div>
                     <div className="mt-5 grid gap-4 sm:grid-cols-[0.94fr_1.06fr]">
                         <div className="rounded-[18px] bg-[#17201b] p-4 text-[#fff8ec] shadow-[0_16px_40px_-34px_rgba(23,32,27,.72)]">
-                            <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-                                <span className="flex items-center gap-2">
-                                    <Play className="size-3.5 fill-current" strokeWidth={2.4} aria-hidden="true"/>
-                                    {copy.studyTime}
-                                </span>
-                                <span className="rounded-full bg-white/[0.10] px-2.5 py-1 text-[#8fd9c0]">{copy.uploadDuration}</span>
+                            <div className="rounded-[15px] bg-white/[0.06] p-3">
+                                <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+                                    <span className={`${dataType} text-[10px] font-bold uppercase tracking-[0.14em] text-[#8fd9c0]`}>{copy.studyVideoLabel}</span>
+                                    <span className="flex items-center gap-2">
+                                        <Play className="size-3.5 fill-current" strokeWidth={2.4} aria-hidden="true"/>
+                                        {copy.studyTime}
+                                    </span>
+                                </div>
+                                <div className="mt-3 aspect-video rounded-[13px] bg-[radial-gradient(circle_at_42%_28%,rgba(143,217,192,.34),transparent_28%),linear-gradient(145deg,#31483d,#111612_72%)]">
+                                    <div className="flex h-full items-end justify-end p-3">
+                                        <span className="rounded-full bg-[#20392f] px-2.5 py-1 text-[10px] font-semibold text-[#a7efd8]">{copy.uploadDuration}</span>
+                                    </div>
+                                </div>
+                                <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-white/18">
+                                    <span className="block h-full w-[42%] rounded-full bg-[#f4d98c]"/>
+                                </div>
                             </div>
-                            <div className="mt-3 aspect-video rounded-[15px] bg-[radial-gradient(circle_at_42%_28%,rgba(143,217,192,.34),transparent_28%),linear-gradient(145deg,#31483d,#111612_72%)]"/>
-                            <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-white/18">
-                                <span className="block h-full w-[42%] rounded-full bg-[#f4d98c]"/>
+                            <div className="mt-3 rounded-[15px] border border-white/[0.10] bg-white/[0.08] p-3">
+                                <p className={`${dataType} text-[10px] font-bold uppercase tracking-[0.14em] text-[#8fd9c0]`}>{copy.studyTranscriptLabel}</p>
+                                <p className="mt-2 text-xs font-medium leading-5 text-white/78">{copy.studyCaption}</p>
                             </div>
-                            <p className="mt-3 rounded-[13px] bg-white/[0.08] px-3 py-2 text-xs font-medium leading-5 text-white/76">{copy.studyCaption}</p>
                         </div>
                         <div className="rounded-[18px] border border-[#e4d4b8] bg-white/84 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.72)] dark:border-white/[0.13] dark:bg-white/[0.08]">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                <h3 className="text-[21px] font-semibold leading-tight text-[#17201b] dark:text-[#f7f1e5]">{copy.studyNoteTitle}</h3>
-                                <span className="rounded-full bg-[#fff3d5] px-2.5 py-1 text-[10px] font-bold text-[#765321] dark:bg-[#f4d98c]/16 dark:text-[#f4d98c]">{copy.studyAnchor}</span>
+                            <p className={`${dataType} text-[10px] font-bold uppercase tracking-[0.14em] text-[#8a5a1f] dark:text-[#f4d98c]`}>{copy.studyNoteArea}</p>
+                            <div className="mt-3 rounded-[14px] border border-[#e9d9bd] bg-[#fffdf7] p-3 dark:border-white/[0.10] dark:bg-[#111612]">
+                                <p className={`${dataType} text-[10px] font-bold uppercase tracking-[0.12em] text-[#8a5a1f] dark:text-[#f4d98c]`}>{copy.studyNoteTitleLabel}</p>
+                                <h3 className="mt-1 text-[19px] font-semibold leading-tight text-[#17201b] dark:text-[#f7f1e5]">{copy.studyNoteTitle}</h3>
                             </div>
-                            <p className="mt-3 rounded-[14px] bg-[#f7f1e5] px-3 py-2 text-sm font-semibold leading-6 text-[#4b3e2b] dark:bg-[#111612] dark:text-[#f7f1e5]">{copy.studyConclusion}</p>
-                            <div className="mt-4 grid gap-2">
-                                {[copy.processingStageTranscript, copy.processingStageFrames].map((item) => (
-                                    <div key={item} className="flex items-center gap-3">
-                                        <span className="size-2 rounded-full bg-[#2a8f75] dark:bg-[#8fd9c0]"/>
-                                        <span className="text-xs font-semibold text-[#76664e] dark:text-white/[0.70]">{item}</span>
-                                        <span className="h-1.5 flex-1 rounded-full bg-[#ead8b6] dark:bg-white/[0.12]"/>
-                                    </div>
-                                ))}
+                            <div className="mt-3 rounded-[14px] border border-[#e9d9bd] bg-[#fffdf7] p-3 dark:border-white/[0.10] dark:bg-[#111612]">
+                                <p className={`${dataType} text-[10px] font-bold uppercase tracking-[0.12em] text-[#8a5a1f] dark:text-[#f4d98c]`}>{copy.studyChapterLabel}</p>
+                                <p className="mt-1 text-sm font-semibold text-[#17201b] dark:text-[#f7f1e5]">{copy.studyChapterTitle}</p>
+                                <p className={`${dataType} mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#8a5a1f] dark:text-[#f4d98c]`}>{copy.studyNoteContentLabel}</p>
+                                <p className="mt-1 rounded-[12px] bg-[#f7f1e5] px-3 py-2 text-sm font-semibold leading-6 text-[#4b3e2b] dark:bg-white/[0.06] dark:text-white/[0.82]">{copy.studyConclusion}</p>
                             </div>
-                            <p className="mt-4 rounded-[13px] border border-[#f1d093] bg-[#fff7e8] px-3 py-2 text-xs font-semibold text-[#765321] dark:border-[#f4d98c]/22 dark:bg-[#f4d98c]/10 dark:text-[#f4d98c]">{copy.studyFix}</p>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className={`${dataType} rounded-full bg-[#fff3d5] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#765321] dark:bg-[#f4d98c]/16 dark:text-[#f4d98c]`}>{copy.studyAnchorLabel}</span>
+                                <span className="rounded-full border border-[#f1d093] px-2.5 py-1 text-xs font-semibold text-[#765321] dark:border-[#f4d98c]/22 dark:text-[#f4d98c]">{copy.studyAnchor}</span>
+                            </div>
                         </div>
                     </div>
                 </section>
