@@ -107,11 +107,37 @@ const taskProcessingTimeLabel = (job, lang) => {
     return lang === 'zh' ? `${elapsedLabel}（处理耗时）` : `${elapsedLabel} elapsed`;
 };
 
-const jobFromCurrentJob = (currentJob) => {
-    if (!currentJob) return null;
-    if (currentJob.queueUpload) return null;
-    if (!currentJob.taskId) return null;
-    return {
+const jobsFromCurrentJob = (currentJob) => {
+    if (!currentJob) return [];
+    if (currentJob.queueUpload) {
+        const items = Array.isArray(currentJob.queueItems) ? currentJob.queueItems : [];
+        return items.map((item, index) => {
+            const taskId = item.taskId || item.task_id || item.provisionalId || `queue-upload-${index + 1}`;
+            const fileName = item.fileName || item.filename || taskId;
+            const hasBackendTask = !!(item.taskId || item.task_id);
+            const taskState = item.taskState || item.status || (hasBackendTask ? TASK_STATE_QUEUED : TASK_STATE_UPLOADING);
+            return {
+                task_id: taskId,
+                status: taskState,
+                task_state: taskState,
+                stage: item.stage || (hasBackendTask ? 'queued' : currentJob.stage || 'upload'),
+                progress: item.progress ?? (hasBackendTask ? 0 : currentJob.progress ?? 2),
+                source_type: item.sourceType || item.source_type || currentJob.sourceType || null,
+                source_filename: fileName,
+                source_file_size_mb: item.fileSizeMb ?? item.source_file_size_mb ?? null,
+                created_at: currentJob.startedAt ? new Date(currentJob.startedAt).toISOString() : new Date().toISOString(),
+                metadata: {
+                    display_title: fileName,
+                    queue_position: item.queuePosition || item.queue_position || index + 1,
+                    queue_total: item.queueTotal || item.queue_total || currentJob.queueTotal || items.length,
+                    queue_provisional: !hasBackendTask,
+                    stt_provider: currentJob.sttProvider || null,
+                },
+            };
+        });
+    }
+    if (!currentJob.taskId) return [];
+    return [{
         task_id: currentJob.taskId,
         status: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : TASK_STATE_RUNNING),
         task_state: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : TASK_STATE_RUNNING),
@@ -126,7 +152,7 @@ const jobFromCurrentJob = (currentJob) => {
             stt_provider: currentJob.sttProvider || null,
             video_source_progress: currentJob.videoSourceProgress || null,
         },
-    };
+    }];
 };
 
 const mergeJobs = (...groups) => {
@@ -295,7 +321,7 @@ const statePillClass = (state) => {
 };
 
 const QueueUploadBanner = ({upload, lang}) => {
-    if (!upload?.queueUpload) return null;
+    if (!upload?.queueUpload || upload?.queueSubmitted) return null;
     const count = Number(upload.queueTotal || 0) || 1;
     const progress = Math.max(0, Math.min(100, Number(upload.progress) || 2));
     const totalSize = upload.fileSizeMb ? fmtFileSize(upload.fileSizeMb) : '';
@@ -312,8 +338,8 @@ const QueueUploadBanner = ({upload, lang}) => {
                     </h2>
                     <p className="mt-1 text-[13px] font-semibold leading-5 text-[#57585d] dark:text-white/64">
                         {lang === 'zh'
-                            ? '上传完成后，每个文件会拆成一条独立处理记录显示在下方。'
-                            : 'After upload, each file will appear below as its own processing record.'}
+                            ? '每个文件的进程卡已显示在下方，上传提交完成后会切换为真实任务记录。'
+                            : 'Each file is shown below; after upload is submitted, the cards switch to real task records.'}
                     </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -343,6 +369,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
     const failedTerminal = state === TASK_STATE_FAILED;
     const failed = failedTerminal || cancelled;
     const terminal = completed || failed;
+    const cancellableLive = live && taskId && !job?.metadata?.queue_provisional;
     const progress = completed ? 100 : Math.max(0, Math.min(100, Number(job?.progress) || (state === TASK_STATE_QUEUED ? 0 : 2)));
     const current = jobToCurrentJob(job);
     const progressUnknown = isSttProgressUnmeasured(current);
@@ -418,7 +445,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                             {lang === 'zh' ? '重新提交' : 'Submit again'}
                         </Link>
                     ) : null}
-                    {live && taskId && taskId !== 'queue-upload' ? (
+                    {cancellableLive ? (
                         <button type="button" disabled={cancellingTaskId === taskId} onClick={() => onCancel(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-4 text-[13px] font-extrabold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
                             {cancellingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <XCircle className="size-4" strokeWidth={2.15}/>}
                             {lang === 'zh' ? '取消' : 'Cancel'}
@@ -477,17 +504,17 @@ const AgentTasks = () => {
     const locallyCancelledTaskIdsRef = useRef(new Set());
     const locallyDeletedTaskIdsRef = useRef(new Set());
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
-    const currentJobRecord = useMemo(() => jobFromCurrentJob(currentJob), [currentJob]);
+    const currentJobRecords = useMemo(() => jobsFromCurrentJob(currentJob), [currentJob]);
     const displayJobs = useMemo(() => (
-        mergeJobs(currentJobRecord ? [currentJobRecord] : [], jobs)
+        mergeJobs(currentJobRecords, jobs)
             .filter((job) => !locallyCancelledTaskIdsRef.current.has(taskIdForJob(job)))
             .filter((job) => !locallyDeletedTaskIdsRef.current.has(taskIdForJob(job)))
             .slice(0, 30)
-    ), [currentJobRecord, jobs, cancellingTaskId, deletingTaskId]);
+    ), [currentJobRecords, jobs, cancellingTaskId, deletingTaskId]);
     const liveJobs = useMemo(() => displayJobs.filter(isLiveTask), [displayJobs]);
     const hasLiveOrUploadingJobs = Boolean(queueUploadJob) || liveJobs.length > 0;
     const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
-    const runningCount = (queueUploadJob ? 1 : 0) + liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
+    const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
 
     const loadJobs = useCallback(async () => {
         if (!canUseTaskCache) {

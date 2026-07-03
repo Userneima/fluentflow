@@ -56,6 +56,10 @@ import {
     useSettings,
     videoLinkDisplayTitle,
 } from '../app/shared.jsx';
+import {
+    queueUploadItemsFromFiles,
+    queueUploadItemsFromQueuedResponse,
+} from '../lib/queueUpload.js';
 import SvgIcon from '../components/SvgIcon.jsx';
 
 const Dashboard = () => {
@@ -519,6 +523,7 @@ const Dashboard = () => {
         if(selectedFiles.length > 1) {
             setLastSourceFile(null);
             const queuedFileCount = selectedFiles.length;
+            const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles);
             setCurrentJob({
                 taskId: null,
                 fileName: lang === 'zh' ? `${queuedFileCount} 个文件` : `${queuedFileCount} files`,
@@ -528,11 +533,12 @@ const Dashboard = () => {
                 sourceType:'queue_upload',
                 fileSizeMb: totalFileSizeMb(selectedFiles),
                 queueTotal: queuedFileCount,
+                queueItems: provisionalQueueItems,
                 queueUpload: true,
             });
             navigate('/agent');
             try {
-                await enqueueProcessFiles(selectedFiles, {
+                const data = await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark||false,
                     larkExportRoute: larkExportRouteFromSettings(settings),
                     larkViaCli: !!settings.larkViaCli,
@@ -543,7 +549,20 @@ const Dashboard = () => {
                     sttSpeed: settings.sttSpeed||'balanced',
                     sttLanguage: 'auto',
                 });
-                setCurrentJob(null);
+                const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
+                setCurrentJob({
+                    taskId: null,
+                    fileName: lang === 'zh' ? `${queuedFileCount} 个文件` : `${queuedFileCount} files`,
+                    stage:'queued',
+                    progress:100,
+                    startedAt: Date.now(),
+                    sourceType:'queue_upload',
+                    fileSizeMb: totalFileSizeMb(selectedFiles),
+                    queueTotal: queuedFileCount,
+                    queueItems,
+                    queueUpload: true,
+                    queueSubmitted: true,
+                });
                 navigate('/agent', {replace:true, state:{queueSubmittedAt: Date.now()}});
             } catch(err) {
                 setCurrentJob(null);

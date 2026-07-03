@@ -78,6 +78,32 @@ def test_dashboard_cancel_task_uses_close_icon_not_disabled_icon() -> None:
     assert "SvgIcon name=\"cancel\"" not in media_text
 
 
+def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+    agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    helper = Path("frontend/src/lib/queueUpload.js").read_text(encoding="utf-8")
+
+    assert "export const queueUploadItemsFromFiles" in helper
+    assert "export const queueUploadItemsFromQueuedResponse" in helper
+    assert "provisionalId: `queue-upload-${index + 1}-${fileName}" in helper
+    assert "taskId: item?.task_id || fallback.taskId || null" in helper
+    assert "const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles)" in dashboard
+    assert "const data = await enqueueProcessFiles(selectedFiles" in dashboard
+    assert "const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems)" in dashboard
+    assert "queueItems: provisionalQueueItems" in dashboard
+    assert "queueSubmitted: true" in dashboard
+    assert "const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles)" in media_text
+    assert "navigate('/agent');" in media_text
+    assert "const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems)" in media_text
+    assert "const jobsFromCurrentJob = (currentJob) => {" in agent_tasks
+    assert "const items = Array.isArray(currentJob.queueItems) ? currentJob.queueItems : []" in agent_tasks
+    assert "metadata: {" in agent_tasks
+    assert "queue_provisional: !hasBackendTask" in agent_tasks
+    assert "mergeJobs(currentJobRecords, jobs)" in agent_tasks
+    assert "const cancellableLive = live && taskId && !job?.metadata?.queue_provisional" in agent_tasks
+
+
 def test_media_text_entry_panel_uses_subtle_diffuse_color() -> None:
     source = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
 
@@ -1140,9 +1166,10 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "displayJobs" in source
     assert "displayJobs.map((job) => (" in source
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
-    assert "if (currentJob.queueUpload) return null" in source
+    assert "const jobsFromCurrentJob = (currentJob) => {" in source
+    assert "mergeJobs(currentJobRecords, jobs)" in source
     assert "const QueueUploadBanner = ({upload, lang}) => {" in source
-    assert "上传完成后，每个文件会拆成一条独立处理记录显示在下方。" in source
+    assert "每个文件的进程卡已显示在下方" in source
     assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source
     assert "hasLiveOrUploadingJobs ? 5000 : 30000" in source
     assert "locallyDeletedTaskIdsRef.current.has(taskIdForJob(job))" in source

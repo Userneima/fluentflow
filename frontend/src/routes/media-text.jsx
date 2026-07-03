@@ -34,6 +34,10 @@ import {
     useSettings,
     videoLinkDisplayTitle,
 } from '../app/shared.jsx';
+import {
+    queueUploadItemsFromFiles,
+    queueUploadItemsFromQueuedResponse,
+} from '../lib/queueUpload.js';
 import SvgIcon from '../components/SvgIcon.jsx';
 
 const mediaExts = /\.(mp4|mov|avi|mkv|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
@@ -203,6 +207,7 @@ const MediaText = () => {
         if (!guestMode && selectedFiles.length > 1) {
             setSubmitting(true);
             setLastSourceFile(null);
+            const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles);
             setCurrentJob({
                 taskId: null,
                 fileName: lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`,
@@ -212,10 +217,12 @@ const MediaText = () => {
                 sourceType: 'queue_upload',
                 fileSizeMb: totalFileSizeMb(selectedFiles),
                 queueTotal: selectedFiles.length,
+                queueItems: provisionalQueueItems,
                 queueUpload: true,
             });
+            navigate('/agent');
             try {
-                await enqueueProcessFiles(selectedFiles, {
+                const data = await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark || false,
                     larkExportRoute: larkExportRouteFromSettings(settings),
                     larkViaCli: !!settings.larkViaCli,
@@ -226,10 +233,27 @@ const MediaText = () => {
                     sttSpeed: settings.sttSpeed || 'balanced',
                     sttLanguage: 'auto',
                 });
-                navigate('/agent', {state: {queueSubmittedAt: Date.now()}});
+                const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
+                setCurrentJob({
+                    taskId: null,
+                    fileName: lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`,
+                    stage: 'queued',
+                    progress: 100,
+                    startedAt: Date.now(),
+                    sourceType: 'queue_upload',
+                    fileSizeMb: totalFileSizeMb(selectedFiles),
+                    queueTotal: selectedFiles.length,
+                    queueItems,
+                    queueUpload: true,
+                    queueSubmitted: true,
+                });
+                navigate('/agent', {replace: true, state: {queueSubmittedAt: Date.now()}});
             } catch (err) {
-                setUploadError(friendlyTaskError(err.message || 'Queue failed.', lang));
                 setCurrentJob(null);
+                navigate('/agent', {
+                    replace: true,
+                    state: {queueSubmitError: friendlyTaskError(err.message || 'Queue failed.', lang)},
+                });
             } finally {
                 setSubmitting(false);
             }
