@@ -232,7 +232,7 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertIn("笔记必须忠实于转录稿", seen_systems[0])
         self.assertIn("即使输入转录稿是英文，也应直接理解英文原文并写成中文笔记", seen_systems[0])
         self.assertIn("Feishu Note Formatting Preferences", seen_systems[0])
-        self.assertIn("正文标题默认使用清晰的层级编号", seen_systems[0])
+        self.assertIn("正文标题使用少量清晰层级", seen_systems[0])
 
     def test_note_system_prompt_injects_content_policy_and_format_preferences(self) -> None:
         prompt = _compose_note_system_prompt("你是自定义助手。")
@@ -242,6 +242,16 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertIn("不要引入原文没有的背景、观点、案例、结论或建议", prompt)
         self.assertIn("短标签式文本在中文冒号前加粗标签", prompt)
         self.assertIn("普通说明、流程、页面布局、URL 和纯文本列表不要使用代码块", prompt)
+
+    def test_default_course_prompt_avoids_fixed_note_template(self) -> None:
+        prompt = _compose_note_system_prompt(None)
+
+        self.assertIn("先判断材料本身的讲述结构，再设计笔记结构", prompt)
+        self.assertIn("不要把所有内容硬套成固定模板", prompt)
+        self.assertIn("不要输出固定数量的板块", prompt)
+        self.assertNotIn("一句话概览", prompt)
+        self.assertNotIn("核心概念盘点", prompt)
+        self.assertNotIn("五大板块结构", prompt)
 
     def test_strip_prompt_leakage_keeps_real_note_after_separator(self) -> None:
         leaked = (

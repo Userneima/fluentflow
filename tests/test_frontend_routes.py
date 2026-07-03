@@ -375,6 +375,17 @@ def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
     assert "diagnoseTaskError" in shared
 
 
+def test_default_course_prompt_is_flexible_learning_note_prompt() -> None:
+    source = Path("frontend/src/lib/promptPresets.js").read_text(encoding="utf-8")
+
+    assert "先判断材料本身的讲述结构，再设计笔记结构" in source
+    assert "不要把所有内容硬套成固定模板" in source
+    assert "不要输出固定数量的板块" in source
+    assert "一句话概览" not in source
+    assert "核心概念盘点" not in source
+    assert "五大板块结构" not in source
+
+
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
     source = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
 
