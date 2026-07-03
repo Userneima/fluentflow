@@ -356,6 +356,8 @@ def test_recent_activity_cards_open_editor_or_processing_records_not_task_detail
         assert "const job = await getJob(h.taskId);" not in source
         assert "const job = await getJob(item.taskId);" not in source
         assert "navigate(`/tasks/${encodeURIComponent(" not in source
+        assert "whitespace-nowrap rounded-full" in source
+        assert "min-w-0 flex-1 truncate" in source
 
 
 def test_frontend_error_diagnostics_are_structured_and_reused() -> None:

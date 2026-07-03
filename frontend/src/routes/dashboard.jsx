@@ -1018,8 +1018,8 @@ const Dashboard = () => {
                                                 </div>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="mb-1 flex items-start justify-between gap-2">
-                                                        <h5 className="truncate pr-2 text-sm font-extrabold text-[#111111] dark:text-white">{h.name}</h5>
-                                                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${historyDone?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':historyProcessing?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'}`}>
+                                                        <h5 className="min-w-0 flex-1 truncate pr-2 text-sm font-extrabold text-[#111111] dark:text-white">{h.name}</h5>
+                                                        <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${historyDone?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':historyProcessing?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'}`}>
                                                             {t(historyDone?'dash.statusCompleted':historyProcessing?'dash.statusProcessing':'dash.statusFailed')}
                                                         </span>
                                                     </div>
