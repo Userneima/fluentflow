@@ -1448,7 +1448,9 @@ def test_secondary_surfaces_use_current_ui_language() -> None:
     assert "bg-[#f8f7fb]" in access_gate
     assert "关于与协议" in about
     assert "grid gap-3 px-5 py-5 md:grid-cols-[180px_minmax(0,1fr)]" in about
-    assert "presetChipClass" in prompt_dialog
+    assert "presetRowClass" in prompt_dialog
+    assert "renderPresetItem" in prompt_dialog
+    assert "md:grid-cols-[230px_minmax(0,1fr)]" in prompt_dialog
     assert "textAreaClass" in prompt_dialog
     assert "dark:hover:bg-white/[0.88]" in prompt_dialog
     assert "rounded-sm" not in settings

@@ -1,7 +1,7 @@
 export const DEFAULT_PROMPT_PRESET = 'autoTranscriptNotes';
 export const BUILTIN_EXTRA_PROMPT_KEYS = ['autoTranscriptNotes', 'meeting', 'research', 'quickBullets'];
 
-/* 与 backend/core/ai_summarizer.py 中 FLUENTFLOW_SYSTEM_PROMPT 保持一致，便于本地编辑默认「课程笔记」 */
+/* 与 backend/core/ai_summarizer.py 中 FLUENTFLOW_SYSTEM_PROMPT 保持一致，便于本地编辑默认「通用学习笔记」 */
 export const DEFAULT_COURSE_PROMPT = `# Role: FluentFlow 知识架构师
 
 # Task: 你将接收一段由 Whisper 转录的课程、讲座、录屏或长视频文本。这段文本可能包含口癖、重复和错别字。你的任务是把它整理成一份适合边看视频边学习、后续复习和少量修正的高质量中文笔记。
@@ -36,8 +36,8 @@ export const PROMPT_PRESETS = {
         prompt: `当前是一份语音转字幕文件，请你根据这个文件类型生成合适的提示词，并根据这个提示词产出对应的笔记。将最终的笔记内容输出给我即可，无需任何其他内容。`,
     },
     default: {
-        labelEn: 'Course Notes (Default)',
-        labelZh: '课程笔记（默认）',
+        labelEn: 'General Study Notes (Default)',
+        labelZh: '通用学习笔记（默认）',
         prompt: '', // 实际正文用 getDefaultPromptBody(settings)
     },
     meeting: {
