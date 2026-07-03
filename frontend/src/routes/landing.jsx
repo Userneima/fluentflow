@@ -113,16 +113,33 @@ const landingCopy = {
             studyAnchorLabel: 'Source anchor',
             studyAnchor: '18:42 source anchor',
             export: 'Export',
+            exportFileCount: '4 files',
             exportMediaTitle: 'Video and audio',
             exportMediaVideo: 'Video file',
+            exportMediaVideoFormat: '.mp4',
+            exportMediaVideoHint: 'source video',
             exportMediaAudio: 'Audio track',
+            exportMediaAudioFormat: '.mp3',
+            exportMediaAudioHint: 'clean audio',
             exportMediaSubtitles: 'Subtitles',
+            exportMediaSubtitlesFormat: '.srt',
+            exportMediaSubtitlesHint: 'timed text',
             exportMediaFrames: 'Key frames',
+            exportMediaFramesFormat: '.jpg',
+            exportMediaFramesHint: 'visual anchors',
             exportNotesTitle: 'Notes and review',
             exportNotesMarkdown: 'Markdown',
+            exportNotesMarkdownFormat: '.md',
+            exportNotesMarkdownHint: 'editable note',
             exportNotesPdf: 'PDF',
+            exportNotesPdfFormat: '.pdf',
+            exportNotesPdfHint: 'reading copy',
             exportNotesFeishu: 'Feishu',
+            exportNotesFeishuFormat: 'doc',
+            exportNotesFeishuHint: 'workspace share',
             exportNotesPackage: 'Study note package',
+            exportNotesPackageFormat: '.zip',
+            exportNotesPackageHint: 'note bundle',
             finalNote: 'Ready to keep studying later.',
         },
         workflow: {
@@ -257,16 +274,33 @@ const landingCopy = {
             studyAnchorLabel: '来源锚点',
             studyAnchor: '18:42 来源锚点',
             export: '导出',
+            exportFileCount: '4 项',
             exportMediaTitle: '视频和音频',
             exportMediaVideo: '视频文件',
+            exportMediaVideoFormat: '.mp4',
+            exportMediaVideoHint: '原视频',
             exportMediaAudio: '音频轨道',
+            exportMediaAudioFormat: '.mp3',
+            exportMediaAudioHint: '音频',
             exportMediaSubtitles: '字幕',
+            exportMediaSubtitlesFormat: '.srt',
+            exportMediaSubtitlesHint: '时间轴字幕',
             exportMediaFrames: '关键画面',
+            exportMediaFramesFormat: '.jpg',
+            exportMediaFramesHint: '画面锚点',
             exportNotesTitle: '笔记相关',
             exportNotesMarkdown: 'Markdown',
+            exportNotesMarkdownFormat: '.md',
+            exportNotesMarkdownHint: '可编辑笔记',
             exportNotesPdf: 'PDF',
+            exportNotesPdfFormat: '.pdf',
+            exportNotesPdfHint: '阅读版',
             exportNotesFeishu: '飞书',
+            exportNotesFeishuFormat: 'doc',
+            exportNotesFeishuHint: '协作页面',
             exportNotesPackage: '学习笔记包',
+            exportNotesPackageFormat: '.zip',
+            exportNotesPackageHint: '学习资产包',
             finalNote: '之后可以继续复习。',
         },
         workflow: {
@@ -382,16 +416,16 @@ const HeroVisual = ({copy}) => {
     ];
     const uploadTagIcons = [Link2, Film, Captions, Image];
     const mediaExports = [
-        [copy.exportMediaVideo, Film],
-        [copy.exportMediaAudio, MicVocal],
-        [copy.exportMediaSubtitles, Captions],
-        [copy.exportMediaFrames, Image],
+        [copy.exportMediaVideo, copy.exportMediaVideoFormat, copy.exportMediaVideoHint, Film],
+        [copy.exportMediaAudio, copy.exportMediaAudioFormat, copy.exportMediaAudioHint, MicVocal],
+        [copy.exportMediaSubtitles, copy.exportMediaSubtitlesFormat, copy.exportMediaSubtitlesHint, Captions],
+        [copy.exportMediaFrames, copy.exportMediaFramesFormat, copy.exportMediaFramesHint, Image],
     ];
     const noteExports = [
-        [copy.exportNotesMarkdown, FileText],
-        [copy.exportNotesPdf, Download],
-        [copy.exportNotesFeishu, BookOpenText],
-        [copy.exportNotesPackage, CheckCircle2],
+        [copy.exportNotesMarkdown, copy.exportNotesMarkdownFormat, copy.exportNotesMarkdownHint, FileText],
+        [copy.exportNotesPdf, copy.exportNotesPdfFormat, copy.exportNotesPdfHint, Download],
+        [copy.exportNotesFeishu, copy.exportNotesFeishuFormat, copy.exportNotesFeishuHint, BookOpenText],
+        [copy.exportNotesPackage, copy.exportNotesPackageFormat, copy.exportNotesPackageHint, CheckCircle2],
     ];
 
     useEffect(() => {
@@ -419,7 +453,7 @@ const HeroVisual = ({copy}) => {
         setIsManual(true);
     };
 
-    const proofViewportHeight = activeStep === 2 ? 'min-h-[960px]' : 'min-h-[720px]';
+    const proofViewportHeight = activeStep === 2 ? 'min-h-[960px]' : activeStep === 3 ? 'min-h-[800px]' : 'min-h-[720px]';
     const slideClass = (index, extra = '') => `ff-proof-stage absolute inset-x-4 top-4 grid min-h-[306px] content-center rounded-[22px] border p-5 text-[#17201b] shadow-[0_18px_52px_-40px_rgba(46,73,58,.45)] transition-[opacity,transform] duration-500 ease-out dark:text-[#f7f1e5] sm:inset-x-6 sm:min-h-[330px] sm:p-6 ${activeStep === index ? 'z-10 opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'z-0 pointer-events-none translate-y-3 scale-[0.985] opacity-0'} ${extra}`;
 
     return (
@@ -657,14 +691,21 @@ const HeroVisual = ({copy}) => {
                             [copy.exportNotesTitle, noteExports],
                         ].map(([title, items]) => (
                             <div key={title} className="rounded-[18px] border border-[#ccd9b7] bg-white/82 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.72)] dark:border-white/[0.14] dark:bg-white/[0.08]">
-                                <p className="text-sm font-semibold text-[#17201b] dark:text-[#f7f1e5]">{title}</p>
-                                <div className="mt-4 grid grid-cols-2 gap-2">
-                                    {items.map(([item, Icon]) => (
-                                        <div key={item} className="flex items-center gap-3 rounded-[13px] border border-[#dde7cf] bg-[#fbfdf7] px-3 py-2 dark:border-white/[0.10] dark:bg-white/[0.06]">
-                                            <span className="flex size-8 shrink-0 items-center justify-center rounded-[11px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-sm font-semibold text-[#17201b] dark:text-[#f7f1e5]">{title}</p>
+                                    <span className={`${dataType} rounded-full border border-transparent bg-[#e9f1d9] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#52622f] dark:border-[#d5e6b9]/22 dark:bg-[#10160c] dark:text-[#d8e6b9]`}>{copy.exportFileCount}</span>
+                                </div>
+                                <div className="mt-3 grid gap-2">
+                                    {items.map(([item, format, hint, Icon]) => (
+                                        <div key={item} className="flex items-center gap-3 rounded-[14px] border border-[#dde7cf] bg-[#fbfdf7] px-3 py-2.5 dark:border-white/[0.10] dark:bg-white/[0.06]">
+                                            <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[#17201b] text-[#fff8ec] dark:bg-[#f7f1e5] dark:text-[#17201b]">
                                                 <Icon className="size-4" strokeWidth={2.2} aria-hidden="true"/>
                                             </span>
-                                            <span className="text-xs font-semibold text-[#46552a] dark:text-white/[0.76]">{item}</span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate text-xs font-semibold text-[#2e3b21] dark:text-white/[0.84]">{item}</span>
+                                                <span className="mt-0.5 block truncate text-[11px] font-medium text-[#66704f] dark:text-white/[0.56]">{hint}</span>
+                                            </span>
+                                            <span className={`${dataType} shrink-0 rounded-[10px] border border-[#cbd8b8] bg-white px-2 py-1 text-[10px] font-bold tracking-[0.08em] text-[#52622f] dark:border-[#d5e6b9]/18 dark:bg-[#10160c] dark:text-[#d8e6b9]`}>{format}</span>
                                         </div>
                                     ))}
                                 </div>

@@ -241,12 +241,20 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "Notes and review" in landing
     assert "笔记相关" in landing
     assert "Video file" in landing
+    assert ".mp4" in landing
     assert "Audio track" in landing
+    assert ".mp3" in landing
     assert "Subtitles" in landing
+    assert ".srt" in landing
     assert "Key frames" in landing
+    assert ".jpg" in landing
     assert "Markdown" in landing
+    assert ".md" in landing
     assert "PDF" in landing
+    assert ".pdf" in landing
     assert "Feishu" in landing
+    assert "Study note package" in landing
+    assert ".zip" in landing
     assert "Fix accepted" not in landing
     assert "MicVocal" in landing
     assert "MonitorPlay" in landing
