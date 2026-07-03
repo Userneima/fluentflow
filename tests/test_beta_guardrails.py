@@ -252,6 +252,65 @@ def test_cloud_workspace_buffers_json_api_but_streams_long_running_routes() -> N
     assert _H._should_stream_cloud_proxy_response("/jobs/task-1/source", download_headers) is True
 
 
+def test_cloud_workspace_retries_incomplete_buffered_get(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
+
+    class DummyRemote:
+        status_code = 200
+        headers = _H.httpx.Headers({"content-type": "application/json"})
+
+        def __init__(self, fail: bool):
+            self.fail = fail
+
+        async def aread(self):
+            if self.fail:
+                raise _H.httpx.RemoteProtocolError("peer closed connection without sending complete message body")
+            return b'{"jobs":[]}'
+
+        async def aiter_bytes(self):
+            yield b'{"jobs":[]}'
+
+    class DummyStream:
+        def __init__(self, remote):
+            self.remote = remote
+
+        async def __aenter__(self):
+            return self.remote
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class DummyAsyncClient:
+        calls = 0
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def stream(self, *_args, **_kwargs):
+            type(self).calls += 1
+            return DummyStream(DummyRemote(fail=type(self).calls == 1))
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(_H.httpx, "AsyncClient", DummyAsyncClient)
+    request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/jobs",
+        "query_string": b"limit=100",
+        "headers": [],
+        "server": ("127.0.0.1", 8000),
+        "scheme": "http",
+    })
+
+    response = asyncio.run(_H._proxy_cloud_workspace_request(request))
+
+    assert response.status_code == 200
+    assert response.body == b'{"jobs":[]}'
+    assert DummyAsyncClient.calls == 2
+
+
 def test_local_status_routes_are_public_only_on_localhost() -> None:
     local_request = Request({
         "type": "http",

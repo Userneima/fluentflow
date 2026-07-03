@@ -338,44 +338,56 @@ async def _proxy_cloud_workspace_request(request: Request) -> Response:
             if chunk:
                 yield chunk
 
-    client = httpx.AsyncClient(timeout=None, follow_redirects=False)
-    stream = client.stream(request.method, target, headers=headers, content=body_iter())
+    async def send_once() -> Response:
+        client = httpx.AsyncClient(timeout=None, follow_redirects=False)
+        content = None if request.method.upper() in {"GET", "HEAD"} else body_iter()
+        stream = client.stream(request.method, target, headers=headers, content=content)
+        try:
+            remote = await stream.__aenter__()
+        except Exception as exc:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
+
+        async def response_iter() -> AsyncGenerator[bytes, None]:
+            try:
+                async for chunk in remote.aiter_bytes():
+                    if chunk:
+                        yield chunk
+            finally:
+                await stream.__aexit__(None, None, None)
+                await client.aclose()
+
+        response_headers = _proxy_response_headers(remote.headers)
+        if _should_stream_cloud_proxy_response(request.url.path, remote.headers):
+            response = StreamingResponse(
+                response_iter(),
+                status_code=remote.status_code,
+                headers=response_headers,
+            )
+        else:
+            try:
+                body = await remote.aread()
+            finally:
+                await stream.__aexit__(None, None, None)
+                await client.aclose()
+            response = Response(
+                content=body,
+                status_code=remote.status_code,
+                headers=response_headers,
+                media_type=remote.headers.get("content-type"),
+            )
+        _apply_remote_session_cookie(response, request, remote.headers)
+        return response
+
     try:
-        remote = await stream.__aenter__()
-    except Exception as exc:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
-
-    async def response_iter() -> AsyncGenerator[bytes, None]:
-        try:
-            async for chunk in remote.aiter_bytes():
-                if chunk:
-                    yield chunk
-        finally:
-            await stream.__aexit__(None, None, None)
-            await client.aclose()
-
-    response_headers = _proxy_response_headers(remote.headers)
-    if _should_stream_cloud_proxy_response(request.url.path, remote.headers):
-        response = StreamingResponse(
-            response_iter(),
-            status_code=remote.status_code,
-            headers=response_headers,
-        )
-    else:
-        try:
-            body = await remote.aread()
-        finally:
-            await stream.__aexit__(None, None, None)
-            await client.aclose()
-        response = Response(
-            content=body,
-            status_code=remote.status_code,
-            headers=response_headers,
-            media_type=remote.headers.get("content-type"),
-        )
-    _apply_remote_session_cookie(response, request, remote.headers)
-    return response
+        return await send_once()
+    except httpx.RemoteProtocolError:
+        if request.method.upper() in {"GET", "HEAD"} and not _should_stream_cloud_proxy_response(request.url.path, httpx.Headers()):
+            try:
+                return await send_once()
+            except httpx.RemoteProtocolError as exc:
+                raise HTTPException(status_code=502, detail=f"Cloud workspace response was incomplete: {exc}") from exc
+        raise
 
 
 def _request_access_token(request: Request) -> str:

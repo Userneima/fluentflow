@@ -591,13 +591,14 @@ const AgentTasks = () => {
             .flatMap((result) => Array.isArray(result.value) ? result.value : [])
             .map(markBackendJob);
         const failedFetches = results.filter((result) => result.status === 'rejected');
+        const allFetchesFailed = failedFetches.length === results.length;
         setJobs((current) => {
             const next = mergeJobs(readCachedJobs(), current, fetchedJobs);
             writeWarmJobs(requestCacheAccountId, next);
             writeCachedAccountJobs(requestCacheAccountId, next);
-            return failedFetches.length === results.length && current.length ? current : next;
+            return allFetchesFailed && current.length ? current : next;
         });
-        setError(failedFetches.length ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。' : 'Failed to refresh tasks. Local cache is preserved.') : null);
+        setError(allFetchesFailed ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。' : 'Failed to refresh tasks. Local cache is preserved.') : null);
         setLoading(false);
     }, [cacheAccountId, canUseTaskCache, getJobs, lang, readCachedJobs]);
 

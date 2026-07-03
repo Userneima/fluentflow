@@ -499,6 +499,17 @@ def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
     assert "isLiveTask(job)) return" in source
 
 
+def test_agent_task_refresh_warning_only_when_all_sources_fail() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+
+    assert "const results = await Promise.allSettled([" in source
+    assert "getJobs(100)," in source
+    assert "getJobs(100, {sttProvider: 'local'})," in source
+    assert "const allFetchesFailed = failedFetches.length === results.length" in source
+    assert "return allFetchesFailed && current.length ? current : next;" in source
+    assert "setError(allFetchesFailed ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。'" in source
+
+
 def test_agent_task_retry_resubmits_original_source() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
