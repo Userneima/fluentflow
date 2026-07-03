@@ -231,7 +231,14 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "Study notes" in landing
     assert "Notes generated first" not in landing
     assert "dark:bg-[#20392f] dark:text-[#d7f8eb]" in landing
-    assert "dark:border-[#8fd9c0]/48 dark:bg-[#20392f] dark:text-[#f7f1e5]" in landing
+    assert "Select proof step:" in landing
+    assert "grid grid-cols-4 gap-3" in landing
+    assert "h-2 w-full rounded-full" in landing
+    assert "rounded-full border border-[#dce5d8]/70" not in landing
+    assert "items-start gap-10 py-10" in landing
+    assert "relative min-h-[520px] self-start" in landing
+    assert "sr-only" in landing
+    assert "block text-[10px] font-semibold uppercase tracking-[0.14em]" not in landing
     assert "Compare and correct" not in landing
     assert "Export study asset" not in landing
     assert "Study beside the video" in landing

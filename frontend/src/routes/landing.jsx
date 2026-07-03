@@ -462,7 +462,7 @@ const HeroVisual = ({copy}) => {
     const slideClass = (index, extra = '') => `ff-proof-stage absolute inset-x-4 top-4 grid min-h-[306px] content-center rounded-[22px] border p-5 text-[#17201b] shadow-[0_18px_52px_-40px_rgba(46,73,58,.45)] transition-[opacity,transform] duration-500 ease-out dark:text-[#f7f1e5] sm:inset-x-6 sm:min-h-[330px] sm:p-6 ${activeStep === index ? 'z-10 opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'z-0 pointer-events-none translate-y-3 scale-[0.985] opacity-0'} ${extra}`;
 
     return (
-    <div className="ff-motion-demo relative min-h-[520px] lg:min-h-[560px]" aria-label={copy.label}>
+    <div className="ff-motion-demo relative min-h-[520px] self-start lg:min-h-[560px]" aria-label={copy.label}>
         <style>{`
             @keyframes ffSceneScan {
                 0%, 12% { transform: translateX(0); opacity: .7; }
@@ -507,7 +507,7 @@ const HeroVisual = ({copy}) => {
             </div>
 
             <div className="px-4 pt-4 sm:px-6">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Homepage product proof steps">
+                <div className="grid grid-cols-4 gap-3" role="tablist" aria-label="Homepage product proof steps">
                     {proofSteps.map((step, index) => {
                         const isActive = activeStep === index;
                         return (
@@ -516,16 +516,21 @@ const HeroVisual = ({copy}) => {
                                 type="button"
                                 role="tab"
                                 aria-selected={isActive}
+                                aria-label={`Select proof step: ${step.marker} ${step.label} ${step.title}`}
                                 aria-controls={`ff-proof-panel-${step.id}`}
+                                title={`${step.marker} ${step.label}: ${step.title}`}
                                 onMouseEnter={() => showStep(index)}
                                 onMouseLeave={clearPreview}
                                 onFocus={() => showStep(index)}
                                 onBlur={clearPreview}
                                 onClick={() => selectStep(index)}
-                                className={`group min-w-0 rounded-[15px] border px-3 py-2 text-left ${interactiveMotion} ${isActive ? 'border-[#2a8f75]/55 bg-[#17201b] text-[#fff8ec] shadow-[0_12px_34px_-24px_rgba(23,32,27,.62)] dark:border-[#8fd9c0]/48 dark:bg-[#20392f] dark:text-[#f7f1e5]' : 'border-[#dce5d8] bg-white/64 text-[#5f6a61] hover:border-[#9fcab8] hover:bg-white/84 hover:text-[#17201b] dark:border-white/[0.12] dark:bg-white/[0.055] dark:text-white/[0.62] dark:hover:border-[#8fd9c0]/35 dark:hover:bg-white/[0.10] dark:hover:text-white'} ${focusRing}`}
+                                className={`group flex h-6 min-w-0 items-center rounded-full px-1 ${interactiveMotion} hover:bg-[#e9f1d9]/58 dark:hover:bg-white/[0.06] ${focusRing}`}
                             >
-                                <span className={`${dataType} block text-[10px] font-semibold uppercase tracking-[0.14em] ${isActive ? 'text-[#8fd9c0] dark:text-[#a7efd8]' : 'text-[#2f7c66] dark:text-[#8fd9c0]'}`}>{step.marker} {step.label}</span>
-                                <span className="mt-1 block truncate text-xs font-semibold leading-tight">{step.title}</span>
+                                <span className="sr-only">{step.marker} {step.label}: {step.title}</span>
+                                <span
+                                    aria-hidden="true"
+                                    className={`h-2 w-full rounded-full ${interactiveMotion} ${isActive ? 'bg-[linear-gradient(90deg,#2a8f75,#8fd9c0)] shadow-[inset_0_1px_0_rgba(255,255,255,.28),0_10px_24px_-16px_rgba(42,143,117,.92)] dark:bg-[linear-gradient(90deg,#8fd9c0,#d7f8eb)] dark:shadow-[0_0_18px_rgba(143,217,192,.20)]' : 'bg-[#8c9888]/54 group-hover:bg-[#6fa58f]/66 dark:bg-white/[0.22] dark:group-hover:bg-white/[0.34]'}`}
+                                />
                             </button>
                         );
                     })}
@@ -849,7 +854,7 @@ const Landing = () => {
             </div>
         </header>
 
-        <section id="homepage-hero" className={`${sectionShell} relative z-10 grid min-h-[calc(100dvh-70px)] scroll-mt-24 items-center gap-10 py-10 sm:py-12 lg:grid-cols-[0.9fr_1.1fr] lg:py-14`}>
+        <section id="homepage-hero" className={`${sectionShell} relative z-10 grid min-h-[calc(100dvh-70px)] scroll-mt-24 items-start gap-10 py-10 sm:py-12 lg:grid-cols-[0.9fr_1.1fr] lg:py-14`}>
             <div className="max-w-3xl">
                 <p className={eyebrowClass}>{copy.hero.eyebrow}</p>
                 <h1 className={`mt-5 max-w-[10.8em] ${displayType} text-[42px] font-bold leading-[1.06] tracking-normal text-[#17201b] [text-wrap:balance] dark:text-[#f7f1e5] sm:text-[56px] lg:text-[68px]`}>
