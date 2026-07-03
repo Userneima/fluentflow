@@ -240,6 +240,18 @@ def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch)
     assert _H._request_is_local_execution(remote_local_process_request) is False
 
 
+def test_cloud_workspace_buffers_json_api_but_streams_long_running_routes() -> None:
+    json_headers = _H.httpx.Headers({"content-type": "application/json"})
+    event_headers = _H.httpx.Headers({"content-type": "text/event-stream"})
+    download_headers = _H.httpx.Headers({"content-disposition": 'attachment; filename="source.mp4"'})
+
+    assert _H._should_stream_cloud_proxy_response("/jobs", json_headers) is False
+    assert _H._should_stream_cloud_proxy_response("/auth/status", json_headers) is False
+    assert _H._should_stream_cloud_proxy_response("/process", event_headers) is True
+    assert _H._should_stream_cloud_proxy_response("/jobs/task-1/events", json_headers) is True
+    assert _H._should_stream_cloud_proxy_response("/jobs/task-1/source", download_headers) is True
+
+
 def test_local_status_routes_are_public_only_on_localhost() -> None:
     local_request = Request({
         "type": "http",

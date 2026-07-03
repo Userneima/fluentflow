@@ -53,6 +53,14 @@ def test_frontend_asset_route_serves_javascript_not_spa_html() -> None:
     assert not response.text.lstrip().startswith("<!DOCTYPE html>")
 
 
+def test_svg_favicon_is_served_without_spa_404() -> None:
+    response = TestClient(app).get("/favicon.svg")
+
+    assert response.status_code == 200
+    assert "image/svg+xml" in response.headers["content-type"]
+    assert "<svg" in response.text
+
+
 def test_video_link_pending_task_title_uses_platform_not_tracking_query() -> None:
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")

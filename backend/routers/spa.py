@@ -20,6 +20,18 @@ def favicon() -> Response:
     return Response(status_code=204)
 
 
+@router.get("/favicon.svg")
+def favicon_svg() -> Response:
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<rect width="64" height="64" rx="16" fill="#111111"/>'
+        '<path d="M16 39c9-15 23-15 32 0" fill="none" stroke="#8de7d2" stroke-width="6" stroke-linecap="round"/>'
+        '<path d="M20 25h24" fill="none" stroke="#f4d77a" stroke-width="6" stroke-linecap="round"/>'
+        '</svg>'
+    )
+    return Response(content=svg, media_type="image/svg+xml")
+
+
 @router.get("/", include_in_schema=False)
 def serve_frontend_index() -> FileResponse:
     if not H.FRONTEND_INDEX.exists():

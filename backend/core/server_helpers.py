@@ -263,6 +263,19 @@ def _proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
     return {key: value for key, value in headers.items() if key.lower() not in blocked}
 
 
+def _should_stream_cloud_proxy_response(path: str, headers: httpx.Headers) -> bool:
+    content_type = (headers.get("content-type") or "").lower()
+    if "text/event-stream" in content_type:
+        return True
+    if headers.get("content-disposition"):
+        return True
+    if path == "/process" or path.endswith("/events"):
+        return True
+    if path.endswith("/source") or "/artifacts/" in path:
+        return True
+    return False
+
+
 def _apply_remote_session_cookie(response: Response, request: Request, remote_headers: httpx.Headers) -> None:
     path = request.url.path
     if path == "/auth/logout":
@@ -296,7 +309,7 @@ def _apply_remote_session_cookie(response: Response, request: Request, remote_he
         break
 
 
-async def _proxy_cloud_workspace_request(request: Request) -> StreamingResponse:
+async def _proxy_cloud_workspace_request(request: Request) -> Response:
     base_url = _cloud_workspace_url()
     target = f"{base_url}{request.url.path}"
     if request.url.query:
@@ -335,18 +348,32 @@ async def _proxy_cloud_workspace_request(request: Request) -> StreamingResponse:
 
     async def response_iter() -> AsyncGenerator[bytes, None]:
         try:
-            async for chunk in remote.aiter_raw():
+            async for chunk in remote.aiter_bytes():
                 if chunk:
                     yield chunk
         finally:
             await stream.__aexit__(None, None, None)
             await client.aclose()
 
-    response = StreamingResponse(
-        response_iter(),
-        status_code=remote.status_code,
-        headers=_proxy_response_headers(remote.headers),
-    )
+    response_headers = _proxy_response_headers(remote.headers)
+    if _should_stream_cloud_proxy_response(request.url.path, remote.headers):
+        response = StreamingResponse(
+            response_iter(),
+            status_code=remote.status_code,
+            headers=response_headers,
+        )
+    else:
+        try:
+            body = await remote.aread()
+        finally:
+            await stream.__aexit__(None, None, None)
+            await client.aclose()
+        response = Response(
+            content=body,
+            status_code=remote.status_code,
+            headers=response_headers,
+            media_type=remote.headers.get("content-type"),
+        )
     _apply_remote_session_cookie(response, request, remote.headers)
     return response
 
