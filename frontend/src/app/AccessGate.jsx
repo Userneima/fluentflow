@@ -121,7 +121,7 @@ const AccessGate = ({children}) => {
             <div className="flex min-h-dvh items-center justify-center bg-[#f8f7fb] px-6 text-sm font-semibold text-[#676970] dark:bg-[#101010] dark:text-white/55">
                 <div className="flex items-center gap-3 rounded-[18px] border border-[#dedada] bg-white px-4 py-3 shadow-[0_18px_48px_-36px_rgba(17,17,17,.45)] dark:border-white/[0.12] dark:bg-white/[0.06]">
                     <span className="h-2 w-2 rounded-full bg-[#111111] dark:bg-white"/>
-                    {lang === 'zh' ? '正在检查访问权限…' : 'Checking access…'}
+                    {lang === 'zh' ? '正在打开 FluentFlow…' : 'Opening FluentFlow…'}
                 </div>
             </div>
         );

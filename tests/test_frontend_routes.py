@@ -1384,6 +1384,9 @@ def test_sidebar_uses_processing_records_without_history_entry() -> None:
 def test_auth_status_failure_keeps_login_path_visible() -> None:
     source = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
 
+    assert "正在检查访问权限" not in source
+    assert "Checking access" not in source
+    assert "正在打开 FluentFlow" in source
     assert "} catch(_) {" in source
     assert "setAuthMode('accounts');" in source
     assert "setRequired(true);" in source
