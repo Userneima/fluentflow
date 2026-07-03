@@ -127,6 +127,10 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
     side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
     landing = Path("frontend/src/routes/landing.jsx").read_text(encoding="utf-8")
+    landing_content = Path("frontend/src/routes/landing/content.js").read_text(encoding="utf-8")
+    landing_demo = Path("frontend/src/routes/landing/HeroProofDemo.jsx").read_text(encoding="utf-8")
+    landing_styles = Path("frontend/src/routes/landing/styles.js").read_text(encoding="utf-8")
+    landing_surface = "\n".join([landing, landing_content, landing_demo, landing_styles])
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     about = Path("frontend/src/routes/about.jsx").read_text(encoding="utf-8")
 
@@ -145,21 +149,26 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
         "Public platforms may restrict access.",
         "A record you can study, review, and export.",
     ]:
-        assert expected_copy in landing
+        assert expected_copy in landing_content
 
     for route_link in ['to="/media-text"', 'href="#workflow"', 'to="/agent"']:
         assert route_link in landing
 
+    assert "import HeroProofDemo from './landing/HeroProofDemo.jsx'" in landing
+    assert "landingCopy[language]" in landing
+    assert "sourceIconItems.map" in landing
+    assert "copy.quality.items.map" in landing
+    assert "copy.output.items.map" in landing
     assert "h-dvh overflow-y-auto" in landing
     assert "motion-reduce:scroll-auto" in landing
     assert "fluentflow-landing-language" in landing
     assert "fluentflow-landing-theme" in landing
     assert "setLanguage(value)" in landing
-    assert "Use dark mode" in landing
-    assert "使用暗黑模式" in landing
-    assert "lightGrain" in landing
-    assert "lightPageFrost" in landing
-    assert "darkPageFrost" in landing
+    assert "Use dark mode" in landing_content
+    assert "使用暗黑模式" in landing_content
+    assert "lightGrain" in landing_styles
+    assert "lightPageFrost" in landing_styles
+    assert "darkPageFrost" in landing_styles
 
     for component in [
         "const HeroProofDemo",
@@ -170,30 +179,35 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
         "const ExportStage",
         "const HeroProofMotionStyles",
     ]:
-        assert component in landing
+        assert component in landing_demo
 
     for proof_config in [
         "const proofViewportHeights",
         "const buildProofSteps",
         "const buildProcessingStages",
         "const buildHeroExportGroups",
-        "const sourceIconItems",
     ]:
-        assert proof_config in landing
+        assert proof_config in landing_demo
 
-    assert "ff-motion-demo" in landing
-    assert "ff-proof-stage" in landing
-    assert "carouselStepMs = 6500" in landing
-    assert 'role="tablist"' in landing
-    assert 'role="tab"' in landing
-    assert "aria-selected={isActive}" in landing
-    assert "aria-hidden={!isActive}" in landing
-    assert "onMouseEnter={() => showStep(index)}" in landing
-    assert "onFocus={() => showStep(index)}" in landing
-    assert "onClick={() => selectStep(index)}" in landing
-    assert "setIsManual(true)" in landing
-    assert "fluentflow.app/video-note" in landing
-    assert "prefers-reduced-motion: reduce" in landing
+    for content_config in [
+        "const sourceIconItems",
+        "const landingCopy",
+    ]:
+        assert content_config in landing_content
+
+    assert "ff-motion-demo" in landing_demo
+    assert "ff-proof-stage" in landing_demo
+    assert "carouselStepMs = 6500" in landing_demo
+    assert 'role="tablist"' in landing_demo
+    assert 'role="tab"' in landing_demo
+    assert "aria-selected={isActive}" in landing_demo
+    assert "aria-hidden={!isActive}" in landing_demo
+    assert "onMouseEnter={() => showStep(index)}" in landing_demo
+    assert "onFocus={() => showStep(index)}" in landing_demo
+    assert "onClick={() => selectStep(index)}" in landing_demo
+    assert "setIsManual(true)" in landing_demo
+    assert "prefers-reduced-motion: reduce" in landing_demo
+    assert "fluentflow.app/video-note" in landing_content
 
     for stage_copy in [
         "Upload / paste a long video",
@@ -219,7 +233,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
         "Key moments",
         "Study notes",
     ]:
-        assert stage_copy in landing
+        assert stage_copy in landing_content
 
     for export_copy in [
         "Video and audio",
@@ -242,7 +256,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
         "Study note package",
         ".zip",
     ]:
-        assert export_copy in landing
+        assert export_copy in landing_content
 
     for source_shape in [
         "{key: 'courses'",
@@ -252,27 +266,25 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
         "{key: 'subtitles'",
         "{key: 'links'",
     ]:
-        assert source_shape in landing
+        assert source_shape in landing_content
 
-    assert "Study workspace" not in landing
-    assert "学习工作区" not in landing
-    assert "{copy.eyebrow}" not in landing
-    assert "course-link.mp4" not in landing
-    assert "课程录屏链接.mp4" not in landing
-    assert "Notes generated first" not in landing
-    assert "Compare and correct" not in landing
-    assert "Export study asset" not in landing
-    assert "Fix accepted" not in landing
-    assert "flashcard" not in landing.lower()
-    assert "quiz" not in landing.lower()
-    assert "podcast" not in landing.lower()
-    assert "—" not in landing
-    assert "–" not in landing
+    assert "Study workspace" not in landing_surface
+    assert "学习工作区" not in landing_surface
+    assert "{copy.eyebrow}" not in landing_surface
+    assert "course-link.mp4" not in landing_surface
+    assert "课程录屏链接.mp4" not in landing_surface
+    assert "Notes generated first" not in landing_surface
+    assert "Compare and correct" not in landing_surface
+    assert "Export study asset" not in landing_surface
+    assert "Fix accepted" not in landing_surface
+    assert "flashcard" not in landing_surface.lower()
+    assert "quiz" not in landing_surface.lower()
+    assert "podcast" not in landing_surface.lower()
+    assert "—" not in landing_surface
+    assert "–" not in landing_surface
     assert "to=\"/agent\"" in editor
     assert "edit.chooseRecord" in editor
     assert "to=\"/app\"" in about
-    assert "—" not in landing
-    assert "–" not in landing
 
 
 def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> None:
