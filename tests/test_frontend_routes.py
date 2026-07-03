@@ -833,26 +833,25 @@ def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
     assert "segment?.text_zh" in download
 
 
-def test_editor_surfaces_transcript_correction_without_overwriting_raw_transcript() -> None:
+def test_editor_and_trace_do_not_surface_auto_transcript_correction_ui() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
     correction = Path("frontend/src/lib/transcriptCorrection.js").read_text(encoding="utf-8")
 
-    assert "transcriptCorrectionInfo(result)" in source
-    assert "transcriptCorrectionStatusText(correctionInfo, lang)" in source
-    assert "const showCorrectionDisclosure = !!(" in source
-    assert "字幕纠错记录" in source
-    assert "查看修正" in source
-    assert "这里只展示通过后端验证并被接受的高置信修正" in source
-    assert "转录原文保留未覆盖" in source
     assert "const sourceSegments = pickTranscriptSegments(result);" in source
     assert "corrected_segments" not in source
-    assert "const jobData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}`)" in agent_trace
-    assert "mergeTranscriptCorrectionData(detailData, jobData)" in agent_trace
-    assert "mergeTranscriptCorrectionData(detailData, packageData)" in agent_trace
-    assert "TranscriptCorrectionDisclosure pageData={pageData} lang={lang}" in agent_trace
-    assert "笔记使用了修正后的字幕" in agent_trace
-    assert "原始转录未被覆盖" in agent_trace
+    assert "transcriptCorrectionInfo(result)" not in source
+    assert "transcriptCorrectionStatusText(correctionInfo, lang)" not in source
+    assert "showCorrectionDisclosure" not in source
+    assert "correctionDetailsOpen" not in source
+    assert "字幕纠错记录" not in source
+    assert "查看修正" not in source
+    assert "这里只展示通过后端验证并被接受的高置信修正" not in source
+    assert "转录原文保留未覆盖" not in source
+    assert "mergeTranscriptCorrectionData" not in agent_trace
+    assert "TranscriptCorrectionDisclosure" not in agent_trace
+    assert "笔记使用了修正后的字幕" not in agent_trace
+    assert "原始转录未被覆盖" not in agent_trace
     assert "payload.note_generation_transcript_source" in correction
     assert "transcript.note_input_source" in correction
     assert "payload.transcript_corrections || transcript.corrections" in correction
