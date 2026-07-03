@@ -96,7 +96,9 @@ const Tasks = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
-    const initialCachedJobs = () => readCachedAccountJobs(cacheAccountId);
+    const canUseTaskCache = authMode !== 'accounts' || !!user?.id;
+    const activeCacheAccountIdRef = useRef(cacheAccountId);
+    const initialCachedJobs = () => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : [];
     const readCachedJobs = useCallback(() => readCachedAccountJobs(cacheAccountId), [cacheAccountId]);
     const [jobs, setJobs] = useState(initialCachedJobs);
     const [loading, setLoading] = useState(() => initialCachedJobs().length === 0);
@@ -138,17 +140,24 @@ const Tasks = () => {
     const hasLiveJobs = Boolean(queueUploadJob || jobs.some(isLiveJob));
 
     const loadJobs = useCallback(async () => {
+        if (!canUseTaskCache) {
+            setJobs([]);
+            setLoading(false);
+            return;
+        }
+        const requestCacheAccountId = cacheAccountId;
         const results = await Promise.allSettled([
             getJobs(100),
             getJobs(100, {sttProvider: 'local'}),
         ]);
+        if (activeCacheAccountIdRef.current !== requestCacheAccountId) return;
         const fetchedJobs = results
             .filter((result) => result.status === 'fulfilled')
             .flatMap((result) => Array.isArray(result.value) ? result.value : []);
         const failedFetches = results.filter((result) => result.status === 'rejected');
         setJobs((current) => {
             const byId = new Map();
-            [...readCachedJobs(), ...current].forEach((job) => {
+            readCachedJobs().forEach((job) => {
                 const taskId = taskIdForJob(job);
                 if (!taskId || locallyDeletedTaskIdsRef.current.has(taskId)) return;
                 byId.set(taskId, job);
@@ -179,7 +188,7 @@ const Tasks = () => {
             if (next.length === 0 && failedFetches.length === results.length) {
                 return current.length ? current : readCachedJobs();
             }
-            writeCachedAccountJobs(cacheAccountId, next);
+            writeCachedAccountJobs(requestCacheAccountId, next);
             return next;
         });
         if (failedFetches.length) {
@@ -188,7 +197,17 @@ const Tasks = () => {
             setError(null);
         }
         setLoading(false);
-    }, [cacheAccountId, getJobs, lang, readCachedJobs]);
+    }, [cacheAccountId, canUseTaskCache, getJobs, lang, readCachedJobs]);
+
+    useEffect(() => {
+        activeCacheAccountIdRef.current = cacheAccountId;
+        const cached = canUseTaskCache ? readCachedJobs() : [];
+        setJobs(cached);
+        setLoading(canUseTaskCache && cached.length === 0);
+        setError(location.state?.queueSubmitError || null);
+        locallyCancelledTaskIdsRef.current.clear();
+        locallyDeletedTaskIdsRef.current.clear();
+    }, [cacheAccountId, canUseTaskCache, readCachedJobs, location.state?.queueSubmitError]);
 
     useEffect(() => {
         if(location.state?.queueSubmitError) {

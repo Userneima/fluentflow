@@ -262,17 +262,18 @@ export const AppProvider = ({children}) => {
             }
         } catch(_) {}
         const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
-        if (guestMode || (authMode === 'accounts' && !user?.id)) {
+        const accountReady = authMode !== 'accounts' || !!user?.id;
+        setCurrentJob(null);
+        setLastResult(null);
+        if (guestMode || !accountReady) {
             setHistory([]);
             return;
         }
         const cachedJobs = readCachedAccountJobs(accountCacheId);
-        if (cachedJobs.length) {
-            const cachedEntries = sortJobsForHistoryView(cachedJobs)
-                .filter(jobVisibleInHistory)
-                .map(jobToHistoryEntry);
-            setHistory(cachedEntries);
-        }
+        const cachedEntries = sortJobsForHistoryView(cachedJobs)
+            .filter(jobVisibleInHistory)
+            .map(jobToHistoryEntry);
+        setHistory(cachedEntries);
         Promise.allSettled([
             apiFetch(`${API_BASE}/jobs?limit=100`),
             apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})}),
@@ -284,7 +285,10 @@ export const AppProvider = ({children}) => {
                     return Array.isArray(data?.jobs) ? data.jobs : [];
                 }));
                 const fetchedJobs = groups.flat();
-                if (!fetchedJobs.length) return;
+                if (!fetchedJobs.length) {
+                    if (!cancelled) setHistory(cachedEntries);
+                    return;
+                }
                 const nextJobs = sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs));
                 writeCachedAccountJobs(accountCacheId, nextJobs);
                 const entries = nextJobs

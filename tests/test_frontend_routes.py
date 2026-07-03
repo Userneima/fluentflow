@@ -113,7 +113,7 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
     assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
-    assert "mergeJobs(seededJob ? [seededJob] : [], readCachedJobs())" in agent_tasks
+    assert "mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readCachedJobs())" in agent_tasks
     assert "displayJobs.map((job) => (" in agent_tasks
     assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
     assert "查看详情" not in agent_tasks
@@ -402,7 +402,8 @@ def test_tasks_polling_respects_local_cancel_and_delete_mutations() -> None:
     assert "const locallyDeletedTaskIdsRef = useRef(new Set())" in source
     assert "const results = await Promise.allSettled([" in source
     assert "setJobs((current) => {" in source
-    assert "[...readCachedJobs(), ...current]" in source
+    assert "readCachedJobs().forEach((job) => {" in source
+    assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
     assert "const [jobs, setJobs] = useState(initialCachedJobs)" in source
     assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in source
     assert "map(markCachedOnlyJob)" not in source
@@ -505,7 +506,7 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in shared
     assert "mergeCachedJobs," in shared
     assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in shared
-    assert "const initialCachedJobs = () => readCachedAccountJobs(cacheAccountId)" in tasks
+    assert "const initialCachedJobs = () => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : []" in tasks
     assert "const [jobs, setJobs] = useState(initialCachedJobs)" in tasks
     assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in tasks
     assert "sortJobsForHistoryView(" in tasks
@@ -648,6 +649,28 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     assert "setFeishuExportPromptOpen(true)" in editor
     assert "err?.status === 409" in editor
     assert "当前导出路线会写入你自己的飞书空间" in editor
+
+
+def test_task_record_pages_isolate_account_cache_state() -> None:
+    tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    for source in (tasks, agent_tasks):
+        assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in source
+        assert "const activeCacheAccountIdRef = useRef(cacheAccountId)" in source
+        assert "const requestCacheAccountId = cacheAccountId" in source
+        assert "if (activeCacheAccountIdRef.current !== requestCacheAccountId) return" in source
+        assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
+        assert "activeCacheAccountIdRef.current = cacheAccountId" in source
+        assert "setJobs(cached" in source or "setJobs(mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], cached))" in source
+
+    assert "const next = mergeJobs(readCachedJobs(), current, fetchedJobs)" not in agent_tasks
+    assert "const accountReady = authMode !== 'accounts' || !!user?.id" in shared
+    assert "setCurrentJob(null)" in shared
+    assert "setLastResult(null)" in shared
+    assert "setHistory(cachedEntries)" in shared
+    assert "if (!fetchedJobs.length)" in shared
 
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:

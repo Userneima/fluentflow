@@ -443,10 +443,12 @@ const AgentTasks = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
-    const readCachedJobs = useCallback(() => readCachedAccountJobs(cacheAccountId), [cacheAccountId]);
+    const canUseTaskCache = authMode !== 'accounts' || !!user?.id;
+    const activeCacheAccountIdRef = useRef(cacheAccountId);
+    const readCachedJobs = useCallback(() => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : [], [cacheAccountId, canUseTaskCache]);
     const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
-    const [jobs, setJobs] = useState(() => mergeJobs(seededJob ? [seededJob] : [], readCachedJobs()));
-    const [loading, setLoading] = useState(() => readCachedJobs().length === 0);
+    const [jobs, setJobs] = useState(() => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readCachedJobs()));
+    const [loading, setLoading] = useState(() => canUseTaskCache && readCachedJobs().length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
@@ -462,23 +464,39 @@ const AgentTasks = () => {
     const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
 
     const loadJobs = useCallback(async () => {
+        if (!canUseTaskCache) {
+            setJobs([]);
+            setLoading(false);
+            return;
+        }
+        const requestCacheAccountId = cacheAccountId;
         const results = await Promise.allSettled([
             getJobs(100),
             getJobs(100, {sttProvider: 'local'}),
         ]);
+        if (activeCacheAccountIdRef.current !== requestCacheAccountId) return;
         const fetchedJobs = results
             .filter((result) => result.status === 'fulfilled')
             .flatMap((result) => Array.isArray(result.value) ? result.value : [])
             .map(markBackendJob);
         const failedFetches = results.filter((result) => result.status === 'rejected');
         setJobs((current) => {
-            const next = mergeJobs(readCachedJobs(), current, fetchedJobs);
-            writeCachedAccountJobs(cacheAccountId, next);
+            const next = mergeJobs(readCachedJobs(), fetchedJobs);
+            writeCachedAccountJobs(requestCacheAccountId, next);
             return failedFetches.length === results.length && current.length ? current : next;
         });
         setError(failedFetches.length ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。' : 'Failed to refresh tasks. Local cache is preserved.') : null);
         setLoading(false);
-    }, [cacheAccountId, getJobs, lang, readCachedJobs]);
+    }, [cacheAccountId, canUseTaskCache, getJobs, lang, readCachedJobs]);
+
+    useEffect(() => {
+        activeCacheAccountIdRef.current = cacheAccountId;
+        const cached = canUseTaskCache ? readCachedJobs() : [];
+        setJobs(mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], cached));
+        setLoading(canUseTaskCache && cached.length === 0);
+        setError(location.state?.queueSubmitError || null);
+        locallyCancelledTaskIdsRef.current.clear();
+    }, [cacheAccountId, canUseTaskCache, readCachedJobs, seededJob, location.state?.queueSubmitError]);
 
     useEffect(() => {
         if (location.state?.queueSubmitError || location.state?.queueSubmittedAt) {
