@@ -1493,6 +1493,20 @@ async def process_video(
                             None,
                             lambda: H.export_markdown_via_lark_cli(doc_title, summary_md),
                         )
+                    elif export_target == "feishu_user_oauth":
+                        user = H._require_account_user(request)
+                        user_access_token = H.get_valid_feishu_user_access_token(str(user["id"]))
+                        resp = await loop.run_in_executor(
+                            None,
+                            lambda: H.export_markdown_to_lark(
+                                doc_title,
+                                summary_md,
+                                task_id=task_id_value,
+                                artifact_root=H._artifact_storage_dir(),
+                                user_access_token=user_access_token,
+                                **lark_kwargs,
+                            ),
+                        )
                     else:
                         resp = await loop.run_in_executor(
                             None,
@@ -1779,6 +1793,20 @@ async def export_lark(
             resp = await loop.run_in_executor(
                 None, lambda: H.export_markdown_via_lark_cli(resolved, markdown)
             )
+        elif export_target == "feishu_user_oauth":
+            user = H._require_account_user(request)
+            user_access_token = H.get_valid_feishu_user_access_token(str(user["id"]))
+            resp = await loop.run_in_executor(
+                None,
+                lambda: H.export_markdown_to_lark(
+                    resolved,
+                    markdown,
+                    task_id=task_id_value,
+                    artifact_root=H._artifact_storage_dir(),
+                    user_access_token=user_access_token,
+                    **kwargs,
+                )
+            )
         else:
             resp = await loop.run_in_executor(
                 None,
@@ -1809,6 +1837,25 @@ async def export_lark(
             metadata=H._metadata(route="/export-lark", trigger="manual", doc_title=resolved),
         )
         return resp
+    except HTTPException:
+        raise
+    except H.FeishuConnectionRequired as exc:
+        friendly_error = str(exc)
+        H.log_event(
+            task_id=task_id_value,
+            event_name="lark_export_completed",
+            source_type=source_type,
+            source_filename=source_filename,
+            source_duration_seconds=source_duration_seconds,
+            summary_length=H._text_len(markdown),
+            stage="export",
+            duration_seconds=round(time.perf_counter() - started_at, 3),
+            success=False,
+            error_reason=friendly_error,
+            export_target=export_target,
+            metadata=H._metadata(route="/export-lark", trigger="manual", doc_title=resolved, feishu_connection_required=True),
+        )
+        raise HTTPException(status_code=409, detail=friendly_error) from exc
     except Exception as exc:
         friendly_error = H._friendly_error_message(exc)
         H.log_event(

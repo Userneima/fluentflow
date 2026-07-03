@@ -46,6 +46,26 @@ class TestLarkExporter(unittest.TestCase):
         )
         self.assertTrue(out.get("dry_run"))
 
+    def test_export_markdown_to_lark_can_use_user_access_token_without_tenant_token(self) -> None:
+        with patch("backend.core.lark_exporter._create_empty_doc_with_token", return_value="doc_user") as mock_create, \
+             patch("backend.core.lark_exporter._get_tenant_token") as mock_tenant, \
+             patch("backend.core.lark_exporter._post_block_children", return_value={
+                 "code": 0,
+                 "data": {"children": [{"block_id": "block_1"}], "document_revision_id": 2},
+             }) as mock_write:
+            out = export_markdown_to_lark(
+                self.title,
+                self.md,
+                user_access_token="user-token",
+            )
+
+        mock_create.assert_called_once()
+        self.assertEqual(mock_create.call_args.args[0], "user-token")
+        mock_tenant.assert_not_called()
+        mock_write.assert_called()
+        self.assertEqual(out["auth_mode"], "user_oauth")
+        self.assertEqual(out["doc_token"], "doc_user")
+
     def test_markdown_blocks_use_current_docx_block_types(self) -> None:
         blocks = markdown_to_feishu_blocks(
             "# 标题\n\n1. 第一项\n\n- 要点A\n\n```\ncode\n```\n\n***"

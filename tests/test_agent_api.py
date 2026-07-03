@@ -381,3 +381,54 @@ def test_agent_export_uses_stored_note_markdown(monkeypatch) -> None:
     assert data["export"]["url"] == "https://feishu.cn/docx/demo"
     assert data["package"]["note"]["markdown"] == "# Note"
     assert stored["updated"]["result"]["exports"][0]["url"] == "https://feishu.cn/docx/demo"
+
+
+def test_agent_export_can_use_feishu_user_oauth_route(monkeypatch) -> None:
+    stored: dict[str, object] = {}
+    captured: dict[str, object] = {}
+
+    def fake_get_job(task_id: str, client_id: str | None = None):
+        if stored.get("updated"):
+            return stored["updated"]
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "stage": "done",
+            "progress": 100,
+            "source_type": "video",
+            "source_filename": "demo.mp4",
+            "summary_status": "completed",
+            "result": {"task_id": task_id, "filename": "demo.mp4", "summary_markdown": "# Note", "transcript_text": "Hello"},
+        }
+
+    def fake_upsert_job(**kwargs):
+        stored["updated"] = {
+            "task_id": kwargs["task_id"],
+            "status": kwargs["status"],
+            "stage": kwargs["stage"],
+            "progress": kwargs["progress"],
+            "summary_status": kwargs["summary_status"],
+            "source_type": kwargs["source_type"],
+            "source_filename": kwargs["source_filename"],
+            "result": kwargs["result"],
+        }
+
+    def fake_export(title, markdown, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "url": "https://feishu.cn/docx/user", "auth_mode": "user_oauth"}
+
+    monkeypatch.setattr(H, "_request_client_scope", lambda request: "user:account-1")
+    monkeypatch.setattr(H, "get_valid_feishu_user_access_token", lambda user_id: f"user-token-for-{user_id}")
+    monkeypatch.setattr(H, "get_job", fake_get_job)
+    monkeypatch.setattr(H, "upsert_job", fake_upsert_job)
+    monkeypatch.setattr(H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(H, "export_markdown_to_lark", fake_export)
+
+    response = TestClient(app).post(
+        "/agent/v1/tasks/task-export/exports",
+        json={"target": "lark", "title": "Demo", "lark_export_route": "user_oauth"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["export"]["route"] == "feishu_user_oauth"
+    assert captured["user_access_token"] == "user-token-for-account-1"

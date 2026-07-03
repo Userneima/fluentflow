@@ -33,6 +33,7 @@
 
 ### 维护者变化
 
+- 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。
 - 官网首页拆出 content、styles 和 HeroProofDemo 局部模块，让 landing route 只保留页面编排、语言/主题状态和 section 组合，便于后续商业官网扩展。
 - 官网首页右侧 hero proof demo 拆成独立的步骤控件、四个阶段组件和配置数组，后续调整输入、处理、学习复查与导出步骤时不再把状态机、动画和全部 JSX 混在一个组件里。
 

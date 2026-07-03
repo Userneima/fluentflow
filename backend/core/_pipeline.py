@@ -855,6 +855,8 @@ def _lark_export_target(lark_export_route=None, lark_via_cli=None) -> str:
     route = (lark_export_route or "").strip().lower()
     if route in {"local_cli", "lark_cli"}:
         return "lark_cli"
+    if route in {"user_oauth", "feishu_user", "feishu_user_oauth", "lark_user_oauth"}:
+        return "feishu_user_oauth"
     if route in {"openapi", "lark_openapi"}:
         return "lark_openapi"
     return "lark_cli" if _truthy_form(lark_via_cli) else "lark_openapi"

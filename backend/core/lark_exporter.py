@@ -237,6 +237,42 @@ def _public_docx_url(doc_id: str, base_url: str) -> str:
     return f"https://larksuite.com/docx/{doc_id}"
 
 
+def _create_empty_doc_with_token(
+    token: str,
+    base_url: str,
+    title: str,
+    folder_token: Optional[str],
+    timeout: int,
+) -> str:
+    url = f"{base_url.rstrip('/')}/open-apis/docx/v1/documents"
+    body: dict[str, Any] = {"title": title}
+    if folder_token:
+        body["folder_token"] = folder_token
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Feishu create-doc HTTP {exc.code}: {raw[:1200]}") from exc
+    if data.get("code") != 0:
+        raise RuntimeError(f"Feishu create-doc error: {data}")
+    payload = data.get("data") or {}
+    doc = payload.get("document") if isinstance(payload.get("document"), dict) else payload
+    doc_id = doc.get("document_id") or doc.get("doc_token") or doc.get("token")
+    if not doc_id:
+        raise RuntimeError(f"Feishu create-doc response missing document_id: {data}")
+    return str(doc_id)
+
+
 def _convert_markdown_via_openapi(
     token: str, base_url: str, markdown: str, timeout: int
 ) -> dict:
@@ -491,12 +527,14 @@ class LarkExporter:
         app_secret: Optional[str] = None,
         base_url: str = DEFAULT_BASE_URL,
         *,
+        user_access_token: Optional[str] = None,
         timeout: int = 15,
         dry_run: bool = False,
     ) -> None:
         load_dotenv()
         self.app_id = app_id or os.environ.get("LARK_APP_ID")
         self.app_secret = app_secret or os.environ.get("LARK_APP_SECRET")
+        self.user_access_token = (user_access_token or "").strip()
         env_base = (os.environ.get("LARK_OPEN_BASE_URL") or "").strip()
         if env_base:
             self.base_url = env_base.rstrip("/")
@@ -506,6 +544,8 @@ class LarkExporter:
         self.dry_run = bool(dry_run)
 
     def _require_creds(self) -> None:
+        if self.user_access_token:
+            return
         if not (self.app_id and self.app_secret):
             raise ValueError(
                 "Lark credentials not set: provide app_id/app_secret or "
@@ -643,10 +683,16 @@ class LarkExporter:
             )
             return {"ok": True, "dry_run": True, "title": title, "block_count": len(blocks)}
 
-        doc_id = self._create_empty_doc(title, folder_token)
-        token = _get_tenant_token(
-            self.app_id, self.app_secret, self.base_url, self.timeout
-        )
+        if self.user_access_token:
+            token = self.user_access_token
+            doc_id = _create_empty_doc_with_token(token, self.base_url, title, folder_token, self.timeout)
+            auth_mode = "user_oauth"
+        else:
+            doc_id = self._create_empty_doc(title, folder_token)
+            token = _get_tenant_token(
+                self.app_id, self.app_secret, self.base_url, self.timeout
+            )
+            auth_mode = "tenant_token"
         conv_timeout = max(self.timeout, 90)
         # 默认走内置扁平块写入。官方 convert 会把 Markdown 表格转成嵌套 table/table_cell
         # 块，但 create-children 接口当前会拒绝这类嵌套结构，导致整次导出失败。
@@ -705,6 +751,7 @@ class LarkExporter:
             "image_upload_count": image_upload_count,
             "image_upload_errors": image_upload_errors,
             "via": "openapi_convert" if used_convert else "legacy_markdown",
+            "auth_mode": auth_mode,
             "url": _public_docx_url(doc_id, self.base_url),
         }
 
@@ -717,6 +764,7 @@ def export_markdown_to_lark(
     app_secret: Optional[str] = None,
     folder_token: Optional[str] = None,
     base_url: str = DEFAULT_BASE_URL,
+    user_access_token: Optional[str] = None,
     timeout: int = 15,
     dry_run: bool = False,
     task_id: Optional[str] = None,
@@ -727,6 +775,7 @@ def export_markdown_to_lark(
         app_id=app_id,
         app_secret=app_secret,
         base_url=base_url,
+        user_access_token=user_access_token,
         timeout=timeout,
         dry_run=dry_run,
     )

@@ -342,6 +342,12 @@ Top-level shape:
 | `next_actions` | Agent-callable follow-up actions, such as `wait` or `regenerate_note`. |
 | `processing_plan` | Same Processing Plan v1 object exposed on the result, generated on read for old tasks when missing. |
 
+Agent export actions append result `exports` records. For Feishu/Lark exports,
+`exports[].route` may be `lark_openapi`, `lark_cli`, or `feishu_user_oauth`.
+The `feishu_user_oauth` route means the export used the connected FluentFlow
+account's Feishu user authorization; user access tokens and refresh tokens must
+never be returned in result payloads or Agent packages.
+
 `note.diagnosis` explains failure or missing-note cases with:
 
 | Field | Meaning |

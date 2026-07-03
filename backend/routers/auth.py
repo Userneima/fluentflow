@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 import hmac
+import os
 
 from fastapi import APIRouter, Body, HTTPException, Request, Response
 
@@ -125,6 +126,68 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
 def account_quota(request: Request) -> dict[str, Any]:
     user = H._require_account_user(request)
     return H._account_quota_payload(user)
+
+
+def _feishu_redirect_uri(request: Request, explicit: str | None = None) -> str:
+    configured = (explicit or os.environ.get("FEISHU_OAUTH_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+    return str(request.url_for("feishu_oauth_callback"))
+
+
+@router.get("/account/feishu/connection")
+def account_feishu_connection(request: Request) -> dict[str, Any]:
+    user = H._require_account_user(request)
+    return {
+        "ok": True,
+        "connection": H.feishu_connection_status(str(user["id"])),
+    }
+
+
+@router.post("/account/feishu/oauth/start")
+def start_feishu_oauth(
+    request: Request,
+    payload: dict[str, Any] = Body(default={}),
+) -> dict[str, Any]:
+    user = H._require_account_user(request)
+    try:
+        data = H.create_feishu_authorize_url(
+            user_id=str(user["id"]),
+            redirect_uri=_feishu_redirect_uri(request, str(payload.get("redirect_uri") or "")),
+            next_url=str(payload.get("next_url") or "") or None,
+        )
+    except H.FeishuOAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, **data}
+
+
+@router.get("/account/feishu/oauth/callback", name="feishu_oauth_callback")
+def feishu_oauth_callback(request: Request, code: str = "", state: str = "") -> dict[str, Any]:
+    user = H._require_account_user(request)
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Feishu OAuth callback is missing code or state.")
+    try:
+        return H.complete_feishu_oauth_callback(
+            user_id=str(user["id"]),
+            code=code,
+            state=state,
+        )
+    except H.FeishuOAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/account/feishu/disconnect")
+def disconnect_account_feishu(request: Request) -> dict[str, Any]:
+    user = H._require_account_user(request)
+    return {
+        "ok": True,
+        "connection": H.disconnect_feishu_user(str(user["id"])),
+    }
+
+
+@router.delete("/account/feishu/connection")
+def delete_account_feishu_connection(request: Request) -> dict[str, Any]:
+    return disconnect_account_feishu(request)
 
 
 def _api_key_owner_for_request(request: Request) -> tuple[str, str | None]:

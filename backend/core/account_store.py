@@ -79,6 +79,40 @@ def ensure_account_db(db_path: Path | str | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+            CREATE TABLE IF NOT EXISTS feishu_connections (
+                user_id TEXT PRIMARY KEY,
+                owner_scope TEXT NOT NULL,
+                feishu_open_id TEXT,
+                feishu_union_id TEXT,
+                feishu_user_id TEXT,
+                tenant_key TEXT,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                access_token_expires_at TEXT,
+                refresh_token_expires_at TEXT,
+                scopes TEXT,
+                connected_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                revoked_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_feishu_connections_owner_scope ON feishu_connections(owner_scope);
+            CREATE INDEX IF NOT EXISTS idx_feishu_connections_open_id ON feishu_connections(feishu_open_id);
+
+            CREATE TABLE IF NOT EXISTS feishu_oauth_states (
+                state_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                owner_scope TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                next_url TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_feishu_oauth_states_user_id ON feishu_oauth_states(user_id);
+            CREATE INDEX IF NOT EXISTS idx_feishu_oauth_states_expires_at ON feishu_oauth_states(expires_at);
             """
         )
 
@@ -297,3 +331,227 @@ def revoke_session(token: str | None, db_path: Path | str | None = None) -> None
     ensure_account_db(db_path)
     with sqlite3.connect(_db_path(db_path)) as conn:
         conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_session_token_hash(token_text),))
+
+
+def _state_hash(state: str) -> str:
+    return hashlib.sha256(state.encode("utf-8")).hexdigest()
+
+
+def create_feishu_oauth_state(
+    user_id: str,
+    *,
+    redirect_uri: str,
+    owner_scope: str | None = None,
+    next_url: str | None = None,
+    ttl_seconds: int = 600,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    if not user_id:
+        raise ValueError("user_id is required")
+    if not redirect_uri:
+        raise ValueError("redirect_uri is required")
+    ensure_account_db(db_path)
+    state = secrets.token_urlsafe(32)
+    now = _now()
+    expires = now + timedelta(seconds=max(int(ttl_seconds or 600), 60))
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO feishu_oauth_states
+                (state_hash, user_id, owner_scope, redirect_uri, next_url, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _state_hash(state),
+                user_id,
+                owner_scope or f"user:{user_id}",
+                redirect_uri,
+                (next_url or "")[:500] or None,
+                now.isoformat(timespec="seconds"),
+                expires.isoformat(timespec="seconds"),
+            ),
+        )
+    return {
+        "state": state,
+        "user_id": user_id,
+        "owner_scope": owner_scope or f"user:{user_id}",
+        "redirect_uri": redirect_uri,
+        "next_url": next_url,
+        "expires_at": expires.isoformat(timespec="seconds"),
+    }
+
+
+def consume_feishu_oauth_state(
+    state: str,
+    *,
+    user_id: str,
+    db_path: Path | str | None = None,
+) -> dict[str, Any] | None:
+    if not state or not user_id:
+        return None
+    ensure_account_db(db_path)
+    state_digest = _state_hash(state)
+    now = _now()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM feishu_oauth_states WHERE state_hash = ?",
+            (state_digest,),
+        ).fetchone()
+        if row is None:
+            return None
+        expires = _parse_iso(row["expires_at"])
+        if row["user_id"] != user_id or row["consumed_at"] or expires is None or expires < now:
+            return None
+        consumed_at = now.isoformat(timespec="seconds")
+        conn.execute(
+            "UPDATE feishu_oauth_states SET consumed_at = ? WHERE state_hash = ?",
+            (consumed_at, state_digest),
+        )
+    return {
+        "user_id": row["user_id"],
+        "owner_scope": row["owner_scope"],
+        "redirect_uri": row["redirect_uri"],
+        "next_url": row["next_url"],
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "consumed_at": consumed_at,
+    }
+
+
+def _connection_public_payload(row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    if row is None:
+        return {
+            "connected": False,
+            "provider": "feishu",
+        }
+    revoked_at = row["revoked_at"] if isinstance(row, sqlite3.Row) else row.get("revoked_at")
+    connected = not bool(revoked_at)
+    return {
+        "connected": connected,
+        "provider": "feishu",
+        "owner_scope": row["owner_scope"] if isinstance(row, sqlite3.Row) else row.get("owner_scope"),
+        "feishu_open_id": row["feishu_open_id"] if isinstance(row, sqlite3.Row) else row.get("feishu_open_id"),
+        "feishu_union_id": row["feishu_union_id"] if isinstance(row, sqlite3.Row) else row.get("feishu_union_id"),
+        "feishu_user_id": row["feishu_user_id"] if isinstance(row, sqlite3.Row) else row.get("feishu_user_id"),
+        "tenant_key": row["tenant_key"] if isinstance(row, sqlite3.Row) else row.get("tenant_key"),
+        "access_token_expires_at": row["access_token_expires_at"] if isinstance(row, sqlite3.Row) else row.get("access_token_expires_at"),
+        "refresh_token_expires_at": row["refresh_token_expires_at"] if isinstance(row, sqlite3.Row) else row.get("refresh_token_expires_at"),
+        "scopes": row["scopes"] if isinstance(row, sqlite3.Row) else row.get("scopes"),
+        "connected_at": row["connected_at"] if isinstance(row, sqlite3.Row) else row.get("connected_at"),
+        "updated_at": row["updated_at"] if isinstance(row, sqlite3.Row) else row.get("updated_at"),
+        "revoked_at": revoked_at,
+    }
+
+
+def save_feishu_connection(
+    user_id: str,
+    *,
+    access_token: str,
+    refresh_token: str | None = None,
+    expires_in: int | None = None,
+    refresh_expires_in: int | None = None,
+    feishu_open_id: str | None = None,
+    feishu_union_id: str | None = None,
+    feishu_user_id: str | None = None,
+    tenant_key: str | None = None,
+    scopes: str | None = None,
+    owner_scope: str | None = None,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    if not user_id:
+        raise ValueError("user_id is required")
+    token = (access_token or "").strip()
+    if not token:
+        raise ValueError("access_token is required")
+    ensure_account_db(db_path)
+    now = _now()
+    now_text = now.isoformat(timespec="seconds")
+    access_expires_at = (
+        now + timedelta(seconds=max(int(expires_in or 0), 0))
+    ).isoformat(timespec="seconds") if expires_in else None
+    refresh_expires_at = (
+        now + timedelta(seconds=max(int(refresh_expires_in or 0), 0))
+    ).isoformat(timespec="seconds") if refresh_expires_in else None
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        existing = conn.execute(
+            "SELECT connected_at FROM feishu_connections WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        connected_at = existing[0] if existing else now_text
+        conn.execute(
+            """
+            INSERT INTO feishu_connections (
+                user_id, owner_scope, feishu_open_id, feishu_union_id, feishu_user_id,
+                tenant_key, access_token, refresh_token, access_token_expires_at,
+                refresh_token_expires_at, scopes, connected_at, updated_at, revoked_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(user_id) DO UPDATE SET
+                owner_scope = excluded.owner_scope,
+                feishu_open_id = excluded.feishu_open_id,
+                feishu_union_id = excluded.feishu_union_id,
+                feishu_user_id = excluded.feishu_user_id,
+                tenant_key = excluded.tenant_key,
+                access_token = excluded.access_token,
+                refresh_token = COALESCE(excluded.refresh_token, feishu_connections.refresh_token),
+                access_token_expires_at = excluded.access_token_expires_at,
+                refresh_token_expires_at = COALESCE(excluded.refresh_token_expires_at, feishu_connections.refresh_token_expires_at),
+                scopes = excluded.scopes,
+                updated_at = excluded.updated_at,
+                revoked_at = NULL
+            """,
+            (
+                user_id,
+                owner_scope or f"user:{user_id}",
+                (feishu_open_id or "").strip() or None,
+                (feishu_union_id or "").strip() or None,
+                (feishu_user_id or "").strip() or None,
+                (tenant_key or "").strip() or None,
+                token,
+                (refresh_token or "").strip() or None,
+                access_expires_at,
+                refresh_expires_at,
+                (scopes or "").strip() or None,
+                connected_at,
+                now_text,
+            ),
+        )
+    return get_feishu_connection_status(user_id, db_path=db_path)
+
+
+def get_feishu_connection(user_id: str, db_path: Path | str | None = None) -> dict[str, Any] | None:
+    if not user_id:
+        return None
+    ensure_account_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM feishu_connections WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def get_feishu_connection_status(user_id: str, db_path: Path | str | None = None) -> dict[str, Any]:
+    connection = get_feishu_connection(user_id, db_path=db_path)
+    return _connection_public_payload(connection)
+
+
+def disconnect_feishu_connection(user_id: str, db_path: Path | str | None = None) -> dict[str, Any]:
+    if not user_id:
+        raise ValueError("user_id is required")
+    ensure_account_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.execute(
+            """
+            UPDATE feishu_connections
+            SET access_token = '', refresh_token = '', revoked_at = ?, updated_at = ?
+            WHERE user_id = ?
+            """,
+            (now, now, user_id),
+        )
+    return get_feishu_connection_status(user_id, db_path=db_path)

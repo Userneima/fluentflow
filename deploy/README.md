@@ -60,6 +60,16 @@ sudo chown fluentflow:fluentflow /etc/fluentflow/fluentflow.env
 - `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`
 - 如果需要飞书导出，再配置 `LARK_APP_ID` / `LARK_APP_SECRET`
 
+正式多用户飞书导出应使用用户 OAuth connection，而不是维护者账号替所有用户创建文档。`LARK_APP_ID` / `LARK_APP_SECRET` 是 FluentFlow 飞书应用凭证；生产环境还应在飞书开放平台配置回调地址，并设置：
+
+```bash
+FEISHU_OAUTH_REDIRECT_URI=https://your-domain.example/account/feishu/oauth/callback
+# 国内飞书部署通常还需要：
+LARK_OPEN_BASE_URL=https://open.feishu.cn
+```
+
+后端账号库会保存 Feishu refresh token。请确保账号库路径只对 FluentFlow 服务用户可读写；更严格的生产环境应接入 KMS 或数据库字段加密。
+
 如果启用“关键截图写入笔记”，飞书应用除了文档创建/写入权限外，还要具备文档图片素材上传和替换 docx 图片块的权限；否则飞书文档可能只有文字，没有截图。
 
 正式上线建议启用账号系统，而不是访问码：

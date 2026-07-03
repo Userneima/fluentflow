@@ -485,6 +485,15 @@ try:
     from backend.core.lark_exporter import export_markdown_to_lark
     from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
     from backend.core.note_title import resolve_lark_doc_title
+    from backend.core.feishu_oauth import (
+        FeishuConnectionRequired,
+        FeishuOAuthError,
+        complete_feishu_oauth_callback,
+        create_feishu_authorize_url,
+        disconnect_feishu_user,
+        feishu_connection_status,
+        get_valid_feishu_user_access_token,
+    )
     from backend.core.note_planner import plan_note_task
     from backend.core.transcript_parser import parse_transcript_file
     from backend.core.transcript_cleaner import clean_repeated_transcript
@@ -522,6 +531,7 @@ try:
         get_user_by_session_token,
         list_users,
         revoke_session,
+        save_feishu_connection,
     )
     from backend.core.api_key_store import (
         authenticate_api_key,
@@ -554,6 +564,15 @@ except ImportError:
     from core.lark_exporter import export_markdown_to_lark
     from core.lark_cli_exporter import export_markdown_via_lark_cli
     from core.note_title import resolve_lark_doc_title
+    from core.feishu_oauth import (
+        FeishuConnectionRequired,
+        FeishuOAuthError,
+        complete_feishu_oauth_callback,
+        create_feishu_authorize_url,
+        disconnect_feishu_user,
+        feishu_connection_status,
+        get_valid_feishu_user_access_token,
+    )
     from core.note_planner import plan_note_task
     from core.transcript_parser import parse_transcript_file
     from core.transcript_cleaner import clean_repeated_transcript
@@ -591,6 +610,7 @@ except ImportError:
         get_user_by_session_token,
         list_users,
         revoke_session,
+        save_feishu_connection,
     )
     from core.api_key_store import (
         authenticate_api_key,
@@ -2372,6 +2392,8 @@ def _lark_export_target(lark_export_route: Optional[str] = None, lark_via_cli: O
     route = (lark_export_route or "").strip().lower()
     if route in {"local_cli", "lark_cli"}:
         return "lark_cli"
+    if route in {"user_oauth", "feishu_user", "feishu_user_oauth", "lark_user_oauth"}:
+        return "feishu_user_oauth"
     if route in {"openapi", "lark_openapi"}:
         return "lark_openapi"
     return "lark_cli" if _truthy_form(lark_via_cli) else "lark_openapi"

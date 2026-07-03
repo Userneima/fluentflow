@@ -188,6 +188,22 @@ async def export_agent_note(
                 None,
                 lambda: H.export_markdown_via_lark_cli(resolved_title, markdown),
             )
+        elif export_target == "feishu_user_oauth":
+            account_id = H._account_id_from_client_scope(client_id)
+            if not account_id:
+                raise AgentActionError(409, "Feishu user OAuth export requires an account-owned Agent API key.")
+            user_access_token = H.get_valid_feishu_user_access_token(account_id)
+            export_response = await loop.run_in_executor(
+                None,
+                lambda: H.export_markdown_to_lark(
+                    resolved_title,
+                    markdown,
+                    task_id=task_id,
+                    artifact_root=H._artifact_storage_dir(),
+                    user_access_token=user_access_token,
+                    **kwargs,
+                ),
+            )
         else:
             export_response = await loop.run_in_executor(
                 None,
@@ -200,6 +216,7 @@ async def export_agent_note(
                 ),
             )
     except Exception as exc:
+        status_code = exc.status_code if isinstance(exc, AgentActionError) else 500
         friendly_error = H._friendly_error_message(exc)
         H.log_event(
             task_id=task_id,
@@ -214,7 +231,7 @@ async def export_agent_note(
             export_target=export_target,
             metadata=H._metadata(route=route, target=target, raw_error=str(exc)),
         )
-        raise AgentActionError(500, friendly_error, cause=exc) from exc
+        raise AgentActionError(status_code, friendly_error, cause=exc) from exc
 
     if isinstance(export_response, dict):
         export_response["doc_title"] = resolved_title

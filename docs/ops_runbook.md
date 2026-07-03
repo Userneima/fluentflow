@@ -103,9 +103,23 @@ OPENAI_API_KEY=...
 ```bash
 LARK_APP_ID=...
 LARK_APP_SECRET=...
+# 国内飞书可显式指定：
+LARK_OPEN_BASE_URL=https://open.feishu.cn
+# 生产回调 URL 要和飞书开放平台里配置的一致：
+FEISHU_OAUTH_REDIRECT_URI=https://your-domain.example/account/feishu/oauth/callback
 ```
 
-如果暂时不开放飞书导出，部署自检里的飞书项可以接受 `WARN`；如果页面承诺能导出飞书，则必须配置并 smoke test。
+`LARK_APP_ID` / `LARK_APP_SECRET` 是 FluentFlow 自己的飞书 OAuth 应用凭证，不应该作为“维护者身份替所有用户创建文档”的正式商业默认路径。多用户上线时，用户需要先连接自己的飞书账号，后端保存账号级 Feishu connection，导出时使用该用户的 `user_access_token` 写入用户自己的飞书空间。
+
+当前兼容路径仍然存在：
+
+- `lark_openapi`：维护者 App / tenant-token 路径，适合内部自用或兼容旧部署，不适合作为多用户默认导出。
+- `lark_cli`：本机 lark-cli 登录身份路径，适合个人桌面自动化。
+- `user_oauth` / `feishu_user_oauth`：用户授权路径，适合正式多用户产品。缺少用户连接时 `/export-lark` 会要求先连接飞书。
+
+账号库会保存 Feishu refresh token。当前项目没有引入专用加密依赖，生产部署必须至少保护账号数据库和磁盘权限；更严格的商业部署应接入 KMS 或数据库字段加密。
+
+如果暂时不开放飞书导出，部署自检里的飞书项可以接受 `WARN`；如果页面承诺能导出飞书，则必须配置应用权限并 smoke test。
 
 ### 额度限制
 
