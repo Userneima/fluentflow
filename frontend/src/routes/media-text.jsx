@@ -73,7 +73,6 @@ const MediaText = () => {
         summarizeTranscriptFile,
         cancelGuestTrialJob,
         cancelJob,
-        getJob,
         getCredentialsStatus,
         checkHealth,
     } = useApi();
@@ -507,19 +506,8 @@ const MediaText = () => {
             navigate('/editor');
             return true;
         };
-        if (!item.taskId) {
-            openCachedEditor();
-            return;
-        }
-        try {
-            const job = await getJob(item.taskId);
-            if (job?.result && hasTranscriptResult(job.result)) {
-                setLastResult(job.result);
-                navigate('/editor');
-                return;
-            }
-        } catch (_) {}
         if (openCachedEditor()) return;
+        if (!item.taskId) return;
         navigate('/agent', {state: {job: item}});
     };
 

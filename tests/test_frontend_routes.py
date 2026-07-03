@@ -353,6 +353,8 @@ def test_recent_activity_cards_open_editor_or_processing_records_not_task_detail
         assert "navigate('/editor');" in source
         assert "if (openCachedEditor()) return;" in source
         assert "navigate('/agent', {state: {job:" in source
+        assert "const job = await getJob(h.taskId);" not in source
+        assert "const job = await getJob(item.taskId);" not in source
         assert "navigate(`/tasks/${encodeURIComponent(" not in source
 
 

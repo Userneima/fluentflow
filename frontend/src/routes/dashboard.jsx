@@ -140,21 +140,8 @@ const Dashboard = () => {
             navigate('/editor');
             return true;
         };
-        if(!h.taskId) {
-            openCachedEditor();
-            return;
-        }
-        try {
-            const job = await getJob(h.taskId);
-            if(job?.result) {
-                if(hasTranscriptResult(job.result)) {
-                    setLastResult(job.result);
-                    navigate('/editor');
-                    return;
-                }
-            }
-        } catch(_) {}
         if (openCachedEditor()) return;
+        if(!h.taskId) return;
         navigate('/agent', {state: {job: h}});
     };
 
