@@ -15,6 +15,13 @@ import {
 
 export const accountJobsCacheKey = (accountId) => `fluentflow_account_jobs_cache_${accountId || 'local'}`;
 
+const jobBelongsToAccountCache = (accountId, job) => {
+    const normalizedAccountId = String(accountId || 'local').trim();
+    if (!normalizedAccountId || normalizedAccountId === 'local') return true;
+    const clientId = String(job?.client_id || '').trim();
+    return clientId === `user:${normalizedAccountId}` || clientId === `user${normalizedAccountId}`;
+};
+
 const compactTextForCache = (value, maxChars=240) => (
     value ? String(value).slice(0, maxChars) : ''
 );
@@ -71,7 +78,7 @@ export const readCachedAccountJobs = (accountId) => {
     try {
         const parsed = JSON.parse(localStorage.getItem(accountJobsCacheKey(accountId)) || '{}');
         const jobs = Array.isArray(parsed?.jobs) ? parsed.jobs : [];
-        return jobs.filter((job) => job && typeof job === 'object');
+        return jobs.filter((job) => job && typeof job === 'object' && jobBelongsToAccountCache(accountId, job));
     } catch(_) {
         return [];
     }
@@ -80,6 +87,7 @@ export const readCachedAccountJobs = (accountId) => {
 export const writeCachedAccountJobs = (accountId, jobs) => {
     try {
         const compactJobs = (Array.isArray(jobs) ? jobs : [])
+            .filter((job) => jobBelongsToAccountCache(accountId, job))
             .map(minimizeJobForCache)
             .filter(Boolean)
             .slice(0, 100);

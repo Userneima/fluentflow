@@ -655,6 +655,7 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
     tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    mappers = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
     for source in (tasks, agent_tasks):
         assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in source
@@ -671,6 +672,10 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
     assert "setLastResult(null)" in shared
     assert "setHistory(cachedEntries)" in shared
     assert "if (!fetchedJobs.length)" in shared
+    assert "const jobBelongsToAccountCache = (accountId, job)" in mappers
+    assert "clientId === `user:${normalizedAccountId}`" in mappers
+    assert "jobBelongsToAccountCache(accountId, job)" in mappers
+    assert ".filter((job) => jobBelongsToAccountCache(accountId, job))" in mappers
 
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
