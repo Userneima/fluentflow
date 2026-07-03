@@ -1450,6 +1450,8 @@ def test_secondary_surfaces_use_current_ui_language() -> None:
     assert "grid gap-3 px-5 py-5 md:grid-cols-[180px_minmax(0,1fr)]" in about
     assert "presetRowClass" in prompt_dialog
     assert "renderPresetItem" in prompt_dialog
+    assert "h-[min(760px,88vh)]" in prompt_dialog
+    assert "editorPaneClass" in prompt_dialog
     assert "md:grid-cols-[230px_minmax(0,1fr)]" in prompt_dialog
     assert "textAreaClass" in prompt_dialog
     assert "dark:hover:bg-white/[0.88]" in prompt_dialog

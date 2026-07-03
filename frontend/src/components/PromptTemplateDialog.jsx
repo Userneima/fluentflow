@@ -59,7 +59,8 @@ export default function PromptTemplateDialog({
             : 'text-[#9a5555] hover:bg-red-50 hover:text-red-700 dark:text-red-300/72 dark:hover:bg-red-500/10 dark:hover:text-red-200',
     ].join(' ');
     const fieldLabelClass = 'text-[12px] font-bold text-[#676970] dark:text-white/62';
-    const textAreaClass = 'w-full min-h-[280px] resize-y rounded-[18px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 font-mono text-[13px] leading-6 text-[#111111] outline-none transition placeholder:text-[#aaa] focus:border-[#111111] focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-[#161719] dark:text-white/88 dark:placeholder:text-white/28 dark:focus:border-white/36 dark:focus:bg-[#18191b] dark:focus:ring-white/[0.08]';
+    const editorPaneClass = 'flex h-full min-h-0 flex-col gap-3';
+    const textAreaClass = 'min-h-[220px] flex-1 resize-none rounded-[18px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 font-mono text-[13px] leading-6 text-[#111111] outline-none transition placeholder:text-[#aaa] focus:border-[#111111] focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-[#161719] dark:text-white/88 dark:placeholder:text-white/28 dark:focus:border-white/36 dark:focus:bg-[#18191b] dark:focus:ring-white/[0.08]';
     const inputClass = 'min-w-[180px] flex-1 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2.5 text-sm font-semibold text-[#111111] outline-none transition placeholder:text-[#85868c] focus:border-[#111111] focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-[#161719] dark:text-white/88 dark:placeholder:text-white/36 dark:focus:border-white/36 dark:focus:bg-[#18191b] dark:focus:ring-white/[0.08]';
     const renderPresetItem = (key) => {
         const active = promptKey === key;
@@ -94,7 +95,7 @@ export default function PromptTemplateDialog({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5 py-8 backdrop-blur-sm animate-[fadeIn_0.16s_ease-out]" role="dialog" aria-modal="true" onClick={onClose}>
-            <div className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[24px] border border-[#dedada] bg-white shadow-[0_28px_90px_-52px_rgba(17,17,17,.72)] dark:border-white/[0.12] dark:bg-[#1d1f22]" onClick={(e)=>e.stopPropagation()}>
+            <div className="flex h-[min(760px,88vh)] w-full max-w-5xl flex-col overflow-hidden rounded-[24px] border border-[#dedada] bg-white shadow-[0_28px_90px_-52px_rgba(17,17,17,.72)] dark:border-white/[0.12] dark:bg-[#1d1f22]" onClick={(e)=>e.stopPropagation()}>
                 <div className="flex items-start justify-between gap-4 border-b border-[#ece8e8] px-5 py-4 dark:border-white/[0.10]">
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -123,9 +124,9 @@ export default function PromptTemplateDialog({
                             {editorPresetKeyOrder(settings).map(renderPresetItem)}
                         </div>
                     </aside>
-                    <div className="min-h-0 flex-1 overflow-y-auto p-5">
+                    <div className="min-h-0 flex-1 overflow-hidden p-5">
                     {promptKey === 'default' ? (
-                        <div className="space-y-2">
+                        <div className={editorPaneClass}>
                             <label className={fieldLabelClass}>{t('set.editCoursePrompt')}</label>
                             <textarea
                                 className={textAreaClass}
@@ -134,7 +135,7 @@ export default function PromptTemplateDialog({
                             />
                         </div>
                     ) : promptKey.startsWith('user_') ? (
-                        <div className="space-y-2">
+                        <div className={editorPaneClass}>
                             <label className={fieldLabelClass}>{lang==='zh'?'编辑该预设':'Edit this preset'}</label>
                             <textarea
                                 className={textAreaClass}
@@ -143,10 +144,10 @@ export default function PromptTemplateDialog({
                             />
                         </div>
                     ) : promptKey === 'custom' ? (
-                        <div className="space-y-3">
+                        <div className={editorPaneClass}>
                             <label className={fieldLabelClass}>{lang === 'zh' ? '编写自定义提示词' : 'Write a custom prompt'}</label>
                             <textarea
-                                className={`${textAreaClass} min-h-[240px]`}
+                                className={textAreaClass}
                                 placeholder={t('prompt.customPlaceholder')}
                                 value={customText}
                                 onChange={e=>handleCustomTextChange(e.target.value)}
@@ -159,7 +160,7 @@ export default function PromptTemplateDialog({
                             </div>
                         </div>
                     ) : BUILTIN_EXTRA_PROMPT_KEYS.includes(promptKey) ? (
-                        <div className="space-y-2">
+                        <div className={editorPaneClass}>
                             <div className="flex flex-wrap justify-between items-center gap-2">
                                 <label className={fieldLabelClass}>{t('set.editBuiltinTemplate')}</label>
                                 <button type="button" onClick={()=>resetBuiltinExtra(promptKey)} className="rounded-[10px] px-2 py-1 text-xs font-bold text-[#676970] transition hover:bg-[#efeeee] hover:text-[#111111] dark:text-white/58 dark:hover:bg-white/[0.08] dark:hover:text-white">{t('set.deleteBuiltinPrompt')}</button>
