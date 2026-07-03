@@ -57,6 +57,9 @@ async def _run_transcript_correction_stage(
     deepseek_api_key: str | None,
 ) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
     """Run optional conservative transcript correction without failing the task."""
+    if not H.transcript_correction_enabled():
+        return {"note_generation_transcript_source": "transcript_text"}, transcript_text, segments
+
     started_at = time.perf_counter()
     correction_result = await loop.run_in_executor(
         None,
@@ -1061,7 +1064,7 @@ async def process_video(
             })
             note_transcript_text = transcript_text
             note_segments_payload = segments_payload
-            if not summary_disabled:
+            if not summary_disabled and H.transcript_correction_enabled():
                 current_stage = "transcript_correction"
                 H.upsert_job(task_id=task_id_value, status="running", stage="transcript_correction", progress=61)
                 yield H._sse({"stage": "transcript_correction", "progress": 61})
@@ -1078,6 +1081,8 @@ async def process_video(
                     deepseek_api_key=deepseek_api_key,
                 )
                 base_result.update(correction_fields)
+            elif not summary_disabled:
+                base_result["note_generation_transcript_source"] = "transcript_text"
             if playback_audio_path is not None:
                 base_result = H._attach_playback_audio_artifact(task_id_value, base_result, playback_audio_path)
             base_result = H._attach_result_artifacts(task_id_value, base_result)
@@ -2308,7 +2313,7 @@ async def summarize_transcript_file(
     if quota_reservation:
         base_result["quota"] = quota_reservation
     note_transcript_text = transcript_text
-    if not summary_disabled:
+    if not summary_disabled and H.transcript_correction_enabled():
         H.upsert_job(task_id=task_id_value, status="running", stage="transcript_correction", progress=61)
         correction_fields, note_transcript_text, _note_segments_payload = await _run_transcript_correction_stage(
             loop=loop,
@@ -2323,6 +2328,8 @@ async def summarize_transcript_file(
             deepseek_api_key=deepseek_api_key,
         )
         base_result.update(correction_fields)
+    elif not summary_disabled:
+        base_result["note_generation_transcript_source"] = "transcript_text"
     base_result = H._attach_result_artifacts(task_id_value, base_result)
     H.upsert_job(
         task_id=task_id_value,

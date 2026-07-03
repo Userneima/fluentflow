@@ -64,9 +64,10 @@ Segment shape:
 
 ## Transcript Correction v1
 
-Transcript correction is a conservative model-backed layer between STT cleanup
-and note generation. It exists to reduce obvious course/lecture transcription
-errors without losing traceability.
+Transcript correction is an optional conservative model-backed layer between STT
+cleanup and note generation. It is off by default because it adds an extra LLM
+call and accepted fixes can still be wrong; enable it only when the quality/cost
+tradeoff has been reviewed for the deployment.
 
 Rules:
 
@@ -77,10 +78,12 @@ Rules:
   make low-confidence guesses.
 - If correction fails, is unavailable, or returns no accepted corrections, the
   task continues with `transcript_text`.
+- If correction is disabled, no correction metadata is required and note
+  generation should use `transcript_text`.
 - `corrected_transcript_text` and `corrected_segments` are written only when at
   least one correction passes backend validation.
-- Stage 1 lets note generation use `corrected_transcript_text` when available;
-  the result records this in `note_generation_transcript_source`.
+- When correction is enabled, note generation may use `corrected_transcript_text`
+  when available; the result records this in `note_generation_transcript_source`.
 
 `transcript_correction` metadata:
 

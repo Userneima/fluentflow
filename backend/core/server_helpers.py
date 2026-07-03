@@ -522,7 +522,7 @@ try:
     from backend.core.elevenlabs_stt import transcribe_audio_scribe
     from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
     from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
-    from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields
+    from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
     from backend.core.lark_exporter import export_markdown_to_lark
     from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
     from backend.core.note_title import resolve_lark_doc_title
@@ -601,7 +601,7 @@ except ImportError:
     from core.keyframe_provider import extract_keyframes
     from core.visual_evidence import build_visual_evidence_from_note_images, inject_visual_evidence_references, rewrite_note_image_references
     from core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
-    from core.transcript_correction import correct_transcript_segments, correction_result_fields
+    from core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
     from core.lark_exporter import export_markdown_to_lark
     from core.lark_cli_exporter import export_markdown_via_lark_cli
     from core.note_title import resolve_lark_doc_title
