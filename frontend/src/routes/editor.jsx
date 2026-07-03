@@ -246,6 +246,7 @@ const Editor = () => {
     const [summaryEditing, setSummaryEditing] = useState(false);
     const [summaryUnsaved, setSummaryUnsaved] = useState(false);
     const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
+    const [hydratingResult, setHydratingResult] = useState(false);
     const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
     const mediaRef = useRef(null);
@@ -259,13 +260,23 @@ const Editor = () => {
     ]);
 
     useEffect(() => {
-        if (!result?.task_id || transcriptUnsaved) return;
-        if (isLocalHistoryResult(result)) return;
+        if (!result?.task_id || transcriptUnsaved) {
+            setHydratingResult(false);
+            return;
+        }
+        if (isLocalHistoryResult(result)) {
+            setHydratingResult(false);
+            return;
+        }
         const currentSegments = pickTranscriptSegments(result);
         const currentText = result.transcript_text || '';
         const needsHydration = currentSegments.length === 0 || currentText.length <= 260;
-        if (!needsHydration || hydratedTaskIdsRef.current.has(result.task_id)) return;
+        if (!needsHydration || hydratedTaskIdsRef.current.has(result.task_id)) {
+            setHydratingResult(false);
+            return;
+        }
         hydratedTaskIdsRef.current.add(result.task_id);
+        setHydratingResult(true);
         let cancelled = false;
         const jobRequest = isGuestResult
             ? getGuestTrialJob(result.task_id, getGuestTrialToken())
@@ -292,7 +303,10 @@ const Editor = () => {
                     setTranscriptSaveStatus(full.transcript_edited ? 'saved' : 'idle');
                 }
             })
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => {
+                if (!cancelled) setHydratingResult(false);
+            });
         return () => { cancelled = true; };
     }, [resultKey, transcriptUnsaved, isGuestResult, resultJobOptions]);
 
@@ -515,6 +529,12 @@ const Editor = () => {
     const hasBilingualTranscript = bilingualTranscriptSegments.length > 0;
     const visibleTranscriptView = hasBilingualTranscript && transcriptView !== 'raw' ? 'bilingual' : 'raw';
     const visibleTranscriptSegments = visibleTranscriptView === 'bilingual' ? bilingualTranscriptSegments : segments;
+    const isTranscriptHydrationPending = !!result?.task_id
+        && !transcriptUnsaved
+        && !isLocalHistoryResult(result)
+        && segments.length === 0
+        && (result.transcript_text || '').length > 0
+        && (!hydratedTaskIdsRef.current.has(result.task_id) || hydratingResult);
     const canUseStoredSource = !!result?.source_file_available && !!result?.task_id;
     const canUsePlaybackAudio = !!result?.artifacts?.playback_audio && !!result?.task_id;
     const canRetranscribeStoredMedia = !!matchedLocalSourceFile || canUseStoredSource || canUsePlaybackAudio;
@@ -1719,7 +1739,21 @@ const Editor = () => {
                                         />
                                     </div>
                                         </div>
-                                )) : (
+                                )) : isTranscriptHydrationPending ? (
+                                    <div className="flex min-h-[320px] items-center justify-center rounded-[16px] border border-dashed border-outline-variant bg-surface-container-low px-4 py-8 text-center">
+                                        <div className="max-w-[28rem]">
+                                            <SvgIcon name="sync" className="mx-auto mb-3 h-5 w-5 animate-spin text-primary"/>
+                                            <p className="text-sm font-bold text-on-surface">
+                                                {lang === 'zh' ? '正在加载逐段转录' : 'Loading timestamped transcript'}
+                                            </p>
+                                            <p className="mt-1 text-xs font-semibold leading-relaxed text-on-surface-variant">
+                                                {lang === 'zh'
+                                                    ? '刚从最近活动打开时会先读取轻量缓存，完整时间戳分段正在从处理记录补全。'
+                                                    : 'FluentFlow opened a lightweight cached result first and is restoring the full timestamped segments from the processing record.'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
                                     <div className="min-h-full flex flex-col gap-2">
                                         <div className="flex items-center gap-2 rounded-[12px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.08]">
                                             <SvgIcon name="info" className="text-primary text-[15px] flex-shrink-0"/>

@@ -930,6 +930,10 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "w-[360px]" not in source
     assert "当前结果没有时间戳分段，只能按纯文本编辑" not in source
     assert "No timestamped segments. Retranscribe the source audio" in source
+    assert "const [hydratingResult, setHydratingResult] = useState(false)" in source
+    assert "const isTranscriptHydrationPending = !!result?.task_id" in source
+    assert "正在加载逐段转录" in source
+    assert "轻量缓存" in source
     assert "flex justify-end border-t" in source
     assert "生成详情" not in source
     assert "生成中英对照" not in source
