@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useSearchParams} from 'react-router-dom';
+import {XCircle} from 'lucide-react';
 import {
     DEFAULT_PROMPT_PRESET,
     presetDisplayLabel,
@@ -454,15 +455,19 @@ const MediaText = () => {
     };
 
     const handleCancel = async () => {
+        const confirmText = lang === 'zh'
+            ? '取消当前正在上传或处理的任务？任务会中止，完整结果不会生成；如果任务已经进入队列，可到处理记录查看已取消记录。这不是删除历史记录。'
+            : 'Cancel the current upload or processing task? The task will stop and a complete result will not be created. If it already entered the queue, you can check the cancelled record in Processing records. This does not delete history.';
+        if (!window.confirm(confirmText)) return;
         if (abortRef.current) {
             abortRef.current.abort();
             abortRef.current = null;
         }
         if (currentJob?.guestTrial && currentJob.taskId) {
-            try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken); } catch (_) {}
+            try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken); } catch (err) { setUploadError(friendlyTaskError(err.message || String(err), lang)); }
         }
         if (currentJob?.taskId && !currentJob?.guestTrial) {
-            try { await cancelJob(currentJob.taskId, {sttProvider: currentJob.sttProvider}); } catch (_) {}
+            try { await cancelJob(currentJob.taskId, {sttProvider: currentJob.sttProvider}); } catch (err) { setUploadError(friendlyTaskError(err.message || String(err), lang)); }
         }
         setCurrentJob(null);
         setSubmitting(false);
@@ -624,7 +629,7 @@ const MediaText = () => {
                                 <p className="mt-1 text-sm font-semibold text-[#666] dark:text-white/55">{t(`status.${currentJob.stage}`)}</p>
                             </div>
                             <button type="button" onClick={handleCancel} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3 text-xs font-extrabold text-red-600 hover:bg-red-100 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/20">
-                                <SvgIcon name="cancel" className="size-4"/>
+                                <XCircle className="size-4" strokeWidth={2.15}/>
                                 {t('dash.cancel')}
                             </button>
                         </div>

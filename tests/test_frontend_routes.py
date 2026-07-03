@@ -67,9 +67,15 @@ def test_video_link_pending_task_title_uses_platform_not_tracking_query() -> Non
 
 def test_dashboard_cancel_task_uses_close_icon_not_disabled_icon() -> None:
     source = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
 
     assert '<SvgIcon name="close" className="h-4 w-4"/>{t(\'dash.cancelTask\')}' in source
     assert '<SvgIcon name="cancel" className="h-4 w-4"/>{t(\'dash.cancel\')}' not in source
+    assert "import {XCircle} from 'lucide-react';" in media_text
+    assert "window.confirm(confirmText)" in media_text
+    assert "取消当前正在上传或处理的任务" in media_text
+    assert "<XCircle className=\"size-4\" strokeWidth={2.15}/>" in media_text
+    assert "SvgIcon name=\"cancel\"" not in media_text
 
 
 def test_media_text_entry_panel_uses_subtle_diffuse_color() -> None:
@@ -450,6 +456,10 @@ def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
     assert "rounded-[18px] border border-red-200 bg-red-50/80" in source
     assert "style={{width: `${progress}%`}}" in source
     assert "failed ? 'bg-red-500' : 'bg-[#111111] dark:bg-white'" not in source
+    assert "删除记录" in source
+    assert "Delete record" in source
+    assert "onDelete(job)" in source
+    assert "isLiveTask(job)) return" in source
 
 
 def test_tasks_delete_cached_only_without_task_id_locally() -> None:
@@ -527,8 +537,9 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     assert "const priority = {" not in tasks
     assert "timestampForJob(job) >= timestampForJob(existing)" in mapper
     assert "export const sortJobsForHistoryView" in mapper
-    assert "[TASK_STATE_RUNNING]: 0" in mapper
-    assert "[TASK_STATE_FAILED]: 2" in mapper
+    assert "[TASK_STATE_UPLOADING]: 0" in mapper
+    assert "[TASK_STATE_RUNNING]: 1" in mapper
+    assert "[TASK_STATE_FAILED]: 3" in mapper
     assert "sortJobsForHistoryView" in job_morph
     assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in app_provider
     assert "{t('dash.recent')}" in media_text
@@ -1057,6 +1068,10 @@ def test_agent_trace_overview_uses_task_card_for_all_task_states() -> None:
     progress = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
 
     assert "const activeCurrentJob = running && currentJob?.taskId && currentJob.taskId === task.taskId ? currentJob : null;" in progress
+    assert "import {ListPlus, XCircle} from 'lucide-react';" in progress
+    assert "window.confirm(confirmText)" in progress
+    assert "取消当前正在处理的任务" in progress
+    assert "<XCircle className=\"size-4\" strokeWidth={2.15}/>" in progress
     assert "const badgeText = activeCurrentJob" in progress
     assert "已完成记录" in progress
     assert "处理已完成，可以打开结果继续复查。" in progress
@@ -1124,6 +1139,13 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "displayJobs" in source
     assert "displayJobs.map((job) => (" in source
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
+    assert "if (currentJob.queueUpload) return null" in source
+    assert "const QueueUploadBanner = ({upload, lang}) => {" in source
+    assert "上传完成后，每个文件会拆成一条独立处理记录显示在下方。" in source
+    assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source
+    assert "hasLiveOrUploadingJobs ? 5000 : 30000" in source
+    assert "locallyDeletedTaskIdsRef.current.has(taskIdForJob(job))" in source
+    assert "deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {})" in source
     assert "queuedCount" in source
     assert "runningCount" in source
     assert "历史记录" in source

@@ -9,6 +9,7 @@ import {
     Plus,
     RefreshCw,
     SlidersHorizontal,
+    Trash2,
     XCircle,
 } from 'lucide-react';
 import {
@@ -108,24 +109,7 @@ const taskProcessingTimeLabel = (job, lang) => {
 
 const jobFromCurrentJob = (currentJob) => {
     if (!currentJob) return null;
-    if (currentJob.queueUpload) {
-        return {
-            task_id: currentJob.taskId || 'queue-upload',
-            status: TASK_STATE_UPLOADING,
-            task_state: TASK_STATE_UPLOADING,
-            stage: 'upload',
-            progress: currentJob.progress ?? 2,
-            source_type: 'queue_upload',
-            source_filename: currentJob.fileName,
-            source_file_size_mb: currentJob.fileSizeMb,
-            created_at: currentJob.startedAt ? new Date(currentJob.startedAt).toISOString() : new Date().toISOString(),
-            metadata: {
-                display_title: currentJob.fileName,
-                queue_total: currentJob.queueTotal,
-                stt_provider: currentJob.sttProvider || null,
-            },
-        };
-    }
+    if (currentJob.queueUpload) return null;
     if (!currentJob.taskId) return null;
     return {
         task_id: currentJob.taskId,
@@ -310,18 +294,58 @@ const statePillClass = (state) => {
     return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200';
 };
 
-const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, onOpenResult}) => {
+const QueueUploadBanner = ({upload, lang}) => {
+    if (!upload?.queueUpload) return null;
+    const count = Number(upload.queueTotal || 0) || 1;
+    const progress = Math.max(0, Math.min(100, Number(upload.progress) || 2));
+    const totalSize = upload.fileSizeMb ? fmtFileSize(upload.fileSizeMb) : '';
+    return (
+        <section className="rounded-[20px] border border-blue-200 bg-blue-50/80 p-4 shadow-[0_16px_42px_-36px_rgba(17,17,17,.45)] dark:border-blue-400/20 dark:bg-blue-400/10 dark:shadow-none">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                    <p className="inline-flex items-center gap-2 text-[12px] font-extrabold text-blue-700 dark:text-blue-200">
+                        <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
+                        {lang === 'zh' ? '正在接收上传批次' : 'Receiving upload batch'}
+                    </p>
+                    <h2 className="mt-2 font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                        {lang === 'zh' ? `${count} 个文件正在上传` : `${count} files are uploading`}
+                    </h2>
+                    <p className="mt-1 text-[13px] font-semibold leading-5 text-[#57585d] dark:text-white/64">
+                        {lang === 'zh'
+                            ? '上传完成后，每个文件会拆成一条独立处理记录显示在下方。'
+                            : 'After upload, each file will appear below as its own processing record.'}
+                    </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {totalSize ? (
+                        <span className="rounded-full border border-blue-200 bg-white/70 px-3 py-1 text-[12px] font-extrabold text-blue-700 dark:border-blue-400/20 dark:bg-white/[0.08] dark:text-blue-100">
+                            {totalSize}
+                        </span>
+                    ) : null}
+                    <span className="rounded-full border border-blue-200 bg-white/70 px-3 py-1 text-[12px] font-extrabold tabular-nums text-blue-700 dark:border-blue-400/20 dark:bg-white/[0.08] dark:text-blue-100">
+                        {progress}%
+                    </span>
+                </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-white/[0.12]">
+                <div className="h-full rounded-full bg-blue-700 transition-all duration-500 dark:bg-blue-200" style={{width: `${progress}%`}}/>
+            </div>
+        </section>
+    );
+};
+
+const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTaskId, onCancel, onDelete, onOpenResult}) => {
     const taskId = taskIdForJob(job);
     const state = normalizeTaskState(job);
     const live = isLiveTask(job);
     const completed = state === TASK_STATE_COMPLETED || state === TASK_STATE_CACHED_ONLY;
     const failed = state === TASK_STATE_FAILED || state === TASK_STATE_CANCELLED;
+    const terminal = completed || failed;
     const progress = completed ? 100 : Math.max(0, Math.min(100, Number(job?.progress) || (state === TASK_STATE_QUEUED ? 0 : 2)));
     const current = jobToCurrentJob(job);
     const progressUnknown = isSttProgressUnmeasured(current);
     const displayTitle = jobDisplayTitle(job, lang);
     const updatedAt = Date.parse(job?.updated_at || job?.created_at || '') || 0;
-    const queueTotal = job?.metadata?.queue_total;
     const detail = failed
         ? friendlyTaskError(job?.error_reason || job?.result?.summary_error || '', lang)
         : completed
@@ -360,7 +384,6 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                     <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
                         {subtitle}
                         {failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)}
-                        {queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
                     </p>
 
                     {!completed && !failed ? (
@@ -397,6 +420,12 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                         <button type="button" disabled={cancellingTaskId === taskId} onClick={() => onCancel(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-4 text-[13px] font-extrabold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
                             {cancellingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <XCircle className="size-4" strokeWidth={2.15}/>}
                             {lang === 'zh' ? '取消' : 'Cancel'}
+                        </button>
+                    ) : null}
+                    {terminal && taskId ? (
+                        <button type="button" disabled={deletingTaskId === taskId} onClick={() => onDelete(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#57585d] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.10]">
+                            {deletingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <Trash2 className="size-4" strokeWidth={2.15}/>}
+                            {lang === 'zh' ? '删除记录' : 'Delete record'}
                         </button>
                     ) : null}
                     {completed && !job?.result ? (
@@ -439,7 +468,7 @@ const AgentTasks = () => {
     const {lang} = useI18n();
     const {authMode, user} = useAuth();
     const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
-    const {getJobs, getJob, cancelJob} = useApi();
+    const {getJobs, getJob, cancelJob, deleteJob} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
@@ -452,16 +481,21 @@ const AgentTasks = () => {
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
+    const [deletingTaskId, setDeletingTaskId] = useState('');
     const locallyCancelledTaskIdsRef = useRef(new Set());
+    const locallyDeletedTaskIdsRef = useRef(new Set());
+    const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const currentJobRecord = useMemo(() => jobFromCurrentJob(currentJob), [currentJob]);
     const displayJobs = useMemo(() => (
         mergeJobs(currentJobRecord ? [currentJobRecord] : [], jobs)
             .filter((job) => !locallyCancelledTaskIdsRef.current.has(taskIdForJob(job)))
+            .filter((job) => !locallyDeletedTaskIdsRef.current.has(taskIdForJob(job)))
             .slice(0, 30)
-    ), [currentJobRecord, jobs, cancellingTaskId]);
+    ), [currentJobRecord, jobs, cancellingTaskId, deletingTaskId]);
     const liveJobs = useMemo(() => displayJobs.filter(isLiveTask), [displayJobs]);
+    const hasLiveOrUploadingJobs = Boolean(queueUploadJob) || liveJobs.length > 0;
     const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
-    const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
+    const runningCount = (queueUploadJob ? 1 : 0) + liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
 
     const loadJobs = useCallback(async () => {
         if (!canUseTaskCache) {
@@ -496,6 +530,7 @@ const AgentTasks = () => {
         setLoading(canUseTaskCache && cached.length === 0);
         setError(location.state?.queueSubmitError || null);
         locallyCancelledTaskIdsRef.current.clear();
+        locallyDeletedTaskIdsRef.current.clear();
     }, [cacheAccountId, canUseTaskCache, readCachedJobs, seededJob, location.state?.queueSubmitError]);
 
     useEffect(() => {
@@ -508,19 +543,19 @@ const AgentTasks = () => {
         let stale = false;
         const run = async () => { if (!stale) await loadJobs(); };
         run();
-        const timer = setInterval(run, liveJobs.length ? 5000 : 30000);
+        const timer = setInterval(run, hasLiveOrUploadingJobs ? 5000 : 30000);
         return () => {
             stale = true;
             clearInterval(timer);
         };
-    }, [loadJobs, liveJobs.length]);
+    }, [loadJobs, hasLiveOrUploadingJobs]);
 
     const cancelLiveJob = async (job) => {
         const taskId = taskIdForJob(job);
         if (!taskId) return;
         const confirmText = lang === 'zh'
-            ? '取消这个正在处理的任务？已生成的完整结果不会保留。'
-            : 'Cancel this active task? A complete result will not be kept.';
+            ? '取消这个正在处理的任务？任务会中止，完整结果不会生成；这不是删除历史记录。'
+            : 'Cancel this active task? The task will stop and a complete result will not be created. This does not delete history.';
         if (!window.confirm(confirmText)) return;
         locallyCancelledTaskIdsRef.current.add(taskId);
         setCancellingTaskId(taskId);
@@ -541,6 +576,40 @@ const AgentTasks = () => {
             await loadJobs();
         } finally {
             setCancellingTaskId('');
+        }
+    };
+
+    const deleteTerminalJob = async (job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId || isLiveTask(job)) return;
+        const confirmText = lang === 'zh'
+            ? '删除这条处理记录？会清理这条记录可删除的任务文件；这不是取消正在执行的任务。'
+            : 'Delete this processing record? This also cleans up deletable task files; it does not cancel a running task.';
+        if (!window.confirm(confirmText)) return;
+        locallyDeletedTaskIdsRef.current.add(taskId);
+        setDeletingTaskId(taskId);
+        const removeLocalRecord = () => {
+            setJobs((current) => {
+                const next = current.filter((item) => taskIdForJob(item) !== taskId);
+                if (canUseTaskCache) writeCachedAccountJobs(cacheAccountId, next);
+                return next;
+            });
+        };
+        removeLocalRecord();
+        if (currentJob?.taskId === taskId) setCurrentJob(null);
+        try {
+            await deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            setError(null);
+        } catch (err) {
+            if (err.status === 404) {
+                setError(null);
+                return;
+            }
+            locallyDeletedTaskIdsRef.current.delete(taskId);
+            setError(friendlyTaskError(err.message || String(err), lang));
+            await loadJobs();
+        } finally {
+            setDeletingTaskId('');
         }
     };
 
@@ -613,6 +682,8 @@ const AgentTasks = () => {
                     </div>
                 )}
 
+                {queueUploadJob ? <QueueUploadBanner upload={queueUploadJob} lang={lang}/> : null}
+
                 <section className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
                         <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '进行中' : 'Running'}</p>
@@ -629,13 +700,13 @@ const AgentTasks = () => {
                 </section>
 
                 <section className="space-y-3">
-                    {loading && !displayJobs.length && (
+                    {loading && !displayJobs.length && !queueUploadJob && (
                         <div className="flex h-48 items-center justify-center rounded-[22px] border border-[#dedada] bg-white text-sm font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/60">
                             <LoaderCircle className="mr-2 size-4 animate-spin" strokeWidth={2.15}/>
                             {lang === 'zh' ? '正在读取任务...' : 'Loading tasks...'}
                         </div>
                     )}
-                    {!loading && displayJobs.length === 0 && (
+                    {!loading && displayJobs.length === 0 && !queueUploadJob && (
                         <div className="rounded-[24px] border border-[#dedada] bg-white p-8 text-center dark:border-white/[0.10] dark:bg-white/[0.055]">
                             <History className="mx-auto size-9 text-[#85868c] dark:text-white/45" strokeWidth={2.15}/>
                             <h2 className="mt-3 font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
@@ -658,8 +729,10 @@ const AgentTasks = () => {
                             job={job}
                             lang={lang}
                             cancellingTaskId={cancellingTaskId}
+                            deletingTaskId={deletingTaskId}
                             openingTaskId={openingTaskId}
                             onCancel={cancelLiveJob}
+                            onDelete={deleteTerminalJob}
                             onOpenResult={openResult}
                         />
                     ))}

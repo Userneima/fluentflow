@@ -5,6 +5,7 @@ import {
 } from './resultSchema.js';
 import {
     normalizeTaskState,
+    TASK_STATE_UPLOADING,
     TASK_STATE_COMPLETED,
     TASK_STATE_FAILED,
     TASK_STATE_QUEUED,
@@ -135,12 +136,13 @@ export const mergeCachedJobs = (...groups) => {
 
 export const sortJobsForHistoryView = (jobs=[]) => {
     const priority = {
-        [TASK_STATE_RUNNING]: 0,
-        [TASK_STATE_QUEUED]: 1,
-        [TASK_STATE_FAILED]: 2,
-        [TASK_STATE_CANCELLED]: 2,
-        [TASK_STATE_COMPLETED]: 3,
-        [TASK_STATE_CACHED_ONLY]: 3,
+        [TASK_STATE_UPLOADING]: 0,
+        [TASK_STATE_RUNNING]: 1,
+        [TASK_STATE_QUEUED]: 2,
+        [TASK_STATE_FAILED]: 3,
+        [TASK_STATE_CANCELLED]: 3,
+        [TASK_STATE_COMPLETED]: 4,
+        [TASK_STATE_CACHED_ONLY]: 4,
     };
     return (Array.isArray(jobs) ? jobs : [])
         .slice()
