@@ -498,7 +498,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                     ) : failed ? (
                         <button type="button" disabled={retryingTaskId === taskId} onClick={() => onRetry(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
                             {retryingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <AlertCircle className="size-4" strokeWidth={2.15}/>}
-                            {lang === 'zh' ? '重新提交' : 'Submit again'}
+                            {retryingTaskId === taskId ? (lang === 'zh' ? '正在入队…' : 'Queuing…') : (lang === 'zh' ? '重新提交' : 'Submit again')}
                         </button>
                     ) : null}
                     {cancellableLive ? (
@@ -543,7 +543,7 @@ const AgentTasks = () => {
     const {lang} = useI18n();
     const {authMode, user} = useAuth();
     const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
-    const {getJobs, getJob, cancelJob, deleteJob, createVideoSourceJob, enqueueProcessFiles, fetchJobSourceFile} = useApi();
+    const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
@@ -705,43 +705,6 @@ const AgentTasks = () => {
         });
     };
 
-    const queuedRetryJobFromItem = (item, sourceJob, options) => {
-        if (!item?.task_id) return null;
-        const now = new Date().toISOString();
-        const filename = item.filename || item.source_filename || sourceJob?.source_filename || 'source';
-        return {
-            task_id: item.task_id,
-            status: item.status || TASK_STATE_QUEUED,
-            task_state: item.status || TASK_STATE_QUEUED,
-            stage: 'queued',
-            progress: 0,
-            source_type: item.source_type || sourceJob?.source_type || mediaSourceForJob(sourceJob) || 'video_file',
-            source_filename: filename,
-            source_file_size_mb: item.source_file_size_mb ?? sourceJob?.source_file_size_mb ?? null,
-            created_at: now,
-            updated_at: now,
-            metadata: {
-                display_title: filename.replace(/\.[^/.]+$/, ''),
-                queue_options: {
-                    export_to_lark: options.exportToLark,
-                    lark_export_route: options.larkExportRoute,
-                    lark_via_cli: options.larkViaCli,
-                    skip_summary: options.skipSummary,
-                    ai_provider: options.aiProvider,
-                    ai_model: options.aiModel,
-                    note_mode: options.noteMode,
-                    prompt_preset: options.promptPreset,
-                    prompt_preset_label: options.promptPresetLabel,
-                    stt_provider: options.sttProvider,
-                    stt_model: options.sttModel,
-                    stt_speed: options.sttSpeed,
-                    stt_language: options.sttLanguage,
-                    speaker_diarization: options.speakerDiarization,
-                },
-            },
-        };
-    };
-
     const retryTerminalJob = async (job) => {
         const taskId = taskIdForJob(job);
         if (!taskId || isLiveTask(job)) return;
@@ -762,21 +725,9 @@ const AgentTasks = () => {
                 return;
             }
             if (sourceKind === 'media_file') {
-                const filename = job?.source_filename || job?.result?.filename || 'source';
-                let sourceFile = null;
-                try {
-                    sourceFile = await fetchJobSourceFile(taskId, filename, isLocalJob(job) ? {sttProvider: 'local'} : {});
-                } catch (_) {
-                    throw new Error(lang === 'zh' ? '原始文件已不存在，无法直接重新提交。请重新选择本地文件。' : 'The original source file is no longer available. Choose the local file again to submit it.');
-                }
-                const response = await enqueueProcessFiles([sourceFile], {
-                    ...options,
-                    title: filename.replace(/\.[^/.]+$/, ''),
-                });
-                const nextJobs = Array.isArray(response?.queued)
-                    ? response.queued.map((item) => queuedRetryJobFromItem(item, job, options))
-                    : [];
-                rememberRetriedJobs(nextJobs);
+                const response = await retryJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
+                const nextJob = response?.job ? markBackendJob(response.job) : null;
+                if (nextJob) rememberRetriedJobs([nextJob]);
                 await loadJobs();
                 return;
             }
