@@ -2404,6 +2404,8 @@ def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
         provider = _canonical_stt_provider(item)
         if provider in {"elevenlabs_scribe", "azure_batch", "local"} and provider not in providers:
             providers.append(provider)
+    if _request_can_use_local_stt(request) and "local" not in providers:
+        providers.append("local")
     if _public_mode_enabled() and not _request_can_use_local_stt(request):
         providers = [provider for provider in providers if provider != "local"]
     return tuple(providers) or (("elevenlabs_scribe", "local") if _request_can_use_local_stt(request) else ("elevenlabs_scribe",))

@@ -378,6 +378,23 @@ def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
     assert _H._normalize_stt_provider(None) == "local"
 
 
+def test_explicit_cloud_allowlist_still_allows_local_dev_choice(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_PUBLIC_MODE", raising=False)
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "elevenlabs_scribe")
+
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/process",
+        "headers": [(b"x-fluentflow-execution-target", b"local")],
+        "server": ("127.0.0.1", 8000),
+    })
+
+    assert _H._allowed_stt_providers(request) == ("elevenlabs_scribe", "local")
+    assert _H._normalize_stt_provider("local", request) == "local"
+
+
 def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT", "1")
     monkeypatch.setattr(
