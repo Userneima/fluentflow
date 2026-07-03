@@ -341,7 +341,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "to=\"/app\"" in about
 
 
-def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> None:
+def test_recent_activity_cards_open_editor_or_processing_records_not_task_detail() -> None:
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
 
@@ -352,8 +352,8 @@ def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> 
         assert "setLastResult(cachedResult);" in source
         assert "navigate('/editor');" in source
         assert "if (openCachedEditor()) return;" in source
-        assert "navigate(`/tasks/${encodeURIComponent(" in source
-        assert "}/agent`, {state: {job:" in source
+        assert "navigate('/agent', {state: {job:" in source
+        assert "navigate(`/tasks/${encodeURIComponent(" not in source
 
 
 def test_frontend_error_diagnostics_are_structured_and_reused() -> None:

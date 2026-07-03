@@ -155,7 +155,7 @@ const Dashboard = () => {
             }
         } catch(_) {}
         if (openCachedEditor()) return;
-        navigate(`/tasks/${encodeURIComponent(h.taskId)}/agent`, {state: {job: h}});
+        navigate('/agent', {state: {job: h}});
     };
 
     const settleCompletedJob = (job, fallbackJob = currentJob) => {

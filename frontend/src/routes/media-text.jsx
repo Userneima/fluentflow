@@ -520,7 +520,7 @@ const MediaText = () => {
             }
         } catch (_) {}
         if (openCachedEditor()) return;
-        navigate(`/tasks/${encodeURIComponent(item.taskId)}/agent`, {state: {job: item}});
+        navigate('/agent', {state: {job: item}});
     };
 
     return (
