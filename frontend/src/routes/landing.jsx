@@ -453,7 +453,12 @@ const HeroVisual = ({copy}) => {
         setIsManual(true);
     };
 
-    const proofViewportHeight = activeStep === 2 ? 'min-h-[960px]' : activeStep === 3 ? 'min-h-[800px]' : 'min-h-[720px]';
+    const proofViewportHeight = [
+        'min-h-[720px] sm:min-h-[540px]',
+        'min-h-[720px] sm:min-h-[480px]',
+        'min-h-[960px] sm:min-h-[570px]',
+        'min-h-[800px] sm:min-h-[480px]',
+    ][activeStep];
     const slideClass = (index, extra = '') => `ff-proof-stage absolute inset-x-4 top-4 grid min-h-[306px] content-center rounded-[22px] border p-5 text-[#17201b] shadow-[0_18px_52px_-40px_rgba(46,73,58,.45)] transition-[opacity,transform] duration-500 ease-out dark:text-[#f7f1e5] sm:inset-x-6 sm:min-h-[330px] sm:p-6 ${activeStep === index ? 'z-10 opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'z-0 pointer-events-none translate-y-3 scale-[0.985] opacity-0'} ${extra}`;
 
     return (
@@ -527,7 +532,7 @@ const HeroVisual = ({copy}) => {
                 </div>
             </div>
 
-            <div className={`relative ${proofViewportHeight} px-4 pb-5 pt-4 sm:min-h-[480px] sm:px-6`}>
+            <div className={`relative ${proofViewportHeight} px-4 pb-5 pt-4 sm:px-6`}>
                 <section id="ff-proof-panel-input" role="tabpanel" aria-hidden={activeStep !== 0} className={slideClass(0, 'border-[#d9dfd1] bg-white dark:border-white/[0.13] dark:bg-[#20251f]')}>
                     <div className="flex items-start justify-between gap-3">
                         <div>

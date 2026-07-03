@@ -236,6 +236,9 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "Export study asset" not in landing
     assert "Study beside the video" in landing
     assert "对照视频学习" in landing
+    assert "'min-h-[720px] sm:min-h-[540px]'" in landing
+    assert "'min-h-[960px] sm:min-h-[570px]'" in landing
+    assert "relative ${proofViewportHeight} px-4 pb-5 pt-4 sm:min-h-[480px]" not in landing
     assert "Video and audio" in landing
     assert "视频和音频" in landing
     assert "Notes and review" in landing
