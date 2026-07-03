@@ -1222,7 +1222,7 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
     assert "readCachedAccountJobs(cacheAccountId)" in source
-    assert "const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp()" in source
+    assert "const {currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp()" in source
     assert "getJobs(100)," in source
     assert "getJobs(100, {sttProvider: 'local'})," in source
     assert "displayJobs" in source
@@ -1262,6 +1262,8 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "fileInfoLabel(job)" in source
     assert "materialLabel(job, lang)" in source
     assert "const materialTypeLabel = (value, lang) => {" in source
+    assert "sharing_session_material: isZh ? '分享讨论材料' : 'Sharing session'" in source
+    assert "learning_notes: isZh ? '学习材料' : 'Learning material'" in source
     assert "const materialDecisionFromLog = (job) => {" in source
     assert "job?.result?.processing_plan?.material?.type" in source
     assert "job?.result?.processing_plan?.goal?.primary" in source

@@ -47,6 +47,7 @@ Every persisted task result should expose:
 | `frame_artifacts` | Legacy/raw candidate frame artifacts. These may exist when the runtime extracted frames for multimodal review, but they are not final note screenshots unless promoted into `visual_evidence`. |
 | `requested_note_mode` | User-requested note mode. |
 | `resolved_note_mode` | Actual note mode used after planning/fallback. |
+| `note_mode_plan_material_type` | Optional material type returned by the note-planning Agent, such as `course`, `career_talk`, `meeting`, `research`, or `other`; Processing Plan may use it as recorded evidence when present. |
 | `prompt_preset` / `prompt_preset_label` | Prompt template metadata. |
 | `note_mode_*` | Current note-planning and coverage metadata. These remain compatible until folded into the broader Processing Plan. |
 | `chapter_coverage` | Optional Chapter Coverage Evidence Table v1 for `chapter_coverage` notes. |
@@ -206,7 +207,7 @@ fields only for cached or legacy records.
 | `planning_stage` | `initial` when the plan is generated before transcript content exists; `completed` after transcript content can be used. |
 | `goal.primary` | Supported user goal recorded by the current planner. New goal families must be versioned and documented instead of overloading existing values. |
 | `goal.reason` | Short explanation of why that goal is used. |
-| `material.type` | Route-level material type, such as `course_transcript_file`, `course_material`, `lecture_material`, `course_video_pending_content`, or `lecture_video_pending_content`. |
+| `material.type` | Route-level material type, such as `learning_material`, `sharing_session_material`, `course_material`, `lecture_material`, `course_video_pending_content`, or `lecture_video_pending_content`. |
 | `material.confidence` | `high`, `medium`, or `low`; low confidence means the route is inferred from metadata only. |
 | `material.evidence` | Source facts used by the planner, such as transcript content markers, `source_type=video_link`, or `duration>=30min`. |
 | `material.evidence_policy` | Declares evidence weights. Transcript content is primary once available; filename is always weak. |

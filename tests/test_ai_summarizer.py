@@ -10,6 +10,9 @@ from backend.core.ai_summarizer import (
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_OPENAI_MODEL,
     DIRECT_MODE_MAX_CHARS,
+    _FINAL_WRAPPER,
+    _HIGH_FIDELITY_FINAL_WRAPPER,
+    _REVISION_WRAPPER,
     _compose_note_system_prompt,
     _normalize_model,
     _normalize_provider,
@@ -59,6 +62,14 @@ class TestAiSummarizer(unittest.TestCase):
     def test_provider_api_key_keeps_qwen_env_alias(self) -> None:
         with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True):
             self.assertEqual(_provider_api_key("qwen"), "legacy-qwen-key")
+
+    def test_final_note_wrappers_do_not_force_course_framing(self) -> None:
+        combined = "\n".join([_FINAL_WRAPPER, _HIGH_FIDELITY_FINAL_WRAPPER, _REVISION_WRAPPER])
+
+        self.assertIn("长视频或音频材料", combined)
+        self.assertIn("学习笔记", combined)
+        self.assertNotIn("同一门课程", combined)
+        self.assertNotIn("Markdown 课程笔记", combined)
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")

@@ -2633,6 +2633,7 @@ def _plan_note_mode_for_summary(
         planned_kwargs = {**kwargs, "note_mode": planned_mode}
         metadata = {
             "requested_note_mode": "auto",
+            "note_mode_plan_material_type": plan.material_type,
             "note_mode_plan_selected_mode": planned_mode,
             "note_mode_plan_reason": plan.reason,
             "note_mode_plan_confidence": plan.confidence,

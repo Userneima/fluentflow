@@ -5,7 +5,18 @@ from __future__ import annotations
 from typing import Any
 
 PROCESSING_PLAN_VERSION = "1"
-SUPPORTED_GOALS = {"course_notes", "lecture_notes"}
+SUPPORTED_GOALS = {"course_notes", "learning_notes", "lecture_notes"}
+
+PLANNER_MATERIAL_TYPE_MAP = {
+    "course": "course_material",
+    "interview": "interview_material",
+    "career_talk": "sharing_session_material",
+    "meeting": "meeting_material",
+    "research": "research_material",
+    "competition_brief": "briefing_material",
+    "product_training": "training_material",
+    "other": "learning_material",
+}
 
 
 def _text(value: Any) -> str:
@@ -61,6 +72,50 @@ def _content_learning_signals(transcript: str) -> list[str]:
     return signals
 
 
+def _course_or_lecture_signals(text: str) -> list[str]:
+    if not text:
+        return []
+    checks = [
+        ("content explicitly mentions course/class", ("课程", "这节课", "本节课", "课堂", "course", "lesson")),
+        ("content explicitly mentions lecture", ("讲座", "lecture")),
+    ]
+    signals = []
+    for label, tokens in checks:
+        if any(token in text for token in tokens):
+            signals.append(label)
+    return signals
+
+
+def _sharing_or_discussion_signals(text: str, *, filename_only: bool = False) -> list[str]:
+    if not text:
+        return []
+    checks = [
+        ("content mentions sharing/discussion", ("分享会", "经验分享", "交流会", "集会", "圆桌", "答疑", "q&a", "discussion", "roundtable")),
+        ("content mentions meeting/session", ("会议", "例会", "session", "meeting")),
+    ]
+    if not filename_only:
+        checks.extend([
+            ("content mentions discussion/review", ("交流", "讨论", "复盘")),
+            ("content mentions interview", ("访谈", "interview")),
+        ])
+    signals = []
+    for label, tokens in checks:
+        if any(token in text for token in tokens):
+            signals.append(label)
+    return signals
+
+
+def _planned_material_type(result: dict[str, Any]) -> tuple[str, str] | None:
+    planned = _text(result.get("note_mode_plan_material_type") or result.get("material_type")).lower()
+    mapped = PLANNER_MATERIAL_TYPE_MAP.get(planned)
+    if not mapped:
+        return None
+    confidence = _text(result.get("note_mode_plan_confidence")).lower()
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "medium"
+    return mapped, confidence
+
+
 def _material_type(
     source_type: str,
     filename: str,
@@ -69,16 +124,35 @@ def _material_type(
 ) -> tuple[str, str, list[str]]:
     name = filename.lower()
     evidence: list[str] = []
-    content_signals = _content_learning_signals(_transcript_text(result))
-    if content_signals:
-        evidence.extend(content_signals)
+    transcript = _transcript_text(result)
+    planned = _planned_material_type(result)
+    if planned:
+        material, confidence = planned
+        evidence.append(f"note planner material_type={_text(result.get('note_mode_plan_material_type') or result.get('material_type')).lower()}")
+        return material, confidence, evidence
+    if source_type == "transcript_file":
+        evidence.append("source_type=transcript_file")
+        return "course_transcript_file", "medium", evidence
+    sharing_signals = [
+        *_sharing_or_discussion_signals(name, filename_only=True),
+        *_sharing_or_discussion_signals(transcript),
+    ]
+    if sharing_signals:
+        evidence.extend(sharing_signals)
+        return "sharing_session_material", "medium", evidence
+    explicit_course_signals = _course_or_lecture_signals(transcript)
+    if explicit_course_signals:
+        evidence.extend(explicit_course_signals)
         if duration_seconds and duration_seconds >= 1800:
             evidence.append("duration>=30min")
             return "lecture_material", "high", evidence
         return "course_material", "high", evidence
-    if source_type == "transcript_file":
-        evidence.append("source_type=transcript_file")
-        return "course_transcript_file", "medium", evidence
+    content_signals = _content_learning_signals(transcript)
+    if content_signals:
+        evidence.extend(content_signals)
+        if duration_seconds and duration_seconds >= 1800:
+            evidence.append("duration>=30min")
+        return "learning_material", "medium", evidence
     if source_type in {"video_link", "douyin", "youtube"}:
         evidence.append(f"source_type={source_type}")
         if duration_seconds and duration_seconds >= 1800:
@@ -90,7 +164,7 @@ def _material_type(
         return "course_or_lecture_pending_content", "low", evidence
     if source_type in {"video", "audio"}:
         evidence.append(f"source_type={source_type}")
-        return "course_or_lecture_pending_content", "medium", evidence
+        return "learning_material_pending_content", "medium", evidence
     return "course_or_lecture_pending_content", "low", evidence or ["fallback route"]
 
 
@@ -99,7 +173,9 @@ def _learning_goal(material_type: str, source_type: str) -> tuple[str, str]:
         return "lecture_notes", "按讲座材料处理，优先保留主题结构、论证线索和可复用观点。"
     if source_type == "transcript_file":
         return "course_notes", "已有字幕/转录，整理为可复用课程笔记。"
-    return "course_notes", "默认把学习材料整理成可回看的课程笔记。"
+    if material_type in {"course_material", "course_transcript_file", "course_video_pending_content"}:
+        return "course_notes", "按课程材料处理，整理成可复习、可回看的一份笔记。"
+    return "learning_notes", "按长视频学习材料处理，整理成可复习、可回看的一份笔记。"
 
 
 def _execution_scope(result: dict[str, Any], job: dict[str, Any] | None, metadata: dict[str, Any]) -> str:
@@ -135,6 +211,7 @@ def note_strategy_from_result(result: dict[str, Any]) -> dict[str, Any]:
         "resolved_mode": resolved or selected or requested or None,
         "reason": _text(result.get("note_mode_plan_reason")) or None,
         "confidence": _text(result.get("note_mode_plan_confidence")) or None,
+        "material_type": _text(result.get("note_mode_plan_material_type")) or None,
         "warnings": result.get("note_mode_plan_warnings") if isinstance(result.get("note_mode_plan_warnings"), list) else [],
         "fallback": result.get("note_mode_plan_fallback") if result.get("note_mode_plan_fallback") is not None else None,
         "error": _text(result.get("note_mode_plan_error")) or None,

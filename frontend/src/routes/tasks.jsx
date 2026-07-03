@@ -55,6 +55,7 @@ const agentPlanSummary = (job, lang) => {
     const goal = (() => {
         const primary = plan.goal?.primary;
         if (primary === 'lecture_notes') return zh ? '讲座整理' : 'Lecture notes';
+        if (primary === 'learning_notes') return zh ? '学习笔记' : 'Learning notes';
         if (primary === 'course_notes') return zh ? '课程笔记' : 'Course notes';
         return primary || null;
     })();
