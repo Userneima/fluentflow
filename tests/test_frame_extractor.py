@@ -133,7 +133,7 @@ def test_extract_candidate_frames_from_generated_video_at_transcript_timepoint(t
     timepoint_frames = [frame for frame in frames if frame["source"] == "timepoint"]
     assert timepoint_frames
     assert timepoint_frames[0]["timestamp_seconds"] == 0.5
-    assert (tmp_path / "frames" / "ts_0000.jpg").is_file()
+    assert (tmp_path / "frames" / "ts_0000_5.jpg").is_file()
 
 
 @pytest.mark.skipif(
