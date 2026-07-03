@@ -46,6 +46,51 @@ const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '')
 
 const isLocalJob = (job) => String(job?.client_id || '').startsWith('local-') || job?.metadata?.stt_provider === 'local';
 
+const retryInputForJob = (job) => {
+    const metadata = job?.metadata || {};
+    const videoSource = metadata.video_source || {};
+    return String(
+        metadata.video_source_input_preview
+        || videoSource.source_url
+        || videoSource.url
+        || videoSource.webpage_url
+        || metadata.raw_input
+        || ''
+    ).trim();
+};
+
+const retryOptionsForJob = (job) => {
+    const queueOptions = job?.metadata?.queue_options;
+    const metadata = job?.metadata || {};
+    const base = queueOptions && typeof queueOptions === 'object' ? queueOptions : metadata;
+    return {
+        exportToLark: base.export_to_lark === true || base.export_to_lark === 'true',
+        larkExportRoute: base.lark_export_route,
+        larkViaCli: base.lark_via_cli === true || base.lark_via_cli === 'true',
+        skipSummary: base.skip_summary === true || base.skip_summary === 'true',
+        aiProvider: base.ai_provider,
+        aiModel: base.ai_model,
+        noteMode: base.note_mode,
+        promptPreset: base.prompt_preset,
+        promptPresetLabel: base.prompt_preset_label,
+        sttProvider: base.stt_provider,
+        sttModel: base.stt_model,
+        sttSpeed: base.stt_speed,
+        sttLanguage: base.stt_language || 'auto',
+        speakerDiarization: base.speaker_diarization === true || base.speaker_diarization === 'true',
+    };
+};
+
+const mediaSourceForJob = (job) => {
+    const sourceType = String(job?.source_type || job?.result?.source || '').toLowerCase();
+    const filename = String(job?.source_filename || job?.result?.filename || '').toLowerCase();
+    if (sourceType === 'video_link') return 'video_link';
+    if (sourceType === 'transcript_file') return 'transcript_file';
+    if (sourceType === 'audio_file' || /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i.test(filename)) return 'media_file';
+    if (sourceType === 'video_file' || sourceType === 'queue_upload' || /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(filename)) return 'media_file';
+    return '';
+};
+
 const formatTaskDateTime = (value, lang) => {
     const date = new Date(value || '');
     if (Number.isNaN(date.getTime())) return lang === 'zh' ? '时间未知' : 'Unknown time';
@@ -371,7 +416,7 @@ const QueueUploadBanner = ({upload, lang}) => {
     );
 };
 
-const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTaskId, onCancel, onDelete, onOpenResult}) => {
+const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTaskId, retryingTaskId, onCancel, onDelete, onOpenResult, onRetry}) => {
     const taskId = taskIdForJob(job);
     const state = normalizeTaskState(job);
     const live = isLiveTask(job);
@@ -451,10 +496,10 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                             {lang === 'zh' ? '查看结果' : 'View result'}
                         </button>
                     ) : failed ? (
-                        <Link to="/media-text?mode=media" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
-                            <AlertCircle className="size-4" strokeWidth={2.15}/>
+                        <button type="button" disabled={retryingTaskId === taskId} onClick={() => onRetry(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                            {retryingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <AlertCircle className="size-4" strokeWidth={2.15}/>}
                             {lang === 'zh' ? '重新提交' : 'Submit again'}
-                        </Link>
+                        </button>
                     ) : null}
                     {cancellableLive ? (
                         <button type="button" disabled={cancellingTaskId === taskId} onClick={() => onCancel(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-4 text-[13px] font-extrabold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
@@ -498,7 +543,7 @@ const AgentTasks = () => {
     const {lang} = useI18n();
     const {authMode, user} = useAuth();
     const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
-    const {getJobs, getJob, cancelJob, deleteJob} = useApi();
+    const {getJobs, getJob, cancelJob, deleteJob, createVideoSourceJob, enqueueProcessFiles, fetchJobSourceFile} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
@@ -513,6 +558,7 @@ const AgentTasks = () => {
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
     const [deletingTaskId, setDeletingTaskId] = useState('');
+    const [retryingTaskId, setRetryingTaskId] = useState('');
     const locallyCancelledTaskIdsRef = useRef(new Set());
     const locallyDeletedTaskIdsRef = useRef(new Set());
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
@@ -648,6 +694,100 @@ const AgentTasks = () => {
         }
     };
 
+    const rememberRetriedJobs = (nextJobs=[]) => {
+        const normalized = nextJobs.filter(Boolean).map(markBackendJob);
+        if (!normalized.length) return;
+        setJobs((current) => {
+            const next = mergeJobs(normalized, current);
+            writeWarmJobs(cacheAccountId, next);
+            if (canUseTaskCache) writeCachedAccountJobs(cacheAccountId, next);
+            return next;
+        });
+    };
+
+    const queuedRetryJobFromItem = (item, sourceJob, options) => {
+        if (!item?.task_id) return null;
+        const now = new Date().toISOString();
+        const filename = item.filename || item.source_filename || sourceJob?.source_filename || 'source';
+        return {
+            task_id: item.task_id,
+            status: item.status || TASK_STATE_QUEUED,
+            task_state: item.status || TASK_STATE_QUEUED,
+            stage: 'queued',
+            progress: 0,
+            source_type: item.source_type || sourceJob?.source_type || mediaSourceForJob(sourceJob) || 'video_file',
+            source_filename: filename,
+            source_file_size_mb: item.source_file_size_mb ?? sourceJob?.source_file_size_mb ?? null,
+            created_at: now,
+            updated_at: now,
+            metadata: {
+                display_title: filename.replace(/\.[^/.]+$/, ''),
+                queue_options: {
+                    export_to_lark: options.exportToLark,
+                    lark_export_route: options.larkExportRoute,
+                    lark_via_cli: options.larkViaCli,
+                    skip_summary: options.skipSummary,
+                    ai_provider: options.aiProvider,
+                    ai_model: options.aiModel,
+                    note_mode: options.noteMode,
+                    prompt_preset: options.promptPreset,
+                    prompt_preset_label: options.promptPresetLabel,
+                    stt_provider: options.sttProvider,
+                    stt_model: options.sttModel,
+                    stt_speed: options.sttSpeed,
+                    stt_language: options.sttLanguage,
+                    speaker_diarization: options.speakerDiarization,
+                },
+            },
+        };
+    };
+
+    const retryTerminalJob = async (job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId || isLiveTask(job)) return;
+        setRetryingTaskId(taskId);
+        setError(null);
+        try {
+            const options = retryOptionsForJob(job);
+            const sourceKind = mediaSourceForJob(job);
+            if (sourceKind === 'video_link') {
+                const input = retryInputForJob(job);
+                if (!input) {
+                    throw new Error(lang === 'zh' ? '这条记录没有保留原视频链接，请从开始处理页重新提交。' : 'This record does not keep the original video link. Submit it again from the start page.');
+                }
+                const response = await createVideoSourceJob(input, options);
+                const nextJob = response?.job ? markBackendJob(response.job) : null;
+                if (nextJob) rememberRetriedJobs([nextJob]);
+                await loadJobs();
+                return;
+            }
+            if (sourceKind === 'media_file') {
+                const filename = job?.source_filename || job?.result?.filename || 'source';
+                let sourceFile = null;
+                try {
+                    sourceFile = await fetchJobSourceFile(taskId, filename, isLocalJob(job) ? {sttProvider: 'local'} : {});
+                } catch (_) {
+                    throw new Error(lang === 'zh' ? '原始文件已不存在，无法直接重新提交。请重新选择本地文件。' : 'The original source file is no longer available. Choose the local file again to submit it.');
+                }
+                const response = await enqueueProcessFiles([sourceFile], {
+                    ...options,
+                    title: filename.replace(/\.[^/.]+$/, ''),
+                });
+                const nextJobs = Array.isArray(response?.queued)
+                    ? response.queued.map((item) => queuedRetryJobFromItem(item, job, options))
+                    : [];
+                rememberRetriedJobs(nextJobs);
+                await loadJobs();
+                return;
+            }
+            throw new Error(lang === 'zh' ? '这条记录的来源暂不支持直接重新提交，请从开始处理页重新提交。' : 'This record source cannot be resubmitted directly yet. Submit it again from the start page.');
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setRetryingTaskId('');
+        }
+    };
+
     const getJobWithFallback = async (job) => {
         const taskId = taskIdForJob(job);
         const primaryOptions = isLocalJob(job) ? {sttProvider: 'local'} : {};
@@ -766,9 +906,11 @@ const AgentTasks = () => {
                             cancellingTaskId={cancellingTaskId}
                             deletingTaskId={deletingTaskId}
                             openingTaskId={openingTaskId}
+                            retryingTaskId={retryingTaskId}
                             onCancel={cancelLiveJob}
                             onDelete={deleteTerminalJob}
                             onOpenResult={openResult}
+                            onRetry={retryTerminalJob}
                         />
                     ))}
                 </section>
