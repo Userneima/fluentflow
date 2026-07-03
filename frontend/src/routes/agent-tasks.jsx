@@ -542,8 +542,8 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
 const AgentTasks = () => {
     const {lang} = useI18n();
     const {authMode, user} = useAuth();
-    const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
-    const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob} = useApi();
+    const {currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp();
+    const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
     const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
@@ -705,6 +705,17 @@ const AgentTasks = () => {
         });
     };
 
+    const retryStoredSourceJob = async (job, options) => {
+        const taskId = taskIdForJob(job);
+        const localOptions = isLocalJob(job) ? {sttProvider: 'local'} : {};
+        if (runtimeConfig?.jobRetryFromStoredSource) {
+            return await retryJob(taskId, localOptions);
+        }
+        const filename = job?.source_filename || job?.result?.filename || 'source';
+        const sourceFile = await fetchJobSourceFile(taskId, filename, localOptions);
+        return await enqueueProcessFiles([sourceFile], options);
+    };
+
     const retryTerminalJob = async (job) => {
         const taskId = taskIdForJob(job);
         if (!taskId || isLiveTask(job)) return;
@@ -725,9 +736,11 @@ const AgentTasks = () => {
                 return;
             }
             if (sourceKind === 'media_file') {
-                const response = await retryJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
-                const nextJob = response?.job ? markBackendJob(response.job) : null;
-                if (nextJob) rememberRetriedJobs([nextJob]);
+                const response = await retryStoredSourceJob(job, options);
+                const nextJobs = response?.job
+                    ? [response.job]
+                    : (Array.isArray(response?.queued) ? response.queued : []);
+                rememberRetriedJobs(nextJobs);
                 await loadJobs();
                 return;
             }

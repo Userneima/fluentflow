@@ -122,6 +122,7 @@ export const DEFAULT_RUNTIME_CONFIG = {
     defaultSttProvider: DEFAULT_STT_PROVIDER,
     showMaintainerSettings: true,
     guestTrial: {enabled: false},
+    jobRetryFromStoredSource: false,
 };
 
 export const normalizeRuntimeConfig = (config={}) => {
@@ -142,6 +143,7 @@ export const normalizeRuntimeConfig = (config={}) => {
         showMaintainerSettings: config.show_maintainer_settings !== false,
         limits: config.limits || {},
         guestTrial: config.guest_trial || config.limits?.guest_trial || DEFAULT_RUNTIME_CONFIG.guestTrial,
+        jobRetryFromStoredSource: config.features?.job_retry_from_stored_source === true,
     };
 };
 

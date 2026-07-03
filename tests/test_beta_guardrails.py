@@ -531,6 +531,7 @@ def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None
     assert payload["public_mode"] is True
     assert payload["allowed_stt_providers"] == ["elevenlabs_scribe"]
     assert payload["show_maintainer_settings"] is False
+    assert payload["features"]["job_retry_from_stored_source"] is True
     assert "key" not in str(payload).lower()
 
 

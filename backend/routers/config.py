@@ -34,6 +34,9 @@ def runtime_config(request: Request) -> dict[str, Any]:
         "show_maintainer_settings": not H._public_mode_enabled(),
         "limits": H._runtime_limits_for_request(request),
         "guest_trial": H._guest_trial_config(),
+        "features": {
+            "job_retry_from_stored_source": True,
+        },
     }
 
 

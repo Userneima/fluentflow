@@ -502,18 +502,23 @@ def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
 def test_agent_task_retry_resubmits_original_source() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
 
     assert "createVideoSourceJob" in source
     assert "retryJob" in source
     assert "const retryJob = async (taskId, options={})" in shared
     assert "/jobs/${encodeURIComponent(taskId)}/retry" in shared
+    assert "jobRetryFromStoredSource: false" in settings_model
+    assert "config.features?.job_retry_from_stored_source === true" in settings_model
     assert "const retryInputForJob = (job) => {" in source
     assert "const retryOptionsForJob = (job) => {" in source
+    assert "const retryStoredSourceJob = async (job, options) => {" in source
     assert "const retryTerminalJob = async (job) => {" in source
     assert "const response = await createVideoSourceJob(input, options)" in source
-    assert "const response = await retryJob(taskId" in source
-    assert "sourceFile = await fetchJobSourceFile(taskId, filename" not in source
-    assert "const response = await enqueueProcessFiles([sourceFile]" not in source
+    assert "runtimeConfig?.jobRetryFromStoredSource" in source
+    assert "return await retryJob(taskId, localOptions);" in source
+    assert "const sourceFile = await fetchJobSourceFile(taskId, filename, localOptions);" in source
+    assert "return await enqueueProcessFiles([sourceFile], options);" in source
     assert "正在入队" in source
     assert "onRetry(job)" in source
     assert "to=\"/media-text?mode=media\" className=\"inline-flex h-10 items-center gap-2 rounded-[14px] border" not in source
