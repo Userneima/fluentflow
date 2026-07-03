@@ -159,7 +159,7 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
     assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
-    assert "mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readCachedJobs())" in agent_tasks
+    assert "const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readWarmJobs(cacheAccountId), readCachedJobs())" in agent_tasks
     assert "displayJobs.map((job) => (" in agent_tasks
     assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
     assert "查看详情" not in agent_tasks
@@ -716,9 +716,11 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
         assert "if (activeCacheAccountIdRef.current !== requestCacheAccountId) return" in source
         assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
         assert "activeCacheAccountIdRef.current = cacheAccountId" in source
-        assert "setJobs(cached" in source or "setJobs(mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], cached))" in source
+    assert "setJobs(cached" in tasks
+    assert "setJobs(next)" in agent_tasks
+    assert "readWarmJobs(cacheAccountId)" in agent_tasks
 
-    assert "const next = mergeJobs(readCachedJobs(), current, fetchedJobs)" not in agent_tasks
+    assert "const next = mergeJobs(readCachedJobs(), current, fetchedJobs)" in agent_tasks
     assert "const accountReady = authMode !== 'accounts' || !!user?.id" in shared
     assert "setCurrentJob(null)" in shared
     assert "setLastResult(null)" in shared
@@ -1166,6 +1168,12 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "displayJobs" in source
     assert "displayJobs.map((job) => (" in source
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
+    assert "const agentTaskWarmCache = new Map()" in source
+    assert "const readWarmJobs = (accountId) => {" in source
+    assert "const writeWarmJobs = (accountId, jobs) => {" in source
+    assert "readWarmJobs(cacheAccountId)" in source
+    assert "writeWarmJobs(requestCacheAccountId, next)" in source
+    assert "setLoading(canUseTaskCache && next.length === 0)" in source
     assert "const jobsFromCurrentJob = (currentJob) => {" in source
     assert "mergeJobs(currentJobRecords, jobs)" in source
     assert "const QueueUploadBanner = ({upload, lang}) => {" in source

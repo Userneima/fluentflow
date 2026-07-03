@@ -168,6 +168,17 @@ const mergeJobs = (...groups) => {
     return sortJobsForHistoryView(Array.from(byId.values()));
 };
 
+const agentTaskWarmCache = new Map();
+
+const readWarmJobs = (accountId) => {
+    const jobs = agentTaskWarmCache.get(accountId);
+    return Array.isArray(jobs) ? jobs : [];
+};
+
+const writeWarmJobs = (accountId, jobs) => {
+    agentTaskWarmCache.set(accountId, sortJobsForHistoryView(Array.isArray(jobs) ? jobs : []).slice(0, 100));
+};
+
 const statusLabel = (job, lang) => {
     const state = normalizeTaskState(job);
     if (state === TASK_STATE_UPLOADING) return lang === 'zh' ? '上传中' : 'Uploading';
@@ -495,8 +506,9 @@ const AgentTasks = () => {
     const activeCacheAccountIdRef = useRef(cacheAccountId);
     const readCachedJobs = useCallback(() => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : [], [cacheAccountId, canUseTaskCache]);
     const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
-    const [jobs, setJobs] = useState(() => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readCachedJobs()));
-    const [loading, setLoading] = useState(() => canUseTaskCache && readCachedJobs().length === 0);
+    const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readWarmJobs(cacheAccountId), readCachedJobs());
+    const [jobs, setJobs] = useState(initialJobs);
+    const [loading, setLoading] = useState(() => canUseTaskCache && initialJobs().length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
@@ -534,7 +546,8 @@ const AgentTasks = () => {
             .map(markBackendJob);
         const failedFetches = results.filter((result) => result.status === 'rejected');
         setJobs((current) => {
-            const next = mergeJobs(readCachedJobs(), fetchedJobs);
+            const next = mergeJobs(readCachedJobs(), current, fetchedJobs);
+            writeWarmJobs(requestCacheAccountId, next);
             writeCachedAccountJobs(requestCacheAccountId, next);
             return failedFetches.length === results.length && current.length ? current : next;
         });
@@ -544,9 +557,11 @@ const AgentTasks = () => {
 
     useEffect(() => {
         activeCacheAccountIdRef.current = cacheAccountId;
+        const warm = canUseTaskCache ? readWarmJobs(cacheAccountId) : [];
         const cached = canUseTaskCache ? readCachedJobs() : [];
-        setJobs(mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], cached));
-        setLoading(canUseTaskCache && cached.length === 0);
+        const next = mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], warm, cached);
+        setJobs(next);
+        setLoading(canUseTaskCache && next.length === 0);
         setError(location.state?.queueSubmitError || null);
         locallyCancelledTaskIdsRef.current.clear();
         locallyDeletedTaskIdsRef.current.clear();
@@ -610,6 +625,7 @@ const AgentTasks = () => {
         const removeLocalRecord = () => {
             setJobs((current) => {
                 const next = current.filter((item) => taskIdForJob(item) !== taskId);
+                writeWarmJobs(cacheAccountId, next);
                 if (canUseTaskCache) writeCachedAccountJobs(cacheAccountId, next);
                 return next;
             });
