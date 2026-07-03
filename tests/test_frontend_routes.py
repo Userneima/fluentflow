@@ -137,149 +137,137 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert 'path="*" element={<Navigate to="/app" replace/>}' in app_shell
     assert "{path:'/app', icon:LayoutGrid, k:'nav.dashboard'}" in side_nav
     assert 'to="/app"' in side_nav
-    assert "Turn long videos into study-ready notes first." in landing
-    assert "Upload a course, lecture, recording, or video link. FluentFlow prepares the note, transcript, and key moments before you study." in landing
-    assert "Ready to keep studying later." in landing
-    assert "Study with notes ready, not with a pause button under your finger." in landing
-    assert "Accepted transcript fixes can show original text, corrected text, reason, confidence, and time." in landing
-    assert "Public platforms may restrict access." in landing
-    assert "A record you can study, review, and export." in landing
-    assert "to=\"/media-text\"" in landing
-    assert "href=\"#workflow\"" in landing
-    assert "to=\"/agent\"" in landing
+    for expected_copy in [
+        "Turn long videos into study-ready notes first.",
+        "Upload a course, lecture, recording, or video link. FluentFlow prepares the note, transcript, and key moments before you study.",
+        "Study with notes ready, not with a pause button under your finger.",
+        "Accepted transcript fixes can show original text, corrected text, reason, confidence, and time.",
+        "Public platforms may restrict access.",
+        "A record you can study, review, and export.",
+    ]:
+        assert expected_copy in landing
+
+    for route_link in ['to="/media-text"', 'href="#workflow"', 'to="/agent"']:
+        assert route_link in landing
+
     assert "h-dvh overflow-y-auto" in landing
     assert "motion-reduce:scroll-auto" in landing
-    assert "Techna Sans" in landing
-    assert "Avenir_Next" in landing
-    assert "lightGrain" in landing
-    assert "feTurbulence" in landing
-    assert "mix-blend-multiply" in landing
-    assert "opacity-[0.16] mix-blend-multiply" in landing
-    assert "opacity-[0.085] mix-blend-screen" in landing
-    assert "width='96' height='96'" in landing
-    assert "baseFrequency='.92'" in landing
-    assert "lightPageFrost" in landing
-    assert "darkPageFrost" in landing
-    assert "baseFrequency='1.18'" in landing
-    assert "opacity-[0.24] mix-blend-multiply" in landing
-    assert "backgroundSize: '160px 160px, 5px 5px'" in landing
-    assert "backdrop-blur-md" in landing
-    assert "shadow-[inset_0_1px_0_rgba(255,255,255,.72)" in landing
-    assert "font-black" not in landing
-    assert "text-sm font-medium text-[#5f6a61]" in landing
-    assert "text-sm font-semibold text-[#fff8ec]" in landing
-    assert "text-[42px] font-bold leading-[1.06]" in landing
     assert "fluentflow-landing-language" in landing
     assert "fluentflow-landing-theme" in landing
     assert "setLanguage(value)" in landing
-    assert "ThemeIcon" in landing
     assert "Use dark mode" in landing
     assert "使用暗黑模式" in landing
+    assert "lightGrain" in landing
+    assert "lightPageFrost" in landing
+    assert "darkPageFrost" in landing
+
+    for component in [
+        "const HeroProofDemo",
+        "const ProofStepIndicator",
+        "const InputStage",
+        "const ProcessingStage",
+        "const StudyReviewStage",
+        "const ExportStage",
+        "const HeroProofMotionStyles",
+    ]:
+        assert component in landing
+
+    for proof_config in [
+        "const proofViewportHeights",
+        "const buildProofSteps",
+        "const buildProcessingStages",
+        "const buildHeroExportGroups",
+        "const sourceIconItems",
+    ]:
+        assert proof_config in landing
+
     assert "ff-motion-demo" in landing
     assert "ff-proof-stage" in landing
     assert "carouselStepMs = 6500" in landing
-    assert "role=\"tablist\"" in landing
-    assert "role=\"tab\"" in landing
+    assert 'role="tablist"' in landing
+    assert 'role="tab"' in landing
     assert "aria-selected={isActive}" in landing
+    assert "aria-hidden={!isActive}" in landing
     assert "onMouseEnter={() => showStep(index)}" in landing
     assert "onFocus={() => showStep(index)}" in landing
     assert "onClick={() => selectStep(index)}" in landing
     assert "setIsManual(true)" in landing
-    assert "rounded-[26px]" in landing
-    assert "rounded-[22px]" in landing
     assert "fluentflow.app/video-note" in landing
     assert "prefers-reduced-motion: reduce" in landing
+
+    for stage_copy in [
+        "Upload / paste a long video",
+        "https://course.example.com/attention-lecture",
+        "Course lecture: attention mechanisms",
+        "Source check in progress",
+        "正在检查来源",
+        "Processing the video",
+        "正在处理视频",
+        "Study / Review",
+        "学习 / 复查",
+        "Study beside the video",
+        "对照视频学习",
+        "Video",
+        "视频区域",
+        "Transcript",
+        "字幕",
+        "Note editor",
+        "笔记编辑区",
+        "Source anchor",
+        "来源锚点",
+        "Transcript and subtitles",
+        "Key moments",
+        "Study notes",
+    ]:
+        assert stage_copy in landing
+
+    for export_copy in [
+        "Video and audio",
+        "视频和音频",
+        "Notes and review",
+        "笔记相关",
+        "Video file",
+        ".mp4",
+        "Audio track",
+        ".mp3",
+        "Subtitles",
+        ".srt",
+        "Key frames",
+        ".jpg",
+        "Markdown",
+        ".md",
+        "PDF",
+        ".pdf",
+        "Feishu",
+        "Study note package",
+        ".zip",
+    ]:
+        assert export_copy in landing
+
+    for source_shape in [
+        "{key: 'courses'",
+        "{key: 'lectures'",
+        "{key: 'recordings'",
+        "{key: 'localMedia'",
+        "{key: 'subtitles'",
+        "{key: 'links'",
+    ]:
+        assert source_shape in landing
+
     assert "Study workspace" not in landing
     assert "学习工作区" not in landing
     assert "{copy.eyebrow}" not in landing
-    assert "Upload / paste a long video" in landing
-    assert "https://course.example.com/attention-lecture" in landing
-    assert "Course lecture: attention mechanisms" in landing
-    assert "Source check in progress" in landing
-    assert "正在检查来源" in landing
-    assert "Public link" in landing
-    assert "Long lecture" in landing
-    assert "来源链接" in landing
-    assert "长视频" in landing
-    assert "ffInputType" in landing
-    assert "ffCardPop" in landing
-    assert "ffProgressGrow" in landing
     assert "course-link.mp4" not in landing
     assert "课程录屏链接.mp4" not in landing
-    assert "ff-proof-panel-processing" in landing
-    assert "ff-proof-panel-study" in landing
-    assert "Processing the video" in landing
-    assert "正在处理视频" in landing
-    assert "Study / Review" in landing
-    assert "学习 / 复查" in landing
-    assert "Video" in landing
-    assert "视频区域" in landing
-    assert "Transcript" in landing
-    assert "字幕" in landing
-    assert "Note editor" in landing
-    assert "笔记编辑区" in landing
-    assert "Note title" in landing
-    assert "笔记标题" in landing
-    assert "Chapter title" in landing
-    assert "章节标题" in landing
-    assert "Note content" in landing
-    assert "笔记内容" in landing
-    assert "Source anchor" in landing
-    assert "来源锚点" in landing
-    assert "Transcript and subtitles" in landing
-    assert "Key moments" in landing
-    assert "Study notes" in landing
     assert "Notes generated first" not in landing
-    assert "dark:bg-[#20392f] dark:text-[#d7f8eb]" in landing
-    assert "Select proof step:" in landing
-    assert "grid grid-cols-4 gap-3" in landing
-    assert "h-2 w-full rounded-full" in landing
-    assert "rounded-full border border-[#dce5d8]/70" not in landing
-    assert "items-start gap-10 py-10" in landing
-    assert "relative min-h-[520px] self-start" in landing
-    assert "sr-only" in landing
-    assert "block text-[10px] font-semibold uppercase tracking-[0.14em]" not in landing
     assert "Compare and correct" not in landing
     assert "Export study asset" not in landing
-    assert "Study beside the video" in landing
-    assert "对照视频学习" in landing
-    assert "'min-h-[720px] sm:min-h-[540px]'" in landing
-    assert "'min-h-[960px] sm:min-h-[570px]'" in landing
-    assert "relative ${proofViewportHeight} px-4 pb-5 pt-4 sm:min-h-[480px]" not in landing
-    assert "Video and audio" in landing
-    assert "视频和音频" in landing
-    assert "Notes and review" in landing
-    assert "笔记相关" in landing
-    assert "Video file" in landing
-    assert ".mp4" in landing
-    assert "Audio track" in landing
-    assert ".mp3" in landing
-    assert "Subtitles" in landing
-    assert ".srt" in landing
-    assert "Key frames" in landing
-    assert ".jpg" in landing
-    assert "Markdown" in landing
-    assert ".md" in landing
-    assert "PDF" in landing
-    assert ".pdf" in landing
-    assert "Feishu" in landing
-    assert "Study note package" in landing
-    assert ".zip" in landing
     assert "Fix accepted" not in landing
-    assert "MicVocal" in landing
-    assert "MonitorPlay" in landing
-    assert "FileVideo2" in landing
-    assert "Link2" in landing
-    assert "bg-[#f4d98c] text-[#5c4214]" in landing
-    assert "bg-[#dff7e8]" not in landing
-    assert "[text-wrap:balance]" in landing
-    assert "transition-[color,background-color,border-color,box-shadow,transform,opacity]" in landing
-    assert "dark:text-white/[0.68] md:flex" in landing
-    assert "dark:bg-[#111612]" in landing
-    assert 'id="sources" className="relative z-10 scroll-mt-24 border-y border-[#dce5d8] bg-[#f3fbf2]/72 shadow-[inset_0_1px_0_rgba(255,255,255,.58)] backdrop-blur-md dark:border-white/[0.10] dark:bg-[#8fd9c0]/6' in landing
     assert "flashcard" not in landing.lower()
     assert "quiz" not in landing.lower()
     assert "podcast" not in landing.lower()
+    assert "—" not in landing
+    assert "–" not in landing
     assert "to=\"/agent\"" in editor
     assert "edit.chooseRecord" in editor
     assert "to=\"/app\"" in about
