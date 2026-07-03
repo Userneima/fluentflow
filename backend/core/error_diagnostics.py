@@ -50,6 +50,13 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             detail="账号未登录或登录态已失效，AI 笔记没有生成。请重新登录后重试；已完成的转录不会因此损坏。",
             next_action="重新登录后重试；如果转录已保存，打开结果后重生笔记。",
         )
+    if any(token in lowered for token in ("incorrect api key", "invalid_api_key", "apikey-error", "api-key-error")):
+        return _diag(
+            code="invalid_api_key",
+            title="百炼 / DashScope API Key 无效",
+            detail="AI 笔记没有生成：当前百炼 / DashScope API Key 无效或已失效。转录和字幕已保存。",
+            next_action="到设置页更新百炼 / DashScope API Key 后，回到编辑器点击“重生笔记”。",
+        )
     if (
         "fluentflow account login is required" in lowered
         or any(token in lowered for token in ("http 401", "unauthorized"))

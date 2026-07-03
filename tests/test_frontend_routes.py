@@ -366,6 +366,8 @@ def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
     assert "return diagnoseTaskError(message, lang).detail;" in fmt
     assert "const diag = diagnoseTaskError(rawError, lang)" in fmt
     assert "auth_required" in fmt
+    assert "invalid_api_key" in fmt
+    assert "百炼 / DashScope API Key 无效" in fmt
     assert "platform_rate_limited" in fmt
     assert "source_file_missing" in fmt
     assert "unsupported_note_mode" in fmt
@@ -853,6 +855,8 @@ def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
 
     assert "summaryFailureNextStep" in source
+    assert "const diagnosis = noteGenerationDiagnosis(result, lang)" in source
+    assert "friendlyTaskError(result?.summary_error" not in source
     assert "agentWorkflowHref" in source
     assert "处理记录" in source
     assert "生成详情" not in source

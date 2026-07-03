@@ -31,7 +31,6 @@ import {
     dlTranscriptVtt,
     fmtFileSize,
     fmtTime,
-    friendlyTaskError,
     apiFetch,
     DropdownMenu,
     fileNameStem,
@@ -50,6 +49,7 @@ import {
     pickDisplayTranscriptSegments,
     normalizeSttModel,
     normalizeSttProvider,
+    noteGenerationDiagnosis,
     pickTranscriptBaselineSegments,
     pickTranscriptSegments,
     resultToHistoryEntry,
@@ -99,10 +99,11 @@ const localSourceFileMatchesResult = (file, result) => {
 
 const summaryFailureNextStep = (result, lang) => {
     if (!(result?.summary_status === 'failed' || result?.summary_error)) return '';
-    const error = friendlyTaskError(result?.summary_error, lang);
+    const diagnosis = noteGenerationDiagnosis(result, lang);
+    const next = diagnosis.nextAction ? ` ${lang === 'zh' ? '下一步：' : 'Next: '}${diagnosis.nextAction}` : '';
     return lang === 'zh'
-        ? `原因：${error} 下一步：点击“重生笔记”；如果还失败，先更换提示词或缩短材料。`
-        : `Reason: ${error} Next: click Regenerate note; if it still fails, change the prompt or shorten the material.`;
+        ? `${diagnosis.title}：${diagnosis.detail}${next}`
+        : `${diagnosis.title}: ${diagnosis.detail}${next}`;
 };
 
 const formatElapsedMinuteSecond = (seconds) => {

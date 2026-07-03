@@ -225,6 +225,18 @@ export const diagnoseTaskError = (message, lang='zh') => {
             }),
         ],
         [
+            lower.includes('incorrect api key') || lower.includes('invalid_api_key') || lower.includes('apikey-error') || lower.includes('api-key-error'),
+            taskErrorDiagnosis({
+                code: 'invalid_api_key',
+                titleZh: '百炼 / DashScope API Key 无效',
+                titleEn: 'AI service API key is invalid',
+                detailZh: 'AI 笔记没有生成：当前百炼 / DashScope API Key 无效或已失效。转录和字幕已保存。',
+                detailEn: 'The AI note was not generated because the summary provider API key is invalid or expired. Transcript and subtitles are saved.',
+                nextZh: '到设置页更新百炼 / DashScope API Key 后，回到编辑器点击“重生笔记”。',
+                nextEn: 'Update the summary provider API key in Settings, then return to the editor and click Regenerate note.',
+            }),
+        ],
+        [
             lower.includes('fluentflow account login is required') || lower.includes('http 401') || lower.includes('unauthorized') || raw.includes('账号未登录') || raw.includes('登录态') || raw.includes('重新登录'),
             taskErrorDiagnosis({
                 code: 'auth_required',
