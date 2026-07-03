@@ -18,7 +18,7 @@ FluentFlow 是一个面向长视频课程、课堂录音、讲座录音和已有
 - Agent 工作流用于展示处理路线、判断依据和失败恢复建议。
 - 转录稿编辑和自动保存。
 - 下载 TXT、SRT、VTT、Markdown、PDF、Word 等产物。
-- 手动或自动导出到飞书 / Lark。
+- 手动或自动导出到飞书 / Lark；正式多用户路径使用用户 OAuth 连接，维护者 OpenAPI 和本机 `lark-cli` 保留为兼容路线。
 - SQLite 任务历史、事件日志和账号隔离。
 
 ## 技术栈
@@ -27,7 +27,7 @@ FluentFlow 是一个面向长视频课程、课堂录音、讲座录音和已有
 - Frontend: React + Vite + Tailwind CSS
 - STT: ElevenLabs Scribe / faster-whisper
 - AI Summary: DeepSeek / OpenAI compatible API
-- Export: Feishu OpenAPI / local `lark-cli`
+- Export: Feishu user OAuth / Feishu OpenAPI / local `lark-cli`
 - Runtime media processing: FFmpeg
 
 ## 本地运行
@@ -106,7 +106,9 @@ OPENAI_API_KEY=...
 # Cloud transcription
 ELEVENLABS_API_KEY=...
 
-# Feishu / Lark OpenAPI export
+# Feishu / Lark export
+# Formal multi-user route: users connect their own Feishu account through OAuth.
+# Maintainer OpenAPI credentials remain for private deployments and compatibility.
 LARK_APP_ID=...
 LARK_APP_SECRET=...
 
@@ -116,7 +118,11 @@ FLUENTFLOW_AUTH_MODE=accounts
 FLUENTFLOW_DATA_DIR=/path/to/fluentflow-data
 ```
 
-本机 `lark-cli` 导出可通过应用设置开启；后端进程需要能在 PATH 中调用 `lark-cli`。
+飞书 / Lark 导出路线分三类：
+
+- 用户 OAuth：正式多用户产品的主路径。用户在设置页连接自己的飞书账号，导出写入自己的飞书空间。
+- Feishu OpenAPI：维护者或私有部署路线，使用 FluentFlow 应用凭证。
+- 本机 `lark-cli`：本地兼容路线，可通过应用设置开启；后端进程需要能在 PATH 中调用 `lark-cli`。
 
 ## 目录结构
 

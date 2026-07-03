@@ -29,7 +29,7 @@
 | `duration_seconds` | 当前阶段耗时。 |
 | `success` | 当前事件是否成功，`true`/`false`/空。 |
 | `error_reason` | 失败原因。 |
-| `export_target` | 外部导出或同步目标。当前飞书/Lark 路线使用 `lark_cli`、`lark_openapi`。 |
+| `export_target` | 外部导出或同步目标。当前飞书/Lark 路线使用 `feishu_user_oauth`、`lark_openapi`、`lark_cli`。 |
 | `feishu_doc_url` | 飞书/Lark 文档 URL；仅飞书/Lark 导出事件使用。 |
 | `metadata` | 少量补充信息，例如事件口径版本、运行环境、`trigger: auto/manual`、模型名、下载格式、任务终态字段。 |
 

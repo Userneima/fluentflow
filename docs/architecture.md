@@ -249,7 +249,8 @@ FluentFlow 使用两类进度：
 | ElevenLabs Scribe | 默认云端转录 | API Key、账户额度、网络失败、文件体量限制 |
 | Azure Speech + Blob | Legacy 云端转录 | 配置复杂、SAS 过期、排队等待、网络失败 |
 | DeepSeek / OpenAI | 生成结构化摘要 | 长文本漏点、模型失败、成本 |
-| 飞书 OpenAPI | 创建云文档 | 权限、App 凭证、父文档/知识库权限 |
+| 飞书用户 OAuth | 以当前 FluentFlow 用户连接的飞书账号创建云文档 | OAuth 回调、用户授权、token 存储保护、权限 |
+| 飞书 OpenAPI | 使用维护者或私有部署应用凭证创建云文档 | App 凭证、父文档/知识库权限、普通用户误用维护者空间 |
 | lark-cli | 使用本机身份创建文档 | 登录态、PATH、权限 |
 
 外部服务失败时，前端应该显示人能理解的错误；metadata 可以保留原始错误供维护者排查。
