@@ -80,6 +80,13 @@ const isLikelyVideoFile = (fileOrName) => {
     return /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(name);
 };
 
+const isVideoResultSource = (result, sourceFile) => {
+    if (!result) return false;
+    if (isLikelyVideoFile(sourceFile || result.filename || result.display_title)) return true;
+    const source = String(result.source || result.source_type || '').trim().toLowerCase();
+    return ['video', 'video_link', 'youtube', 'douyin'].includes(source);
+};
+
 const localSourceFileMatchesResult = (file, result) => {
     if (!file || !result) return false;
     const fingerprint = result.source_fingerprint || {};
@@ -539,7 +546,8 @@ const Editor = () => {
         isLikelyVideoFile(matchedLocalSourceFile || result?.filename)
         && (matchedLocalSourceFile || (result?.task_id && result?.source_file_available))
     );
-    const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0;
+    const canShowVideoReview = isVideoResultSource(result, matchedLocalSourceFile);
+    const canUseVideoReview = canShowVideoReview && mediaKind === 'video' && !!mediaUrl && segments.length > 0;
     const activeReviewMode = canUseVideoReview ? transcriptReviewMode : 'text';
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
@@ -1510,7 +1518,7 @@ const Editor = () => {
                                             </div>
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                            {segments.length > 0 && (
+                                            {canShowVideoReview && segments.length > 0 && (
                                                 <div className="inline-flex h-9 items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                                     <button
                                                         type="button"

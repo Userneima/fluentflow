@@ -959,7 +959,10 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "const [transcriptReviewMode, setTranscriptReviewMode] = useState('text')" in source
-    assert "const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
+    assert "const canShowVideoReview = isVideoResultSource(result, matchedLocalSourceFile);" in source
+    assert "const canUseVideoReview = canShowVideoReview && mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
+    assert "canShowVideoReview && segments.length > 0 && (" in source
+    assert "const isVideoResultSource = (result, sourceFile) => {" in source
     assert "const playbackMemoryKey = result ? `fluentflow_playback_position_${activeTaskId}` : ''" in source
     assert "localStorage.setItem(playbackMemoryKey" in source
     assert "restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)" in source
