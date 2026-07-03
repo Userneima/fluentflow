@@ -85,6 +85,22 @@ def test_account_middleware_rejects_api_without_session(monkeypatch, tmp_path) -
     assert agent_response.json()["account_required"] is True
 
 
+def test_account_middleware_serves_spa_routes_without_session(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+
+    with TestClient(main.app) as client:
+        agent_page = client.get("/agent")
+        admin_page = client.get("/admin")
+        agent_api = client.get("/agent/v1/tasks/missing/package")
+
+    assert agent_page.status_code == 200
+    assert "FluentFlow" in agent_page.text
+    assert admin_page.status_code == 200
+    assert "FluentFlow" in admin_page.text
+    assert agent_api.status_code == 401
+    assert agent_api.json()["account_required"] is True
+
+
 def test_local_lark_export_can_use_local_execution_header(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
     exported: list[tuple[str, str]] = []

@@ -21,10 +21,24 @@ def test_client_routes_fall_back_to_frontend_index() -> None:
     assert 'src="/assets/' in response.text
 
 
+def test_colliding_frontend_routes_fall_back_to_spa_index() -> None:
+    client = TestClient(app)
+
+    for path in ("/agent", "/admin"):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        assert "FluentFlow" in response.text
+        assert 'type="module"' in response.text
+
+
 def test_api_like_unknown_routes_still_return_404() -> None:
     client = TestClient(app)
 
     assert client.get("/jobs/not-found/extra").status_code == 404
+    assert client.get("/agent/v1/tasks/not-found/extra").status_code == 404
+    assert client.get("/admin/not-found/extra").status_code == 404
     assert client.get("/process").status_code == 404
     assert client.get("/missing.js").status_code == 404
 

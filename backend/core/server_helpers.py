@@ -237,12 +237,13 @@ def _should_proxy_cloud_workspace(request: Request) -> bool:
     path = request.url.path
     if path == "/" or path.startswith("/assets/"):
         return False
+    if _is_frontend_spa_route(path):
+        return False
     if path in LOCAL_CLOUD_WORKSPACE_PATHS:
         return False
     if _request_is_local_execution(request):
         return False
-    first_segment = (path.lstrip("/").split("/", 1)[0] or "")
-    return path in {"/auth/status", "/auth/login", "/auth/register", "/auth/logout"} or first_segment in API_ROUTE_PREFIXES
+    return path in {"/auth/status", "/auth/login", "/auth/register", "/auth/logout"} or _is_api_route_path(path)
 
 
 def _request_is_internal_queue(request: Request) -> bool:
@@ -429,8 +430,9 @@ def _is_public_request(request: Request) -> bool:
         return True
     if path.startswith("/assets/"):
         return True
-    first_segment = (path.lstrip("/").split("/", 1)[0] or "")
-    return first_segment not in API_ROUTE_PREFIXES
+    if _is_frontend_spa_route(path):
+        return True
+    return not _is_api_route_path(path)
 
 
 async def beta_access_middleware(request: Request, call_next):
@@ -3418,3 +3420,36 @@ API_ROUTE_PREFIXES: set[str] = {
     "summarize-transcript-file",
     "video-sources",
 }
+
+FRONTEND_EXACT_PATHS: set[str] = {
+    "/app",
+    "/media-text",
+    "/agent",
+    "/processing",
+    "/tasks",
+    "/editor",
+    "/admin",
+    "/settings",
+    "/workspace/api",
+    "/about",
+}
+
+FRONTEND_ROUTE_PREFIXES: tuple[str, ...] = (
+    "/about/",
+    "/tasks/",
+)
+
+
+def _is_frontend_spa_route(path: str | None) -> bool:
+    normalized = "/" + (path or "").strip("/")
+    if normalized == "/":
+        return True
+    return normalized in FRONTEND_EXACT_PATHS or normalized.startswith(FRONTEND_ROUTE_PREFIXES)
+
+
+def _is_api_route_path(path: str | None) -> bool:
+    normalized = "/" + (path or "").strip("/")
+    if _is_frontend_spa_route(normalized):
+        return False
+    first_segment = (normalized.lstrip("/").split("/", 1)[0] or "")
+    return first_segment in API_ROUTE_PREFIXES
