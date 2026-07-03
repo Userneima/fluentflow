@@ -197,6 +197,10 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "Course lecture: attention mechanisms" in landing
     assert "Source check in progress" in landing
     assert "正在检查来源" in landing
+    assert "Public link" in landing
+    assert "Long lecture" in landing
+    assert "来源链接" in landing
+    assert "长视频" in landing
     assert "ffInputType" in landing
     assert "ffCardPop" in landing
     assert "ffProgressGrow" in landing

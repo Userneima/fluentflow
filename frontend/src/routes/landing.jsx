@@ -86,6 +86,7 @@ const landingCopy = {
             uploadDuration: '1:12:44 video',
             uploadDecision: 'Ready for study-note generation',
             uploadProgress: 'Source check in progress',
+            uploadTags: ['Public link', 'Long lecture', 'Transcript', 'Key moments'],
             processing: 'Processing the video',
             processingMeta: 'Course lecture identified',
             processingMaterial: 'Long lecture · note-first route',
@@ -229,6 +230,7 @@ const landingCopy = {
             uploadDuration: '1:12:44 视频',
             uploadDecision: '可生成学习笔记',
             uploadProgress: '正在检查来源',
+            uploadTags: ['来源链接', '长视频', '字幕/转录', '关键画面'],
             processing: '正在处理视频',
             processingMeta: '已识别课程讲座',
             processingMaterial: '长讲座 · 先生成笔记路线',
@@ -378,6 +380,7 @@ const HeroVisual = ({copy}) => {
         [copy.processingStageFrames, copy.processingStageFramesStatus, 'running'],
         [copy.processingStageNotes, copy.processingStageNotesStatus, 'next'],
     ];
+    const uploadTagIcons = [Link2, Film, Captions, Image];
     const mediaExports = [
         [copy.exportMediaVideo, Film],
         [copy.exportMediaAudio, MicVocal],
@@ -536,6 +539,19 @@ const HeroVisual = ({copy}) => {
                                 <div className="relative mt-2 h-2.5 overflow-hidden rounded-full bg-white/18">
                                     <span className="ff-animated absolute inset-y-0 left-0 w-full origin-left rounded-full bg-[#f4d98c]" style={{animation: 'ffProgressGrow 4.8s ease-in-out infinite', transform: 'scaleX(.72)'}}/>
                                     <span className="ff-animated absolute -top-2 left-2 h-7 w-[3px] rounded-full bg-[#8fd9c0] shadow-[0_0_18px_rgba(143,217,192,.86)]" style={{animation: 'ffSceneScan 4.8s ease-in-out infinite'}}/>
+                                </div>
+                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                    {copy.uploadTags.map((tag, index) => {
+                                        const TagIcon = uploadTagIcons[index];
+                                        return (
+                                            <div key={tag} className="flex min-w-0 items-center gap-2 rounded-[12px] border border-white/[0.10] bg-white/[0.08] px-2.5 py-2 text-xs font-semibold text-white/84">
+                                                <span className="flex size-7 shrink-0 items-center justify-center rounded-[9px] bg-[#8fd9c0]/16 text-[#a7efd8]">
+                                                    <TagIcon className="size-3.5" strokeWidth={2.25} aria-hidden="true"/>
+                                                </span>
+                                                <span className="min-w-0 truncate">{tag}</span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
