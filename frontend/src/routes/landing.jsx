@@ -620,8 +620,8 @@ const HeroVisual = ({copy}) => {
                                 <p className="mt-1 rounded-[12px] bg-[#f7f1e5] px-3 py-2 text-sm font-semibold leading-6 text-[#4b3e2b] dark:bg-white/[0.06] dark:text-white/[0.82]">{copy.studyConclusion}</p>
                             </div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <span className={`${dataType} rounded-full bg-[#fff3d5] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#765321] dark:bg-[#f4d98c]/16 dark:text-[#f4d98c]`}>{copy.studyAnchorLabel}</span>
-                                <span className="rounded-full border border-[#f1d093] px-2.5 py-1 text-xs font-semibold text-[#765321] dark:border-[#f4d98c]/22 dark:text-[#f4d98c]">{copy.studyAnchor}</span>
+                                <span className={`${dataType} rounded-full bg-[#fff3d5] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#765321] dark:border dark:border-[#8fd9c0]/32 dark:bg-[#123c33] dark:text-[#a7efd8]`}>{copy.studyAnchorLabel}</span>
+                                <span className="rounded-full border border-[#f1d093] px-2.5 py-1 text-xs font-semibold text-[#765321] dark:border-[#8fd9c0]/32 dark:bg-[#0e1713] dark:text-[#d7f8eb]">{copy.studyAnchor}</span>
                             </div>
                         </div>
                     </div>
