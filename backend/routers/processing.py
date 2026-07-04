@@ -1927,10 +1927,14 @@ async def regenerate_summary(
 ):
     """Re-run AI summarization on an existing transcript."""
     loop = asyncio.get_event_loop()
-    task_id_value = (task_id or "").strip() or H._new_task_id()
+    requested_task_id = (task_id or "").strip()
+    task_id_value = requested_task_id or H._new_task_id()
     client_id = H._request_client_scope(request)
-    if task_id and not H.get_job(task_id_value, client_id=client_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    existing_job = H.get_job(task_id_value, client_id=client_id) if requested_task_id else None
+    regenerated_from_task_id = None
+    if requested_task_id and not existing_job:
+        regenerated_from_task_id = requested_task_id
+        task_id_value = H._new_task_id()
     kwargs = H._ai_kwargs(
         deepseek_api_key=deepseek_api_key,
         openai_api_key=openai_api_key,
@@ -1968,6 +1972,7 @@ async def regenerate_summary(
             success=True,
             metadata=H._metadata(
                 route="/regenerate-summary",
+                regenerated_from_task_id=regenerated_from_task_id,
                 ai_provider=(ai_provider or "").strip() or None,
                 ai_model=(ai_model or "").strip() or None,
                 requested_note_mode=note_mode_plan.get("requested_note_mode") or summary_result.requested_mode,
@@ -1991,8 +1996,9 @@ async def regenerate_summary(
             **{key: value for key, value in note_mode_plan.items() if key.startswith("note_mode_plan_")},
             "prompt_preset": (prompt_preset or "").strip() or None,
             "prompt_preset_label": (prompt_preset_label or "").strip() or None,
+            "regenerated_from_task_id": regenerated_from_task_id,
         }
-        existing = H.get_job(task_id_value, client_id=client_id)
+        existing = existing_job if existing_job and task_id_value == requested_task_id else H.get_job(task_id_value, client_id=client_id)
         result = dict(existing.get("result") or {}) if existing else {
             "task_id": task_id_value,
             "filename": source_filename,
