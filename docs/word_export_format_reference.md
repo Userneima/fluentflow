@@ -47,8 +47,13 @@ these rules:
 - Use a Word page section with explicit A4 size and margins instead of body
   `max-width`, centered layout, or browser padding.
 - Define one unified font stack and include Word-compatible `mso-*` font hints:
-  Chinese / East Asian text uses Microsoft YaHei first; Latin and numbers use
-  Segoe UI first.
+  Chinese / East Asian text, Latin text, and numbers use PingFang SC first.
+- Do not reuse web-only manual list markers in Word export. The in-app Markdown
+  preview uses a manual `•` span for visual control, but Word export must rely
+  on native list markers or WPS / Word can show duplicated bullets.
+- Remove Markdown blank-line `<br/>` placeholders from the Word export HTML;
+  Word paragraph spacing should come from the export CSS, not browser preview
+  line-break placeholders.
 - Tables must be page-width bounded with `width: 100%`,
   `border-collapse: collapse`, `table-layout: fixed`, and
   `mso-table-lspace/rspace: 0pt`.

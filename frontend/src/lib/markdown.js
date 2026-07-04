@@ -58,6 +58,7 @@ export const renderTableHtml = (headerCells, bodyRows, renderInline) => {
 export const simpleMd = (md, options={}) => {
     if(!md) return '';
     const renderImages = options.renderImages !== false;
+    const renderManualListMarkers = options.renderManualListMarkers !== false;
     const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const renderInline = (s) => esc(s)
         .replace(/`([^`]+)`/g,'<code class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[0.92em]">$1</code>')
@@ -146,8 +147,10 @@ export const simpleMd = (md, options={}) => {
 
         if(/^[-*] /.test(trimmed)){
             if(inOl){ html += '</ol>'; inOl = false; }
-            if(!inUl){ html += '<ul class="space-y-1 my-2">'; inUl = true; }
-            html += `<li class="flex gap-2 text-sm text-on-surface"><span class="text-tertiary mt-0.5">•</span><span>${renderInline(trimmed.slice(2))}</span></li>`;
+            if(!inUl){ html += renderManualListMarkers ? '<ul class="space-y-1 my-2">' : '<ul>'; inUl = true; }
+            html += renderManualListMarkers
+                ? `<li class="flex gap-2 text-sm text-on-surface"><span class="text-tertiary mt-0.5">•</span><span>${renderInline(trimmed.slice(2))}</span></li>`
+                : `<li>${renderInline(trimmed.slice(2))}</li>`;
             i += 1;
             continue;
         }

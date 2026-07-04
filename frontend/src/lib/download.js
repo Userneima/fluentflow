@@ -23,12 +23,12 @@ li,
 td,
 th,
 blockquote {
-    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
-    mso-fareast-font-family: "Microsoft YaHei";
-    mso-ascii-font-family: "Segoe UI";
-    mso-hansi-font-family: "Segoe UI";
+    font-family: "PingFang SC", "PingFang HK", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
+    mso-fareast-font-family: "PingFang SC";
+    mso-ascii-font-family: "PingFang SC";
+    mso-hansi-font-family: "PingFang SC";
     font-size: 11pt;
-    line-height: 1.65;
+    line-height: 1.48;
     color: #1a1a1a;
 }
 .ff-word-summary {
@@ -43,14 +43,14 @@ blockquote {
 .ff-word-summary h3,
 .ff-word-summary h4,
 .ff-word-summary h5 {
-    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
-    mso-fareast-font-family: "Microsoft YaHei";
-    mso-ascii-font-family: "Segoe UI";
-    mso-hansi-font-family: "Segoe UI";
+    font-family: "PingFang SC", "PingFang HK", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
+    mso-fareast-font-family: "PingFang SC";
+    mso-ascii-font-family: "PingFang SC";
+    mso-hansi-font-family: "PingFang SC";
     color: #111111;
     font-weight: bold;
     line-height: 1.35;
-    margin: 16pt 0 7pt;
+    margin: 12pt 0 5pt;
     page-break-after: avoid;
 }
 .ff-word-summary h1,
@@ -65,24 +65,39 @@ blockquote {
     font-size: 13pt;
 }
 .ff-word-summary p {
-    margin: 0 0 8pt;
+    margin: 0 0 4pt;
 }
-.ff-word-summary ul,
+.ff-word-summary ul {
+    list-style-type: disc;
+    margin: 4pt 0 6pt 18pt;
+    padding: 0;
+}
 .ff-word-summary ol {
-    margin: 6pt 0 10pt 20pt;
+    list-style-type: decimal;
+    margin: 4pt 0 6pt 18pt;
     padding: 0;
 }
 .ff-word-summary li {
-    margin: 0 0 4pt;
-    padding-left: 2pt;
+    display: list-item;
+    margin: 0 0 2pt;
+    padding-left: 0;
+    line-height: 1.48;
+}
+.ff-word-summary li > span:first-child {
+    display: none;
+}
+.ff-word-summary li > span {
+    display: inline;
 }
 .ff-word-summary strong {
     font-weight: bold;
 }
 .ff-word-summary code,
 .ff-word-summary pre {
-    font-family: "Consolas", "Menlo", "Courier New", monospace;
-    mso-fareast-font-family: "Microsoft YaHei";
+    font-family: "PingFang SC", "PingFang HK", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
+    mso-fareast-font-family: "PingFang SC";
+    mso-ascii-font-family: "PingFang SC";
+    mso-hansi-font-family: "PingFang SC";
 }
 .ff-word-summary pre {
     margin: 10pt 0;
@@ -126,8 +141,10 @@ blockquote {
 }
 `;
 
+const normalizeWordSummaryHtml = (html) => html.replace(/<br\/>/g, '');
+
 export const buildWordSummaryHtml = (md) => {
-    const rendered = simpleMd(md, {renderImages: true});
+    const rendered = normalizeWordSummaryHtml(simpleMd(md, {renderImages: true, renderManualListMarkers: false}));
     return `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40" lang="zh-CN">
 <head>
