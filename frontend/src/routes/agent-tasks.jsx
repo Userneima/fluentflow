@@ -496,7 +496,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
     ];
     return (
         <article className="rounded-[24px] border border-[#dedada] bg-white p-5 shadow-[0_18px_44px_-38px_rgba(17,17,17,.45)] dark:border-white/[0.10] dark:bg-white/[0.055] dark:shadow-none">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statePillClass(state)}`}>
@@ -514,7 +514,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                         {failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)}
                     </p>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                     {completed ? (
                         <button type="button" disabled={!job?.result || openingTaskId === taskId} onClick={() => onOpenResult(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
                             {openingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <FileText className="size-4" strokeWidth={2.15}/>}

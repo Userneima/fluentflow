@@ -1430,6 +1430,14 @@ def test_ui_copy_does_not_leak_internal_product_principles() -> None:
     assert "避免防御性文案和自证清白式表达" in design_system
 
 
+def test_agent_task_card_actions_stay_top_right_on_tablet_width() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+
+    assert "sm:flex-row sm:items-start sm:justify-between" in source
+    assert "sm:justify-end" in source
+    assert "lg:flex-row lg:items-start lg:justify-between" not in source
+
+
 def test_sidebar_keeps_visible_login_entry_for_accounts_mode() -> None:
     source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
 
