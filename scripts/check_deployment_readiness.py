@@ -23,6 +23,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.core.local_config import credential_status, load_project_env  # noqa: E402
+from backend.core.runtime_paths import (  # noqa: E402
+    default_account_db_path,
+    default_artifact_dir,
+    default_edited_transcript_dir,
+    default_job_db_path,
+    default_source_dir,
+    default_transcript_edit_records_dir,
+    default_video_source_dir,
+)
 
 
 @dataclass
@@ -165,7 +174,7 @@ def run_checks(
         access_detail,
     ))
 
-    account_db_path = _path_from_env("FLUENTFLOW_ACCOUNT_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_accounts.sqlite")
+    account_db_path = _path_from_env("FLUENTFLOW_ACCOUNT_DB_PATH", default_account_db_path())
     account_db_parent_ok, account_db_parent_detail = _check_writable_dir(account_db_path.parent)
     checks.append(CheckResult(
         "account_auth",
@@ -181,7 +190,7 @@ def run_checks(
         ),
     ))
 
-    job_db_path = _path_from_env("FLUENTFLOW_JOB_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_jobs.sqlite")
+    job_db_path = _path_from_env("FLUENTFLOW_JOB_DB_PATH", default_job_db_path())
     job_db_parent_ok, job_db_parent_detail = _check_writable_dir(job_db_path.parent)
     checks.append(CheckResult(
         "job_store",
@@ -277,11 +286,11 @@ def run_checks(
     ))
 
     storage_dirs = {
-        "sources": _path_from_env("FLUENTFLOW_SOURCE_DIR", PROJECT_ROOT / "data" / "sources"),
-        "artifacts": _path_from_env("FLUENTFLOW_ARTIFACT_DIR", PROJECT_ROOT / "data" / "artifacts"),
-        "edited_transcripts": _path_from_env("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", PROJECT_ROOT / "data" / "edited_transcripts"),
-        "transcript_edit_records": _path_from_env("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", PROJECT_ROOT / "data" / "transcript_edit_records"),
-        "video_sources": _path_from_env("FLUENTFLOW_VIDEO_SOURCE_DIR", PROJECT_ROOT / "视频文件"),
+        "sources": _path_from_env("FLUENTFLOW_SOURCE_DIR", default_source_dir()),
+        "artifacts": _path_from_env("FLUENTFLOW_ARTIFACT_DIR", default_artifact_dir()),
+        "edited_transcripts": _path_from_env("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", default_edited_transcript_dir()),
+        "transcript_edit_records": _path_from_env("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", default_transcript_edit_records_dir()),
+        "video_sources": _path_from_env("FLUENTFLOW_VIDEO_SOURCE_DIR", default_video_source_dir()),
     }
     for label, path in storage_dirs.items():
         ok, detail = _check_writable_dir(path)

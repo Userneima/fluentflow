@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.core.runtime_paths import default_account_db_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "fluentflow_accounts.sqlite"
+DEFAULT_DB_PATH = default_account_db_path()
 CURRENT_RATE_CARD_VERSION = "quota-v0"
 
 

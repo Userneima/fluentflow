@@ -4,7 +4,7 @@
 
 ## 基本原则
 
-- 事件日志使用本地 SQLite：`data/fluentflow_events.sqlite`。
+- 事件日志使用本地 SQLite：默认在系统应用数据目录的 `fluentflow_events.sqlite`；可用 `FLUENTFLOW_EVENT_DB_PATH` 覆盖。
 - 只记录长度、类型、耗时、状态、错误原因和外部同步结果，不保存完整转写文本或完整 Markdown 笔记。
 - 事件日志是诊断和统计数据，不是结果存储；完整结果、字幕、笔记和产物归属看任务结果和 artifact。
 - 埋点是 best-effort：写入失败只记录后端 warning，不影响主业务流程。

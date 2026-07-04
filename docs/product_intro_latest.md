@@ -182,7 +182,7 @@ FluentFlow 当前已经从“功能工具”扩展为“可观测工作流产品
 
 ### 2. SQLite 事件日志
 
-新增本地事件日志：`data/fluentflow_events.sqlite`。
+新增本地事件日志：默认写入系统应用数据目录下的 `fluentflow_events.sqlite`，旧版本曾写入仓库 `data/fluentflow_events.sqlite`。
 
 第一阶段只记录真实发生的系统链路和已有用户按钮行为，包括：
 

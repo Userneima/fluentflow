@@ -130,11 +130,11 @@ python3 scripts/cleanup_storage.py --apply
 
 默认保留策略：
 
-- `data/sources`：1 天
-- `data/artifacts`：30 天
-- `data/edited_transcripts`：90 天
-- `data/transcript_edit_records`：90 天
-- `视频文件`：7 天
+- `sources`：1 天
+- `artifacts`：30 天
+- `edited_transcripts`：90 天
+- `transcript_edit_records`：90 天
+- `video_sources`：7 天
 
 可用环境变量或命令参数调整保留天数。
 

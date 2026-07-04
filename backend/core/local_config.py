@@ -9,8 +9,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from backend.core.runtime_paths import default_config_path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "data" / "fluentflow_config.json"
+DEFAULT_CONFIG_PATH = default_config_path()
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 
 SENSITIVE_FIELDS = {

@@ -18,6 +18,7 @@ DEFAULT_API_BASE = "http://127.0.0.1:8000"
 DEFAULT_CLIENT_ID = os.environ.get("FLUENTFLOW_CLIENT_ID", "local-client")
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 GENERATED_VIDEO_PREFIX_RE = re.compile(r"^\d{10,24}[-_]+(?=.)")
 
 
@@ -220,7 +221,9 @@ def wait_for_job(
 
 
 def artifact_paths(task_id: str, result: dict[str, Any]) -> dict[str, str]:
-    base = Path(os.environ.get("FLUENTFLOW_ARTIFACT_DIR") or PROJECT_ROOT / "data" / "artifacts")
+    from backend.core.runtime_paths import default_artifact_dir
+
+    base = default_artifact_dir()
     artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {}
     paths: dict[str, str] = {}
     for kind, artifact in artifacts.items():
@@ -279,7 +282,9 @@ def build_codex_result(job: dict[str, Any], *, api_base: str, client_id: str, st
 
 
 def default_output_path(task_id: str) -> Path:
-    root = Path(os.environ.get("FLUENTFLOW_CODEX_EXPORT_DIR") or PROJECT_ROOT / "data" / "codex_exports")
+    from backend.core.runtime_paths import default_codex_export_dir
+
+    root = default_codex_export_dir()
     return root / f"{task_id}.json"
 
 

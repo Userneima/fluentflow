@@ -6,13 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "fluentflow_events.sqlite"
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.core.runtime_paths import default_event_db_path  # noqa: E402
+
+DEFAULT_DB_PATH = default_event_db_path()
 
 
 def _average_numeric(rows: list[dict[str, Any]], metadata_key: str) -> float | None:

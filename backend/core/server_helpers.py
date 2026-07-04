@@ -48,6 +48,13 @@ from backend.core.result_schema import (
 )
 from backend.core.title_display import display_title_for_user
 from backend.core.versioning import get_app_version
+from backend.core.runtime_paths import (
+    default_artifact_dir,
+    default_edited_transcript_dir,
+    default_source_dir,
+    default_transcript_edit_records_dir,
+    default_video_source_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,28 +67,23 @@ def _project_root() -> Path:
 
 
 def _source_storage_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_SOURCE_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "sources"
+    return default_source_dir()
 
 
 def _video_source_storage_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_VIDEO_SOURCE_DIR")
-    return Path(override).expanduser() if override else _project_root() / "视频文件"
+    return default_video_source_dir()
 
 
 def _edited_transcript_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_EDITED_TRANSCRIPT_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "edited_transcripts"
+    return default_edited_transcript_dir()
 
 
 def _artifact_storage_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_ARTIFACT_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "artifacts"
+    return default_artifact_dir()
 
 
 def _transcript_edit_records_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "transcript_edit_records"
+    return default_transcript_edit_records_dir()
 
 
 from backend.core.job_event_hub import JobEventHub, _sse

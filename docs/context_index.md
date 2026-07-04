@@ -56,6 +56,11 @@ contain task history, source media, artifacts, edited transcripts, eval data, or
 backup files. Use `docs/operations_runbook.md` and the cleanup scripts before
 removing durable runtime data.
 
+Default runtime data now belongs under the OS application data directory, such
+as `~/Library/Application Support/FluentFlow` on macOS. After a successful
+`scripts/migrate_runtime_storage.py --apply` run and verification, keep the
+legacy repo-local data for 14 days as a rollback window before deleting it.
+
 ## Current Code Shape Notes
 
 - Backend entrypoint: `backend/main.py`; routers live in `backend/routers/`;

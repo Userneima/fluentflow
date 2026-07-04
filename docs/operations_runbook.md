@@ -54,21 +54,34 @@ FLUENTFLOW_AUTH_MODE=accounts
 
 ## 2. 关键目录
 
-本地仓库中常见路径：
+默认运行数据目录不在仓库内。macOS 默认是 `~/Library/Application Support/FluentFlow`；Linux 默认是 `$XDG_DATA_HOME/fluentflow` 或 `~/.local/share/fluentflow`；Windows 默认是 `%APPDATA%/FluentFlow`。可以用 `FLUENTFLOW_DATA_DIR` 覆盖。
+
+当前运行目录中的常见路径：
 
 | 路径 | 用途 | 是否可删除 |
 | --- | --- | --- |
-| `data/fluentflow_events.sqlite` | 事件日志 | 不要手动删除；需要备份后再处理 |
-| `data/fluentflow_jobs.sqlite` | 任务历史 | 不要手动删除；会影响历史任务 |
-| `data/fluentflow_accounts.sqlite` 或部署指定账号库 | 账号与会话 | 不要删除 |
-| `data/sources/` | 上传源文件 | 可按清理策略删除 |
-| `data/artifacts/` | 生成的字幕、摘要等产物 | 可按清理策略删除 |
-| `data/edited_transcripts/` | 用户编辑后的转录稿 | 谨慎删除，属于用户劳动成果 |
-| `data/transcript_edit_records/` | 转录修改记录 | 谨慎删除，可用于质量评估 |
-| `backend/data/` | 旧路径、测试运行数据或迁移前产物 | 删除前先确认是否还需要历史复现 |
+| `fluentflow_events.sqlite` | 事件日志 | 不要手动删除；需要备份后再处理 |
+| `fluentflow_jobs.sqlite` | 任务历史 | 不要手动删除；会影响历史任务 |
+| `fluentflow_accounts.sqlite` 或部署指定账号库 | 账号与会话 | 不要删除 |
+| `sources/` | 上传源文件 | 可按清理策略删除 |
+| `artifacts/` | 生成的字幕、摘要等产物 | 可按清理策略删除 |
+| `edited_transcripts/` | 用户编辑后的转录稿 | 谨慎删除，属于用户劳动成果 |
+| `transcript_edit_records/` | 转录修改记录 | 谨慎删除，可用于质量评估 |
+| `legacy_migration/` | 迁移时保全的同名冲突旧文件 | 迁移验证 14 天后可删除 |
 | `logs/uvicorn.log` | 后端运行日志 | 可归档或轮转 |
 
-云服务器建议把长期数据放在 `/var/lib/fluentflow`，环境变量放在 `/etc/fluentflow/fluentflow.env`。
+仓库内 `data/`、`backend/data/`、`视频文件/`、`backend/视频文件/` 是旧路径、测试运行数据或迁移前产物，不是新的默认运行目录。删除前必须先确认迁移 manifest 和当前产品历史都已验证。
+
+迁移旧仓库数据：
+
+```bash
+./venv/bin/python scripts/migrate_runtime_storage.py
+./venv/bin/python scripts/migrate_runtime_storage.py --apply
+```
+
+脚本会复制旧数据，不会删除旧目录；同名但内容不同的目标文件会保存在系统数据目录的 `legacy_migration/` 下。迁移成功后会写入 `legacy_runtime_migration_manifest.json`，其中包含 `legacy_cleanup_after`。默认规则：旧仓库运行数据保留 14 天；迁移验证通过且超过该日期后，才可以删除仓库里的旧 `data/`、`backend/data/`、`视频文件/` 和 `backend/视频文件/`。
+
+云服务器建议显式把长期数据放在 `/var/lib/fluentflow`，环境变量放在 `/etc/fluentflow/fluentflow.env`。
 
 单台云服务器 Beta 的常用路径：
 
@@ -263,8 +276,8 @@ python3 scripts/cleanup_storage.py --apply
 建议公开试用阶段定期备份：
 
 ```bash
-sqlite3 data/fluentflow_jobs.sqlite ".backup 'backups/jobs-YYYYMMDD.sqlite'"
-sqlite3 data/fluentflow_events.sqlite ".backup 'backups/events-YYYYMMDD.sqlite'"
+sqlite3 "$HOME/Library/Application Support/FluentFlow/fluentflow_jobs.sqlite" ".backup 'backups/jobs-YYYYMMDD.sqlite'"
+sqlite3 "$HOME/Library/Application Support/FluentFlow/fluentflow_events.sqlite" ".backup 'backups/events-YYYYMMDD.sqlite'"
 ```
 
 备份文件可能包含文件名、任务状态、错误原因和飞书 URL，不要公开上传。
@@ -359,10 +372,10 @@ proxy_buffering off;
 查看目录：
 
 ```bash
-du -sh data/*
+du -sh "$HOME/Library/Application Support/FluentFlow"/*
 ```
 
-先 dry-run 清理，再决定是否 apply。不要直接 `rm -rf data`，那会删除任务历史、事件日志、编辑稿和账号数据。
+先 dry-run 清理，再决定是否 apply。不要直接删除整个运行数据目录，也不要在迁移验证前删除旧仓库 `data/`；那会破坏任务历史、事件日志、编辑稿和账号数据。
 
 ## 9. 维护记录规则
 
