@@ -3,6 +3,154 @@ import {simpleMd} from './markdown.js';
 export const _dl = (blob, name) => { const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); };
 export const _baseName = (fn) => (fn||'FluentFlow').replace(/\.[^/.]+$/,'');
 
+const WORD_EXPORT_CSS = `
+@page WordSection1 {
+    size: 595.3pt 841.9pt;
+    margin: 56.7pt 51pt 56.7pt 51pt;
+}
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+div.WordSection1 {
+    page: WordSection1;
+}
+body,
+p,
+li,
+td,
+th,
+blockquote {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
+    mso-fareast-font-family: "Microsoft YaHei";
+    mso-ascii-font-family: "Segoe UI";
+    mso-hansi-font-family: "Segoe UI";
+    font-size: 11pt;
+    line-height: 1.65;
+    color: #1a1a1a;
+}
+.ff-word-summary {
+    width: 100%;
+    max-width: 100%;
+}
+.ff-word-summary * {
+    box-sizing: border-box;
+}
+.ff-word-summary h1,
+.ff-word-summary h2,
+.ff-word-summary h3,
+.ff-word-summary h4,
+.ff-word-summary h5 {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
+    mso-fareast-font-family: "Microsoft YaHei";
+    mso-ascii-font-family: "Segoe UI";
+    mso-hansi-font-family: "Segoe UI";
+    color: #111111;
+    font-weight: bold;
+    line-height: 1.35;
+    margin: 16pt 0 7pt;
+    page-break-after: avoid;
+}
+.ff-word-summary h1,
+.ff-word-summary h2 {
+    font-size: 18pt;
+    margin-top: 0;
+}
+.ff-word-summary h3 {
+    font-size: 15pt;
+}
+.ff-word-summary h4 {
+    font-size: 13pt;
+}
+.ff-word-summary p {
+    margin: 0 0 8pt;
+}
+.ff-word-summary ul,
+.ff-word-summary ol {
+    margin: 6pt 0 10pt 20pt;
+    padding: 0;
+}
+.ff-word-summary li {
+    margin: 0 0 4pt;
+    padding-left: 2pt;
+}
+.ff-word-summary strong {
+    font-weight: bold;
+}
+.ff-word-summary code,
+.ff-word-summary pre {
+    font-family: "Consolas", "Menlo", "Courier New", monospace;
+    mso-fareast-font-family: "Microsoft YaHei";
+}
+.ff-word-summary pre {
+    margin: 10pt 0;
+    padding: 8pt;
+    background: #f4f6f8;
+    border: 0.75pt solid #d9dde3;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.ff-word-summary div {
+    max-width: 100%;
+}
+.ff-word-summary table {
+    width: 100%;
+    max-width: 100%;
+    margin: 10pt 0 12pt;
+    border-collapse: collapse;
+    table-layout: fixed;
+    mso-table-lspace: 0pt;
+    mso-table-rspace: 0pt;
+}
+.ff-word-summary th,
+.ff-word-summary td {
+    border: 0.75pt solid #d9dde3;
+    padding: 5pt 6pt;
+    mso-padding-alt: 5pt 6pt 5pt 6pt;
+    vertical-align: top;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+.ff-word-summary th {
+    background: #f2f4f7;
+    color: #333333;
+    font-weight: bold;
+}
+.ff-word-summary blockquote {
+    margin: 8pt 0 10pt;
+    padding: 6pt 10pt;
+    border-left: 3pt solid #b7c4d4;
+    background: #f8fafc;
+}
+`;
+
+export const buildWordSummaryHtml = (md) => {
+    const rendered = simpleMd(md, {renderImages: true});
+    return `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40" lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="FluentFlow">
+<!--[if gte mso 9]><xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+<w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml><![endif]-->
+<style>${WORD_EXPORT_CSS}</style>
+</head>
+<body>
+<div class="WordSection1">
+<div class="ff-word-summary">${rendered}</div>
+</div>
+</body>
+</html>`;
+};
+
 export const _fmtSrtTime = (sec) => {
     const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60), ms=Math.round((sec%1)*1000);
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
@@ -55,10 +203,7 @@ export const dlSummaryMd = (md, filename) => {
 };
 
 export const dlSummaryWord = (md, filename) => {
-    const rendered = simpleMd(md);
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8"><style>body{font-family:'Microsoft YaHei','Segoe UI',sans-serif;font-size:12pt;line-height:1.8;color:#1a1a1a;max-width:700px;margin:0 auto;padding:40px}h2{font-size:18pt;margin-top:24pt}h3{font-size:15pt;margin-top:18pt}h4{font-size:13pt;margin-top:14pt}ul{margin-left:20pt}li{margin-bottom:4pt}strong{font-weight:bold}</style></head>
-<body>${rendered}</body></html>`;
+    const html = buildWordSummaryHtml(md);
     _dl(new Blob([html],{type:'application/vnd.ms-word;charset=utf-8'}), _baseName(filename)+'_summary.doc');
 };
 
