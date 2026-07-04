@@ -90,6 +90,7 @@ def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
     agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
     helper = Path("frontend/src/lib/queueUpload.js").read_text(encoding="utf-8")
 
     assert "export const queueUploadItemsFromFiles" in helper
@@ -98,6 +99,8 @@ def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
     assert "taskId: item?.task_id || fallback.taskId || null" in helper
     assert "const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles)" in dashboard
     assert "const data = await enqueueProcessFiles(selectedFiles" in dashboard
+    assert "const headers = localExecutionHeaders(options);" in shared
+    assert 'apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, headers, signal})' in shared
     assert "const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems)" in dashboard
     assert "queueItems: provisionalQueueItems" in dashboard
     assert "queueSubmitted: true" in dashboard
@@ -108,7 +111,7 @@ def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
     assert "const items = Array.isArray(currentJob.queueItems) ? currentJob.queueItems : []" in agent_tasks
     assert "metadata: {" in agent_tasks
     assert "queue_provisional: !hasBackendTask" in agent_tasks
-    assert "mergeJobs(currentJobRecords, jobs)" in agent_tasks
+    assert "mergeJobs(currentJobRecords, historyJobRecords, jobs)" in agent_tasks
     assert "const cancellableLive = live && taskId && !job?.metadata?.queue_provisional" in agent_tasks
 
 

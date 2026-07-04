@@ -446,7 +446,8 @@ export const useApi = () => {
         const fd = new FormData();
         Array.from(files || []).forEach((file) => fd.append("files", file));
         appendProcessOptions(fd, options);
-        const r = await apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, signal});
+        const headers = localExecutionHeaders(options);
+        const r = await apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, headers, signal});
         const data = await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
         return data;
