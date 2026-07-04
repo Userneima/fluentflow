@@ -924,6 +924,19 @@ def test_editor_visual_evidence_stays_inline_and_secondary() -> None:
     assert "[x] Add editor affordance to hide/show visual evidence if screenshots become distracting." in plan
 
 
+def test_editor_surfaces_visual_key_moments_without_raw_frames() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+
+    assert "normalizeVisualKeyMoments(result)" in source
+    assert "result?.visual_key_moments" in source
+    assert "result?.visual?.key_moments" in source
+    assert "confidence === 'low'" in source
+    assert "关键画面复查" in source
+    assert "Key visual moments" in source
+    assert "seekMediaTo(moment.timestamp)" in source
+    assert "frame_artifacts" not in source
+
+
 def test_editor_uses_compact_review_workbench_layout() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
