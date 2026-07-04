@@ -176,6 +176,7 @@ bash deploy/deploy_server.sh
 
 ## 进一步了解
 
+- 上下文索引：`docs/context_index.md`
 - 产品边界：`docs/product_overview.md`
 - 架构说明：`docs/architecture.md`
 - UI 设计系统：`docs/ui_design_system.md`
