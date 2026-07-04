@@ -201,6 +201,7 @@ def _agent_visual_requests(result: dict[str, Any]) -> list[dict[str, Any]]:
             "end_seconds": item.get("end_seconds"),
             "reason": _text(item.get("reason")),
             "query": _text(item.get("query")),
+            "purpose": _text(item.get("purpose")),
             "priority": _text(item.get("priority")),
             "max_images": item.get("max_images"),
         }
@@ -223,7 +224,34 @@ def _agent_visual_frame_selections(result: dict[str, Any]) -> list[dict[str, Any
             "caption": _text(item.get("caption")),
             "reason": _text(item.get("reason")),
             "confidence": _text(item.get("confidence")),
+            "purpose": _text(item.get("purpose")),
             "timestamp_seconds": item.get("timestamp_seconds"),
+        }
+        payload.append({field: value for field, value in entry.items() if value not in (None, "")})
+    return payload
+
+
+def _agent_visual_key_moments(result: dict[str, Any]) -> list[dict[str, Any]]:
+    moments = result.get("visual_key_moments")
+    if not isinstance(moments, list):
+        return []
+    payload: list[dict[str, Any]] = []
+    for index, item in enumerate(moments, 1):
+        if not isinstance(item, dict):
+            continue
+        entry = {
+            "id": _text(item.get("id")) or f"key_visual_{index:03d}",
+            "request_id": _text(item.get("request_id")),
+            "timestamp_seconds": item.get("timestamp_seconds"),
+            "caption": _text(item.get("caption")),
+            "reason": _text(item.get("reason")),
+            "note_section": _text(item.get("note_section")),
+            "confidence": _text(item.get("confidence")),
+            "purpose": _text(item.get("purpose")) or "key_moment",
+            "source": _text(item.get("source")),
+            "provider": _text(item.get("provider")),
+            "artifact_url": _text(item.get("artifact_url")),
+            "filename": _text(item.get("filename")),
         }
         payload.append({field: value for field, value in entry.items() if value not in (None, "")})
     return payload
@@ -280,6 +308,7 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
     visual_evidence = _agent_visual_evidence(result, visual_artifacts)
     visual_requests = _agent_visual_requests(result)
     visual_frame_selections = _agent_visual_frame_selections(result)
+    visual_key_moments = _agent_visual_key_moments(result)
     note_status = diagnosis["status"]
     if result.get("summary_skipped"):
         note_status = "skipped"
@@ -350,11 +379,15 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
         "visual": {
             "available": bool(visual_evidence),
             "evidence": visual_evidence,
+            "key_moments": visual_key_moments,
+            "key_moments_available": bool(visual_key_moments),
             "artifacts": visual_artifacts,
             "requests": visual_requests,
             "frame_selections": visual_frame_selections,
             "status": result.get("visual_evidence_status"),
             "reason": result.get("visual_evidence_reason"),
+            "key_moments_status": result.get("visual_key_moments_status"),
+            "key_moments_reason": result.get("visual_key_moments_reason"),
             "pipeline": result.get("visual_evidence_pipeline"),
             "candidate_frame_count": len(result.get("frame_artifacts") or []) if isinstance(result.get("frame_artifacts"), list) else 0,
         },

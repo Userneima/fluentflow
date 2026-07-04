@@ -33,6 +33,7 @@
 
 ### 维护者变化
 
+- 视频截图链路新增 `visual_key_moments` 结果层，用于保存适合学习复查但不应插入正文的关键画面；`visual_evidence` 继续只表示已进入正文的高置信视觉证据，`frame_artifacts` 保持诊断/原始候选语义。
 - 本地运行数据默认目录统一到系统应用数据目录，维护脚本、备份/恢复脚本、部署自检和 Codex 导出脚本改用同一套 runtime path；旧仓库内 `data/`、`backend/data/` 和视频缓存先通过迁移脚本复制，迁移验证后保留 14 天再清理。
 - 前端 `AppProvider`、`DropdownMenu` 和后端 `request_scope` / `cloud_proxy` 抽象已接入主入口，`shared.jsx` 和 `server_helpers.py` 只保留兼容转发层，减少半迁移状态带来的上下文噪音。
 - 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。

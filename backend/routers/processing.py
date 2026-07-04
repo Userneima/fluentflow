@@ -1423,6 +1423,7 @@ async def process_video(
                             "note_section",
                             "query",
                             "reason",
+                            "purpose",
                         ):
                             if fm.get(key) is not None:
                                 art[key] = fm.get(key)
@@ -1436,15 +1437,25 @@ async def process_video(
                     result["frame_count"] = len(frame_artifacts)
                     summary_md = H.rewrite_note_image_references(summary_md, frame_artifacts)
                     result["summary_markdown"] = summary_md
-                    result.update(H.build_visual_evidence_from_note_images(
+                    visual_payload = H.build_visual_evidence_from_note_images(
                         summary_md,
                         frame_artifacts,
+                        provider=frame_artifacts[0].get("provider"),
+                    )
+                    result.update(visual_payload)
+                    result.update(H.build_visual_key_moments(
+                        visual_selections,
+                        frame_artifacts,
+                        visual_evidence=visual_payload.get("visual_evidence") if isinstance(visual_payload.get("visual_evidence"), list) else [],
                         provider=frame_artifacts[0].get("provider"),
                     ))
                 elif visual_requests:
                     summary_md = str(result.get("summary_markdown") or summary_md)
                     result["visual_evidence"] = []
                     result["visual_artifacts"] = {}
+                    result["visual_key_moments"] = []
+                    result["visual_key_moments_status"] = "unavailable"
+                    result["visual_key_moments_reason"] = "没有成功写入候选帧产物；关键画面候选不可用。"
                     result["visual_evidence_status"] = "unavailable"
                     result["visual_evidence_reason"] = (
                         visual_evidence_error
@@ -1453,6 +1464,9 @@ async def process_video(
             elif visual_requests:
                 result["visual_evidence"] = []
                 result["visual_artifacts"] = {}
+                result["visual_key_moments"] = []
+                result["visual_key_moments_status"] = "unavailable"
+                result["visual_key_moments_reason"] = "文本模型提出了截图需求，但当前任务没有生成可用候选帧。"
                 result["visual_evidence_status"] = "unavailable"
                 result["visual_evidence_reason"] = (
                     visual_evidence_error

@@ -5,6 +5,7 @@ from pathlib import Path
 from backend.core.ai_summarizer import _coerce_visual_requests, visual_requests_to_frame_segments
 from backend.core.visual_evidence import (
     build_visual_evidence_from_note_images,
+    build_visual_key_moments,
     inject_visual_evidence_references,
     rewrite_note_image_references,
 )
@@ -178,6 +179,7 @@ def test_coerce_visual_requests_clamps_long_windows() -> None:
 
     assert requests[0]["id"] == "vr_001"
     assert requests[0]["priority"] == "medium"
+    assert requests[0]["purpose"] == "key_moment"
     assert requests[0]["max_images"] == 2
     assert requests[0]["end_seconds"] - requests[0]["start_seconds"] <= 60
 
@@ -203,6 +205,7 @@ def test_visual_requests_to_frame_segments_preserves_request_context() -> None:
             "note_section": "核心流程",
             "query": "清晰流程图",
             "reason": "流程图",
+            "purpose": None,
         }
     ]
 
@@ -246,3 +249,57 @@ def test_injected_visual_reference_can_be_promoted() -> None:
 
     assert payload["visual_evidence_status"] == "completed"
     assert payload["visual_evidence"][0]["note_section"] == "核心流程"
+
+
+def test_medium_selection_becomes_key_moment_without_inline_injection() -> None:
+    selection = {
+        "request_id": "vr_001",
+        "note_section": "核心流程",
+        "filename": "ts_0004_0.jpg",
+        "caption": "流程图展示关键步骤",
+        "reason": "适合复查流程图，但不必插入正文。",
+        "confidence": "medium",
+        "purpose": "key_moment",
+        "timestamp_seconds": 4.0,
+    }
+    markdown = inject_visual_evidence_references("## 核心流程\n\n这里说明流程。", [selection])
+    evidence_payload = build_visual_evidence_from_note_images(
+        markdown,
+        [{"filename": "frames/ts_0004_0.jpg", "url": "/jobs/task/artifacts/frame?file=ts_0004_0.jpg"}],
+    )
+    moments_payload = build_visual_key_moments(
+        [selection],
+        [{"filename": "frames/ts_0004_0.jpg", "url": "/jobs/task/artifacts/frame?file=ts_0004_0.jpg", "timestamp_seconds": 4.0}],
+        visual_evidence=evidence_payload["visual_evidence"],
+    )
+
+    assert "![" not in markdown
+    assert evidence_payload["visual_evidence"] == []
+    assert moments_payload["visual_key_moments_status"] == "completed"
+    assert moments_payload["visual_key_moments"][0]["caption"] == "流程图展示关键步骤"
+    assert moments_payload["visual_key_moments"][0]["artifact_url"].endswith("ts_0004_0.jpg")
+
+
+def test_low_confidence_or_low_information_selection_is_not_user_visible() -> None:
+    low_confidence = {
+        "filename": "low.jpg",
+        "caption": "低置信画面",
+        "confidence": "low",
+        "purpose": "key_moment",
+    }
+    low_information = {
+        "filename": "blank.jpg",
+        "caption": "空白画面",
+        "confidence": "medium",
+        "purpose": "key_moment",
+    }
+    payload = build_visual_key_moments(
+        [low_confidence, low_information],
+        [
+            {"filename": "frames/low.jpg", "url": "/jobs/task/artifacts/frame?file=low.jpg"},
+            {"filename": "frames/blank.jpg", "url": "/jobs/task/artifacts/frame?file=blank.jpg", "low_information": True},
+        ],
+    )
+
+    assert payload["visual_key_moments"] == []
+    assert payload["visual_key_moments_status"] == "unavailable"

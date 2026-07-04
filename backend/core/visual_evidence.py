@@ -259,6 +259,88 @@ def build_visual_evidence_from_note_images(
     }
 
 
+def _evidence_filenames(visual_evidence: list[dict[str, Any]]) -> set[str]:
+    names: set[str] = set()
+    for item in visual_evidence:
+        if not isinstance(item, dict):
+            continue
+        target = _text(item.get("artifact_url"))
+        if target:
+            names.add(_image_target_name(target))
+    return {name for name in names if name}
+
+
+def build_visual_key_moments(
+    selections: list[dict[str, Any]],
+    frame_artifacts: list[dict[str, Any]],
+    *,
+    visual_evidence: list[dict[str, Any]] | None = None,
+    provider: str | None = None,
+) -> dict[str, Any]:
+    """Build user-visible key visual candidates from model-selected frames.
+
+    Key moments are broader than inline visual evidence: they can help users
+    revisit charts, code, formulas, UI states, or process diagrams without
+    being inserted into the note body. Raw frame artifacts are still diagnostic
+    and are not promoted unless the vision selector gave a useful reason.
+    """
+    artifact_index = _artifact_by_filename(frame_artifacts)
+    inline_names = _evidence_filenames(visual_evidence or [])
+    moments: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+    for selection in selections:
+        if not isinstance(selection, dict):
+            continue
+        confidence = _text(selection.get("confidence")).lower()
+        if confidence not in {"high", "medium"}:
+            continue
+        purpose = _text(selection.get("purpose")).lower()
+        filename = Path(_text(selection.get("filename"))).name
+        if not filename or filename in used_names or filename in inline_names:
+            continue
+        artifact = artifact_index.get(filename)
+        if not artifact or artifact.get("low_information") is True:
+            continue
+        caption = _plain_markdown(_text(selection.get("caption")))
+        reason = _plain_markdown(_text(selection.get("reason") or caption))
+        if not caption and not reason:
+            continue
+        if purpose == "inline_evidence" and confidence == "high":
+            # If a high-confidence inline frame did not survive evidence
+            # density/deduping, keep it as a review candidate rather than
+            # silently losing a potentially useful learning landmark.
+            purpose = "key_moment"
+        if purpose not in {"key_moment", "inline_evidence"}:
+            purpose = "key_moment"
+        moment_id = f"key_visual_{len(moments) + 1:03d}"
+        artifact_url = _text(artifact.get("url"))
+        moment = {
+            "id": moment_id,
+            "request_id": _text(selection.get("request_id")),
+            "timestamp_seconds": selection.get("timestamp_seconds") if selection.get("timestamp_seconds") is not None else artifact.get("timestamp_seconds"),
+            "caption": caption or reason,
+            "reason": reason or caption,
+            "note_section": _text(selection.get("note_section")),
+            "confidence": confidence,
+            "purpose": "key_moment",
+            "source": "visual_frame_selection",
+            "provider": _text(provider or artifact.get("provider")),
+            "artifact_url": artifact_url,
+            "filename": _text(artifact.get("filename")),
+        }
+        moments.append({key: value for key, value in moment.items() if value not in (None, "")})
+        used_names.add(filename)
+    return {
+        "visual_key_moments": moments,
+        "visual_key_moments_status": "completed" if moments else "unavailable",
+        "visual_key_moments_reason": (
+            "视觉模型选择了适合复查但未插入正文的关键画面。"
+            if moments
+            else "没有可用的关键画面候选；原始帧仅保留为诊断数据。"
+        ),
+    }
+
+
 def rewrite_note_image_references(markdown: str, frame_artifacts: list[dict[str, Any]]) -> str:
     artifact_index = _artifact_by_filename(frame_artifacts)
 
@@ -291,6 +373,8 @@ def inject_visual_evidence_references(markdown: str, selections: list[dict[str, 
         if isinstance(selection, dict)
         and _text(selection.get("filename"))
         and _text(selection.get("caption"))
+        and _text(selection.get("confidence")).lower() in {"", "high"}
+        and (_text(selection.get("purpose")).lower() in {"", "inline_evidence"})
         and Path(_text(selection.get("filename"))).name not in existing_targets
     ]
     if not pending:
@@ -329,6 +413,7 @@ def inject_visual_evidence_references(markdown: str, selections: list[dict[str, 
 
 __all__ = [
     "build_visual_evidence_from_note_images",
+    "build_visual_key_moments",
     "inject_visual_evidence_references",
     "rewrite_note_image_references",
 ]

@@ -42,6 +42,7 @@ Every persisted task result should expose:
 | `artifacts` | Downloadable outputs keyed by artifact kind. |
 | `visual_evidence` | Optional Agent-selected screenshot evidence points for note sections. These are final note-level decisions, not raw frame candidates. |
 | `visual_artifacts` | Optional generated image artifacts attached to `visual_evidence`. |
+| `visual_key_moments` | Optional user-visible visual review candidates selected for learning/revisit, but not inserted into the note body. |
 | `visual_requests` | Optional text-model screenshot requests with note section, time window, reason, and query before frame extraction. |
 | `visual_frame_selections` | Optional vision-model selections from local candidate windows before final artifact promotion and density filtering. |
 | `frame_artifacts` | Legacy/raw candidate frame artifacts. These may exist when the runtime extracted frames for multimodal review, but they are not final note screenshots unless promoted into `visual_evidence`. |
@@ -270,7 +271,19 @@ Per-run report:
 
 ## Visual Evidence v1
 
-Visual evidence is the result contract for screenshots that help explain a specific course or lecture note section. It should be generated only when the system can name why a frame helps the user.
+Visual evidence is the result contract for screenshots that help explain a
+specific course or lecture note section. The pipeline has three layers:
+
+1. `visual_evidence`: inline note evidence. This is the strictest layer. A
+   frame must be high-confidence, strongly tied to a specific note paragraph or
+   section, and actually referenced in Markdown before it becomes final note
+   evidence.
+2. `visual_key_moments`: user-visible review candidates. These are selected
+   by the vision model because they help users revisit charts, code, formulas,
+   UI states, flow diagrams, or demonstrations, but they are not inserted into
+   the note body.
+3. `frame_artifacts`: diagnostic/raw extracted frames. They can help observe
+   the pipeline but are not user-facing learning results by themselves.
 
 `visual_evidence` is an ordered list:
 
@@ -295,10 +308,27 @@ Visual evidence is the result contract for screenshots that help explain a speci
 | `start_seconds` / `end_seconds` | Local media time window to inspect. Long model-proposed ranges should be clamped before extraction. |
 | `reason` | User-facing reason why a screenshot may help. |
 | `query` | Short visual target for the vision selector. |
+| `purpose` | `inline_evidence` for strict body screenshots or `key_moment` for broader review candidates. |
 | `priority` | `high`, `medium`, or `low`. |
 | `max_images` | Upper bound for selected images from this request. |
 
-`visual_frame_selections` records the vision model's local-window choices before final artifact promotion. It may include `request_id`, `filename`, `caption`, `reason`, `confidence`, and `timestamp_seconds`. It is diagnostic/intermediate data; UI and exports should prefer final `visual_evidence` and `visual_artifacts`.
+`visual_frame_selections` records the vision model's local-window choices before final artifact promotion. It may include `request_id`, `filename`, `caption`, `reason`, `confidence`, `purpose`, and `timestamp_seconds`. It is diagnostic/intermediate data; UI and exports should prefer final `visual_evidence`, `visual_key_moments`, and `visual_artifacts`.
+
+`visual_key_moments` is an ordered list for the future key-frames/review area:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable candidate id within the task, such as `key_visual_001`. |
+| `request_id` | Optional `visual_requests[].id` that produced this frame. |
+| `timestamp_seconds` | Seconds from media start. |
+| `caption` / `reason` | User-facing explanation of why the frame helps review. |
+| `note_section` | Optional note heading or section this frame relates to. |
+| `confidence` | `high` or `medium`; low-confidence selections must not be user-visible. |
+| `purpose` | Current value is `key_moment`. |
+| `source` | Selection source, usually `visual_frame_selection`. |
+| `provider` | Runtime provider that generated the frame. |
+| `artifact_url` | Downloadable or embeddable frame URL. Must not expose local filesystem paths. |
+| `filename` | Artifact filename for diagnostics or stable UI keys. |
 
 `visual_artifacts` is a keyed object for image outputs. Each value follows the same artifact shape as `artifacts` and may add:
 
@@ -308,11 +338,13 @@ Visual evidence is the result contract for screenshots that help explain a speci
 | `content_type` | Usually `image/jpeg` or `image/png`. |
 | `provider` | Runtime provider that generated the artifact. |
 
-Raw `frame_artifacts` are compatibility/candidate outputs. They may be exposed for diagnostics or future visual review, but UI should not present them as final note screenshots unless `visual_evidence` promotes them with a concrete reason and section association.
+Raw `frame_artifacts` are compatibility/candidate outputs. They are diagnostic
+unless promoted by either `visual_evidence` or `visual_key_moments`; UI should
+not present raw frame artifacts as user-facing learning content.
 
 The default automated pipeline is `text_plan_qwen_local_window`: the text note model first proposes screenshot requests from the generated note and timestamped transcript, then Qwen inspects only the requested local frame windows, and the existing visual evidence policy promotes or removes Markdown image references. Qwen should not rewrite the whole note merely to add screenshots.
 
-Final note screenshots must pass the visual evidence policy before they are shown or exported:
+Final note screenshots must pass the visual evidence policy before they are shown inline or exported:
 
 - Use screenshots as evidence for a specific note section or knowledge point, not as decoration.
 - Prefer frames that contain definitions, processes, formulas, code, charts, tables, key comparisons, product interfaces, or concrete demonstrations.
@@ -341,7 +373,7 @@ Top-level shape:
 | `transcript` | Transcript availability, text, preview, raw/display segments, optional correction fields, language, subtitle and translation state. |
 | `note` | Note status, Markdown, diagnosis, modes, prompt metadata, and generation stats. |
 | `artifacts` | Download/export outputs by kind. Public or agent-facing payloads should prefer URLs or artifact ids; local filesystem paths are allowed only inside trusted local runtime surfaces and must never be exposed by public APIs. |
-| `visual` | Optional visual evidence package with final screenshot evidence, generated image artifacts, screenshot requests, frame selections, status, reason, and pipeline. |
+| `visual` | Optional visual package with final inline evidence, key review moments, generated image artifacts, screenshot requests, frame selections, status, reason, and pipeline. |
 | `usage` | Estimated and billable processing units. |
 | `next_actions` | Agent-callable follow-up actions, such as `wait` or `regenerate_note`. |
 | `processing_plan` | Same Processing Plan v1 object exposed on the result, generated on read for old tasks when missing. |
