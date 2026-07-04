@@ -18,6 +18,7 @@ import {
     fmtFileSize,
     friendlyTaskError,
     isSttProgressUnmeasured,
+    historyEntryToResult,
     jobDisplayTitle,
     jobToHistoryEntry,
     jobToCurrentJob,
@@ -199,6 +200,39 @@ const jobsFromCurrentJob = (currentJob) => {
         },
     }];
 };
+
+const jobsFromHistoryEntries = (history=[]) => (
+    (Array.isArray(history) ? history : [])
+        .map((entry) => {
+            const taskId = String(entry?.taskId || '').trim();
+            if (!taskId) return null;
+            const timestamp = Number(entry.timestamp) || Date.now();
+            const status = String(entry.status || '').trim();
+            const taskState = entry.taskState
+                || (status === 'processing' ? TASK_STATE_RUNNING : status || TASK_STATE_COMPLETED);
+            const completed = status === 'completed' || taskState === TASK_STATE_COMPLETED;
+            return {
+                task_id: taskId,
+                status: taskState,
+                task_state: taskState,
+                progress: entry.taskSnapshot?.progress ?? (completed ? 100 : (status === 'processing' ? 2 : 100)),
+                source_type: entry.source || null,
+                source_filename: entry.rawFilename || entry.displayTitle || entry.name,
+                source_file_size_mb: entry.fileSizeMb || null,
+                created_at: new Date(timestamp).toISOString(),
+                updated_at: new Date(timestamp).toISOString(),
+                task_snapshot: entry.taskSnapshot || null,
+                metadata: {
+                    display_title: entry.displayTitle || entry.name,
+                    raw_title: entry.rawTitle || entry.rawFilename || entry.name,
+                    stt_provider: entry.sttProvider || null,
+                    stt_model: entry.sttModel || null,
+                },
+                result: completed ? historyEntryToResult(entry) : null,
+            };
+        })
+        .filter(Boolean)
+);
 
 const mergeJobs = (...groups) => {
     const byId = new Map();
@@ -550,7 +584,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
 const AgentTasks = () => {
     const {lang} = useI18n();
     const {authMode, user} = useAuth();
-    const {currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp();
+    const {history, currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp();
     const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
@@ -559,7 +593,8 @@ const AgentTasks = () => {
     const activeCacheAccountIdRef = useRef(cacheAccountId);
     const readCachedJobs = useCallback(() => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : [], [cacheAccountId, canUseTaskCache]);
     const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
-    const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readWarmJobs(cacheAccountId), readCachedJobs());
+    const historyJobRecords = useMemo(() => jobsFromHistoryEntries(history), [history]);
+    const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], historyJobRecords, readWarmJobs(cacheAccountId), readCachedJobs());
     const [jobs, setJobs] = useState(initialJobs);
     const [loading, setLoading] = useState(() => canUseTaskCache && initialJobs().length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
@@ -572,11 +607,11 @@ const AgentTasks = () => {
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const currentJobRecords = useMemo(() => jobsFromCurrentJob(currentJob), [currentJob]);
     const displayJobs = useMemo(() => (
-        mergeJobs(currentJobRecords, jobs)
+        mergeJobs(currentJobRecords, historyJobRecords, jobs)
             .filter((job) => !locallyCancelledTaskIdsRef.current.has(taskIdForJob(job)))
             .filter((job) => !locallyDeletedTaskIdsRef.current.has(taskIdForJob(job)))
             .slice(0, 30)
-    ), [currentJobRecords, jobs, cancellingTaskId, deletingTaskId]);
+    ), [currentJobRecords, historyJobRecords, jobs, cancellingTaskId, deletingTaskId]);
     const liveJobs = useMemo(() => displayJobs.filter(isLiveTask), [displayJobs]);
     const hasLiveOrUploadingJobs = Boolean(queueUploadJob) || liveJobs.length > 0;
     const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
@@ -614,13 +649,13 @@ const AgentTasks = () => {
         activeCacheAccountIdRef.current = cacheAccountId;
         const warm = canUseTaskCache ? readWarmJobs(cacheAccountId) : [];
         const cached = canUseTaskCache ? readCachedJobs() : [];
-        const next = mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], warm, cached);
+        const next = mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], historyJobRecords, warm, cached);
         setJobs(next);
         setLoading(canUseTaskCache && next.length === 0);
         setError(location.state?.queueSubmitError || null);
         locallyCancelledTaskIdsRef.current.clear();
         locallyDeletedTaskIdsRef.current.clear();
-    }, [cacheAccountId, canUseTaskCache, readCachedJobs, seededJob, location.state?.queueSubmitError]);
+    }, [cacheAccountId, canUseTaskCache, readCachedJobs, seededJob, historyJobRecords, location.state?.queueSubmitError]);
 
     useEffect(() => {
         if (location.state?.queueSubmitError || location.state?.queueSubmittedAt) {

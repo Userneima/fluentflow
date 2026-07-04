@@ -515,6 +515,17 @@ def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
     assert "isLiveTask(job)) return" in source
 
 
+def test_agent_tasks_merge_recent_activity_for_immediate_display() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+
+    assert "const jobsFromHistoryEntries = (history=[])" in source
+    assert "historyEntryToResult(entry)" in source
+    assert "const {history, currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp()" in source
+    assert "const historyJobRecords = useMemo(() => jobsFromHistoryEntries(history), [history]);" in source
+    assert "mergeJobs(currentJobRecords, historyJobRecords, jobs)" in source
+    assert "historyJobRecords, warm, cached" in source
+
+
 def test_agent_task_refresh_warning_only_when_all_sources_fail() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
