@@ -14,6 +14,8 @@ import shutil
 import subprocess
 from typing import Any, Dict, Optional
 
+from backend.core.feishu_markdown import normalize_markdown_for_feishu
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_WIKI_SPACE = "my_library"
@@ -73,6 +75,7 @@ def export_markdown_via_lark_cli(
         )
 
     space = (wiki_space or os.environ.get("FLUENTFLOW_LARK_CLI_WIKI_SPACE") or "").strip() or DEFAULT_WIKI_SPACE
+    export_markdown = normalize_markdown_for_feishu(markdown)
 
     cmd = [
         bin_path,
@@ -81,14 +84,14 @@ def export_markdown_via_lark_cli(
         "--title",
         title,
         "--markdown",
-        markdown,
+        export_markdown,
         "--wiki-space",
         space,
         "--as",
         "user",
     ]
 
-    logger.info("lark-cli export: wiki_space=%s title_len=%d md_len=%d", space, len(title), len(markdown))
+    logger.info("lark-cli export: wiki_space=%s title_len=%d md_len=%d", space, len(title), len(export_markdown))
 
     proc = subprocess.run(
         cmd,
@@ -129,6 +132,7 @@ def export_markdown_via_lark_cli(
         "url": doc_url,
         "doc_token": doc_id,
         "via": "lark_cli",
+        "markdown_format": "feishu_normalized",
         "wiki_space": space,
     }
 

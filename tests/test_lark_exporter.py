@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 from backend.core.lark_exporter import (
     LarkExporter,
-    _convert_data_to_root_children,
+    _convert_data_to_descendant_payload,
     export_markdown_to_lark,
     markdown_contains_table,
     markdown_to_feishu_blocks,
@@ -101,7 +101,25 @@ class TestLarkExporter(unittest.TestCase):
             )
         )
 
-    def test_convert_payload_rebuilds_table_without_server_side_ids(self) -> None:
+    def test_markdown_blocks_normalize_tables_before_flat_block_export(self) -> None:
+        blocks = markdown_to_feishu_blocks(
+            "| 层级 | 比喻 | 说明 |\n"
+            "|------|------|------|\n"
+            "| LLM 大脑 | 初始阶段的语言模型核心 | Agent 的基础 |\n"
+        )
+
+        text = "\n".join(
+            element["text_run"]["content"]
+            for block in blocks
+            for element in (block.get("bullet") or block.get("text") or {}).get("elements", [])
+        )
+        self.assertNotIn("|------|", text)
+        self.assertIn("层级", text)
+        self.assertIn("LLM 大脑", text)
+        self.assertIn("比喻", text)
+        self.assertIn("初始阶段的语言模型核心", text)
+
+    def test_convert_payload_prepares_official_descendant_table_payload(self) -> None:
         convert_data = {
             "first_level_block_ids": ["tbl_1"],
             "blocks": [
@@ -175,31 +193,44 @@ class TestLarkExporter(unittest.TestCase):
             ],
         }
 
-        root_children = _convert_data_to_root_children(convert_data)
-        self.assertEqual(len(root_children), 1)
-        table = root_children[0]
+        children_id, descendants = _convert_data_to_descendant_payload(convert_data)
+        self.assertEqual(children_id, ["tbl_1"])
+        self.assertEqual(len(descendants), 9)
+        table = descendants[0]
         self.assertEqual(table["block_type"], 31)
-        self.assertNotIn("block_id", table)
         self.assertNotIn("parent_id", table)
         self.assertNotIn("cells", table["table"])
         self.assertEqual(table["table"]["property"]["row_size"], 2)
         self.assertEqual(table["table"]["property"]["column_size"], 2)
         self.assertNotIn("merge_info", table["table"]["property"])
-        self.assertEqual(len(table["children"]), 4)
-        self.assertEqual(table["children"][0]["block_type"], 32)
+        self.assertEqual(table["children"], ["cell_1", "cell_2", "cell_3", "cell_4"])
+        self.assertEqual(descendants[1]["block_type"], 32)
         self.assertEqual(
-            table["children"][0]["children"][0]["text"]["elements"][0]["text_run"]["content"],
+            descendants[1]["children"],
+            ["txt_1"],
+        )
+        self.assertEqual(
+            descendants[5]["text"]["elements"][0]["text_run"]["content"],
             "类型",
         )
 
-    def test_create_doc_markdown_writes_tables_with_flat_parser_by_default(
+    def test_create_doc_markdown_prefers_official_convert_and_descendant_writer(
         self,
     ) -> None:
         with patch.object(LarkExporter, "_create_empty_doc", return_value="doc_123") as mock_create_doc, \
              patch("backend.core.lark_exporter._get_tenant_token", return_value="tenant_token") as mock_get_token, \
              patch.object(LarkExporter, "_write_flat_blocks_batched") as mock_write_flat, \
-             patch.object(LarkExporter, "_write_root_blocks_batched") as mock_write_root, \
+             patch.object(LarkExporter, "_write_converted_descendants") as mock_write_descendants, \
              patch("backend.core.lark_exporter._convert_markdown_via_openapi") as mock_convert:
+            mock_convert.return_value = {
+                "first_level_block_ids": ["txt_1"],
+                "blocks": [{
+                    "block_id": "txt_1",
+                    "block_type": 2,
+                    "text": {"elements": [{"text_run": {"content": "A"}}]},
+                    "children": [],
+                }],
+            }
             exporter = LarkExporter(app_id=self.app_id, app_secret=self.app_secret)
 
             result = exporter.create_doc_markdown(
@@ -209,11 +240,36 @@ class TestLarkExporter(unittest.TestCase):
 
         mock_create_doc.assert_called_once_with("表格摘要", None)
         mock_get_token.assert_called_once()
-        mock_convert.assert_not_called()
-        mock_write_root.assert_not_called()
+        mock_convert.assert_called_once()
+        mock_write_descendants.assert_called_once_with("doc_123", "tenant_token", ["txt_1"], mock_write_descendants.call_args.args[3])
+        mock_write_flat.assert_not_called()
+        self.assertEqual(result["via"], "openapi_convert")
+        self.assertEqual(result["markdown_format"], "feishu_normalized")
+        self.assertEqual(result["doc_token"], "doc_123")
+
+    def test_create_doc_markdown_falls_back_when_descendant_write_fails(self) -> None:
+        with patch.object(LarkExporter, "_create_empty_doc", return_value="doc_123"), \
+             patch("backend.core.lark_exporter._get_tenant_token", return_value="tenant_token"), \
+             patch.object(LarkExporter, "_write_flat_blocks_batched") as mock_write_flat, \
+             patch.object(LarkExporter, "_write_converted_descendants", side_effect=RuntimeError("nested failed")) as mock_write_descendants, \
+             patch("backend.core.lark_exporter._convert_markdown_via_openapi") as mock_convert:
+            mock_convert.return_value = {
+                "first_level_block_ids": ["txt_1"],
+                "blocks": [{
+                    "block_id": "txt_1",
+                    "block_type": 2,
+                    "text": {"elements": [{"text_run": {"content": "A"}}]},
+                    "children": [],
+                }],
+            }
+            exporter = LarkExporter(app_id=self.app_id, app_secret=self.app_secret)
+
+            result = exporter.create_doc_markdown("Fallback", "| A |\n| --- |\n| B |")
+
+        mock_write_descendants.assert_called_once()
         mock_write_flat.assert_called_once()
         self.assertEqual(result["via"], "legacy_markdown")
-        self.assertEqual(result["doc_token"], "doc_123")
+        self.assertEqual(result["markdown_format"], "feishu_normalized")
 
     def test_create_doc_markdown_uploads_resolved_artifact_images(self) -> None:
         artifact_root = self._tmp_dir = Path(os.getcwd()) / ".pytest_lark_exporter_tmp"
@@ -266,34 +322,20 @@ class TestLarkExporter(unittest.TestCase):
             except OSError:
                 pass
 
-    @patch.dict(os.environ, {"FLUENTFLOW_LARK_USE_OPENAPI_CONVERT": "1"})
+    @patch.dict(os.environ, {"FLUENTFLOW_LARK_DISABLE_OPENAPI_CONVERT": "1"})
     @patch("backend.core.lark_exporter._convert_markdown_via_openapi")
     @patch("backend.core.lark_exporter._get_tenant_token", return_value="tenant_token")
     @patch.object(LarkExporter, "_write_flat_blocks_batched")
-    @patch.object(LarkExporter, "_write_root_blocks_batched")
+    @patch.object(LarkExporter, "_write_converted_descendants")
     @patch.object(LarkExporter, "_create_empty_doc", return_value="doc_123")
-    def test_create_doc_markdown_uses_openapi_convert_when_explicitly_enabled(
+    def test_create_doc_markdown_can_disable_openapi_convert_for_fallback(
         self,
         mock_create_doc: MagicMock,
-        mock_write_root: MagicMock,
+        mock_write_descendants: MagicMock,
         mock_write_flat: MagicMock,
         mock_get_token: MagicMock,
         mock_convert: MagicMock,
     ) -> None:
-        mock_convert.return_value = {
-            "first_level_block_ids": ["tbl_1"],
-            "blocks": [
-                {
-                    "block_id": "tbl_1",
-                    "block_type": 31,
-                    "children": [],
-                    "table": {
-                        "cells": [],
-                        "property": {"row_size": 1, "column_size": 1, "merge_info": []},
-                    },
-                }
-            ],
-        }
         exporter = LarkExporter(app_id=self.app_id, app_secret=self.app_secret)
 
         result = exporter.create_doc_markdown(
@@ -303,10 +345,10 @@ class TestLarkExporter(unittest.TestCase):
 
         mock_create_doc.assert_called_once_with("表格摘要", None)
         mock_get_token.assert_called_once()
-        mock_convert.assert_called_once()
-        mock_write_root.assert_called_once()
-        mock_write_flat.assert_not_called()
-        self.assertEqual(result["via"], "openapi_convert")
+        mock_convert.assert_not_called()
+        mock_write_descendants.assert_not_called()
+        mock_write_flat.assert_called_once()
+        self.assertEqual(result["via"], "legacy_markdown")
         self.assertEqual(result["doc_token"], "doc_123")
 
 
