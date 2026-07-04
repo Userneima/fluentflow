@@ -247,6 +247,7 @@ const Editor = () => {
     const [summaryUnsaved, setSummaryUnsaved] = useState(false);
     const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
     const [hydratingResult, setHydratingResult] = useState(false);
+    const [hydrationFailed, setHydrationFailed] = useState(false);
     const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
     const mediaRef = useRef(null);
@@ -262,10 +263,12 @@ const Editor = () => {
     useEffect(() => {
         if (!result?.task_id || transcriptUnsaved) {
             setHydratingResult(false);
+            setHydrationFailed(false);
             return;
         }
         if (isLocalHistoryResult(result)) {
             setHydratingResult(false);
+            setHydrationFailed(false);
             return;
         }
         const currentSegments = pickTranscriptSegments(result);
@@ -273,10 +276,11 @@ const Editor = () => {
         const needsHydration = currentSegments.length === 0 || currentText.length <= 260;
         if (!needsHydration || hydratedTaskIdsRef.current.has(result.task_id)) {
             setHydratingResult(false);
+            if (!needsHydration) setHydrationFailed(false);
             return;
         }
-        hydratedTaskIdsRef.current.add(result.task_id);
         setHydratingResult(true);
+        setHydrationFailed(false);
         let cancelled = false;
         const jobRequest = isGuestResult
             ? getGuestTrialJob(result.task_id, getGuestTrialToken())
@@ -302,8 +306,11 @@ const Editor = () => {
                     setTranscriptDirty(!!full.transcript_edited);
                     setTranscriptSaveStatus(full.transcript_edited ? 'saved' : 'idle');
                 }
+                hydratedTaskIdsRef.current.add(result.task_id);
             })
-            .catch(() => {})
+            .catch(() => {
+                if (!cancelled) setHydrationFailed(true);
+            })
             .finally(() => {
                 if (!cancelled) setHydratingResult(false);
             });
@@ -534,7 +541,14 @@ const Editor = () => {
         && !isLocalHistoryResult(result)
         && segments.length === 0
         && (result.transcript_text || '').length > 0
+        && !hydrationFailed
         && (!hydratedTaskIdsRef.current.has(result.task_id) || hydratingResult);
+    const isTranscriptHydrationFailed = !!result?.task_id
+        && !transcriptUnsaved
+        && !isLocalHistoryResult(result)
+        && segments.length === 0
+        && (result.transcript_text || '').length > 0
+        && hydrationFailed;
     const canUseStoredSource = !!result?.source_file_available && !!result?.task_id;
     const canUsePlaybackAudio = !!result?.artifacts?.playback_audio && !!result?.task_id;
     const canRetranscribeStoredMedia = !!matchedLocalSourceFile || canUseStoredSource || canUsePlaybackAudio;
@@ -1750,6 +1764,20 @@ const Editor = () => {
                                                 {lang === 'zh'
                                                     ? '刚从最近活动打开时会先读取轻量缓存，完整时间戳分段正在从处理记录补全。'
                                                     : 'FluentFlow opened a lightweight cached result first and is restoring the full timestamped segments from the processing record.'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : isTranscriptHydrationFailed ? (
+                                    <div className="flex min-h-[320px] items-center justify-center rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-8 text-center text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+                                        <div className="max-w-[30rem]">
+                                            <SvgIcon name="info" className="mx-auto mb-3 h-5 w-5 text-amber-600 dark:text-amber-200"/>
+                                            <p className="text-sm font-bold">
+                                                {lang === 'zh' ? '完整逐段转录还没加载出来' : 'Full timestamped transcript did not load'}
+                                            </p>
+                                            <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-800 dark:text-amber-100/75">
+                                                {lang === 'zh'
+                                                    ? '当前只拿到了浏览器缓存预览，不能当作完整转录编辑。请回到处理记录刷新，或稍后重新打开结果。'
+                                                    : 'Only a cached preview is available, so this is not safe to edit as the full transcript. Refresh processing records or reopen the result later.'}
                                             </p>
                                         </div>
                                     </div>
