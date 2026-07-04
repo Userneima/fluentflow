@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { apiFetch, API_BASE } from './apiConfig.js';
 import { useAuth } from './auth.jsx';
+import { localExecutionHeaders } from '../lib/localExecution.js';
 import {
     sanitizeSettings,
     sensitivePatchFromSettings,
@@ -52,22 +53,21 @@ export const AppProvider = ({children}) => {
             }
         } catch(_) {}
         const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
-        if (guestMode || (authMode === 'accounts' && !user?.id)) {
+        const accountReady = authMode !== 'accounts' || !!user?.id;
+        setCurrentJob(null);
+        setLastResult(null);
+        if (guestMode || !accountReady) {
             setHistory([]);
             return;
         }
         const cachedJobs = readCachedAccountJobs(accountCacheId);
-        if (cachedJobs.length) {
-            const cachedEntries = sortJobsForHistoryView(cachedJobs)
-                .filter(jobVisibleInHistory)
-                .map(jobToHistoryEntry);
-            setHistory(cachedEntries);
-            const cachedRunning = cachedJobs.find((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_QUEUED);
-            if (cachedRunning) setCurrentJob(jobToCurrentJob(cachedRunning));
-        }
+        const cachedEntries = sortJobsForHistoryView(cachedJobs)
+            .filter(jobVisibleInHistory)
+            .map(jobToHistoryEntry);
+        setHistory(cachedEntries);
         Promise.allSettled([
             apiFetch(`${API_BASE}/jobs?limit=100`),
-            apiFetch(`${API_BASE}/jobs?limit=100`, {headers: {'X-FluentFlow-Execution-Target': 'local'}}),
+            apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})}),
         ])
             .then(async (results) => {
                 const groups = await Promise.all(results.map(async (result) => {
@@ -76,7 +76,10 @@ export const AppProvider = ({children}) => {
                     return Array.isArray(data?.jobs) ? data.jobs : [];
                 }));
                 const fetchedJobs = groups.flat();
-                if (!fetchedJobs.length) return;
+                if (!fetchedJobs.length) {
+                    if (!cancelled) setHistory(cachedEntries);
+                    return;
+                }
                 const nextJobs = sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs));
                 writeCachedAccountJobs(accountCacheId, nextJobs);
                 const entries = nextJobs

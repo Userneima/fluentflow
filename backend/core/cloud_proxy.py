@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from http.cookies import SimpleCookie
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator
 
 import httpx
-from fastapi import Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 
 
 def proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
@@ -65,32 +64,17 @@ def apply_remote_session_cookie(
         break
 
 
-def cloud_workspace_unavailable_payload(exc: Exception) -> dict[str, Any]:
-    return {
-        "detail": {
-            "code": "cloud_workspace_unavailable",
-            "message": "云端工作区暂时不可用，请稍后重试。",
-            "detail": str(exc),
-        }
-    }
-
-
-def cloud_workspace_unavailable_response(exc: Exception) -> JSONResponse:
-    return JSONResponse(
-        status_code=502,
-        content=cloud_workspace_unavailable_payload(exc),
-    )
-
-
-def proxy_should_stream_response(request: Request, remote: httpx.Response) -> bool:
-    content_type = (remote.headers.get("content-type") or "").lower()
-    path = request.url.path
-    return (
-        "text/event-stream" in content_type
-        or path == "/process"
-        or path.endswith("/events")
-        or path.startswith("/guest-trial/")
-    )
+def should_stream_cloud_proxy_response(path: str, headers: httpx.Headers) -> bool:
+    content_type = (headers.get("content-type") or "").lower()
+    if "text/event-stream" in content_type:
+        return True
+    if headers.get("content-disposition"):
+        return True
+    if path == "/process" or path.endswith("/events"):
+        return True
+    if path.endswith("/source") or "/artifacts/" in path:
+        return True
+    return False
 
 
 async def proxy_cloud_workspace_request(
@@ -130,29 +114,45 @@ async def proxy_cloud_workspace_request(
             if chunk:
                 yield chunk
 
-    client = httpx.AsyncClient(timeout=None, follow_redirects=False)
-    stream = client.stream(request.method, target, headers=headers, content=body_iter())
-    try:
-        remote = await stream.__aenter__()
-    except Exception as exc:
-        await client.aclose()
-        active_logger.warning("Cloud workspace connection failed for %s: %s", target, exc)
-        return cloud_workspace_unavailable_response(exc)
-
-    if not proxy_should_stream_response(request, remote):
+    async def send_once() -> Response:
+        client = httpx.AsyncClient(timeout=None, follow_redirects=False)
+        content = None if request.method.upper() in {"GET", "HEAD"} else body_iter()
+        stream = client.stream(request.method, target, headers=headers, content=content)
         try:
-            content = await remote.aread()
-        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.TransportError) as exc:
-            active_logger.warning("Cloud workspace response failed for %s: %s", target, exc)
-            await stream.__aexit__(type(exc), exc, exc.__traceback__)
+            remote = await stream.__aenter__()
+        except Exception as exc:
             await client.aclose()
-            return cloud_workspace_unavailable_response(exc)
-        response = Response(
-            content=content,
-            status_code=remote.status_code,
-            headers=proxy_response_headers(remote.headers),
-            media_type=remote.headers.get("content-type"),
-        )
+            active_logger.warning("Cloud workspace connection failed for %s: %s", target, exc)
+            raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
+
+        async def response_iter() -> AsyncGenerator[bytes, None]:
+            try:
+                async for chunk in remote.aiter_bytes():
+                    if chunk:
+                        yield chunk
+            finally:
+                await stream.__aexit__(None, None, None)
+                await client.aclose()
+
+        response_headers = proxy_response_headers(remote.headers)
+        if should_stream_cloud_proxy_response(request.url.path, remote.headers):
+            response = StreamingResponse(
+                response_iter(),
+                status_code=remote.status_code,
+                headers=response_headers,
+            )
+        else:
+            try:
+                body = await remote.aread()
+            finally:
+                await stream.__aexit__(None, None, None)
+                await client.aclose()
+            response = Response(
+                content=body,
+                status_code=remote.status_code,
+                headers=response_headers,
+                media_type=remote.headers.get("content-type"),
+            )
         apply_remote_session_cookie(
             response,
             request,
@@ -161,39 +161,14 @@ async def proxy_cloud_workspace_request(
             session_max_age_seconds=session_max_age_seconds,
             cookie_secure=cookie_secure,
         )
-        await stream.__aexit__(None, None, None)
-        await client.aclose()
         return response
 
-    async def response_iter() -> AsyncGenerator[bytes, None]:
-        try:
-            async for chunk in remote.aiter_raw():
-                if chunk:
-                    yield chunk
-        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.TransportError) as exc:
-            active_logger.warning("Cloud workspace stream interrupted for %s: %s", target, exc)
-            payload = {
-                "stage": "error",
-                "code": "cloud_workspace_unavailable",
-                "error": "云端工作区暂时不可用，请稍后重试。",
-                "detail": str(exc),
-            }
-            yield f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
-        finally:
-            await stream.__aexit__(None, None, None)
-            await client.aclose()
-
-    response = StreamingResponse(
-        response_iter(),
-        status_code=remote.status_code,
-        headers=proxy_response_headers(remote.headers),
-    )
-    apply_remote_session_cookie(
-        response,
-        request,
-        remote.headers,
-        session_cookie_name=session_cookie_name,
-        session_max_age_seconds=session_max_age_seconds,
-        cookie_secure=cookie_secure,
-    )
-    return response
+    try:
+        return await send_once()
+    except httpx.RemoteProtocolError:
+        if request.method.upper() in {"GET", "HEAD"} and not should_stream_cloud_proxy_response(request.url.path, httpx.Headers()):
+            try:
+                return await send_once()
+            except httpx.RemoteProtocolError as exc:
+                raise HTTPException(status_code=502, detail=f"Cloud workspace response was incomplete: {exc}") from exc
+        raise

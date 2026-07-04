@@ -1,5 +1,4 @@
-import {useState,useEffect,useRef,useCallback,useMemo,createContext,useContext} from 'react';
-import {Download, ExternalLink, FileText, Trash2} from 'lucide-react';
+import {useState,createContext,useContext} from 'react';
 import {
     BUILTIN_EXTRA_PROMPT_KEYS,
     DEFAULT_PROMPT_PRESET,
@@ -216,116 +215,8 @@ export const I18nProvider = ({children}) => {
 };
 export const useI18n = () => useContext(I18nCtx);
 
-export const AuthCtx = createContext({
-    authMode:'open',
-    user:null,
-    guestMode:false,
-    guestTrial:null,
-    canRegister:false,
-    openAuth:()=>{},
-    logout:async()=>{},
-});
-export const useAuth = () => useContext(AuthCtx);
-
-/* ═══════════════ App-level state ═══════════════ */
-export const AppCtx = createContext();
-
-export const AppProvider = ({children}) => {
-    const {authMode, user, guestMode} = useAuth();
-    const [history, setHistory] = useState([]);
-    const [larkExports, setLarkExports] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('fluentflow_lark_exports')||'[]'); } catch(_){ return []; }
-    });
-    const [currentJob, setCurrentJob] = useState(null);
-    const [lastResult, setLastResult] = useState(null);
-    const [lastSourceFile, setLastSourceFile] = useState(null);
-    const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
-    useEffect(() => {
-        let cancelled = false;
-        apiFetch(`${API_BASE}/runtime-config`)
-            .then((r) => r.ok ? r.json() : null)
-            .then((data) => {
-                if (data && !cancelled) setRuntimeConfig(normalizeRuntimeConfig(data));
-            })
-            .catch(() => {});
-        try {
-            const rawSettings = JSON.parse(localStorage.getItem("fluentflow_settings")||"{}");
-            const hasLegacySecrets = SENSITIVE_SETTING_KEYS.some((key) => rawSettings[key]);
-            if (hasLegacySecrets) {
-                apiFetch(`${API_BASE}/credentials`, {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify(sensitivePatchFromSettings(rawSettings)),
-                }).finally(() => {
-                    localStorage.setItem("fluentflow_settings", JSON.stringify(sanitizeSettings(rawSettings)));
-                });
-            }
-        } catch(_) {}
-        const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
-        const accountReady = authMode !== 'accounts' || !!user?.id;
-        setCurrentJob(null);
-        setLastResult(null);
-        if (guestMode || !accountReady) {
-            setHistory([]);
-            return;
-        }
-        const cachedJobs = readCachedAccountJobs(accountCacheId);
-        const cachedEntries = sortJobsForHistoryView(cachedJobs)
-            .filter(jobVisibleInHistory)
-            .map(jobToHistoryEntry);
-        setHistory(cachedEntries);
-        Promise.allSettled([
-            apiFetch(`${API_BASE}/jobs?limit=100`),
-            apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})}),
-        ])
-            .then(async (results) => {
-                const groups = await Promise.all(results.map(async (result) => {
-                    if (result.status !== 'fulfilled' || !result.value?.ok) return [];
-                    const data = await result.value.json().catch(() => ({}));
-                    return Array.isArray(data?.jobs) ? data.jobs : [];
-                }));
-                const fetchedJobs = groups.flat();
-                if (!fetchedJobs.length) {
-                    if (!cancelled) setHistory(cachedEntries);
-                    return;
-                }
-                const nextJobs = sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs));
-                writeCachedAccountJobs(accountCacheId, nextJobs);
-                const entries = nextJobs
-                    .filter(jobVisibleInHistory)
-                    .map(jobToHistoryEntry);
-                if (cancelled) return;
-                setHistory(entries);
-                const running = nextJobs.find((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_QUEUED);
-                if (running) setCurrentJob(jobToCurrentJob(running));
-            })
-            .catch(() => {});
-        return () => { cancelled = true; };
-    }, [authMode, user?.id, guestMode]);
-
-    const persistLarkExports = (e) => { setLarkExports(e); localStorage.setItem('fluentflow_lark_exports', JSON.stringify(e)); };
-    const addToHistory = (entry) => setHistory((current) => [
-        entry,
-        ...current.filter((item) => !(entry.taskId && item.taskId === entry.taskId)),
-    ].slice(0, 100));
-    const clearHistory = () => {
-        setHistory([]);
-        persistLarkExports([]);
-        try {
-            localStorage.removeItem('fluentflow_history');
-            localStorage.removeItem(accountJobsCacheKey(authMode === 'accounts' ? user?.id : 'local'));
-        } catch(_) {}
-    };
-
-    const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
-    const stats = {
-        totalMinutes: Math.round(history.reduce((s,h) => s + (h.durationMin||0), 0)),
-        notesGenerated: history.filter(h => h.status==='completed').length,
-    };
-
-    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
-};
-export const useApp = () => useContext(AppCtx);
+export {AuthCtx, useAuth} from './auth.jsx';
+export {AppProvider, useApp} from './AppProvider.jsx';
 
 export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, cacheJobRecord, mergeCachedJobs, sortJobsForHistoryView, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
 
@@ -335,43 +226,7 @@ export { MD_TABLE_ALIGN_RE, splitMdTableRow, isPipeTableRow, looksLikeMdTable, l
 
 export { _dl, _baseName, _fmtSrtTime, _fmtVttTime, dlTranscriptTxt, dlTranscriptSrt, dlTranscriptVtt, dlBilingualTranscriptSrt, dlBilingualTranscriptVtt, dlSummaryTxt, dlSummaryMd, dlSummaryWord, dlSummaryPdf, dlSummaryImage } from '../lib/download.js';
 
-const dropdownIconMap = {
-    download: Download,
-    open_in_new: ExternalLink,
-    description: FileText,
-    delete: Trash2,
-};
-
-export const DropdownMenu = ({trigger, items, align='right'}) => {
-    const [open, setOpen] = useState(false);
-    const ref = useRef(null);
-    useEffect(() => {
-        const handler = (e) => { if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, []);
-    return (
-        <div className="relative" ref={ref}>
-            <div onClick={()=>setOpen(!open)}>{trigger}</div>
-            {open && (
-                <div className={`absolute top-full mt-1 ${align==='right'?'right-0':'left-0'} z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[180px] animate-[fadeIn_0.15s_ease-out]`}>
-                    {items.map((it,i) => it.divider ? (
-                        <div key={i} className="border-t border-slate-100 my-1"/>
-                    ) : (
-                        <button key={i} onClick={()=>{setOpen(false); it.onClick?.();}} disabled={it.disabled} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-on-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                            {it.icon && (() => {
-                                const Icon = dropdownIconMap[it.icon] || FileText;
-                                return <Icon className="size-4 text-slate-400" strokeWidth={2.15}/>;
-                            })()}
-                            <span className="flex-1">{it.label}</span>
-                            {it.badge && <span className="text-[10px] text-slate-400 font-medium">{it.badge}</span>}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
+export {DropdownMenu} from './DropdownMenu.jsx';
 
 /* ═══════════════ hooks ═══════════════ */
 export const useApi = () => {

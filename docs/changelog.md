@@ -34,6 +34,7 @@
 ### 维护者变化
 
 - 本地运行数据默认目录统一到系统应用数据目录，维护脚本、备份/恢复脚本、部署自检和 Codex 导出脚本改用同一套 runtime path；旧仓库内 `data/`、`backend/data/` 和视频缓存先通过迁移脚本复制，迁移验证后保留 14 天再清理。
+- 前端 `AppProvider`、`DropdownMenu` 和后端 `request_scope` / `cloud_proxy` 抽象已接入主入口，`shared.jsx` 和 `server_helpers.py` 只保留兼容转发层，减少半迁移状态带来的上下文噪音。
 - 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。
 - 官网首页拆出 content、styles 和 HeroProofDemo 局部模块，让 landing route 只保留页面编排、语言/主题状态和 section 组合，便于后续商业官网扩展。
 - 官网首页右侧 hero proof demo 拆成独立的步骤控件、四个阶段组件和配置数组，后续调整输入、处理、学习复查与导出步骤时不再把状态机、动画和全部 JSX 混在一个组件里。

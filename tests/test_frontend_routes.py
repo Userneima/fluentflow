@@ -170,7 +170,7 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
     assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
-    assert "const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readWarmJobs(cacheAccountId), readCachedJobs())" in agent_tasks
+    assert "const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], historyJobRecords, readWarmJobs(cacheAccountId), readCachedJobs())" in agent_tasks
     assert "displayJobs.map((job) => (" in agent_tasks
     assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
     assert "查看详情" not in agent_tasks
@@ -602,12 +602,12 @@ def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     assert "readBrowserHistoryEntries" not in app_provider
     assert "localStorage.setItem('fluentflow_history'" not in shared
     assert "localStorage.setItem('fluentflow_history'" not in app_provider
-    assert "const [history, setHistory] = useState([])" in shared
+    assert "export {AppProvider, useApp} from './AppProvider.jsx';" in shared
     assert "const [history, setHistory] = useState([])" in app_provider
-    assert "readCachedAccountJobs(accountCacheId)" in shared
-    assert "writeCachedAccountJobs(accountCacheId, nextJobs)" in shared
-    assert "mergeCachedJobs," in shared
-    assert "sortJobsForHistoryView," in shared
+    assert "readCachedAccountJobs(accountCacheId)" in app_provider
+    assert "writeCachedAccountJobs(accountCacheId, nextJobs)" in app_provider
+    assert "mergeCachedJobs," in app_provider
+    assert "sortJobsForHistoryView," in app_provider
     assert "rawFilename" in mapper
     assert "filename: h.rawFilename || h.name" in mapper
     assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in mapper
@@ -628,11 +628,11 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
     mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
-    assert "Promise.allSettled([" in shared
-    assert "apiFetch(`${API_BASE}/jobs?limit=100`)" in shared
-    assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in shared
-    assert "mergeCachedJobs," in shared
-    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in shared
+    assert "Promise.allSettled([" in app_provider
+    assert "apiFetch(`${API_BASE}/jobs?limit=100`)" in app_provider
+    assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in app_provider
+    assert "mergeCachedJobs," in app_provider
+    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in app_provider
     assert "const initialCachedJobs = () => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : []" in tasks
     assert "const [jobs, setJobs] = useState(initialCachedJobs)" in tasks
     assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in tasks
@@ -783,6 +783,7 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
     tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    app_provider = Path("frontend/src/app/AppProvider.jsx").read_text(encoding="utf-8")
     mappers = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
     for source in (tasks, agent_tasks):
@@ -797,11 +798,12 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
     assert "readWarmJobs(cacheAccountId)" in agent_tasks
 
     assert "const next = mergeJobs(readCachedJobs(), current, fetchedJobs)" in agent_tasks
-    assert "const accountReady = authMode !== 'accounts' || !!user?.id" in shared
-    assert "setCurrentJob(null)" in shared
-    assert "setLastResult(null)" in shared
-    assert "setHistory(cachedEntries)" in shared
-    assert "if (!fetchedJobs.length)" in shared
+    assert "export {AppProvider, useApp} from './AppProvider.jsx';" in shared
+    assert "const accountReady = authMode !== 'accounts' || !!user?.id" in app_provider
+    assert "setCurrentJob(null)" in app_provider
+    assert "setLastResult(null)" in app_provider
+    assert "setHistory(cachedEntries)" in app_provider
+    assert "if (!fetchedJobs.length)" in app_provider
     assert "const jobBelongsToAccountCache = (accountId, job)" in mappers
     assert "clientId === `user:${normalizedAccountId}`" in mappers
     assert "jobBelongsToAccountCache(accountId, job)" in mappers
@@ -813,7 +815,7 @@ def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
     assert "const jobOptionsForResult = (result)" in source
-    assert "if (isLocalHistoryResult(result)) return;" in source
+    assert "if (isLocalHistoryResult(result)) {" in source
     assert "getJob(result.task_id, resultJobOptions)" in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
     assert "saveTranscriptEdit(result.task_id, {" in source
@@ -1062,7 +1064,7 @@ def test_editor_destructive_top_actions_require_confirmation() -> None:
     assert "onClick={handleRetranscribe}" in source
     assert "'edit.regenerate':'重生笔记'" in shared
     assert "'edit.regenerateConfirmAction':'确认重生笔记'" in shared
-    assert "点击“重生笔记”" in source
+    assert "访客试用暂不支持重生笔记" in source
     assert "点击重新生成" not in shared
     assert "export {I18nProvider, msgs, useI18n} from './shared.jsx';" in legacy_i18n
     assert "点击“重新生成”" not in format_helpers
@@ -1081,7 +1083,7 @@ def test_editor_agent_workflow_link_requires_real_task_id() -> None:
 def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
-    assert "API_BASE, apiFetch, fmtTime, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
+    assert "API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
     assert "noteGenerationDiagnosis" in source
     assert "readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`)" in source
     assert "readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
@@ -1109,7 +1111,7 @@ def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
     assert "const stage = videoProgress" in source
     assert "? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')" in source
     assert "video_source_progress: videoProgress" in source
-    assert "mergeLiveSnapshotPageData(mergedDetailData, current || initialPageData)" in source
+    assert "mergeLiveSnapshotPageData(detailData, current || initialPageData)" in source
     assert "const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang)" in source
     assert "const [loading, setLoading] = useState(!initialPageData)" in source
     assert "const [pageData, setPageData] = useState(() => initialPageData)" in source
@@ -1250,7 +1252,7 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
     assert "readCachedAccountJobs(cacheAccountId)" in source
-    assert "const {currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp()" in source
+    assert "const {history, currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp()" in source
     assert "getJobs(100)," in source
     assert "getJobs(100, {sttProvider: 'local'})," in source
     assert "displayJobs" in source
@@ -1263,7 +1265,7 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "writeWarmJobs(requestCacheAccountId, next)" in source
     assert "setLoading(canUseTaskCache && next.length === 0)" in source
     assert "const jobsFromCurrentJob = (currentJob) => {" in source
-    assert "mergeJobs(currentJobRecords, jobs)" in source
+    assert "mergeJobs(currentJobRecords, historyJobRecords, jobs)" in source
     assert "const QueueUploadBanner = ({upload, lang}) => {" in source
     assert "每个文件的进程卡已显示在下方" in source
     assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source

@@ -2,7 +2,8 @@ import {createRoot} from 'react-dom/client';
 import {BrowserRouter, Route, Routes} from 'react-router-dom';
 import {Suspense, lazy} from 'react';
 import './tailwind.css';
-import {AppProvider, I18nProvider} from './app/shared.jsx';
+import {I18nProvider} from './app/shared.jsx';
+import {AppProvider} from './app/AppProvider.jsx';
 
 const Landing = lazy(() => import('./routes/landing.jsx'));
 const AccessGate = lazy(() => import('./app/AccessGate.jsx'));

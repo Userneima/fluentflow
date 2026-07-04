@@ -55,8 +55,8 @@ For the product-facing Agent execution roadmap, read `docs/agent_execution_plan.
 
 ### P2: Backend Module Extraction
 
-- [x] Extract `request_scope.py` first.
-- [x] Extract `cloud_proxy.py` after proxy error handling is stable.
+- [x] Extract and wire `request_scope.py` into `server_helpers.py`.
+- [x] Extract and wire `cloud_proxy.py` into `server_helpers.py` after proxy error handling is stable.
 - [x] Extract `artifacts.py` around result artifact creation and downloads.
 - [x] Extract `job_limits.py` around submission rate, daily upload/job quotas, and active job limits.
 - [ ] Extract quota reservation/finalization from `server_helpers.py` after processing use cases are smaller.
@@ -74,9 +74,11 @@ For the product-facing Agent execution roadmap, read `docs/agent_execution_plan.
 
 - [x] Extract `app/apiClient.js`.
 - [x] Extract `lib/localExecution.js`.
-- [ ] Extract `lib/jobMappers.js`.
-- [ ] Extract `app/settings.js`.
-- [ ] Delay `AppProvider.jsx` and `i18n/messages.js` until API and mapper churn settles.
+- [x] Extract `lib/jobMappers.js`.
+- [x] Extract `lib/settingsModel.js`.
+- [x] Wire `AppProvider.jsx` as the app state provider while keeping `shared.jsx` as a compatibility export layer.
+- [x] Extract `DropdownMenu.jsx`.
+- [ ] Delay `i18n/messages.js` until the route copy churn settles.
 
 ### P3: Page Hooks
 

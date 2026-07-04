@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
-from http.cookies import SimpleCookie
 import importlib.metadata
 import json
 import logging
@@ -30,15 +29,28 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
 from urllib.parse import quote
 
 import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from backend.core._env import GUEST_TRIAL_TOKEN_HEADER, INTERNAL_QUEUE_TOKEN
+from backend.core.cloud_proxy import (
+    apply_remote_session_cookie,
+    proxy_cloud_workspace_request,
+    proxy_response_headers,
+    should_stream_cloud_proxy_response,
+)
 from backend.core.error_diagnostics import diagnose_error
+from backend.core.request_scope import (
+    normalize_client_id as _normalize_client_id,
+    request_client_id as _request_client_id,
+    request_is_local_execution as _request_is_local_execution,
+    request_is_localhost as _request_is_localhost,
+    request_prefers_local_execution as _request_prefers_local_execution,
+)
 from backend.core.result_schema import (
     canonical_display_segments,
     canonical_raw_segments,
@@ -207,32 +219,6 @@ LOCAL_STATUS_PUBLIC_PATHS = {
     "/speaker-diarization/status",
 }
 
-LOCAL_REQUEST_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
-
-
-def _request_is_localhost(request: Request) -> bool:
-    client_host = ((request.client.host if request.client else "") or "").strip().lower()
-    url_host = (request.url.hostname or "").strip().lower()
-    return client_host in LOCAL_REQUEST_HOSTS or url_host in LOCAL_REQUEST_HOSTS
-
-
-def _request_prefers_local_execution(request: Request) -> bool:
-    return (request.headers.get("x-fluentflow-execution-target") or "").strip().lower() == "local"
-
-
-def _request_is_local_execution(request: Request) -> bool:
-    if not (_request_prefers_local_execution(request) and _request_is_localhost(request)):
-        return False
-    path = request.url.path
-    return (
-        path == "/process"
-        or path == "/export-lark"
-        or path == "/video-sources/jobs"
-        or path == "/jobs"
-        or path.startswith("/jobs/")
-    )
-
-
 def _should_proxy_cloud_workspace(request: Request) -> bool:
     if not _cloud_workspace_enabled():
         return False
@@ -253,143 +239,34 @@ def _request_is_internal_queue(request: Request) -> bool:
     return bool(supplied and hmac.compare_digest(supplied, INTERNAL_QUEUE_TOKEN))
 
 
-def _proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
-    blocked = {
-        "connection",
-        "content-encoding",
-        "content-length",
-        "set-cookie",
-        "transfer-encoding",
-        "www-authenticate",
-    }
-    return {key: value for key, value in headers.items() if key.lower() not in blocked}
+_proxy_response_headers = proxy_response_headers
 
 
 def _should_stream_cloud_proxy_response(path: str, headers: httpx.Headers) -> bool:
-    content_type = (headers.get("content-type") or "").lower()
-    if "text/event-stream" in content_type:
-        return True
-    if headers.get("content-disposition"):
-        return True
-    if path == "/process" or path.endswith("/events"):
-        return True
-    if path.endswith("/source") or "/artifacts/" in path:
-        return True
-    return False
+    return should_stream_cloud_proxy_response(path, headers)
 
 
 def _apply_remote_session_cookie(response: Response, request: Request, remote_headers: httpx.Headers) -> None:
-    path = request.url.path
-    if path == "/auth/logout":
-        response.delete_cookie(SESSION_COOKIE_NAME, samesite="lax")
-        response.delete_cookie("fluentflow_access_token", samesite="lax")
-        return
-    if path not in {"/auth/login", "/auth/register"}:
-        return
-    for header in remote_headers.get_list("set-cookie"):
-        cookie = SimpleCookie()
-        try:
-            cookie.load(header)
-        except Exception:
-            continue
-        morsel = cookie.get(SESSION_COOKIE_NAME)
-        if not morsel:
-            continue
-        max_age_text = morsel.get("max-age")
-        try:
-            max_age = int(max_age_text) if max_age_text else _session_days() * 24 * 60 * 60
-        except ValueError:
-            max_age = _session_days() * 24 * 60 * 60
-        response.set_cookie(
-            key=SESSION_COOKIE_NAME,
-            value=morsel.value,
-            max_age=max_age,
-            httponly=True,
-            secure=_cookie_secure_enabled(),
-            samesite="lax",
-        )
-        break
+    apply_remote_session_cookie(
+        response,
+        request,
+        remote_headers,
+        session_cookie_name=SESSION_COOKIE_NAME,
+        session_max_age_seconds=_session_days() * 24 * 60 * 60,
+        cookie_secure=_cookie_secure_enabled(),
+    )
 
 
 async def _proxy_cloud_workspace_request(request: Request) -> Response:
-    base_url = _cloud_workspace_url()
-    target = f"{base_url}{request.url.path}"
-    if request.url.query:
-        target = f"{target}?{request.url.query}"
-
-    blocked_headers = {
-        "connection",
-        "content-length",
-        "cookie",
-        "host",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailer",
-        "transfer-encoding",
-        "upgrade",
-    }
-    headers = {key: value for key, value in request.headers.items() if key.lower() not in blocked_headers}
-    session_token = _request_account_session_token(request)
-    if session_token:
-        headers["X-FluentFlow-Session"] = session_token
-
-    async def body_iter() -> AsyncGenerator[bytes, None]:
-        async for chunk in request.stream():
-            if chunk:
-                yield chunk
-
-    async def send_once() -> Response:
-        client = httpx.AsyncClient(timeout=None, follow_redirects=False)
-        content = None if request.method.upper() in {"GET", "HEAD"} else body_iter()
-        stream = client.stream(request.method, target, headers=headers, content=content)
-        try:
-            remote = await stream.__aenter__()
-        except Exception as exc:
-            await client.aclose()
-            raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
-
-        async def response_iter() -> AsyncGenerator[bytes, None]:
-            try:
-                async for chunk in remote.aiter_bytes():
-                    if chunk:
-                        yield chunk
-            finally:
-                await stream.__aexit__(None, None, None)
-                await client.aclose()
-
-        response_headers = _proxy_response_headers(remote.headers)
-        if _should_stream_cloud_proxy_response(request.url.path, remote.headers):
-            response = StreamingResponse(
-                response_iter(),
-                status_code=remote.status_code,
-                headers=response_headers,
-            )
-        else:
-            try:
-                body = await remote.aread()
-            finally:
-                await stream.__aexit__(None, None, None)
-                await client.aclose()
-            response = Response(
-                content=body,
-                status_code=remote.status_code,
-                headers=response_headers,
-                media_type=remote.headers.get("content-type"),
-            )
-        _apply_remote_session_cookie(response, request, remote.headers)
-        return response
-
-    try:
-        return await send_once()
-    except httpx.RemoteProtocolError:
-        if request.method.upper() in {"GET", "HEAD"} and not _should_stream_cloud_proxy_response(request.url.path, httpx.Headers()):
-            try:
-                return await send_once()
-            except httpx.RemoteProtocolError as exc:
-                raise HTTPException(status_code=502, detail=f"Cloud workspace response was incomplete: {exc}") from exc
-        raise
+    return await proxy_cloud_workspace_request(
+        request,
+        base_url=_cloud_workspace_url(),
+        session_token=_request_account_session_token(request),
+        session_cookie_name=SESSION_COOKIE_NAME,
+        session_max_age_seconds=_session_days() * 24 * 60 * 60,
+        cookie_secure=_cookie_secure_enabled(),
+        logger=logger,
+    )
 
 
 def _request_access_token(request: Request) -> str:
@@ -423,23 +300,6 @@ def _request_has_access(request: Request) -> bool:
     if supplied and any(hmac.compare_digest(supplied, token) for token in tokens):
         return True
     return bool(_request_api_key_auth(request))
-
-
-def _normalize_client_id(value: str | None) -> str | None:
-    text = (value or "").strip()
-    if not text:
-        return None
-    safe = "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_"})
-    return safe[:96] or None
-
-
-def _request_client_id(request: Request | None) -> str | None:
-    if request is None:
-        return None
-    return _normalize_client_id(
-        request.headers.get("x-fluentflow-client-id")
-        or request.cookies.get("fluentflow_client_id")
-    )
 
 
 def _request_client_scope(request: Request | None) -> str:
