@@ -363,6 +363,22 @@ def test_recent_activity_cards_open_editor_or_processing_records_not_task_detail
         assert "min-w-0 flex-1 truncate" in source
 
 
+def test_summary_pdf_export_uses_print_markdown_not_editor_dom() -> None:
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    download = Path("frontend/src/lib/download.js").read_text(encoding="utf-8")
+
+    assert "await dlSummaryPdf(summary,resultDownloadName)" in editor
+    assert "dlSummaryPdf(summaryRef,resultDownloadName)" not in editor
+    assert "const buildPrintableSummaryElement = (md) => {" in download
+    assert "ff-print-summary-export" in download
+    assert "background: #ffffff;" in download
+    assert "color: #171717;" in download
+    assert "opacity: 1 !important;" in download
+    assert "simpleMd(md, {renderImages: true})" in download
+    assert "backgroundColor: '#ffffff'" in download
+    assert "pagebreak: {mode: ['css', 'legacy']" in download
+
+
 def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
     fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")

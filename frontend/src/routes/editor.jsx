@@ -2001,7 +2001,7 @@ const Editor = () => {
                                                 {divider:true},
                                                 {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
                                                     setDownloading('pdf');
-                                                    try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                                    try{ await dlSummaryPdf(summary,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
                                                     finally{setDownloading(null);}
                                                 }},
                                                 {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
