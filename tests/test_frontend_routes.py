@@ -504,6 +504,7 @@ def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
     assert "const failedProgressLabel = state === TASK_STATE_CANCELLED" in source
     assert "failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)" in source
     assert "{!completed && !failed ? (" in source
+    assert "</div>\n            {!completed && !failed ? (" in source
     assert "{failedTerminal && detail ? (" in source
     assert "rounded-[18px] border border-red-200 bg-red-50/80" not in source
     assert "style={{width: `${progress}%`}}" in source

@@ -479,24 +479,6 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                         {subtitle}
                         {failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)}
                     </p>
-
-                    {!completed && !failed ? (
-                        <div className="mt-4">
-                            <div className="mb-2 flex items-end justify-between gap-4">
-                                <div>
-                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
-                                    <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
-                                </div>
-                                <p className="font-headline text-[24px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progressLabel}</p>
-                            </div>
-                            <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
-                                {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
-                            </div>
-                            <p className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
-                                {detail}
-                            </p>
-                        </div>
-                    ) : null}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
                     {completed ? (
@@ -530,6 +512,23 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
                     ) : null}
                 </div>
             </div>
+            {!completed && !failed ? (
+                <div className="mt-4">
+                    <div className="mb-2 flex items-end justify-between gap-4">
+                        <div>
+                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
+                            <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
+                        </div>
+                        <p className="font-headline text-[24px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progressLabel}</p>
+                    </div>
+                    <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
+                        {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
+                    </div>
+                    <p className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
+                        {detail}
+                    </p>
+                </div>
+            ) : null}
             {failedTerminal && detail ? (
                 <p className="mt-3 inline-flex max-w-full items-start gap-2 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-semibold leading-5 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
                     <AlertCircle className="mt-0.5 size-4 shrink-0" strokeWidth={2.15}/>
