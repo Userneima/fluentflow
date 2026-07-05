@@ -149,6 +149,35 @@ FEISHU_OAUTH_REDIRECT_URI=https://your-domain.example/account/feishu/oauth/callb
 
 如果暂时不开放飞书导出，部署自检里的飞书项可以接受 `WARN`；如果页面承诺能导出飞书，则必须配置应用权限并 smoke test。
 
+### Google 登录
+
+Google 登录只用于 FluentFlow 账号认证，不请求 Google Drive、Gmail 或
+其它数据权限。默认 scope 是：
+
+```bash
+FLUENTFLOW_GOOGLE_OAUTH_SCOPES="openid email profile"
+```
+
+生产部署需要在 Google Cloud Console 创建 OAuth Client，应用类型选择 Web
+application，并把回调地址配置为和服务器环境变量完全一致：
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REDIRECT_URI=https://your-domain.example/auth/google/callback
+```
+
+本地开发可使用：
+
+```bash
+GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/auth/google/callback
+```
+
+Google 登录遵守 FluentFlow 自身注册开关：已有同邮箱账号会在 Google
+邮箱已验证时自动绑定；新账号只有在 `FLUENTFLOW_ALLOW_SIGNUPS=1` 或首个管理员
+bootstrap 时才会自动创建。Google access token 当前不会持久保存，因为产品只
+使用 Google 身份登录，不代表用户访问 Google 资源。
+
 ### 额度限制
 
 ```bash

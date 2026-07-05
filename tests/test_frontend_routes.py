@@ -1495,11 +1495,21 @@ def test_auth_status_failure_keeps_login_path_visible() -> None:
     assert "正在检查访问权限" not in source
     assert "Checking access" not in source
     assert "正在打开 FluentFlow" in source
-    assert "} catch(_) {" in source
+    assert "} catch {" in source
     assert "setAuthMode('accounts');" in source
     assert "setRequired(true);" in source
     assert "setAuthenticated(false);" in source
     assert "setGuestMode(false);" in source
+
+
+def test_access_gate_exposes_google_login_when_configured() -> None:
+    source = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
+
+    assert "setGoogleOAuthEnabled(!!data.google_oauth_enabled);" in source
+    assert "const showGoogleLogin = accountFlow && googleOAuthEnabled;" in source
+    assert "apiFetch(`${API_BASE}/auth/google/start`" in source
+    assert "window.location.assign(data.authorize_url);" in source
+    assert "使用 Google 继续" in source
 
 
 def test_secondary_surfaces_use_current_ui_language() -> None:

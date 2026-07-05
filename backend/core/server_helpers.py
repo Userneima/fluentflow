@@ -231,7 +231,14 @@ def _should_proxy_cloud_workspace(request: Request) -> bool:
         return False
     if _request_is_local_execution(request):
         return False
-    return path in {"/auth/status", "/auth/login", "/auth/register", "/auth/logout"} or _is_api_route_path(path)
+    return path in {
+        "/auth/status",
+        "/auth/login",
+        "/auth/register",
+        "/auth/logout",
+        "/auth/google/start",
+        "/auth/google/callback",
+    } or _is_api_route_path(path)
 
 
 def _request_is_internal_queue(request: Request) -> bool:
@@ -327,7 +334,18 @@ def _is_public_request(request: Request) -> bool:
         return True
     if path.startswith("/guest-trial"):
         return True
-    if path in {"/", "/health", "/version", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"}:
+    if path in {
+        "/",
+        "/health",
+        "/version",
+        "/auth/status",
+        "/auth/login",
+        "/auth/register",
+        "/auth/logout",
+        "/auth/google/start",
+        "/auth/google/callback",
+        "/runtime-config",
+    }:
         return True
     if path.startswith("/assets/"):
         return True
@@ -396,6 +414,12 @@ try:
         disconnect_feishu_user,
         feishu_connection_status,
         get_valid_feishu_user_access_token,
+    )
+    from backend.core.google_oauth import (
+        GoogleOAuthError,
+        complete_google_oauth_callback,
+        create_google_authorize_url,
+        google_oauth_enabled,
     )
     from backend.core.note_planner import plan_note_task
     from backend.core.transcript_parser import parse_transcript_file
@@ -475,6 +499,12 @@ except ImportError:
         disconnect_feishu_user,
         feishu_connection_status,
         get_valid_feishu_user_access_token,
+    )
+    from core.google_oauth import (
+        GoogleOAuthError,
+        complete_google_oauth_callback,
+        create_google_authorize_url,
+        google_oauth_enabled,
     )
     from core.note_planner import plan_note_task
     from core.transcript_parser import parse_transcript_file

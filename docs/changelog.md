@@ -33,12 +33,14 @@
 
 ### 用户可见变化
 
+- 登录页新增 Google 登录入口：配置 Google OAuth 后，用户可以用 Google 账号进入 FluentFlow；同邮箱的既有账号会自动绑定，新账号创建仍受 `FLUENTFLOW_ALLOW_SIGNUPS` 或首个管理员 bootstrap 规则控制。
 - Word 笔记导出改为生成原生 `.docx` 文件，不再使用 HTML 伪装 `.doc` 的兼容方案；标题、段落、列表和表格会转成 Word 原生结构，并统一使用苹方字体。
 - Word 笔记导出会把正文里的截图 Markdown 引用嵌入为真实图片；截图 artifact 会沿用产品 API 的登录态和 client scope 获取，取图失败时保留可读 caption/link 降级，不会让整份文档导出失败。
 - PDF 笔记导出改为浏览器原生打印管线：系统会从当前 Markdown 笔记生成独立白底打印页并打开打印对话框，用户可在系统打印中另存为 PDF；不再使用 `html2pdf` / `html2canvas` 截图导出。
 
 ### 维护者变化
 
+- 新增 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET`、`GOOGLE_OAUTH_REDIRECT_URI` 和可选 `FLUENTFLOW_GOOGLE_OAUTH_SCOPES` 配置；Google 登录只请求 `openid email profile`，不持久保存 Google access token。
 - 前端新增 `docx` 依赖用于浏览器端生成 WordprocessingML `.docx`，并移除首页对 `html2pdf` CDN 的依赖。
 - `docs/word_export_format_reference.md` 改为记录原生 `.docx` / 原生 PDF 打印导出的当前合同、截图嵌入规则和不可取图降级边界。
 

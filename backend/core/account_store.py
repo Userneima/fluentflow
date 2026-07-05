@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -113,6 +114,34 @@ def ensure_account_db(db_path: Path | str | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_feishu_oauth_states_user_id ON feishu_oauth_states(user_id);
             CREATE INDEX IF NOT EXISTS idx_feishu_oauth_states_expires_at ON feishu_oauth_states(expires_at);
+
+            CREATE TABLE IF NOT EXISTS oauth_identities (
+                provider TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                email TEXT,
+                email_verified INTEGER NOT NULL DEFAULT 0,
+                profile_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_login_at TEXT,
+                PRIMARY KEY(provider, subject),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_identities_user_id ON oauth_identities(user_id);
+            CREATE INDEX IF NOT EXISTS idx_oauth_identities_email ON oauth_identities(email);
+
+            CREATE TABLE IF NOT EXISTS oauth_login_states (
+                state_hash TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                next_url TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_login_states_provider ON oauth_login_states(provider);
+            CREATE INDEX IF NOT EXISTS idx_oauth_login_states_expires_at ON oauth_login_states(expires_at);
             """
         )
 
@@ -242,6 +271,33 @@ def create_user(
     user = get_user_by_email(normalized, db_path=db_path)
     if not user:
         raise RuntimeError("created user is missing")
+    user.pop("password_hash", None)
+    return user
+
+
+def create_oauth_user(
+    email: str,
+    *,
+    role: str = "user",
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_email(email)
+    if not normalized:
+        raise ValueError("email is required")
+    ensure_account_db(db_path)
+    user_id = uuid.uuid4().hex
+    now = _now_iso()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, email, password_hash, role, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'active', ?, ?)
+            """,
+            (user_id, normalized, f"oauth_only${uuid.uuid4().hex}", role or "user", now, now),
+        )
+    user = get_user_by_email(normalized, db_path=db_path)
+    if not user:
+        raise RuntimeError("created OAuth user is missing")
     user.pop("password_hash", None)
     return user
 
@@ -417,6 +473,169 @@ def consume_feishu_oauth_state(
         "expires_at": row["expires_at"],
         "consumed_at": consumed_at,
     }
+
+
+def create_oauth_login_state(
+    provider: str,
+    *,
+    redirect_uri: str,
+    next_url: str | None = None,
+    ttl_seconds: int = 600,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    provider_text = (provider or "").strip().lower()
+    if not provider_text:
+        raise ValueError("provider is required")
+    if not redirect_uri:
+        raise ValueError("redirect_uri is required")
+    ensure_account_db(db_path)
+    state = secrets.token_urlsafe(32)
+    now = _now()
+    expires = now + timedelta(seconds=max(int(ttl_seconds or 600), 60))
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO oauth_login_states
+                (state_hash, provider, redirect_uri, next_url, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _state_hash(state),
+                provider_text,
+                redirect_uri,
+                (next_url or "")[:500] or None,
+                now.isoformat(timespec="seconds"),
+                expires.isoformat(timespec="seconds"),
+            ),
+        )
+    return {
+        "state": state,
+        "provider": provider_text,
+        "redirect_uri": redirect_uri,
+        "next_url": next_url,
+        "expires_at": expires.isoformat(timespec="seconds"),
+    }
+
+
+def consume_oauth_login_state(
+    provider: str,
+    state: str,
+    *,
+    db_path: Path | str | None = None,
+) -> dict[str, Any] | None:
+    provider_text = (provider or "").strip().lower()
+    if not provider_text or not state:
+        return None
+    ensure_account_db(db_path)
+    state_digest = _state_hash(state)
+    now = _now()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM oauth_login_states WHERE state_hash = ?",
+            (state_digest,),
+        ).fetchone()
+        if row is None:
+            return None
+        expires = _parse_iso(row["expires_at"])
+        if row["provider"] != provider_text or row["consumed_at"] or expires is None or expires < now:
+            return None
+        consumed_at = now.isoformat(timespec="seconds")
+        conn.execute(
+            "UPDATE oauth_login_states SET consumed_at = ? WHERE state_hash = ?",
+            (consumed_at, state_digest),
+        )
+    return {
+        "provider": row["provider"],
+        "redirect_uri": row["redirect_uri"],
+        "next_url": row["next_url"],
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "consumed_at": consumed_at,
+    }
+
+
+def get_oauth_identity(
+    provider: str,
+    subject: str,
+    db_path: Path | str | None = None,
+) -> dict[str, Any] | None:
+    provider_text = (provider or "").strip().lower()
+    subject_text = (subject or "").strip()
+    if not provider_text or not subject_text:
+        return None
+    ensure_account_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM oauth_identities WHERE provider = ? AND subject = ?",
+            (provider_text, subject_text),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_oauth_identity(
+    provider: str,
+    subject: str,
+    *,
+    user_id: str,
+    email: str | None = None,
+    email_verified: bool = False,
+    profile: dict[str, Any] | None = None,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    provider_text = (provider or "").strip().lower()
+    subject_text = (subject or "").strip()
+    if not provider_text:
+        raise ValueError("provider is required")
+    if not subject_text:
+        raise ValueError("subject is required")
+    if not user_id:
+        raise ValueError("user_id is required")
+    ensure_account_db(db_path)
+    now = _now_iso()
+    profile_json = json.dumps(profile or {}, ensure_ascii=False, sort_keys=True)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        existing = conn.execute(
+            "SELECT created_at FROM oauth_identities WHERE provider = ? AND subject = ?",
+            (provider_text, subject_text),
+        ).fetchone()
+        created_at = existing[0] if existing else now
+        conn.execute(
+            """
+            INSERT INTO oauth_identities (
+                provider, subject, user_id, email, email_verified, profile_json,
+                created_at, updated_at, last_login_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider, subject) DO UPDATE SET
+                user_id = excluded.user_id,
+                email = excluded.email,
+                email_verified = excluded.email_verified,
+                profile_json = excluded.profile_json,
+                updated_at = excluded.updated_at,
+                last_login_at = excluded.last_login_at
+            """,
+            (
+                provider_text,
+                subject_text,
+                user_id,
+                normalize_email(email),
+                1 if email_verified else 0,
+                profile_json,
+                created_at,
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, user_id),
+        )
+    identity = get_oauth_identity(provider_text, subject_text, db_path=db_path)
+    if not identity:
+        raise RuntimeError("saved OAuth identity is missing")
+    return identity
 
 
 def _connection_public_payload(row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
