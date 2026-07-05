@@ -31,15 +31,7 @@
 
 后续尚未准备发布的变更继续记录在这里。只有已经落地、验证并准备对外说明的内容，才移动到具体版本段落。
 
-### 维护者变化
-
-- 新增 Word 导出格式参考文档，记录当前 `.doc` HTML 兼容方案、字体槽位和表格布局约束，并标明后续商业版应升级到原生 `.docx` 生成。
-- 视频截图链路新增 `visual_key_moments` 结果层，用于保存适合学习复查但不应插入正文的关键画面；`visual_evidence` 继续只表示已进入正文的高置信视觉证据，`frame_artifacts` 保持诊断/原始候选语义。
-- 本地运行数据默认目录统一到系统应用数据目录，维护脚本、备份/恢复脚本、部署自检和 Codex 导出脚本改用同一套 runtime path；旧仓库内 `data/`、`backend/data/` 和视频缓存先通过迁移脚本复制，迁移验证后保留 14 天再清理。
-- 前端 `AppProvider`、`DropdownMenu` 和后端 `request_scope` / `cloud_proxy` 抽象已接入主入口，`shared.jsx` 和 `server_helpers.py` 只保留兼容转发层，减少半迁移状态带来的上下文噪音。
-- 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。
-- 官网首页拆出 content、styles 和 HeroProofDemo 局部模块，让 landing route 只保留页面编排、语言/主题状态和 section 组合，便于后续商业官网扩展。
-- 官网首页右侧 hero proof demo 拆成独立的步骤控件、四个阶段组件和配置数组，后续调整输入、处理、学习复查与导出步骤时不再把状态机、动画和全部 JSX 混在一个组件里。
+## v0.2.1｜2026-07-05｜Stability and export fixes
 
 ### 用户可见变化
 
@@ -167,6 +159,13 @@
 
 ### 维护者变化
 
+- 新增 Word 导出格式参考文档，记录当前 `.doc` HTML 兼容方案、字体槽位和表格布局约束，并标明后续商业版应升级到原生 `.docx` 生成。
+- 视频截图链路新增 `visual_key_moments` 结果层，用于保存适合学习复查但不应插入正文的关键画面；`visual_evidence` 继续只表示已进入正文的高置信视觉证据，`frame_artifacts` 保持诊断/原始候选语义。
+- 本地运行数据默认目录统一到系统应用数据目录，维护脚本、备份/恢复脚本、部署自检和 Codex 导出脚本改用同一套 runtime path；旧仓库内 `data/`、`backend/data/` 和视频缓存先通过迁移脚本复制，迁移验证后保留 14 天再清理。
+- 前端 `AppProvider`、`DropdownMenu` 和后端 `request_scope` / `cloud_proxy` 抽象已接入主入口，`shared.jsx` 和 `server_helpers.py` 只保留兼容转发层，减少半迁移状态带来的上下文噪音。
+- 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。
+- 官网首页拆出 content、styles 和 HeroProofDemo 局部模块，让 landing route 只保留页面编排、语言/主题状态和 section 组合，便于后续商业官网扩展。
+- 官网首页右侧 hero proof demo 拆成独立的步骤控件、四个阶段组件和配置数组，后续调整输入、处理、学习复查与导出步骤时不再把状态机、动画和全部 JSX 混在一个组件里。
 - 新增 `fluentflow-homepage-design` 项目 skill，用于官网首页审校和改版前判断，并将 Huashu Design 方向探索纳入流程，避免通用设计 skill 把首页带回深色工具页、泛 AI 模板或不适合中文学习产品的字体方向。
 - 部署自检中的视频截图插图检查改为要求百炼 / DashScope 视觉选择 Key，而不再强制主摘要服务商必须设置为 Qwen；DeepSeek/OpenAI 生成文本笔记时也可配合 Qwen 视觉模型完成局部截图选择。
 - 新增 `docs/git_checkpoint_workflow.md` 作为 Git checkpoint 单一操作手册；`AGENTS.md`、执行任务 brief 和 git workflow skill 只保留索引，避免多处规则互相冲突。
@@ -192,6 +191,11 @@
 ### 数据 / 口径变化
 
 - Result Payload v2 新增 `transcript_correction_status`、`transcript_correction`、`transcript_corrections`、`corrected_transcript_text`、`corrected_segments` 和 `note_generation_transcript_source`；原始 `transcript_text`、`raw_segments`、`display_segments` 不会被纠错层覆盖。
+
+### 注意事项
+
+- 升级需要重新构建前端并重启后端；浏览器如仍命中旧 bundle，需要强制刷新。
+- 如启用飞书用户 OAuth、百炼 / DashScope 视觉截图、DeepSeek 字幕纠错或迁移后的运行数据目录，需要确认服务器环境变量和迁移状态与运维文档一致。
 
 ## v0.2.0｜2026-06-29｜Agent 工作流与云端转录基础版
 
