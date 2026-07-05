@@ -1,4 +1,5 @@
 import {isPipeTableRow, looksLikeLoosePipeTable, looksLikeMdTable, simpleMd, splitMdTableRow} from './markdown.js';
+import {API_BASE, apiFetch} from '../app/apiConfig.js';
 
 export const _dl = (blob, name) => { const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); };
 export const _baseName = (fn) => (fn||'FluentFlow').replace(/\.[^/.]+$/,'');
@@ -95,6 +96,88 @@ const docxTable = (docx, headerCells, bodyRows) => {
             insideVertical: DOCX_BORDER,
         },
     });
+};
+
+const imageTypeFromSource = (src, contentType='') => {
+    const type = String(contentType || '').toLowerCase();
+    if(type.includes('png')) return 'png';
+    if(type.includes('gif')) return 'gif';
+    if(type.includes('bmp')) return 'bmp';
+    const path = String(src || '').split('?')[0].toLowerCase();
+    if(path.endsWith('.png')) return 'png';
+    if(path.endsWith('.gif')) return 'gif';
+    if(path.endsWith('.bmp')) return 'bmp';
+    return 'jpg';
+};
+
+const docxImageTarget = (src) => {
+    let raw = String(src || '').trim();
+    if(raw.startsWith('jobs/') || raw.startsWith('guest-trial/jobs/')) raw = `/${raw}`;
+    if(/^\/[^/]/.test(raw)){
+        if(API_BASE) return `${API_BASE}${raw}`;
+        if(typeof window !== 'undefined') return new URL(raw, window.location.origin).toString();
+    }
+    return raw;
+};
+
+const rewriteExportImageSources = (md) => String(md || '').replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+    const target = docxImageTarget(src);
+    return `![${alt}](${target})`;
+});
+
+const fetchDocxImage = async (src) => {
+    const raw = String(src || '').trim();
+    if(!raw) return null;
+    if(typeof fetch !== 'function') return null;
+    const target = docxImageTarget(raw);
+    const useApiFetch = /^\/[^/]/.test(raw)
+        || raw.startsWith('jobs/')
+        || raw.startsWith('guest-trial/jobs/')
+        || (!!API_BASE && String(target).startsWith(API_BASE));
+    try {
+        const response = useApiFetch
+            ? await apiFetch(target)
+            : await fetch(target, {credentials: 'include'});
+        if(!response.ok) return null;
+        const contentType = response.headers.get('content-type') || '';
+        if(contentType && !contentType.toLowerCase().startsWith('image/')) return null;
+        const buffer = await response.arrayBuffer();
+        if(!buffer.byteLength) return null;
+        return {
+            data: buffer,
+            type: imageTypeFromSource(raw, contentType),
+        };
+    } catch {
+        return null;
+    }
+};
+
+const docxImageBlocks = async (docx, alt, src) => {
+    const image = await fetchDocxImage(src);
+    const caption = sanitizeDocxText(alt || 'Screenshot');
+    if(!image){
+        return [paragraph(docx, `${caption}${src ? `: ${src}` : ''}`, {
+            size: 19,
+            color: DOCX_MUTED,
+            spacing: {after: 100, line: 260},
+        })];
+    }
+    return [
+        new docx.Paragraph({
+            children: [new docx.ImageRun({
+                type: image.type,
+                data: image.data,
+                transformation: {width: 480, height: 270},
+                altText: {name: caption || 'FluentFlow screenshot', description: caption || 'Video screenshot evidence'},
+            })],
+            spacing: {before: 120, after: caption ? 60 : 140},
+        }),
+        ...(caption ? [paragraph(docx, caption, {
+            size: 18,
+            color: DOCX_MUTED,
+            spacing: {after: 140, line: 240},
+        })] : []),
+    ];
 };
 
 export const buildSummaryDocxDocument = async (md) => {
@@ -211,11 +294,7 @@ export const buildSummaryDocxDocument = async (md) => {
         if(imageMatch){
             const alt = imageMatch[1] || 'Image';
             const src = imageMatch[2] || '';
-            children.push(paragraph(docx, `${alt}${src ? `: ${src}` : ''}`, {
-                size: 19,
-                color: DOCX_MUTED,
-                spacing: {after: 100, line: 260},
-            }));
+            children.push(...await docxImageBlocks(docx, alt, src));
             i += 1;
             continue;
         }
@@ -491,7 +570,7 @@ const buildPrintableSummaryHtml = (md, title='FluentFlow Summary') => `<!DOCTYPE
 </head>
 <body>
     <main class="ff-print-summary-export">
-        <div class="ff-print-summary-body">${simpleMd(md, {renderImages: true, renderManualListMarkers: false})}</div>
+        <div class="ff-print-summary-body">${simpleMd(rewriteExportImageSources(md), {renderImages: true, renderManualListMarkers: false})}</div>
     </main>
 </body>
 </html>`;

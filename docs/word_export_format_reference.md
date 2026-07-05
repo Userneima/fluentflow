@@ -18,10 +18,15 @@ list markers, spacing, fonts, or table widths.
 - Convert Markdown unordered and ordered lists into native Word list structures.
 - Convert Markdown pipe tables into native Word table rows and cells with fixed
   full-page width, borders, padding, and wrapping.
+- Convert Markdown image references into embedded Word images when the image
+  can be fetched. FluentFlow artifact URLs use the same API base, access token,
+  client scope, and cookie credentials as normal app requests.
 - Convert code blocks, blockquotes, horizontal rules, and normal paragraphs into
   document-level Word paragraphs rather than reusing in-app preview DOM.
 - Keep export spacing controlled by Word paragraph spacing. Do not emit preview
   `<br/>` placeholders or manual web list-marker spans.
+- If an image cannot be fetched, keep a readable caption/link fallback in the
+  document instead of failing the whole export.
 
 ## PDF Export Boundary
 
@@ -29,13 +34,20 @@ PDF export uses the browser's native print pipeline. FluentFlow renders a
 dedicated white print document from the edited Markdown note and calls
 `window.print()`. The user saves the system print output as PDF.
 
+Markdown image references are rewritten through the same API base resolution as
+Word export before printing, so local dev frontends and same-origin production
+builds both point print images at the artifact endpoint.
+
 This intentionally replaces the old `html2pdf` / `html2canvas` screenshot path,
 which was fragile for long notes, hidden DOM, dark-mode editor surfaces, tables,
 and pagination.
 
 ## Known Follow-Up
 
-Markdown image references are currently exported to `.docx` as readable image
-captions/links rather than embedded binary images. Embedding screenshots should
-be implemented as a separate export-artifact task because it needs stable image
-fetching, authentication/cross-origin handling, and failure isolation.
+Screenshot insertion now reaches the native Word and browser-print PDF export
+paths when screenshots have already been promoted into the note body as Markdown
+image references.
+
+The remaining product work is selection and review quality, not binary export:
+verify real DashScope/Qwen runs end-to-end, tune when screenshots should be
+inserted, and consider a user-facing accept/remove flow for borderline images.
