@@ -4,45 +4,52 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_word_export_uses_word_page_and_font_slots() -> None:
+def test_word_export_generates_native_docx_not_html_doc() -> None:
+    source = (ROOT / "frontend/src/lib/download.js").read_text(encoding="utf-8")
+    package = (ROOT / "package.json").read_text(encoding="utf-8")
+
+    assert '"docx"' in package
+    assert "export const buildSummaryDocxDocument = async (md) => {" in source
+    assert "await import('docx')" in source
+    assert "Packer.toBlob(doc)" in source
+    assert "_summary.docx" in source
+    assert "application/vnd.ms-word" not in source
+    assert "_summary.doc'" not in source
+    assert "buildWordSummaryHtml" not in source
+    assert "WORD_EXPORT_CSS" not in source
+
+
+def test_word_export_uses_native_docx_styles_lists_and_tables() -> None:
     source = (ROOT / "frontend/src/lib/download.js").read_text(encoding="utf-8")
 
-    assert "export const buildWordSummaryHtml = (md) => {" in source
-    assert "@page WordSection1" in source
-    assert 'font-family: "PingFang SC"' in source
-    assert 'mso-fareast-font-family: "PingFang SC"' in source
-    assert 'mso-ascii-font-family: "PingFang SC"' in source
-    assert 'mso-hansi-font-family: "PingFang SC"' in source
-    assert '<w:DoNotOptimizeForBrowser/>' in source
+    assert "const DOCX_FONT = 'PingFang SC'" in source
+    assert "run: {font: DOCX_FONT" in source
+    assert "bullet: {level: 0}" in source
+    assert "numbering: {reference: 'ff-numbering', level: 0}" in source
+    assert "new docx.Table({" in source
+    assert "layout: docx.TableLayoutType.FIXED" in source
+    assert "type: docx.WidthType.PERCENTAGE" in source
+    assert "renderManualListMarkers: false" in source
 
 
-def test_word_export_tables_are_bounded_for_word_import() -> None:
-    source = (ROOT / "frontend/src/lib/download.js").read_text(encoding="utf-8")
-
-    assert ".ff-word-summary table" in source
-    assert "table-layout: fixed" in source
-    assert "mso-table-lspace: 0pt" in source
-    assert "mso-table-rspace: 0pt" in source
-    assert "overflow-wrap: anywhere" in source
-    assert "max-width: 100%" in source
-
-
-def test_word_export_reference_records_cause_and_upgrade_path() -> None:
+def test_word_export_reference_records_native_contract() -> None:
     reference = (ROOT / "docs/word_export_format_reference.md").read_text(encoding="utf-8")
 
-    assert "Word / WPS do not interpret browser-oriented" in reference
-    assert "HTML and CSS" in reference
-    assert "w:rFonts" in reference
-    assert "mso-table-lspace/rspace: 0pt" in reference
-    assert "native `.docx` generation" in reference
+    assert "native `.docx`" in reference
+    assert "HTML `.doc` compatibility bridge has been" in reference
+    assert "PingFang SC" in reference
+    assert "native Word table" in reference
+    assert "native Word list" in reference
 
 
-def test_word_export_removes_web_list_markers_and_blank_line_breaks() -> None:
+def test_pdf_export_uses_browser_print_not_canvas_capture() -> None:
     download = (ROOT / "frontend/src/lib/download.js").read_text(encoding="utf-8")
-    markdown = (ROOT / "frontend/src/lib/markdown.js").read_text(encoding="utf-8")
+    index = (ROOT / "frontend/index.html").read_text(encoding="utf-8")
 
-    assert "renderManualListMarkers: false" in download
-    assert "normalizeWordSummaryHtml" in download
-    assert "replace(/<br\\/>/g, '')" in download
-    assert "renderManualListMarkers !== false" in markdown
-    assert ": `<li>${renderInline(trimmed.slice(2))}</li>`" in markdown
+    assert "const buildPrintableSummaryHtml = (md" in download
+    assert "export const createPdfPrintFrame = (html) => {" in download
+    assert "frame.srcdoc = html" in download
+    assert "printWindow.print()" in download
+    assert "simpleMd(md, {renderImages: true, renderManualListMarkers: false})" in download
+    assert "html2pdf" not in download
+    assert "html2pdf" not in index

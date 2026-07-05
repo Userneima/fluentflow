@@ -369,14 +369,18 @@ def test_summary_pdf_export_uses_print_markdown_not_editor_dom() -> None:
 
     assert "await dlSummaryPdf(summary,resultDownloadName)" in editor
     assert "dlSummaryPdf(summaryRef,resultDownloadName)" not in editor
-    assert "const buildPrintableSummaryElement = (md) => {" in download
+    assert "const buildPrintableSummaryHtml = (md" in download
+    assert "export const createPdfPrintFrame = (html) => {" in download
     assert "ff-print-summary-export" in download
     assert "background: #ffffff;" in download
     assert "color: #171717;" in download
     assert "opacity: 1 !important;" in download
-    assert "simpleMd(md, {renderImages: true})" in download
-    assert "backgroundColor: '#ffffff'" in download
-    assert "pagebreak: {mode: ['css', 'legacy']" in download
+    assert "simpleMd(md, {renderImages: true, renderManualListMarkers: false})" in download
+    assert "printWindow.print()" in download
+    assert "html2pdf" not in download
+    assert "showToast(t('dl.pdfPrintOpened'))" in editor
+    assert "await dlSummaryWord(summary,resultDownloadName)" in editor
+    assert "badge:'DOCX'" in editor
 
 
 def test_frontend_error_diagnostics_are_structured_and_reused() -> None:

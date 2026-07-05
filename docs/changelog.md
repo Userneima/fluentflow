@@ -31,6 +31,16 @@
 
 后续尚未准备发布的变更继续记录在这里。只有已经落地、验证并准备对外说明的内容，才移动到具体版本段落。
 
+### 用户可见变化
+
+- Word 笔记导出改为生成原生 `.docx` 文件，不再使用 HTML 伪装 `.doc` 的兼容方案；标题、段落、列表和表格会转成 Word 原生结构，并统一使用苹方字体。
+- PDF 笔记导出改为浏览器原生打印管线：系统会从当前 Markdown 笔记生成独立白底打印页并打开打印对话框，用户可在系统打印中另存为 PDF；不再使用 `html2pdf` / `html2canvas` 截图导出。
+
+### 维护者变化
+
+- 前端新增 `docx` 依赖用于浏览器端生成 WordprocessingML `.docx`，并移除首页对 `html2pdf` CDN 的依赖。
+- `docs/word_export_format_reference.md` 改为记录原生 `.docx` / 原生 PDF 打印导出的当前合同和后续图片嵌入边界。
+
 ## v0.2.1｜2026-07-05｜Stability and export fixes
 
 ### 用户可见变化
