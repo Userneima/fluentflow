@@ -1,5 +1,5 @@
 /* ═══════════════ History ═══════════════ */
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useLocation, useNavigate, Link} from 'react-router-dom';
 import {
     Activity,
@@ -25,14 +25,12 @@ import {
     jobToCurrentJob,
     jobDisplayTitle,
     jobToHistoryEntry,
-    readCachedAccountJobs,
     sortJobsForHistoryView,
     timeAgo,
     useApi,
     useApp,
     useAuth,
     useI18n,
-    writeCachedAccountJobs,
 } from '../app/shared.jsx';
 import {
     isCachedOnlyTask,
@@ -92,24 +90,19 @@ const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '')
 const Tasks = () => {
     const {t, lang} = useI18n();
     const {authMode, user} = useAuth();
-    const {currentJob, setLastResult, setCurrentJob, addToHistory} = useApp();
+    // Read the shared task list and mutations from AppProvider; this page no
+    // longer keeps a private jobs state or writes the cache (plan Stage 3b).
+    const {currentJob, setLastResult, setCurrentJob, addToHistory, tasks: jobs, ingestJobs, markCancelled, revertCancelled, removeFromHistory, restoreTask} = useApp();
     const {getJobs, getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
-    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
     const canUseTaskCache = authMode !== 'accounts' || !!user?.id;
-    const activeCacheAccountIdRef = useRef(cacheAccountId);
-    const initialCachedJobs = () => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : [];
-    const readCachedJobs = useCallback(() => readCachedAccountJobs(cacheAccountId), [cacheAccountId]);
-    const [jobs, setJobs] = useState(initialCachedJobs);
-    const [loading, setLoading] = useState(() => initialCachedJobs().length === 0);
+    const [loading, setLoading] = useState(() => jobs.length === 0);
     const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
     const [retryingTaskId, setRetryingTaskId] = useState('');
-    const locallyCancelledTaskIdsRef = useRef(new Set());
-    const locallyDeletedTaskIdsRef = useRef(new Set());
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const isLiveJob = isLiveTask;
     const isDeletableJob = (job) => !isLiveJob(job) && (!!taskIdForJob(job) || isCachedOnlyTask(job));
@@ -142,73 +135,29 @@ const Tasks = () => {
 
     const loadJobs = useCallback(async () => {
         if (!canUseTaskCache) {
-            setJobs([]);
             setLoading(false);
             return;
         }
-        const requestCacheAccountId = cacheAccountId;
         const results = await Promise.allSettled([
             getJobs(100),
             getJobs(100, {sttProvider: 'local'}),
         ]);
-        if (activeCacheAccountIdRef.current !== requestCacheAccountId) return;
         const fetchedJobs = results
             .filter((result) => result.status === 'fulfilled')
             .flatMap((result) => Array.isArray(result.value) ? result.value : []);
         const failedFetches = results.filter((result) => result.status === 'rejected');
-        setJobs((current) => {
-            const byId = new Map();
-            readCachedJobs().forEach((job) => {
-                const taskId = taskIdForJob(job);
-                if (!taskId || locallyDeletedTaskIdsRef.current.has(taskId)) return;
-                byId.set(taskId, job);
-            });
-            fetchedJobs.forEach((job) => {
-                const taskId = taskIdForJob(job);
-                if (!taskId || locallyDeletedTaskIdsRef.current.has(taskId)) return;
-                const nextJob = markBackendJob(job);
-                const nextState = normalizeTaskState(nextJob);
-                const existing = byId.get(taskId);
-                const existingState = normalizeTaskState(existing);
-                if (locallyCancelledTaskIdsRef.current.has(taskId) && nextState !== TASK_STATE_CANCELLED) {
-                    const cancelledJob = existing || nextJob;
-                    byId.set(taskId, {
-                        ...cancelledJob,
-                        status: TASK_STATE_CANCELLED,
-                        task_state: TASK_STATE_CANCELLED,
-                        error_reason: cancelledJob.error_reason || 'user_cancelled',
-                    });
-                    return;
-                }
-                if (existingState === TASK_STATE_CANCELLED && nextState !== TASK_STATE_CANCELLED) return;
-                const existingTs = Date.parse(existing?.updated_at || existing?.created_at || '') || 0;
-                const nextTs = Date.parse(nextJob.updated_at || nextJob.created_at || '') || 0;
-                if (!existing || nextTs >= existingTs) byId.set(taskId, nextJob);
-            });
-            const next = Array.from(byId.values());
-            if (next.length === 0 && failedFetches.length === results.length) {
-                return current.length ? current : readCachedJobs();
-            }
-            writeCachedAccountJobs(requestCacheAccountId, next);
-            return next;
-        });
-        if (failedFetches.length) {
-            setError(lang === 'zh' ? '记录刷新失败，已保留本地缓存。' : 'Failed to refresh records. Local cache is preserved.');
-        } else {
-            setError(null);
-        }
+        // Push the batch into AppProvider's single list; reconcile there applies
+        // owner scoping, tombstones, cancelled pins, and freshness.
+        if (fetchedJobs.length) ingestJobs(fetchedJobs.map(markBackendJob));
+        setError(failedFetches.length
+            ? (lang === 'zh' ? '记录刷新失败，已保留本地缓存。' : 'Failed to refresh records. Local cache is preserved.')
+            : null);
         setLoading(false);
-    }, [cacheAccountId, canUseTaskCache, getJobs, lang, readCachedJobs]);
+    }, [canUseTaskCache, getJobs, lang, ingestJobs]);
 
     useEffect(() => {
-        activeCacheAccountIdRef.current = cacheAccountId;
-        const cached = canUseTaskCache ? readCachedJobs() : [];
-        setJobs(cached);
-        setLoading(canUseTaskCache && cached.length === 0);
         setError(location.state?.queueSubmitError || null);
-        locallyCancelledTaskIdsRef.current.clear();
-        locallyDeletedTaskIdsRef.current.clear();
-    }, [cacheAccountId, canUseTaskCache, readCachedJobs, location.state?.queueSubmitError]);
+    }, [location.state?.queueSubmitError]);
 
     useEffect(() => {
         if(location.state?.queueSubmitError) {
@@ -293,29 +242,17 @@ const Tasks = () => {
             ? '取消这个正在处理的任务？已生成的完整结果不会保留。'
             : 'Cancel this active task? A complete result will not be kept.';
         if (!window.confirm(confirmText)) return;
-        locallyCancelledTaskIdsRef.current.add(taskId);
         setCancellingTaskId(taskId);
-        const applyLocalCancellation = () => {
-            setJobs((current) => {
-                const next = current.map((item) => taskIdForJob(item) === taskId ? {
-                    ...item,
-                    status: TASK_STATE_CANCELLED,
-                    task_state: TASK_STATE_CANCELLED,
-                    error_reason: 'user_cancelled',
-                    updated_at: new Date().toISOString(),
-                } : item);
-                writeCachedAccountJobs(cacheAccountId, next);
-                return next;
-            });
-        };
-        applyLocalCancellation();
+        // Optimistically pin to cancelled through AppProvider; revert if the
+        // backend cancel fails.
+        markCancelled(taskId);
         try {
             await cancelJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
             if (currentJob?.taskId === taskId) setCurrentJob(null);
             setError(null);
             loadJobs();
         } catch (err) {
-            locallyCancelledTaskIdsRef.current.delete(taskId);
+            revertCancelled(taskId);
             setError(friendlyTaskError(err.message || String(err), lang));
             loadJobs();
         } finally {
@@ -328,24 +265,13 @@ const Tasks = () => {
         if (!window.confirm(t('tasks.deleteConfirm'))) return;
         const taskId = taskIdForJob(job);
         setDeletingTaskId(taskId);
-        const removeLocalRecord = () => {
-            setJobs((current) => {
-                const next = current.filter((item) => (
-                    taskId
-                        ? taskIdForJob(item) !== taskId
-                        : item !== job
-                ));
-                writeCachedAccountJobs(cacheAccountId, next);
-                return next;
-            });
-        };
         if (!taskId) {
-            removeLocalRecord();
             setDeletingTaskId('');
             return;
         }
-        locallyDeletedTaskIdsRef.current.add(taskId);
-        removeLocalRecord();
+        // Tombstone + drop through AppProvider so an in-flight poll cannot
+        // resurrect it; restore if the backend delete fails (non-404).
+        removeFromHistory(taskId);
         try {
             await deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
             setError(null);
@@ -354,7 +280,7 @@ const Tasks = () => {
                 setError(null);
                 return;
             }
-            locallyDeletedTaskIdsRef.current.delete(taskId);
+            restoreTask(taskId);
             setError(friendlyTaskError(err.message || String(err), lang));
             loadJobs();
         } finally {
@@ -406,11 +332,7 @@ const Tasks = () => {
             const response = await createVideoSourceJob(input, retryOptionsForJob(job));
             const nextJob = response?.job ? markBackendJob(response.job) : null;
             if (nextJob) {
-                setJobs((current) => {
-                    const next = [nextJob, ...current.filter((item) => taskIdForJob(item) !== taskIdForJob(nextJob))];
-                    writeCachedAccountJobs(cacheAccountId, next);
-                    return next;
-                });
+                ingestJobs([nextJob]);
                 setTaskFilter('all');
                 setError(null);
                 if (nextJob.task_id) navigate(`/tasks/${encodeURIComponent(nextJob.task_id)}/agent`, {state: {job: nextJob}});
