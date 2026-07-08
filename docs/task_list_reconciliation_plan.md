@@ -1,6 +1,6 @@
 # Task List Reconciliation Plan
 
-Status: in progress (Stage 2 verified by in-app smoke test 2026-07-08)
+Status: in progress (Stage 3 done, pending 3b in-app smoke test; Stage 4 remains)
 
 ## Purpose
 
@@ -230,15 +230,37 @@ Validation (ran):
 
 #### Stage 3b: Migrate the polling list owners (high risk)
 
-Status: not started
+Status: completed on 2026-07-08 (in-app smoke test recommended)
 
-- `tasks.jsx` and `agent-tasks.jsx` must stop keeping a private `jobs` state and
-  writing the cache. Introduce an AppProvider ingest/refresh API so their polled
-  `/jobs` results flow into the single `tasks` state, and read the list from
-  AppProvider. This merges most of Stage 4's polling unification for these two
-  files.
-- Needs its own in-app smoke test (live progress polling, cancel, retry,
-  delete, resubmit on both pages).
+Outcome:
+
+- Extended `reconcileTaskList` with a `cancelled` pin and added
+  `ingestJobs`/`markCancelled`/`revertCancelled`/`restoreTask` plus `tasks` to
+  AppProvider (committed as the enabling step, no behavior change).
+- `tasks.jsx` and `agent-tasks.jsx` now read the shared `tasks` list from
+  AppProvider and push polled `/jobs` batches via `ingestJobs`. Cancel → 
+  `markCancelled`/`revertCancelled`; delete → `removeFromHistory`/`restoreTask`;
+  retry → `ingestJobs`. Removed both private `jobs` states, the per-page
+  reconcile duplication, the local cancelled/deleted ref sets, the agent-tasks
+  in-memory warm cache and `jobsFromHistoryEntries`, and every direct cache
+  read/write.
+- Each page keeps its own poll timer for now (full timer centralization is left
+  to Stage 4), but all polled results flow into the single list.
+
+Validation (ran):
+
+- `npm run test:frontend` — 18 passed (added cancelled-pin cases)
+- `npm run build:frontend` — built
+- `npm run lint:frontend` — 88 warnings (baseline), 0 errors
+- `git diff --check` — clean
+- `grep` confirms no route under `frontend/src/routes` or `components` calls
+  `readCachedAccountJobs`/`writeCachedAccountJobs`/`cacheJobRecord`.
+
+Remaining verification:
+
+- In-app smoke test (both /tasks and /agent): live progress polling, cancel
+  (pins cancelled, reverts on failure), delete (no reappearance after reload),
+  retry/resubmit (no duplicate), multi-file upload queued records.
 
 #### Stage 3c: Convert the read-only consumer
 
