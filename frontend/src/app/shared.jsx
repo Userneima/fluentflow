@@ -1,4 +1,5 @@
 import {useState,createContext,useContext} from 'react';
+import { localExecutionHeaders } from '../lib/localExecution.js';
 import {
     BUILTIN_EXTRA_PROMPT_KEYS,
     DEFAULT_PROMPT_PRESET,
@@ -163,20 +164,10 @@ export const createTaskId = () => (
     window.crypto?.randomUUID?.() ||
     `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 );
-export const localExecutionHeaders = (options={}) => (
-    // On localhost single-user we always run locally, so mark every request as
-    // local execution — otherwise cloud-STT uploads (which don't set the local
-    // flags below) are not exempted from account auth and get 401. The backend
-    // still verifies the request actually comes from localhost, and the STT
-    // provider is decided by the stt_provider form field, not this header.
-    options.localExecution
-    || shouldUseLocalSingleUserClientId()
-    || normalizeSttProvider(options.sttProvider) === 'local'
-    || isLocalLarkExportRoute(options.larkExportRoute)
-    || options.larkViaCli
-        ? {'X-FluentFlow-Execution-Target': 'local'}
-        : {}
-);
+// localExecutionHeaders now has a single source of truth in
+// ../lib/localExecution.js (imported at the top). Re-exported here so existing
+// importers of shared.jsx keep working, without a second copy to drift.
+export { localExecutionHeaders };
 export const isLocalHistoryResult = (result={}) => (
     !!result?.imported_from_local_history ||
     result?.source === 'imported_local_history' ||

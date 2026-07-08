@@ -791,13 +791,17 @@ def test_tasks_route_does_not_use_source_filename_as_display_title() -> None:
 def test_editor_lark_export_uses_local_execution_header_on_localhost() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    local_execution = Path("frontend/src/lib/localExecution.js").read_text(encoding="utf-8")
 
     assert "shouldUseLocalSingleUserClientId()" in source
     assert "localExecutionHeaders({localExecution: true, larkExportRoute})" in source
     assert "fd.append('lark_export_route', larkExportRoute)" in source
     assert "isLocalLarkExportRoute(larkExportRoute)" in source
-    assert "options.localExecution" in shared
-    assert "isLocalLarkExportRoute(options.larkExportRoute)" in shared
+    # The local-execution decision now has a single source of truth in
+    # lib/localExecution.js; shared.jsx just re-exports localExecutionHeaders.
+    assert "options.localExecution" in local_execution
+    assert "isLocalLarkRoute(options.larkExportRoute)" in local_execution
+    assert "export { localExecutionHeaders }" in shared
 
 
 def test_settings_page_uses_explicit_lark_export_routes() -> None:
