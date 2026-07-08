@@ -116,6 +116,34 @@ describe('reconcileTaskList', () => {
         expect(normalizeTaskState(list[0])).toBe('uploading');
     });
 
+    // Pins a user-cancelled task to cancelled even while a slow backend poll
+    // still reports it running (replaces the per-page locallyCancelled set).
+    it('pins a cancelled id to cancelled over a stale running backend row', () => {
+        const list = reconcileTaskList({
+            fetched: [makeJob('t1', { task_state: 'running', status: 'running' })],
+            cancelled: ['t1'],
+        });
+        expect(list).toHaveLength(1);
+        expect(normalizeTaskState(list[0])).toBe('cancelled');
+    });
+
+    it('leaves jobs untouched when the cancelled set is empty', () => {
+        const list = reconcileTaskList({
+            fetched: [makeJob('t1', { task_state: 'running', status: 'running' })],
+            cancelled: [],
+        });
+        expect(normalizeTaskState(list[0])).toBe('running');
+    });
+
+    it('lets a tombstone win over a cancelled pin', () => {
+        const list = reconcileTaskList({
+            fetched: [makeJob('t1', { task_state: 'running' })],
+            cancelled: ['t1'],
+            tombstones: ['t1'],
+        });
+        expect(list).toEqual([]);
+    });
+
     it('does not mutate its input arrays', () => {
         const cached = [makeJob('t1'), makeJob('t2')];
         const fetched = [makeJob('t2')];

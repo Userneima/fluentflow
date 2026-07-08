@@ -45,6 +45,9 @@ export const AppProvider = ({children}) => {
     const accountCacheIdRef = useRef('local');
     const hydratedRef = useRef(false);
     const tombstonesRef = useRef(new Set());
+    // Ids the user cancelled locally; reconcile pins them to cancelled until the
+    // backend poll agrees (replaces the per-page locallyCancelled set).
+    const cancelledRef = useRef(new Set());
 
     useEffect(() => {
         let cancelled = false;
@@ -73,6 +76,7 @@ export const AppProvider = ({children}) => {
         accountCacheIdRef.current = accountCacheId;
         hydratedRef.current = false;
         tombstonesRef.current = new Set();
+        cancelledRef.current = new Set();
         setCurrentJob(null);
         setLastResult(null);
         if (guestMode || !accountReady) {
@@ -84,6 +88,7 @@ export const AppProvider = ({children}) => {
         setTasks(reconcileTaskList({
             cached: cachedJobs,
             tombstones: tombstonesRef.current,
+            cancelled: cancelledRef.current,
             accountId: accountCacheId,
         }));
         // Cache is now hydrated for this account; the projection effect may
@@ -106,6 +111,7 @@ export const AppProvider = ({children}) => {
                     fetched: fetchedJobs,
                     cached: cachedJobs,
                     tombstones: tombstonesRef.current,
+                    cancelled: cancelledRef.current,
                     accountId: accountCacheId,
                 });
                 setTasks(nextTasks);
@@ -165,12 +171,45 @@ export const AppProvider = ({children}) => {
         setTasks((current) => current.filter((job) => taskKey(job) !== target));
     };
 
+    // Merge a freshly polled /jobs batch into the canonical list. Pages call
+    // this from their poll timers instead of keeping a private jobs state and
+    // writing the cache themselves (plan Stage 3b).
+    const reconcileInto = (current, extra = {}) => reconcileTaskList({
+        cached: current,
+        tombstones: tombstonesRef.current,
+        cancelled: cancelledRef.current,
+        accountId: accountCacheIdRef.current,
+        ...extra,
+    });
+    const ingestJobs = (fetchedJobs) => {
+        if (!Array.isArray(fetchedJobs) || !fetchedJobs.length) return;
+        setTasks((current) => reconcileInto(current, {fetched: fetchedJobs}));
+    };
+    // Pin/unpin a locally-cancelled task. revert is used when the backend cancel
+    // call fails; the caller then re-fetches to restore the true state.
+    const markCancelled = (taskId) => {
+        if (!taskId) return;
+        cancelledRef.current.add(String(taskId));
+        setTasks((current) => reconcileInto(current));
+    };
+    const revertCancelled = (taskId) => {
+        if (!taskId) return;
+        cancelledRef.current.delete(String(taskId));
+        setTasks((current) => reconcileInto(current));
+    };
+    // Undo a tombstone when a backend delete fails (non-404); the caller
+    // re-fetches to bring the record back.
+    const restoreTask = (taskId) => {
+        if (!taskId) return;
+        tombstonesRef.current.delete(String(taskId));
+    };
+
     const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
     const stats = {
         totalMinutes: Math.round(history.reduce((s,h) => s + (h.durationMin||0), 0)),
         notesGenerated: history.filter(h => h.status==='completed').length,
     };
 
-    return <AppCtx.Provider value={{history,addToHistory,removeFromHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
+    return <AppCtx.Provider value={{tasks,history,ingestJobs,markCancelled,revertCancelled,restoreTask,addToHistory,removeFromHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
 };
 export const useApp = () => useContext(AppCtx);

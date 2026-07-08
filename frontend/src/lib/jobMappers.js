@@ -136,30 +136,45 @@ export const mergeCachedJobs = (...groups) => {
 
 export const taskKeyForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
+const toIdSet = (ids) => new Set(
+    (Array.isArray(ids) ? ids : Array.from(ids || []))
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+);
+
 // Single reconciliation path for the task list. Every source (backend /jobs,
 // the account cache, and optimistic uploading/queued records) flows through
-// here so that ordering, owner scoping, freshness, and deletion behave the same
-// everywhere instead of being re-derived per page. See
-// docs/task_list_reconciliation_plan.md.
+// here so that ordering, owner scoping, freshness, deletion, and locally-pinned
+// cancellation behave the same everywhere instead of being re-derived per page.
+// See docs/task_list_reconciliation_plan.md.
 export const reconcileTaskList = ({
     fetched = [],
     cached = [],
     optimistic = [],
     tombstones = [],
+    cancelled = [],
     accountId = 'local',
 } = {}) => {
-    const dropped = new Set(
-        (Array.isArray(tombstones) ? tombstones : Array.from(tombstones || []))
-            .map((id) => String(id || '').trim())
-            .filter(Boolean),
-    );
+    const dropped = toIdSet(tombstones);
+    const cancelledIds = toIdSet(cancelled);
     // Optimistic records go first so a local record the backend has not
     // persisted yet is retained at equal freshness; mergeCachedJobs still lets a
     // fresher backend row (newer updated_at) win over a stale optimistic one.
     const merged = mergeCachedJobs(optimistic, cached, fetched);
     const owned = merged.filter((job) => jobBelongsToAccountCache(accountId, job));
     const alive = owned.filter((job) => !dropped.has(taskKeyForJob(job)));
-    return sortJobsForHistoryView(alive);
+    // A locally-cancelled task stays cancelled even if a slow backend poll still
+    // reports it as running, until the backend catches up (bridges the gap the
+    // per-page locallyCancelled set used to cover).
+    const pinned = cancelledIds.size
+        ? alive.map((job) => (cancelledIds.has(taskKeyForJob(job)) ? {
+            ...job,
+            status: TASK_STATE_CANCELLED,
+            task_state: TASK_STATE_CANCELLED,
+            error_reason: job.error_reason || 'user_cancelled',
+        } : job))
+        : alive;
+    return sortJobsForHistoryView(pinned);
 };
 
 export const sortJobsForHistoryView = (jobs=[]) => {
