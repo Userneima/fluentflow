@@ -203,13 +203,20 @@ const MediaText = () => {
         const sttProvider = effectiveSttProvider(settings, runtimeConfig);
         if (!(await ensureCloudReady(sttProvider))) return;
 
-        if (!guestMode && selectedFiles.length > 1) {
+        // All non-guest media uploads (single or multiple) go through the
+        // background queue so the single worker processes them one at a time.
+        // This is the only way to guarantee "one video at a time" regardless of
+        // whether the user uploads files individually or selects several at once.
+        if (!guestMode) {
+            const queueLabel = selectedFiles.length === 1
+                ? selectedFiles[0].name
+                : (lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`);
             setSubmitting(true);
             setLastSourceFile(null);
             const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles);
             setCurrentJob({
                 taskId: null,
-                fileName: lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`,
+                fileName: queueLabel,
                 stage: 'upload',
                 progress: 2,
                 startedAt: Date.now(),
@@ -235,7 +242,7 @@ const MediaText = () => {
                 const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
                 setCurrentJob({
                     taskId: null,
-                    fileName: lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`,
+                    fileName: queueLabel,
                     stage: 'queued',
                     progress: 100,
                     startedAt: Date.now(),

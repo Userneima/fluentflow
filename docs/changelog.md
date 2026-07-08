@@ -37,12 +37,19 @@
 - Word 笔记导出改为生成原生 `.docx` 文件，不再使用 HTML 伪装 `.doc` 的兼容方案；标题、段落、列表和表格会转成 Word 原生结构，并统一使用苹方字体。
 - Word 笔记导出会把正文里的截图 Markdown 引用嵌入为真实图片；截图 artifact 会沿用产品 API 的登录态和 client scope 获取，取图失败时保留可读 caption/link 降级，不会让整份文档导出失败。
 - PDF 笔记导出改为浏览器原生打印管线：系统会从当前 Markdown 笔记生成独立白底打印页并打开打印对话框，用户可在系统打印中另存为 PDF；不再使用 `html2pdf` / `html2canvas` 截图导出。
+- 修复本地转写模式下「多视频无法排队」的问题：以本地身份运行时，一次选择多个音视频会因认证校验被拒（`/queue/process` 返回登录要求）而排队失败，历史里也无法建出队列任务；现在多文件排队可正常提交并逐个处理。
+- 音视频上传改为统一走后台队列并串行处理：无论逐个上传还是一次多选，后台一次只处理一个任务，其余显示在「排队中」等待，避免多个大文件同时本地转写抢占资源导致机器卡顿。单文件上传的实时进度相应改到「处理记录」页查看，不再在上传页内联显示。
 
 ### 维护者变化
 
 - 新增 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET`、`GOOGLE_OAUTH_REDIRECT_URI` 和可选 `FLUENTFLOW_GOOGLE_OAUTH_SCOPES` 配置；Google 登录只请求 `openid email profile`，不持久保存 Google access token。
 - 前端新增 `docx` 依赖用于浏览器端生成 WordprocessingML `.docx`，并移除首页对 `html2pdf` CDN 的依赖。
 - `docs/word_export_format_reference.md` 改为记录原生 `.docx` / 原生 PDF 打印导出的当前合同、截图嵌入规则和不可取图降级边界。
+- `LOCAL_EXECUTION_EXACT_PATHS`（`backend/core/request_scope.py`）补入 `/queue/process` 与 `/summarize-transcript-file`，使本地执行豁免覆盖队列提交路径，与 `/process` 一致；信任模型不变（仍要求 localhost + `X-FluentFlow-Execution-Target: local` 头）。前端 `frontend/src/routes/media-text.jsx` 将非游客音视频上传统一改走 `/queue/process`，交由单后台 worker 串行执行。
+
+### 注意事项
+
+- 本次队列改动需重启后端并重新构建前端（`npm run build:frontend`）后生效。不改变数据结构，旧任务记录可正常读取。
 
 ## v0.2.1｜2026-07-05｜Stability and export fixes
 
