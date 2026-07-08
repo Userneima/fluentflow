@@ -65,7 +65,6 @@ const MediaText = () => {
         runtimeConfig,
     } = useApp();
     const {
-        processVideoSSE,
         enqueueProcessFiles,
         processGuestTrialFile,
         createVideoSourceJob,
@@ -315,31 +314,6 @@ const MediaText = () => {
                 navigate('/editor');
                 return;
             }
-
-            let openedTranscript = false;
-            const result = await processVideoSSE(file, {
-                taskId,
-                sourceLastModifiedMs: file.lastModified || null,
-                exportToLark: settings.exportToLark || false,
-                larkExportRoute: larkExportRouteFromSettings(settings),
-                larkViaCli: !!settings.larkViaCli,
-                title: file.name.replace(/\.[^/.]+$/, ''),
-                ...buildAiOptions(settings),
-                skipSummary: !!settings.skipAiSummary,
-                sttProvider,
-                sttModel,
-                sttSpeed: settings.sttSpeed || 'balanced',
-                sttLanguage: 'auto',
-            }, (ev) => {
-                applyProgressEvent(ev);
-                if (ev.stage === 'transcript_ready' && ev.result && !openedTranscript) {
-                    openedTranscript = true;
-                    setLastResult(ev.result);
-                    setProcessingResult(ev.result);
-                    navigate('/editor');
-                }
-            }, ac.signal);
-            settleResult(result, {taskId, fileName: file.name});
         } catch (err) {
             if (err.name !== 'AbortError') {
                 setUploadError(err.message || 'Processing failed.');
