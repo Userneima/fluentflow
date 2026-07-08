@@ -120,7 +120,7 @@ const docxImageTarget = (src) => {
     return raw;
 };
 
-const rewriteExportImageSources = (md) => String(md || '').replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+export const rewriteExportImageSources = (md) => String(md || '').replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
     const target = docxImageTarget(src);
     return `![${alt}](${target})`;
 });
@@ -408,7 +408,7 @@ export const dlSummaryWord = async (md, filename) => {
     _dl(blob, _baseName(filename)+'_summary.docx');
 };
 
-const buildPrintableSummaryHtml = (md, title='FluentFlow Summary') => `<!DOCTYPE html>
+export const buildPrintableSummaryHtml = (md, title='FluentFlow Summary') => `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
