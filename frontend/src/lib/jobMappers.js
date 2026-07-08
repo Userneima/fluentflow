@@ -134,6 +134,34 @@ export const mergeCachedJobs = (...groups) => {
     return order.map((key) => byKey.get(key)).filter(Boolean);
 };
 
+export const taskKeyForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
+
+// Single reconciliation path for the task list. Every source (backend /jobs,
+// the account cache, and optimistic uploading/queued records) flows through
+// here so that ordering, owner scoping, freshness, and deletion behave the same
+// everywhere instead of being re-derived per page. See
+// docs/task_list_reconciliation_plan.md.
+export const reconcileTaskList = ({
+    fetched = [],
+    cached = [],
+    optimistic = [],
+    tombstones = [],
+    accountId = 'local',
+} = {}) => {
+    const dropped = new Set(
+        (Array.isArray(tombstones) ? tombstones : Array.from(tombstones || []))
+            .map((id) => String(id || '').trim())
+            .filter(Boolean),
+    );
+    // Optimistic records go first so a local record the backend has not
+    // persisted yet is retained at equal freshness; mergeCachedJobs still lets a
+    // fresher backend row (newer updated_at) win over a stale optimistic one.
+    const merged = mergeCachedJobs(optimistic, cached, fetched);
+    const owned = merged.filter((job) => jobBelongsToAccountCache(accountId, job));
+    const alive = owned.filter((job) => !dropped.has(taskKeyForJob(job)));
+    return sortJobsForHistoryView(alive);
+};
+
 export const sortJobsForHistoryView = (jobs=[]) => {
     const priority = {
         [TASK_STATE_UPLOADING]: 0,

@@ -1,6 +1,6 @@
 # Task List Reconciliation Plan
 
-Status: not started
+Status: in progress (Stage 1 done)
 
 ## Purpose
 
@@ -135,21 +135,30 @@ status and record the validation that actually ran.
 
 ### Stage 1: Establish The Harness (zero behavior change)
 
-- Add `vitest` as a dev dependency and a `test:frontend` script, scoped to pure
-  functions under `frontend/src/lib/`.
-- Extract `reconcileTaskList` as a pure function that internally reuses the
-  existing `mergeCachedJobs` + owner filter + sort so behavior is unchanged.
-- Write the regression tests in the table above against `reconcileTaskList`.
+Status: completed on 2026-07-08
 
-Validation:
+Outcome:
 
-- `npm run test:frontend`
-- `npm run build:frontend`
-- `git diff --check`
+- Added `vitest` dev dependency, `vitest.config.mjs` (node env, scoped to
+  `frontend/src/lib/**/*.test.js`), and the `test:frontend` script.
+- Added `reconcileTaskList` to `frontend/src/lib/jobMappers.js` as a pure
+  function that reuses the existing `mergeCachedJobs` + `jobBelongsToAccountCache`
+  owner filter + `sortJobsForHistoryView`, plus additive tombstone and optimistic
+  inputs that no-op when empty. No call site consumes it yet, so behavior is
+  unchanged.
+- Encoded all regression-table cases (plus empty-input and no-mutation guards)
+  as 11 passing tests in `frontend/src/lib/jobMappers.test.js`.
+
+Validation (ran):
+
+- `npm run test:frontend` — 11 passed
+- `npm run build:frontend` — built
+- `git diff --check` — clean
 
 Stop condition:
 
-- The reconcile logic has real unit coverage before any refactor touches it.
+- Met. The reconcile logic has real unit coverage before any refactor touches
+  it. Stage 2 can now converge ownership behind these tests.
 
 ### Stage 2: Converge Ownership In AppProvider
 
