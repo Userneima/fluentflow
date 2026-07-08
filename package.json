@@ -9,6 +9,8 @@
     "mcp:check:e2e": "python3 scripts/check_mcp_server.py --backend-e2e",
     "agent:mcp:eval": "python3 scripts/evaluate_agent_mcp.py",
     "note:quality": "python3 scripts/evaluate_note_quality.py",
+    "note:sample": "python3 scripts/generate_note_sample.py",
+    "note:modes": "python3 scripts/evaluate_note_modes.py",
     "stt:evaluate": "python3 scripts/evaluate_stt.py",
     "stt:compare": "python3 scripts/compare_stt_quality.py",
     "release:check": "python3 scripts/check_release_gate.py",
