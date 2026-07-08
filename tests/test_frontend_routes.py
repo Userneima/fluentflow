@@ -1010,7 +1010,10 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "formatElapsedMinuteSecond(sttElapsedSec)" in source
     assert "formatSttOriginalRatio(sttRealtimeFactor, lang)" in source
     assert "STT:" not in source
-    assert "h-[82px]" not in source
+    # NOTE: the "no h-[82px]" guard was dropped — that fixed height is now used
+    # by the legitimate "关键画面复查 / key visual moments" thumbnail cards, a
+    # separate feature (covered by the visual-key-moments tests), not the old
+    # compact-layout violation this test was originally written against.
     assert "w-[360px]" not in source
     assert "当前结果没有时间戳分段，只能按纯文本编辑" not in source
     assert "No timestamped segments. Retranscribe the source audio" in source
