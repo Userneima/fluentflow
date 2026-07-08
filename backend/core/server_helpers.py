@@ -2767,7 +2767,6 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     task_id = str(item.get("task_id") or "")
     source_path = Path(str(item.get("source_path") or ""))
     filename = str(item.get("filename") or source_path.name or "source")
-    base_url = str(item.get("base_url") or _queue_base_url_from_request()).rstrip("/")
     options = dict(item.get("options") or {})
     client_id = _normalize_client_scope(str(item.get("client_id") or ""))
     if not task_id:
@@ -2779,34 +2778,137 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     if job and job.get("status") in {"completed", "failed", "cancelled"}:
         return
 
-    fields = {
-        **options,
-        "task_id": task_id,
-        "title": options.get("title") or str(item.get("display_title") or "").strip() or display_title_for_user(filename, Path(filename).stem),
-        "raw_title": str(item.get("raw_title") or "").strip(),
-        "display_title": str(item.get("display_title") or "").strip(),
-    }
-    headers = {"Accept": "text/event-stream"}
-    if str(options.get("stt_provider") or "").strip().lower() == "local":
-        headers["X-FluentFlow-Execution-Target"] = "local"
-    if client_id:
-        headers["X-FluentFlow-Client-Id"] = client_id
-    headers["X-FluentFlow-Internal-Queue-Token"] = INTERNAL_QUEUE_TOKEN
-    tokens = _configured_access_tokens()
-    if tokens:
-        headers["X-FluentFlow-Access-Token"] = tokens[0]
-    data_fields = {k: str(v) for k, v in fields.items() if v is not None and str(v) != ""}
-    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    with httpx.Client(timeout=_queue_timeout_seconds()) as client:
-        with open(source_path, "rb") as f:
-            response = client.post(
-                f"{base_url}/process",
-                data=data_fields,
-                files={"file": (filename, f, content_type)},
-                headers=headers,
-            )
-        if response.is_error:
-            raise RuntimeError(f"Queued processing request failed: HTTP {response.status_code} {response.text[:800]}")
+    # Run the SAME media pipeline the /process endpoint uses, but in-process on
+    # the server event loop. No HTTP self-call, no auth boundary, no re-running
+    # of the public submission guards. Imported lazily to avoid a module cycle
+    # (processing imports server_helpers at module load).
+    from backend.routers.processing import MediaJobContext, execute_media_job
+
+    loop = _QUEUE_EVENT_LOOP
+    if loop is None or loop.is_closed():
+        raise RuntimeError("Queue event loop is not available for in-process transcription")
+
+    suffix = Path(filename).suffix.lower() or ".mp4"
+    raw_title_value = (
+        str(item.get("raw_title") or "").strip()
+        or str(options.get("title") or "").strip()
+        or Path(filename).stem
+    ).strip()
+    display_title_value = (
+        str(item.get("display_title") or "").strip()
+        or display_title_for_user(raw_title_value, filename)
+    ).strip()
+    source_type = _source_type_for_suffix(suffix)
+    source_file_size_mb = _path_size_mb(source_path)
+    source_fingerprint = _source_fingerprint_for_path(source_path, filename)
+
+    stt_provider_value = _canonical_stt_provider(options.get("stt_provider"))
+    elevenlabs_cloud_provider = stt_provider_value == "elevenlabs_scribe"
+    azure_cloud_provider = stt_provider_value == "azure_batch"
+    model_size = str(options.get("stt_model") or "").strip() or "medium"
+    if model_size in {"tiny", "base", "small"}:
+        model_size = "medium"
+    summary_disabled = _truthy_form(options.get("skip_summary"))
+
+    account_id = _account_id_from_client_scope(client_id)
+    account_user = get_user_by_id(account_id) if account_id else None
+
+    # Mirror the /process import-stage bookkeeping so metadata (titles,
+    # fingerprint) matches the direct-upload path.
+    log_event(
+        task_id=task_id,
+        event_name="source_imported",
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="import",
+        success=True,
+        metadata=_metadata(
+            route="/queue/process",
+            raw_title=raw_title_value,
+            display_title=display_title_value,
+            source_fingerprint=source_fingerprint,
+        ),
+    )
+    upsert_job(
+        task_id=task_id,
+        status="running",
+        client_id=client_id,
+        stage="import",
+        progress=0,
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        metadata=_job_metadata_for_update(
+            task_id,
+            client_id,
+            route="/queue/process",
+            raw_title=raw_title_value,
+            display_title=display_title_value,
+            source_fingerprint=source_fingerprint,
+        ),
+    )
+
+    td = tempfile.mkdtemp()
+    ctx = MediaJobContext(
+        task_id_value=task_id,
+        client_id=client_id,
+        source_type=source_type,
+        source_filename=filename,
+        raw_title_value=raw_title_value,
+        display_title_value=display_title_value,
+        suffix=suffix,
+        td=td,
+        in_path=source_path,
+        content=b"",
+        source_fingerprint=source_fingerprint,
+        source_file_size_mb=source_file_size_mb,
+        max_upload_mb=None,
+        duration_preflight_sec=_media_duration_seconds(source_path),
+        quota_estimate=None,
+        quota_reservation=None,
+        task_started_at=time.perf_counter(),
+        loop=loop,
+        model_size=model_size,
+        speed_profile=str(options.get("stt_speed") or "").strip() or "balanced",
+        language="auto",
+        stt_provider_value=stt_provider_value,
+        elevenlabs_cloud_provider=elevenlabs_cloud_provider,
+        azure_cloud_provider=azure_cloud_provider,
+        cloud_stt_provider=elevenlabs_cloud_provider or azure_cloud_provider,
+        diarization_requested=_truthy_form(options.get("speaker_diarization")),
+        elevenlabs_key_value=resolve_secret(None, "elevenlabs_api_key") if elevenlabs_cloud_provider else None,
+        azure_endpoint_value=resolve_secret(None, "azure_speech_endpoint") if azure_cloud_provider else None,
+        azure_key_value=resolve_secret(None, "azure_speech_key") if azure_cloud_provider else None,
+        azure_blob_container_sas_value=resolve_secret(None, "azure_blob_container_sas_url") if stt_provider_value == "azure_batch" else None,
+        do_lark=_truthy_form(options.get("export_to_lark")),
+        summary_disabled=summary_disabled,
+        source_last_modified_ms=None,
+        export_to_lark=options.get("export_to_lark"),
+        lark_export_route=options.get("lark_export_route"),
+        lark_via_cli=options.get("lark_via_cli"),
+        folder_token=options.get("folder_token"),
+        deepseek_api_key=None,
+        openai_api_key=None,
+        qwen_api_key=None,
+        ai_provider=options.get("ai_provider"),
+        ai_model=options.get("ai_model"),
+        note_mode=options.get("note_mode"),
+        skip_summary=options.get("skip_summary"),
+        system_prompt=options.get("system_prompt"),
+        prompt_preset=options.get("prompt_preset"),
+        prompt_preset_label=options.get("prompt_preset_label"),
+        account_user=account_user,
+        title=options.get("title"),
+        lark_app_id=options.get("lark_app_id"),
+        lark_app_secret=options.get("lark_app_secret"),
+        duration_limit_seconds=None,
+    )
+    try:
+        future = asyncio.run_coroutine_threadsafe(execute_media_job(ctx), loop)
+        future.result(timeout=_queue_timeout_seconds())
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
 
 
 def _submit_transcript_source_file(
