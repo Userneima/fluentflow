@@ -1,6 +1,6 @@
 # Task List Reconciliation Plan
 
-Status: in progress (Stage 1 done)
+Status: in progress (Stage 2 done, pending in-app smoke test)
 
 ## Purpose
 
@@ -162,20 +162,45 @@ Stop condition:
 
 ### Stage 2: Converge Ownership In AppProvider
 
-- Make `AppProvider` hold a single canonical `tasks` state; derive `history`,
-  `stats`, and `currentJob` from it.
-- Move all cache writes into one projection effect on `tasks`.
-- Add `tombstones` and route all list assembly through `reconcileTaskList`.
+Status: completed on 2026-07-08 (in-app smoke test still recommended)
 
-Validation:
+Outcome:
 
-- `npm run test:frontend`
-- `npm run build:frontend`
-- `git diff --check`
+- `AppProvider` now holds a single canonical `tasks` state (raw jobs). `history`
+  is a `useMemo` projection via `jobToHistoryEntry`; `stats` derives from it.
+  `currentJob` stays independent settable state (live progress) and is only
+  seeded from a running/queued task after fetch.
+- All list assembly (mount hydrate, post-fetch merge, `addToHistory` upsert)
+  goes through `reconcileTaskList`.
+- Cache writes are consolidated to one projection effect on `tasks`, gated by a
+  `hydrated` ref + `accountCacheId` ref so a guest/not-ready/switching state
+  cannot wipe a real account's cache.
+- `removeFromHistory` records a session `tombstones` ref so an in-flight fetch or
+  stale cache read cannot resurrect a deleted job; reconcile filters tombstoned
+  ids everywhere.
+- Public contract preserved: `history` is still an entry array, `addToHistory`
+  still takes an entry (converted via `entryToJob`, guarded by round-trip
+  tests), `currentJob`/`setCurrentJob` unchanged. Routes were not touched.
+
+Validation (ran):
+
+- `npm run test:frontend` — 15 passed (incl. entryToJob round trip)
+- `npm run build:frontend` — built
+- `npm run lint:frontend` — 0 errors (pre-existing warnings only)
+- `git diff --check` — clean
+
+Remaining verification:
+
+- In-app smoke test in the running instance (backend + real data): delete a
+  record and reload (must not reappear), resubmit (no duplicate), multi-file
+  upload (queued records visible), and confirm history/stats render. Best done
+  in the user's own window per AGENTS.md rather than a temp browser.
 
 Stop condition:
 
-- The cache is written from exactly one place and the list has one owner.
+- Met at the code/logic level. The cache is written from exactly one place and
+  the list has one owner. Smoke test confirms no behavior regression before
+  Stage 3.
 
 ### Stage 3: Routes Stop Touching The Cache
 

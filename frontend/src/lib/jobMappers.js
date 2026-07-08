@@ -381,6 +381,34 @@ export const jobToCurrentJob = (sourceJob) => {
     };
 };
 
+// Inverse of jobToHistoryEntry: rebuild a canonical raw job from a history
+// entry so it can re-enter the single task list (see
+// docs/task_list_reconciliation_plan.md). Stamps client_id so account owner
+// filtering in reconcileTaskList keeps the record.
+export const entryToJob = (entry = {}, { clientId = null } = {}) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const taskId = entry.taskId || entry.task_id || null;
+    if (!taskId) return null;
+    const ms = typeof entry.timestamp === 'number'
+        ? entry.timestamp
+        : (Date.parse(entry.timestamp) || 0);
+    const iso = ms ? new Date(ms).toISOString() : null;
+    const status = String(entry.status || '').trim();
+    const taskState = String(entry.taskState || '').trim()
+        || (status === 'processing' ? TASK_STATE_RUNNING : status)
+        || null;
+    return {
+        task_id: taskId,
+        client_id: clientId,
+        status: status || null,
+        task_state: taskState,
+        source_type: entry.source || null,
+        created_at: iso,
+        updated_at: iso,
+        result: historyEntryToResult(entry),
+    };
+};
+
 export const historyEntryToResult = (h) => h ? normalizeResultPayload({
     task_id: h.taskId,
     source: h.source||null,

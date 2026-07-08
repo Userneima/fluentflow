@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reconcileTaskList } from './jobMappers.js';
+import { reconcileTaskList, entryToJob, jobToHistoryEntry } from './jobMappers.js';
 import { normalizeTaskState } from './taskState.js';
 
 // Each test locks one historically-recurring list-reconciliation regression so
@@ -122,5 +122,56 @@ describe('reconcileTaskList', () => {
         reconcileTaskList({ cached, fetched, tombstones: ['t1'] });
         expect(ids(cached)).toEqual(['t1', 't2']);
         expect(ids(fetched)).toEqual(['t2']);
+    });
+});
+
+// Stage 2 lets a history entry re-enter the canonical raw-job list via
+// entryToJob. The extra job->entry->job hop must not lose the fields the
+// history view renders (taskId, title, status), or addToHistory would corrupt
+// records. See docs/task_list_reconciliation_plan.md.
+describe('entryToJob round trip', () => {
+    it('preserves taskId, title, and status for a completed job entry', () => {
+        const job = {
+            task_id: 'j1',
+            client_id: 'user:A',
+            created_at: '2026-07-01T00:00:00Z',
+            updated_at: '2026-07-02T00:00:00Z',
+            task_state: 'completed',
+            source_filename: 'lecture.mp4',
+            result: {
+                task_id: 'j1',
+                transcript_text: 'hello world',
+                summary_markdown: '# notes',
+                display_title: 'lecture',
+                filename: 'lecture.mp4',
+            },
+        };
+        const e1 = jobToHistoryEntry(job);
+        const e2 = jobToHistoryEntry(entryToJob(e1, { clientId: 'user:A' }));
+        expect(e2.taskId).toBe(e1.taskId);
+        expect(e2.name).toBe(e1.name);
+        expect(e2.status).toBe(e1.status);
+    });
+
+    it('preserves a bare failed-record literal from the upload path', () => {
+        const entry = { id: 123, taskId: 'f1', name: 'broken.mp4', timestamp: 1751328000000, durationMin: 0, status: 'failed' };
+        const rt = jobToHistoryEntry(entryToJob(entry));
+        expect(rt.taskId).toBe('f1');
+        expect(rt.status).toBe('failed');
+        expect(rt.name).toBeTruthy();
+    });
+
+    it('stamps client_id so account owner filtering keeps the record', () => {
+        const job = entryToJob(
+            { taskId: 'o1', name: 'x', status: 'completed', timestamp: 1751328000000 },
+            { clientId: 'user:A' },
+        );
+        expect(ids(reconcileTaskList({ optimistic: [job], accountId: 'A' }))).toEqual(['o1']);
+        expect(reconcileTaskList({ optimistic: [job], accountId: 'B' })).toEqual([]);
+    });
+
+    it('returns null for a missing entry or one without a task id', () => {
+        expect(entryToJob(null)).toBeNull();
+        expect(entryToJob({ name: 'no id' })).toBeNull();
     });
 });
