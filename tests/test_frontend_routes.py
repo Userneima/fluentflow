@@ -100,7 +100,9 @@ def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
     assert "const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles)" in dashboard
     assert "const data = await enqueueProcessFiles(selectedFiles" in dashboard
     assert "const headers = localExecutionHeaders(options);" in shared
-    assert 'apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, headers, signal})' in shared
+    # enqueueProcessFiles now uploads via XMLHttpRequest (real upload progress +
+    # stall watchdog) instead of fetch, but still POSTs the batch to /queue/process.
+    assert 'xhr.open("POST", `${API_BASE}/queue/process`)' in shared
     assert "const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems)" in dashboard
     assert "queueItems: provisionalQueueItems" in dashboard
     assert "queueSubmitted: true" in dashboard
@@ -111,7 +113,7 @@ def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
     assert "const items = Array.isArray(currentJob.queueItems) ? currentJob.queueItems : []" in agent_tasks
     assert "metadata: {" in agent_tasks
     assert "queue_provisional: !hasBackendTask" in agent_tasks
-    assert "mergeJobs(currentJobRecords, historyJobRecords, jobs)" in agent_tasks
+    assert "mergeJobs(currentJobRecords, jobs)" in agent_tasks
     assert "const cancellableLive = live && taskId && !job?.metadata?.queue_provisional" in agent_tasks
 
 
@@ -170,7 +172,9 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
     assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
-    assert "const initialJobs = () => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], historyJobRecords, readWarmJobs(cacheAccountId), readCachedJobs())" in agent_tasks
+    # A job passed via navigation state is surfaced immediately by ingesting it
+    # into the shared AppProvider list (was a local initialJobs merge before).
+    assert "if (seededJob) ingestJobs([seededJob])" in agent_tasks
     assert "displayJobs.map((job) => (" in agent_tasks
     assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
     assert "查看详情" not in agent_tasks
@@ -375,7 +379,7 @@ def test_summary_pdf_export_uses_print_markdown_not_editor_dom() -> None:
     assert "background: #ffffff;" in download
     assert "color: #171717;" in download
     assert "opacity: 1 !important;" in download
-    assert "simpleMd(md, {renderImages: true, renderManualListMarkers: false})" in download
+    assert "simpleMd(rewriteExportImageSources(md), {renderImages: true, renderManualListMarkers: false})" in download
     assert "printWindow.print()" in download
     assert "html2pdf" not in download
     assert "showToast(t('dl.pdfPrintOpened'))" in editor
@@ -492,18 +496,28 @@ def test_tasks_open_cached_result_without_backend_detail_request() -> None:
 def test_tasks_polling_respects_local_cancel_and_delete_mutations() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 
-    assert "const locallyCancelledTaskIdsRef = useRef(new Set())" in source
-    assert "const locallyDeletedTaskIdsRef = useRef(new Set())" in source
+    # Local cancel/delete are now semantic mutations on AppProvider; its reconcile
+    # (tombstones + cancelled pins) is what stops a later poll from resurrecting a
+    # locally cancelled or deleted record. This page delegates to those mutations
+    # instead of keeping its own ref sets and private jobs state.
+    assert "markCancelled, revertCancelled, removeFromHistory, restoreTask" in source
     assert "const results = await Promise.allSettled([" in source
-    assert "setJobs((current) => {" in source
-    assert "readCachedJobs().forEach((job) => {" in source
-    assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
-    assert "const [jobs, setJobs] = useState(initialCachedJobs)" in source
-    assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in source
+    # Polled batches flow into the single shared list via ingestJobs, not a private
+    # setJobs/cache write.
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs.map(markBackendJob))" in source
+    assert "setJobs((current) => {" not in source
+    assert "readCachedJobs().forEach((job) => {" not in source
+    assert "writeCachedAccountJobs(requestCacheAccountId, next)" not in source
+    # The list and loading flag derive from the shared AppProvider tasks state.
+    assert "tasks: jobs, ingestJobs" in source
+    assert "const [loading, setLoading] = useState(() => jobs.length === 0)" in source
     assert "map(markCachedOnlyJob)" not in source
-    assert "locallyDeletedTaskIdsRef.current.has(taskId)" in source
-    assert "locallyCancelledTaskIdsRef.current.has(taskId)" in source
-    assert "status: TASK_STATE_CANCELLED" in source
+    # Delete tombstones through AppProvider and restores on backend failure.
+    assert "removeFromHistory(taskId)" in source
+    assert "restoreTask(taskId)" in source
+    # Cancel optimistically pins through AppProvider and reverts on failure.
+    assert "markCancelled(taskId)" in source
+    assert "revertCancelled(taskId)" in source
     assert "记录刷新失败，已保留本地缓存。" in source
 
 
@@ -541,12 +555,16 @@ def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
 def test_agent_tasks_merge_recent_activity_for_immediate_display() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
-    assert "const jobsFromHistoryEntries = (history=[])" in source
-    assert "historyEntryToResult(entry)" in source
-    assert "const {history, currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp()" in source
-    assert "const historyJobRecords = useMemo(() => jobsFromHistoryEntries(history), [history]);" in source
-    assert "mergeJobs(currentJobRecords, historyJobRecords, jobs)" in source
-    assert "historyJobRecords, warm, cached" in source
+    # Recent activity (history) + cache are already reconciled into the single
+    # shared task list by AppProvider, so this page reads it directly instead of
+    # rebuilding history entries locally.
+    assert "runtimeConfig, tasks: jobs, ingestJobs" in source
+    assert "const jobsFromHistoryEntries" not in source
+    assert "historyEntryToResult" not in source
+    # The only local merge left folds the live currentJob record in for immediate
+    # progress display over the shared list.
+    assert "const currentJobRecords = useMemo(() => jobsFromCurrentJob(currentJob), [currentJob]);" in source
+    assert "mergeJobs(currentJobRecords, jobs)" in source
 
 
 def test_agent_task_refresh_warning_only_when_all_sources_fail() -> None:
@@ -556,7 +574,9 @@ def test_agent_task_refresh_warning_only_when_all_sources_fail() -> None:
     assert "getJobs(100)," in source
     assert "getJobs(100, {sttProvider: 'local'})," in source
     assert "const allFetchesFailed = failedFetches.length === results.length" in source
-    assert "return allFetchesFailed && current.length ? current : next;" in source
+    # When every fetch fails there is nothing to ingest, so the shared list is
+    # left untouched (only a successful fetch mutates it).
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in source
     assert "setError(allFetchesFailed ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。'" in source
 
 
@@ -591,8 +611,12 @@ def test_tasks_delete_cached_only_without_task_id_locally() -> None:
     assert "const taskIdForJob = (job)" in source
     assert "const isDeletableJob = (job) => !isLiveJob(job) && (!!taskIdForJob(job) || isCachedOnlyTask(job))" in source
     assert "if (!taskId) {" in source
-    assert "removeLocalRecord();" in source
+    # Reconcile keys every record by task_id, so a cached-only record still carries
+    # one and is dropped locally by tombstoning it through AppProvider; the backend
+    # deleteJob then 404s harmlessly for a cache-only record.
+    assert "removeFromHistory(taskId)" in source
     assert "await deleteJob(taskId" in source
+    assert "if (err.status === 404) {" in source
     assert "job.task_id ? (" not in source
 
 
@@ -623,11 +647,14 @@ def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     assert "localStorage.setItem('fluentflow_history'" not in shared
     assert "localStorage.setItem('fluentflow_history'" not in app_provider
     assert "export {AppProvider, useApp} from './AppProvider.jsx';" in shared
-    assert "const [history, setHistory] = useState([])" in app_provider
+    # History is no longer its own state; it is a derived projection of the single
+    # canonical tasks list. Cache stays the source of truth via reconcileTaskList.
+    assert "const [tasks, setTasks] = useState([])" in app_provider
+    assert "const history = useMemo(" in app_provider
     assert "readCachedAccountJobs(accountCacheId)" in app_provider
-    assert "writeCachedAccountJobs(accountCacheId, nextJobs)" in app_provider
-    assert "mergeCachedJobs," in app_provider
-    assert "sortJobsForHistoryView," in app_provider
+    assert "writeCachedAccountJobs(accountCacheIdRef.current, tasks)" in app_provider
+    assert "reconcileTaskList," in app_provider
+    assert "jobToHistoryEntry," in app_provider
     assert "rawFilename" in mapper
     assert "filename: h.rawFilename || h.name" in mapper
     assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in mapper
@@ -651,11 +678,15 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     assert "Promise.allSettled([" in app_provider
     assert "apiFetch(`${API_BASE}/jobs?limit=100`)" in app_provider
     assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in app_provider
-    assert "mergeCachedJobs," in app_provider
-    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in app_provider
-    assert "const initialCachedJobs = () => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : []" in tasks
-    assert "const [jobs, setJobs] = useState(initialCachedJobs)" in tasks
-    assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in tasks
+    # Backend jobs + account cache are reconciled into one list by reconcileTaskList,
+    # so recent activity and history read the same source.
+    assert "reconcileTaskList," in app_provider
+    assert "fetched: fetchedJobs," in app_provider
+    # The page reads the single reconciled list from AppProvider instead of reading
+    # the account cache itself.
+    assert "tasks: jobs, ingestJobs" in tasks
+    assert "const [jobs, setJobs] = useState(" not in tasks
+    assert "const [loading, setLoading] = useState(() => jobs.length === 0)" in tasks
     assert "sortJobsForHistoryView(" in tasks
     assert "const priority = {" not in tasks
     assert "timestampForJob(job) >= timestampForJob(existing)" in mapper
@@ -664,7 +695,7 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     assert "[TASK_STATE_RUNNING]: 1" in mapper
     assert "[TASK_STATE_FAILED]: 3" in mapper
     assert "sortJobsForHistoryView" in job_morph
-    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in app_provider
+    assert "cached: cachedJobs," in app_provider
     assert "{t('dash.recent')}" in media_text
     assert "{t('dash.noActivity')}" in media_text
     assert "最近任务" not in media_text
@@ -806,24 +837,27 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
     app_provider = Path("frontend/src/app/AppProvider.jsx").read_text(encoding="utf-8")
     mappers = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
+    # Account-cache isolation is now owned entirely by AppProvider (plan Stage 3):
+    # the routes no longer keep a per-page cache-account ref or write the cache,
+    # they only read the single shared list.
     for source in (tasks, agent_tasks):
         assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in source
-        assert "const activeCacheAccountIdRef = useRef(cacheAccountId)" in source
-        assert "const requestCacheAccountId = cacheAccountId" in source
-        assert "if (activeCacheAccountIdRef.current !== requestCacheAccountId) return" in source
-        assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
-        assert "activeCacheAccountIdRef.current = cacheAccountId" in source
-    assert "setJobs(cached" in tasks
-    assert "setJobs(next)" in agent_tasks
-    assert "readWarmJobs(cacheAccountId)" in agent_tasks
-
-    assert "const next = mergeJobs(readCachedJobs(), current, fetchedJobs)" in agent_tasks
+        assert "tasks: jobs, ingestJobs" in source
+        assert "writeCachedAccountJobs" not in source
+        assert "readCachedAccountJobs" not in source
+        assert "activeCacheAccountIdRef" not in source
+    # AppProvider scopes the cache to the active account and refuses to write it
+    # until that account's cache is hydrated, so an account switch cannot wipe a
+    # real account's cache or leak account A's jobs into account B's list.
     assert "export {AppProvider, useApp} from './AppProvider.jsx';" in shared
     assert "const accountReady = authMode !== 'accounts' || !!user?.id" in app_provider
+    assert "const accountCacheId = authMode === 'accounts' ? user?.id : 'local'" in app_provider
+    assert "accountCacheIdRef.current = accountCacheId" in app_provider
+    assert "if (!hydratedRef.current) return" in app_provider
+    assert "writeCachedAccountJobs(accountCacheIdRef.current, tasks)" in app_provider
     assert "setCurrentJob(null)" in app_provider
     assert "setLastResult(null)" in app_provider
-    assert "setHistory(cachedEntries)" in app_provider
-    assert "if (!fetchedJobs.length)" in app_provider
+    assert "if (cancelled || !fetchedJobs.length) return" in app_provider
     assert "const jobBelongsToAccountCache = (accountId, job)" in mappers
     assert "clientId === `user:${normalizedAccountId}`" in mappers
     assert "jobBelongsToAccountCache(accountId, job)" in mappers
@@ -1284,26 +1318,32 @@ def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
 def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
-    assert "readCachedAccountJobs(cacheAccountId)" in source
-    assert "const {history, currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp()" in source
+    # Records now come from the single shared AppProvider list, not a per-page
+    # account-cache read.
+    assert "tasks: jobs, ingestJobs" in source
+    assert "runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp()" in source
     assert "getJobs(100)," in source
     assert "getJobs(100, {sttProvider: 'local'})," in source
     assert "displayJobs" in source
     assert "displayJobs.map((job) => (" in source
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
-    assert "const agentTaskWarmCache = new Map()" in source
-    assert "const readWarmJobs = (accountId) => {" in source
-    assert "const writeWarmJobs = (accountId, jobs) => {" in source
-    assert "readWarmJobs(cacheAccountId)" in source
-    assert "writeWarmJobs(requestCacheAccountId, next)" in source
-    assert "setLoading(canUseTaskCache && next.length === 0)" in source
+    # The per-page in-memory warm cache is gone; the shared reconciled list
+    # replaces it. A seeded job and each polled batch flow into it via ingestJobs.
+    assert "agentTaskWarmCache" not in source
+    assert "readWarmJobs" not in source
+    assert "writeWarmJobs" not in source
+    assert "if (seededJob) ingestJobs([seededJob])" in source
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in source
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in source
     assert "const jobsFromCurrentJob = (currentJob) => {" in source
-    assert "mergeJobs(currentJobRecords, historyJobRecords, jobs)" in source
+    assert "mergeJobs(currentJobRecords, jobs)" in source
     assert "const QueueUploadBanner = ({upload, lang}) => {" in source
     assert "每个文件的进程卡已显示在下方" in source
     assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source
     assert "hasLiveOrUploadingJobs ? 5000 : 30000" in source
-    assert "locallyDeletedTaskIdsRef.current.has(taskIdForJob(job))" in source
+    # Deletes tombstone through AppProvider (which keeps a poll from resurrecting
+    # the record) instead of a per-page deleted-id ref set.
+    assert "removeFromHistory(taskId)" in source
     assert "deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {})" in source
     assert "queuedCount" in source
     assert "runningCount" in source
