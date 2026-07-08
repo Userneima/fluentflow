@@ -20,7 +20,12 @@ const isLocalLarkRoute = (route) => {
 };
 
 export const shouldUseLocalExecution = (options={}) => (
+    // On localhost single-user everything runs locally, so mark every request as
+    // local execution regardless of STT provider — otherwise cloud-STT requests
+    // are not exempted from account auth and get 401. The backend still verifies
+    // the request originates from localhost, so public deployments are unaffected.
     !!options.localExecution
+    || shouldUseLocalSingleUserClientId()
     || normalizeExecutionSttProvider(options.sttProvider) === 'local'
     || isLocalLarkRoute(options.larkExportRoute)
     || !!options.larkViaCli
