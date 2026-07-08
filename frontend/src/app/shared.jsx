@@ -297,16 +297,50 @@ export const useApi = () => {
         }
         return await readSseResult(r, onProgress);
     };
-    const enqueueProcessFiles = async (files, options={}, signal) => {
+    // Uploads go through XHR (not fetch) so we can report real upload progress
+    // and, critically, fail fast on a stalled connection instead of hanging the
+    // UI forever. A watchdog aborts the request if no bytes move (and no server
+    // response arrives) for `stallMs`.
+    const enqueueProcessFiles = (files, options={}, {onProgress, signal, stallMs=120000}={}) => new Promise((resolve, reject) => {
         const fd = new FormData();
         Array.from(files || []).forEach((file) => fd.append("files", file));
         appendProcessOptions(fd, options);
-        const headers = localExecutionHeaders(options);
-        const r = await apiFetch(`${API_BASE}/queue/process`, {method:"POST", body:fd, headers, signal});
-        const data = await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
-        return data;
-    };
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE}/queue/process`);
+        xhr.withCredentials = true;
+        const token = getAccessToken();
+        xhr.setRequestHeader("X-FluentFlow-Client-Id", getClientId());
+        if (token) xhr.setRequestHeader("X-FluentFlow-Access-Token", token);
+        Object.entries(localExecutionHeaders(options)).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+        let lastTick = Date.now();
+        let settled = false;
+        const finish = (fn) => { if (settled) return; settled = true; clearInterval(watchdog); fn(); };
+        const watchdog = setInterval(() => {
+            if (Date.now() - lastTick > stallMs) {
+                // Reject with the stall error BEFORE aborting, so the abort's
+                // onabort handler (which would look like a user cancel) is a no-op.
+                finish(() => reject(new Error("Upload stalled or timed out. Please try again.")));
+                try { xhr.abort(); } catch(_) {}
+            }
+        }, 5000);
+
+        xhr.upload.onprogress = (e) => {
+            lastTick = Date.now();
+            if (onProgress && e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.upload.onload = () => { lastTick = Date.now(); };
+        xhr.onload = () => {
+            let data = {};
+            try { data = JSON.parse(xhr.responseText || "{}"); } catch(_) {}
+            if (xhr.status >= 200 && xhr.status < 300) finish(() => resolve(data));
+            else finish(() => reject(Object.assign(new Error(apiErrorMessage(data, `HTTP ${xhr.status}`)), {status: xhr.status})));
+        };
+        xhr.onerror = () => finish(() => reject(new Error("Upload failed. Please check the connection and try again.")));
+        xhr.onabort = () => finish(() => reject(Object.assign(new Error("Upload cancelled."), {aborted: true})));
+        if (signal) signal.addEventListener("abort", () => { try { xhr.abort(); } catch(_) {} });
+        xhr.send(fd);
+    });
     const guestHeaders = (token) => token ? {'X-FluentFlow-Guest-Token': token} : {};
     const getGuestTrialStatus = async (taskId=null, token=getGuestTrialToken()) => {
         const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : '';

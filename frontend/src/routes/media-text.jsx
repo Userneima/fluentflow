@@ -237,6 +237,12 @@ const MediaText = () => {
                     sttModel,
                     sttSpeed: settings.sttSpeed || 'balanced',
                     sttLanguage: 'auto',
+                }, {
+                    onProgress: (pct) => setCurrentJob((prev) => (
+                        prev && prev.queueUpload && !prev.queueSubmitted
+                            ? {...prev, progress: Math.max(2, Math.min(99, pct))}
+                            : prev
+                    )),
                 });
                 const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
                 setCurrentJob({
@@ -255,9 +261,18 @@ const MediaText = () => {
                 navigate('/agent', {replace: true, state: {queueSubmittedAt: Date.now()}});
             } catch (err) {
                 setCurrentJob(null);
+                if (err?.aborted) {
+                    navigate('/agent', {replace: true});
+                    return;
+                }
+                const submitError = err?.status
+                    ? friendlyTaskError(err.message || 'Queue failed.', lang)
+                    : (lang === 'zh'
+                        ? '上传失败或中断，请重新提交。'
+                        : 'Upload failed or was interrupted. Please submit again.');
                 navigate('/agent', {
                     replace: true,
-                    state: {queueSubmitError: friendlyTaskError(err.message || 'Queue failed.', lang)},
+                    state: {queueSubmitError: submitError},
                 });
             } finally {
                 setSubmitting(false);

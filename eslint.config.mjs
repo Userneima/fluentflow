@@ -11,6 +11,7 @@ export default [
                 document: 'readonly',
                 localStorage: 'readonly',
                 fetch: 'readonly',
+                XMLHttpRequest: 'readonly',
                 FormData: 'readonly',
                 Blob: 'readonly',
                 File: 'readonly',
