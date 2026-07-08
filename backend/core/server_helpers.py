@@ -201,7 +201,14 @@ def _cloud_workspace_url() -> str:
 
 
 def _cloud_workspace_enabled() -> bool:
-    return bool(_cloud_workspace_url())
+    # Hard-disabled by default. A leftover exported FLUENTFLOW_CLOUD_WORKSPACE_URL
+    # must NOT silently turn the local backend into a cloud proxy — that forwarded
+    # uploads to the cloud and caused stuck "uploading" with no progress
+    # (2026-07-08). Enabling the proxy now requires an explicit opt-in flag IN
+    # ADDITION to the URL. See docs/foundation_stabilization_plan.md.
+    if not _cloud_workspace_url():
+        return False
+    return _env_truthy("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE")
 
 
 LOCAL_CLOUD_WORKSPACE_PATHS = {
@@ -3329,6 +3336,17 @@ def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
 async def _startup_resume_queue() -> None:
     global _QUEUE_EVENT_LOOP
     _QUEUE_EVENT_LOOP = asyncio.get_running_loop()
+    # Make cloud-workspace proxy state loud at startup so a stale env var can
+    # never silently proxy uploads to the cloud again.
+    if _cloud_workspace_url():
+        if _cloud_workspace_enabled():
+            logger.warning("Cloud workspace proxy ENABLED -> forwarding to %s", _cloud_workspace_url())
+        else:
+            logger.warning(
+                "FLUENTFLOW_CLOUD_WORKSPACE_URL is set (%s) but cloud proxy is DISABLED; "
+                "set FLUENTFLOW_ENABLE_CLOUD_WORKSPACE=1 to enable. Ignoring the URL.",
+                _cloud_workspace_url(),
+            )
     migrated = migrate_job_display_titles()
     if migrated:
         logger.info("Backfilled display titles for %s existing jobs", migrated)

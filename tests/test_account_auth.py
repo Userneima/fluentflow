@@ -325,6 +325,7 @@ def test_local_api_key_keeps_agent_scope_with_created_client(monkeypatch, tmp_pa
 def test_cloud_workspace_proxy_bypasses_local_account_gate(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
     monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "http://cloud.example")
+    monkeypatch.setenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", "1")
 
     async def fake_proxy(request):
         return JSONResponse({"proxied": request.url.path})

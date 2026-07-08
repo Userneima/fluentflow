@@ -179,6 +179,7 @@ def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch)
 
 def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
+    monkeypatch.setenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", "1")
 
     runtime_request = Request({
         "type": "http",
@@ -238,6 +239,29 @@ def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch)
     assert _H._request_is_local_execution(local_process_request) is True
     assert _H._request_is_local_execution(local_jobs_request) is True
     assert _H._request_is_local_execution(remote_local_process_request) is False
+
+
+def test_cloud_workspace_hard_disabled_without_explicit_optin(monkeypatch) -> None:
+    # Regression: a leftover FLUENTFLOW_CLOUD_WORKSPACE_URL alone must NOT enable
+    # the cloud proxy — that silently forwarded uploads to the cloud and caused
+    # stuck uploads. Enabling now requires FLUENTFLOW_ENABLE_CLOUD_WORKSPACE too.
+    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
+    monkeypatch.delenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", raising=False)
+
+    cloud_process_request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/process",
+        "headers": [],
+        "server": ("127.0.0.1", 8000),
+    })
+
+    assert _H._cloud_workspace_enabled() is False
+    assert _H._should_proxy_cloud_workspace(cloud_process_request) is False
+
+    monkeypatch.setenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", "1")
+    assert _H._cloud_workspace_enabled() is True
+    assert _H._should_proxy_cloud_workspace(cloud_process_request) is True
 
 
 def test_cloud_workspace_buffers_json_api_but_streams_long_running_routes() -> None:

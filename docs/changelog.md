@@ -45,6 +45,7 @@
 
 ### 维护者变化
 
+- 云工作区代理改为默认硬禁用：现在必须同时设置 `FLUENTFLOW_CLOUD_WORKSPACE_URL` 和显式开关 `FLUENTFLOW_ENABLE_CLOUD_WORKSPACE=1` 才会开启同源代理。只设地址不设开关时后端会忽略地址，并在启动日志里明确提示。此改动是为避免一个残留的 `FLUENTFLOW_CLOUD_WORKSPACE_URL` 环境变量把本地上传静默转发到云端、导致上传卡死。
 - 新增 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET`、`GOOGLE_OAUTH_REDIRECT_URI` 和可选 `FLUENTFLOW_GOOGLE_OAUTH_SCOPES` 配置；Google 登录只请求 `openid email profile`，不持久保存 Google access token。
 - 前端新增 `docx` 依赖用于浏览器端生成 WordprocessingML `.docx`，并移除首页对 `html2pdf` CDN 的依赖。
 - `docs/word_export_format_reference.md` 改为记录原生 `.docx` / 原生 PDF 打印导出的当前合同、截图嵌入规则和不可取图降级边界。
