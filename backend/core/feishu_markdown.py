@@ -36,6 +36,30 @@ def _looks_like_table(lines: List[str], index: int) -> bool:
     return "|" in head and "|" in align and _TABLE_ALIGN_RE.match(align) is not None
 
 
+def _loose_table_rows(lines: List[str], index: int) -> List[List[str]]:
+    """Return consecutive pipe rows as a loose table (no alignment row).
+
+    A loose pipe table has data rows but is missing the ``| --- |`` alignment
+    row, so ``_looks_like_table`` does not match it. The frontend Word/PDF
+    exporters still render this as a table, so the Feishu fallback must convert
+    it too rather than leaking raw pipe source. Require at least two rows with a
+    consistent column count; return an empty list otherwise so the caller falls
+    through to plain text.
+    """
+    rows: List[List[str]] = []
+    columns = -1
+    i = index
+    while i < len(lines) and _looks_like_table_row(lines[i]):
+        cells = _split_table_row(lines[i])
+        if columns == -1:
+            columns = len(cells)
+        elif len(cells) != columns:
+            break
+        rows.append(cells)
+        i += 1
+    return rows if len(rows) >= 2 else []
+
+
 def _compact_cell(value: str) -> str:
     text = re.sub(r"\s+", " ", (value or "").strip())
     if len(text) >= 4 and text.startswith("**") and text.endswith("**"):
@@ -82,6 +106,16 @@ def normalize_markdown_for_feishu(markdown: str) -> str:
 
     lines = markdown.replace("\r\n", "\n").split("\n")
     out: List[str] = []
+
+    def _emit(converted: List[str], next_index: int) -> None:
+        if not converted:
+            return
+        if out and out[-1].strip():
+            out.append("")
+        out.extend(converted)
+        if next_index < len(lines) and lines[next_index].strip():
+            out.append("")
+
     index = 0
     while index < len(lines):
         if _looks_like_table(lines, index):
@@ -91,14 +125,17 @@ def normalize_markdown_for_feishu(markdown: str) -> str:
             while index < len(lines) and _looks_like_table_row(lines[index]):
                 rows.append(_split_table_row(lines[index]))
                 index += 1
-            converted = _table_to_list(header, rows)
-            if converted:
-                if out and out[-1].strip():
-                    out.append("")
-                out.extend(converted)
-                if index < len(lines) and lines[index].strip():
-                    out.append("")
+            _emit(_table_to_list(header, rows), index)
             continue
+
+        loose = _loose_table_rows(lines, index)
+        if loose:
+            # Treat the first row as the header labels, matching the aligned
+            # table path; tables in notes almost always lead with a header.
+            index += len(loose)
+            _emit(_table_to_list(loose[0], loose[1:]), index)
+            continue
+
         out.append(lines[index])
         index += 1
 

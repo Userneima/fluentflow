@@ -29,3 +29,26 @@ def test_normalize_markdown_for_feishu_ignores_non_table_pipe_text() -> None:
     markdown = "这不是表格：A | B | C\n下一行没有 Markdown 表格分隔线。"
 
     assert normalize_markdown_for_feishu(markdown) == markdown
+
+
+def test_normalize_markdown_for_feishu_converts_loose_pipe_tables() -> None:
+    # A pipe table without the `| --- |` alignment row. The frontend Word/PDF
+    # exporters already render this as a table, so the Feishu fallback must not
+    # leak the raw pipe source either.
+    markdown = "| 概念 | 说明 |\n| Agent | 智能体 |\n| Tool | 工具 |\n"
+
+    converted = normalize_markdown_for_feishu(markdown)
+
+    assert not any(line.strip().startswith("|") for line in converted.split("\n"))
+    assert "- **概念**：Agent" in converted
+    assert "  - **说明**：智能体" in converted
+    assert "- **概念**：Tool" in converted
+    assert "  - **说明**：工具" in converted
+
+
+def test_normalize_markdown_for_feishu_keeps_single_pipe_line_as_text() -> None:
+    # A lone pipe row is not a table (the frontend needs >= 2 rows too); leave
+    # it untouched instead of guessing a one-row table.
+    markdown = "| 只有一行 | 不是表格 |"
+
+    assert normalize_markdown_for_feishu(markdown) == markdown

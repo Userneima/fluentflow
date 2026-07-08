@@ -92,7 +92,11 @@ Fallback behavior:
 - Keep the original `summary_markdown` unchanged.
 - Generate a Feishu-export-only Markdown copy.
 - Convert fragile pipe tables into labeled lists so raw `| --- |` table source
-  is not displayed in the final Feishu document.
+  is not displayed in the final Feishu document. This includes loose pipe
+  tables that omit the `| --- |` alignment row (two or more consecutive pipe
+  rows with a consistent column count): the frontend Word/PDF exporters already
+  render those as tables, so the fallback converts them too and treats the
+  first row as the header labels.
 - Mark the response with the export path, such as `openapi_convert`,
   `legacy_markdown`, or `lark_cli`.
 
