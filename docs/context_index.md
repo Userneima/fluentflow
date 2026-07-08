@@ -9,6 +9,7 @@ are local runtime data rather than source.
 | Need | Read |
 | --- | --- |
 | Product goal, boundary, and non-goals | `docs/current_version_plan.md` |
+| Foundation stabilization: freeze scope, harden the 4 spines, parallel-work split | `docs/foundation_stabilization_plan.md` |
 | Product positioning and target users | `docs/product_overview.md` |
 | Architecture and API surface | `docs/architecture.md` |
 | Runtime, deployment, backup, cleanup, and recovery | `docs/operations_runbook.md` |
