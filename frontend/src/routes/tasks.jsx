@@ -1,5 +1,5 @@
 /* ═══════════════ History ═══════════════ */
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useNavigate, Link} from 'react-router-dom';
 import {
     Activity,
@@ -159,6 +159,14 @@ const Tasks = () => {
         setError(location.state?.queueSubmitError || null);
     }, [location.state?.queueSubmitError]);
 
+    // Stable ref to the latest loadJobs. Its identity changes every render
+    // (ingestJobs/getJobs are not memoized), so any effect that both depends on
+    // it and calls it immediately would refetch on every render — an infinite
+    // fetch loop that floods the backend and flickers the refresh-failed toast
+    // (2026-07-08). Route calls through the ref and keep deps identity-free.
+    const loadJobsRef = useRef(loadJobs);
+    useEffect(() => { loadJobsRef.current = loadJobs; }, [loadJobs]);
+
     useEffect(() => {
         if(location.state?.queueSubmitError) {
             navigate('/tasks', {replace:true, state:{}});
@@ -166,21 +174,21 @@ const Tasks = () => {
         }
         if(location.state?.queueSubmittedAt) {
             setLoading(true);
-            loadJobs();
+            loadJobsRef.current();
             navigate('/tasks', {replace:true, state:{}});
         }
-    }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, loadJobs]);
+    }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
 
     useEffect(() => {
         let stale = false;
-        const run = async () => { if (!stale) await loadJobs(); };
+        const run = async () => { if (!stale) await loadJobsRef.current(); };
         run();
         const timer = setInterval(run, hasLiveJobs ? 5000 : 30000);
         return () => {
             stale = true;
             clearInterval(timer);
         };
-    }, [loadJobs, hasLiveJobs]);
+    }, [hasLiveJobs]);
 
     const getJobWithFallback = async (job) => {
         const taskId = taskIdForJob(job);

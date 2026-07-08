@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router-dom';
 import {
     AlertCircle,
@@ -599,16 +599,23 @@ const AgentTasks = () => {
         }
     }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
 
+    // Keep a stable ref to the latest loadJobs so the polling effect does not
+    // re-subscribe on every render. loadJobs' identity changes each render
+    // (ingestJobs/getJobs are not memoized), and the effect's immediate run()
+    // would then refetch every render — an infinite fetch loop that floods the
+    // backend and makes the refresh-failed toast flicker (2026-07-08).
+    const loadJobsRef = useRef(loadJobs);
+    useEffect(() => { loadJobsRef.current = loadJobs; }, [loadJobs]);
     useEffect(() => {
         let stale = false;
-        const run = async () => { if (!stale) await loadJobs(); };
+        const run = async () => { if (!stale) await loadJobsRef.current(); };
         run();
         const timer = setInterval(run, hasLiveOrUploadingJobs ? 5000 : 30000);
         return () => {
             stale = true;
             clearInterval(timer);
         };
-    }, [loadJobs, hasLiveOrUploadingJobs]);
+    }, [hasLiveOrUploadingJobs]);
 
     const cancelLiveJob = async (job) => {
         const taskId = taskIdForJob(job);
