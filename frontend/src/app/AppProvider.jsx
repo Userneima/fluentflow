@@ -107,6 +107,20 @@ export const AppProvider = ({children}) => {
             localStorage.removeItem(accountJobsCacheKey(authMode === 'accounts' ? user?.id : 'local'));
         } catch(_) {}
     };
+    // Drop a single record from the in-memory history AND the persisted account
+    // jobs cache. Without purging the cache, mergeCachedJobs would re-add a
+    // backend-deleted job on the next load and it would reappear.
+    const removeFromHistory = (taskId) => {
+        if (!taskId) return;
+        const target = String(taskId);
+        setHistory((current) => current.filter((item) => String(item.taskId || '') !== target));
+        try {
+            const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
+            const remaining = readCachedAccountJobs(accountCacheId)
+                .filter((job) => String(job?.task_id || job?.result?.task_id || '') !== target);
+            writeCachedAccountJobs(accountCacheId, remaining);
+        } catch(_) {}
+    };
 
     const addLarkExport = (entry) => persistLarkExports([entry, ...larkExports].slice(0, 50));
     const stats = {
@@ -114,6 +128,6 @@ export const AppProvider = ({children}) => {
         notesGenerated: history.filter(h => h.status==='completed').length,
     };
 
-    return <AppCtx.Provider value={{history,addToHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
+    return <AppCtx.Provider value={{history,addToHistory,removeFromHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
 };
 export const useApp = () => useContext(AppCtx);

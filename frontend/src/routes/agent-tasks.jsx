@@ -584,7 +584,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
 const AgentTasks = () => {
     const {lang} = useI18n();
     const {authMode, user} = useAuth();
-    const {history, currentJob, setCurrentJob, setLastResult, addToHistory, runtimeConfig} = useApp();
+    const {history, currentJob, setCurrentJob, setLastResult, addToHistory, removeFromHistory, runtimeConfig} = useApp();
     const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
@@ -719,6 +719,9 @@ const AgentTasks = () => {
                 if (canUseTaskCache) writeCachedAccountJobs(cacheAccountId, next);
                 return next;
             });
+            // Also drop it from the shared AppProvider history/cache, otherwise the
+            // records page re-merges it from historyJobRecords and it reappears.
+            removeFromHistory(taskId);
         };
         removeLocalRecord();
         if (currentJob?.taskId === taskId) setCurrentJob(null);
