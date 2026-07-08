@@ -3,9 +3,7 @@ import {Link, Navigate} from 'react-router-dom';
 import {ArrowRight, ListChecks, Plus, Workflow} from 'lucide-react';
 import {
     historyEntryToResult,
-    readCachedAccountJobs,
     useApp,
-    useAuth,
     useI18n,
 } from '../app/shared.jsx';
 
@@ -13,8 +11,6 @@ const recentTaskIdFromHistory = (history) => {
     const entry = Array.isArray(history) ? history.find((item) => item?.taskId) : null;
     return entry?.taskId || '';
 };
-
-const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
 const jobFromResult = (result) => {
     if (!result?.task_id) return null;
@@ -47,20 +43,18 @@ const jobFromHistoryEntry = (entry) => {
 
 const Processing = () => {
     const {lang} = useI18n();
-    const {authMode, user} = useAuth();
     const {currentJob, lastResult, history} = useApp();
     const isZh = lang === 'zh';
-    const accountCacheId = authMode === 'accounts' ? user?.id : 'local';
-    const cachedJobs = useMemo(() => readCachedAccountJobs(accountCacheId), [accountCacheId, history]);
-    const recentHistoryEntry = Array.isArray(history) ? history.find((item) => item?.taskId) : null;
     const recentTaskId = recentTaskIdFromHistory(history);
     const targetTaskId = currentJob?.taskId || lastResult?.task_id || recentTaskId;
+    // Resolve the target job from AppProvider's derived history (the single task
+    // list) instead of reading the account cache directly. See
+    // docs/task_list_reconciliation_plan.md.
+    const targetHistoryEntry = Array.isArray(history) ? history.find((item) => item?.taskId === targetTaskId) : null;
     const targetJob = useMemo(() => {
         if (!targetTaskId) return null;
-        const cachedJob = cachedJobs.find((job) => taskIdForJob(job) === targetTaskId);
-        if (cachedJob) return cachedJob;
+        if (targetHistoryEntry) return jobFromHistoryEntry(targetHistoryEntry);
         if (lastResult?.task_id === targetTaskId) return jobFromResult(lastResult);
-        if (recentHistoryEntry?.taskId === targetTaskId) return jobFromHistoryEntry(recentHistoryEntry);
         if (currentJob?.taskId === targetTaskId) {
             return {
                 task_id: currentJob.taskId,
@@ -82,7 +76,7 @@ const Processing = () => {
             };
         }
         return null;
-    }, [cachedJobs, currentJob, lastResult, recentHistoryEntry, targetTaskId]);
+    }, [targetHistoryEntry, currentJob, lastResult, targetTaskId]);
 
     if (targetTaskId) {
         return (

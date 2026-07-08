@@ -242,10 +242,23 @@ Status: not started
 
 #### Stage 3c: Convert the read-only consumer
 
-Status: not started
+Status: completed on 2026-07-08
 
-- `processing.jsx` should read the list from AppProvider instead of calling
-  `readCachedAccountJobs` directly.
+Outcome:
+
+- `processing.jsx` (a redirect component) resolved its target job by reading the
+  account cache directly to find the raw job. It now finds the matching entry in
+  AppProvider's derived `history` and reconstructs the job via the existing
+  `jobFromHistoryEntry`, so no AppProvider API change was needed.
+- Removed the `readCachedAccountJobs`/`useAuth` imports and the dead
+  `taskIdForJob`/`accountCacheId`/`cachedJobs`/`authMode`/`user` locals.
+
+Validation (ran):
+
+- `npm run build:frontend` — built
+- `npm run lint:frontend` — 88 warnings (baseline), 0 errors
+- `npm run test:frontend` — 15 passed
+- `git diff --check` — clean
 
 Validation (each sub-stage):
 
