@@ -164,7 +164,13 @@ export const createTaskId = () => (
     `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 );
 export const localExecutionHeaders = (options={}) => (
+    // On localhost single-user we always run locally, so mark every request as
+    // local execution — otherwise cloud-STT uploads (which don't set the local
+    // flags below) are not exempted from account auth and get 401. The backend
+    // still verifies the request actually comes from localhost, and the STT
+    // provider is decided by the stt_provider form field, not this header.
     options.localExecution
+    || shouldUseLocalSingleUserClientId()
     || normalizeSttProvider(options.sttProvider) === 'local'
     || isLocalLarkExportRoute(options.larkExportRoute)
     || options.larkViaCli
