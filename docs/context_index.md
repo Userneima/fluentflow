@@ -35,9 +35,9 @@ them as current execution plans unless a current truth source links to a
 specific archived decision.
 
 Focused plan and design documents such as `docs/task_status_model_unification_plan.md`,
-`docs/long_transcript_coverage_notes_plan.md`, and `docs/note_mode_evaluation_plan.md`
-are supporting references. Read them only when the current task touches that
-domain.
+`docs/task_list_reconciliation_plan.md`, `docs/long_transcript_coverage_notes_plan.md`,
+and `docs/note_mode_evaluation_plan.md` are supporting references. Read them only
+when the current task touches that domain.
 
 ## Runtime Data Boundary
 

@@ -11,6 +11,11 @@ and understand where the task is, why it stopped, and what can be done next.
 This plan exists because the work is larger than one execution turn. Each stage
 below should be handled as one coherent, verifiable work unit.
 
+Scope boundary: this plan owns how a *single task's status* is described.
+How the *list of tasks* is reconciled across cache, backend, in-memory state,
+and optimistic records is a separate concern owned by
+`docs/task_list_reconciliation_plan.md`.
+
 ## Non-Goals
 
 - Do not redesign the task detail UI before the backend status shape is stable.
