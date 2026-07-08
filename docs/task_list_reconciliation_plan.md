@@ -256,11 +256,16 @@ Validation (ran):
 - `grep` confirms no route under `frontend/src/routes` or `components` calls
   `readCachedAccountJobs`/`writeCachedAccountJobs`/`cacheJobRecord`.
 
-Remaining verification:
+Verification:
 
-- In-app smoke test (both /tasks and /agent): live progress polling, cancel
-  (pins cancelled, reverts on failure), delete (no reappearance after reload),
-  retry/resubmit (no duplicate), multi-file upload queued records.
+- The wiring is now covered by an automated jsdom + @testing-library test
+  (`frontend/src/app/AppProvider.test.jsx`): ingest derives history, a deleted
+  job survives a later poll (tombstone), restoreTask brings it back, and a
+  cancelled job stays pinned over a running poll then reverts. This replaces the
+  manual smoke test for the state wiring.
+- Still worth one optional manual pass for the purely visual/interactive parts
+  jsdom does not cover: live progress-bar cadence and multi-file upload queued
+  rendering on /tasks and /agent (blocked from automation here by account auth).
 
 #### Stage 3c: Convert the read-only consumer
 
