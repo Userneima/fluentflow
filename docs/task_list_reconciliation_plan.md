@@ -1,6 +1,6 @@
 # Task List Reconciliation Plan
 
-Status: in progress (Stage 2 done, pending in-app smoke test)
+Status: in progress (Stage 2 verified by in-app smoke test 2026-07-08)
 
 ## Purpose
 
@@ -189,12 +189,11 @@ Validation (ran):
 - `npm run lint:frontend` — 0 errors (pre-existing warnings only)
 - `git diff --check` — clean
 
-Remaining verification:
+Verification done:
 
-- In-app smoke test in the running instance (backend + real data): delete a
-  record and reload (must not reappear), resubmit (no duplicate), multi-file
-  upload (queued records visible), and confirm history/stats render. Best done
-  in the user's own window per AGENTS.md rather than a temp browser.
+- In-app smoke test in the running instance passed on 2026-07-08: delete +
+  reload (no reappearance), resubmit (no duplicate), multi-file upload (queued
+  records visible), history/stats render correctly.
 
 Stop condition:
 
@@ -204,12 +203,51 @@ Stop condition:
 
 ### Stage 3: Routes Stop Touching The Cache
 
-- Convert `tasks.jsx`, `agent-tasks.jsx`, `dashboard.jsx`, `media-text.jsx`, and
-  `processing.jsx` to consume derived views and call semantic mutations.
-- Remove every direct `writeCachedAccountJobs` / `cacheJobRecord` call outside
-  `AppProvider`.
+Sub-staged by risk. `dashboard.jsx`/`media-text.jsx` only wrote the cache via
+`cacheJobRecord` for failed records and are low risk (3a). `tasks.jsx`/
+`agent-tasks.jsx` own a parallel `jobs` state and poll `/jobs` every 5s while
+writing the cache — that is entangled with Stage 4's polling unification and is
+the high-risk part (3b). `processing.jsx` only reads the cache (3c).
 
-Validation:
+#### Stage 3a: Remove redundant failed-record cache writes
+
+Status: completed on 2026-07-08
+
+Outcome:
+
+- Dropped the `cacheJobRecord` write in `dashboard.jsx` and `media-text.jsx`; the
+  failed-record object is now passed straight to `addToHistory`, which upserts
+  into the canonical list and persists via the Stage 2 projection effect.
+- Removed the now-dead `cacheJobRecord` import and `cacheAccountId`/`authMode`/
+  `user` locals in both files.
+
+Validation (ran):
+
+- `npm run test:frontend` — 15 passed
+- `npm run build:frontend` — built
+- `npm run lint:frontend` — 88 warnings (baseline), 0 errors
+- `git diff --check` — clean
+
+#### Stage 3b: Migrate the polling list owners (high risk)
+
+Status: not started
+
+- `tasks.jsx` and `agent-tasks.jsx` must stop keeping a private `jobs` state and
+  writing the cache. Introduce an AppProvider ingest/refresh API so their polled
+  `/jobs` results flow into the single `tasks` state, and read the list from
+  AppProvider. This merges most of Stage 4's polling unification for these two
+  files.
+- Needs its own in-app smoke test (live progress polling, cancel, retry,
+  delete, resubmit on both pages).
+
+#### Stage 3c: Convert the read-only consumer
+
+Status: not started
+
+- `processing.jsx` should read the list from AppProvider instead of calling
+  `readCachedAccountJobs` directly.
+
+Validation (each sub-stage):
 
 - `npm run test:frontend`
 - `npm run build:frontend`

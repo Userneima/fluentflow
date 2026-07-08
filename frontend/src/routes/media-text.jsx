@@ -7,7 +7,6 @@ import {
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
-    cacheJobRecord,
     cloudSttMissingMessage,
     createTaskId,
     effectiveSttProvider,
@@ -53,7 +52,7 @@ const platformItems = [
 
 const MediaText = () => {
     const {t, lang} = useI18n();
-    const {authMode, guestMode, guestTrial, user} = useAuth();
+    const {guestMode, guestTrial} = useAuth();
     const {
         history,
         addToHistory,
@@ -87,7 +86,6 @@ const MediaText = () => {
     const fileInputRef = useRef(null);
     const subtitleInputRef = useRef(null);
     const abortRef = useRef(null);
-    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -142,7 +140,7 @@ const MediaText = () => {
         if (!taskId) return errorText;
         const now = new Date().toISOString();
         const displayTitle = job?.metadata?.display_title || job?.source_filename || videoLinkDisplayTitle(input, lang);
-        const failedJob = cacheJobRecord(cacheAccountId, {
+        const failedJob = {
             ...job,
             task_id: taskId,
             status: 'failed',
@@ -159,8 +157,10 @@ const MediaText = () => {
             },
             created_at: job?.created_at || now,
             updated_at: now,
-        });
-        if (failedJob) addToHistory(jobToHistoryEntry(failedJob));
+        };
+        // AppProvider.addToHistory upserts into the single task list and its
+        // projection effect persists the cache (see task_list_reconciliation_plan).
+        addToHistory(jobToHistoryEntry(failedJob));
         setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
         return errorText;
     };

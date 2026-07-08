@@ -12,7 +12,6 @@ import {
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
-    cacheJobRecord,
     cloudSttMissingMessage,
     clearGuestTrialSession,
     compactDisplayFilename,
@@ -64,7 +63,7 @@ import SvgIcon from '../components/SvgIcon.jsx';
 
 const Dashboard = () => {
     const {t, lang} = useI18n();
-    const {authMode, guestMode, guestTrial, user} = useAuth();
+    const {guestMode, guestTrial} = useAuth();
     const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
@@ -80,7 +79,6 @@ const Dashboard = () => {
     const [videoLinkInput, setVideoLinkInput] = useState('');
     const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
     const [queueSubmitting, setQueueSubmitting] = useState(false);
-    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -196,7 +194,7 @@ const Dashboard = () => {
         const errorText = friendlyTaskError(rawMessage || job?.error_reason || 'Task failed.', lang);
         if (!taskId || fallback.guestTrial) return errorText;
         const now = new Date().toISOString();
-        const failedJob = cacheJobRecord(cacheAccountId, {
+        const failedJob = {
             ...job,
             task_id: taskId,
             status: 'failed',
@@ -214,8 +212,10 @@ const Dashboard = () => {
             },
             created_at: job?.created_at || (fallback.startedAt ? new Date(fallback.startedAt).toISOString() : now),
             updated_at: now,
-        });
-        if (failedJob) addToHistory(jobToHistoryEntry(failedJob));
+        };
+        // AppProvider.addToHistory upserts into the single task list and its
+        // projection effect persists the cache (see task_list_reconciliation_plan).
+        addToHistory(jobToHistoryEntry(failedJob));
         setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
         return errorText;
     };
