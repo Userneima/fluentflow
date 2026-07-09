@@ -74,28 +74,14 @@ EVENT_SCHEMA_VERSION = "1.3"
 APP_VERSION = get_app_version()
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
-
-
-def _source_storage_dir() -> Path:
-    return default_source_dir()
-
-
-def _video_source_storage_dir() -> Path:
-    return default_video_source_dir()
-
-
-def _edited_transcript_dir() -> Path:
-    return default_edited_transcript_dir()
-
-
-def _artifact_storage_dir() -> Path:
-    return default_artifact_dir()
-
-
-def _transcript_edit_records_dir() -> Path:
-    return default_transcript_edit_records_dir()
+from backend.core.storage_paths import (
+    _project_root,
+    _source_storage_dir,
+    _video_source_storage_dir,
+    _edited_transcript_dir,
+    _artifact_storage_dir,
+    _transcript_edit_records_dir,
+)
 
 
 from backend.core.job_event_hub import JobEventHub, _sse
