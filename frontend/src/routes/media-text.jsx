@@ -642,8 +642,11 @@ const MediaText = () => {
                                 {t('dash.cancel')}
                             </button>
                         </div>
-                        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12]">
-                            <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width: `${Math.max(0, Math.min(100, Number(currentJob?.progress) || 0))}%`}}/>
+                        <div className="mt-4 flex items-center gap-3">
+                            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12]">
+                                <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width: `${Math.max(0, Math.min(100, Number(currentJob?.progress) || 0))}%`}}/>
+                            </div>
+                            <span className="shrink-0 text-sm font-extrabold tabular-nums">{Math.round(Math.max(0, Math.min(100, Number(currentJob?.progress) || 0)))}%</span>
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                             <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
@@ -651,8 +654,16 @@ const MediaText = () => {
                                 <p className="mt-1 text-sm font-extrabold">{fmtFileSize(currentJob.fileSizeMb)}</p>
                             </div>
                             <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
-                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">STT</p>
+                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">{lang === 'zh' ? '转录路线' : 'Transcription'}</p>
+                                <p className="mt-1 truncate text-sm font-extrabold">{currentJob.sttProvider ? (String(currentJob.sttProvider).toLowerCase() === 'local' ? (lang === 'zh' ? '本地' : 'Local') : (lang === 'zh' ? '云端' : 'Cloud')) : '-'}</p>
+                            </div>
+                            <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
+                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">{lang === 'zh' ? 'STT 模型' : 'STT model'}</p>
                                 <p className="mt-1 truncate text-sm font-extrabold">{currentJob.sttModel || '-'}</p>
+                            </div>
+                            <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
+                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">{lang === 'zh' ? '来源' : 'Source'}</p>
+                                <p className="mt-1 truncate text-sm font-extrabold">{(() => { const s = String(currentJob.sourceType || '').toLowerCase(); if (s.includes('audio')) return lang === 'zh' ? '音频' : 'Audio'; if (s.includes('transcript') || s.includes('subtitle')) return lang === 'zh' ? '字幕' : 'Subtitle'; if (s.includes('video') || s === 'queue_upload') return lang === 'zh' ? '视频' : 'Video'; return '-'; })()}</p>
                             </div>
                         </div>
                     </section>
