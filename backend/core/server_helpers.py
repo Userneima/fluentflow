@@ -1416,44 +1416,13 @@ def _cleanup_task_all_files(task_id: str, metadata: dict[str, Any] | None = None
     return cleanup
 
 
-def _history_retention_per_client() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT", "20")), 0)
-    except ValueError:
-        return 20
-
-
-def _artifact_retention_days() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_ARTIFACT_RETENTION_DAYS", "30")), 0)
-    except ValueError:
-        return 30
-
-
-def _source_retention_days() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_SOURCE_RETENTION_DAYS", "7")), 0)
-    except ValueError:
-        return 7
-
-
-def _parse_job_time(value: Any) -> datetime | None:
-    if not value:
-        return None
-    try:
-        text = str(value).replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(text)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except Exception:
-        return None
-
-
-def _source_retention_expiry(days: int) -> str:
-    return (
-        datetime.now(timezone.utc).astimezone() + timedelta(days=days)
-    ).isoformat(timespec="seconds")
+from backend.core.retention_config import (
+    _history_retention_per_client,
+    _artifact_retention_days,
+    _source_retention_days,
+    _parse_job_time,
+    _source_retention_expiry,
+)
 
 
 def _expire_retained_source_file(job: dict[str, Any], *, now: datetime | None = None) -> bool:
