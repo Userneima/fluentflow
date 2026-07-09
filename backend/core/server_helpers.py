@@ -428,7 +428,6 @@ try:
         create_google_authorize_url,
         google_oauth_enabled,
     )
-    from backend.core.note_planner import plan_note_task
     from backend.core.transcript_parser import parse_transcript_file
     from backend.core.transcript_cleaner import clean_repeated_transcript
     from backend.core.event_logger import log_event
@@ -513,7 +512,6 @@ except ImportError:
         create_google_authorize_url,
         google_oauth_enabled,
     )
-    from core.note_planner import plan_note_task
     from core.transcript_parser import parse_transcript_file
     from core.transcript_cleaner import clean_repeated_transcript
     from core.event_logger import log_event
@@ -2440,62 +2438,6 @@ def _ai_kwargs(
     if (nm := (note_mode or "").strip()):
         kwargs["note_mode"] = nm
     return kwargs
-
-
-PLANNER_NOTE_MODES = {"direct", "high_fidelity"}
-PLANNER_SAMPLE_CHARS = 3000
-
-
-def _requested_note_mode(note_mode: str | None) -> str:
-    value = (note_mode or os.environ.get("FLUENTFLOW_NOTE_MODE") or "auto").strip().lower()
-    return "direct" if value == "fast" else value
-
-
-def _language_hint_for_planning(text: str) -> str:
-    cjk = 0
-    latin = 0
-    for char in text:
-        code = ord(char)
-        if 0x4E00 <= code <= 0x9FFF:
-            cjk += 1
-        elif "a" <= char.lower() <= "z":
-            latin += 1
-    if cjk > latin:
-        return "zh"
-    if latin > cjk:
-        return "en_or_latin"
-    return "unknown"
-
-
-def _planning_transcript_preview(transcript_text: str, *, sample_chars: int = PLANNER_SAMPLE_CHARS) -> str:
-    transcript = (transcript_text or "").strip()
-    if not transcript:
-        return ""
-    sample_size = max(500, sample_chars)
-    total = len(transcript)
-    non_empty_lines = [line.strip() for line in transcript.splitlines() if line.strip()]
-    question_count = transcript.count("?") + transcript.count("？")
-    avg_line_chars = round(sum(len(line) for line in non_empty_lines) / len(non_empty_lines), 1) if non_empty_lines else total
-    stats = "\n".join([
-        "【材料统计】",
-        f"- total_chars: {total}",
-        f"- non_empty_lines: {len(non_empty_lines)}",
-        f"- avg_line_chars: {avg_line_chars}",
-        f"- question_marks: {question_count}",
-        f"- language_hint: {_language_hint_for_planning(transcript)}",
-    ])
-    if total <= sample_size * 2:
-        return f"{stats}\n\n【全文样本】\n{transcript[:sample_size * 2]}"
-    head = transcript[:sample_size]
-    mid_start = max(0, (total // 2) - (sample_size // 2))
-    middle = transcript[mid_start: mid_start + sample_size]
-    tail = transcript[-sample_size:]
-    return "\n\n".join([
-        stats,
-        f"【开头样本】\n{head}",
-        f"【中段样本】\n{middle}",
-        f"【结尾样本】\n{tail}",
-    ])
 
 
 def _plan_note_mode_for_summary(
