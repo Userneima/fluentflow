@@ -311,6 +311,27 @@ class TestAiSummarizer(unittest.TestCase):
         )
 
 
+class TestVisualFrameModel(unittest.TestCase):
+    # Guards the video-illustration feature: frame selection must send images to
+    # a VISION (qwen-vl) model. The provider's plain default is a text model, and
+    # sending images to it makes the whole visual step report "unavailable"
+    # (2026-07-09). Regression origin: DEFAULT_QWEN_MODEL is text-only.
+    @patch("backend.core.ai_summarizer._get_client", return_value=object())
+    @patch(
+        "backend.core.ai_summarizer._candidate_frames_for_request",
+        return_value=[{"path": "/tmp/f.jpg", "timestamp_seconds": 1.0}],
+    )
+    @patch("backend.core.ai_summarizer._vision_chat", return_value='{"selections": []}')
+    def test_frame_selection_uses_vision_model_by_default(self, mock_vision, _cands, _client) -> None:
+        from backend.core.ai_summarizer import select_visual_evidence_frames
+
+        select_visual_evidence_frames([{"request_id": "r1"}], [{"path": "/tmp/f.jpg"}], api_key="k")
+
+        self.assertTrue(mock_vision.called)
+        model_arg = mock_vision.call_args.args[1]
+        self.assertIn("vl", model_arg)  # a vision model, not the text default
+
+
 class TestParallelMap(unittest.TestCase):
     # Guards the note-mode speedup: independent evidence/chapter model calls run
     # concurrently, but results MUST come back in input order (not completion

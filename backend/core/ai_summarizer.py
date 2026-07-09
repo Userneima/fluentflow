@@ -23,6 +23,11 @@ QWEN_BASE_URL: Final[str] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-reasoner"
 DEFAULT_OPENAI_MODEL: Final[str] = "gpt-5.4-mini"
 DEFAULT_QWEN_MODEL: Final[str] = "qwen3.7-plus"
+# The Qwen default above is a TEXT model. Frame selection must use a vision
+# (multimodal) Qwen model, or images sent to a text model fail and the whole
+# visual-evidence step reports "unavailable". qwen-vl-plus is the cheaper vision
+# tier; override with QWEN_VISION_MODEL (e.g. qwen-vl-max) if needed.
+DEFAULT_QWEN_VISION_MODEL: Final[str] = "qwen-vl-plus"
 DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
 SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai", "qwen"}
 SUPPORTED_NOTE_MODES: Final[set[str]] = {"auto", "direct", "fast", "high_fidelity", "chapter_coverage"}
@@ -1028,7 +1033,8 @@ def select_visual_evidence_frames(
     if not can_use_multimodal(provider_name):
         raise ValueError(f"Provider {provider_name} does not support multimodal")
     client = _get_client(provider=provider_name, api_key=api_key)
-    m = _normalize_model(provider_name, model)
+    # Default to a vision-capable model; the provider's plain default is text-only.
+    m = _normalize_model(provider_name, model or os.environ.get("QWEN_VISION_MODEL") or DEFAULT_QWEN_VISION_MODEL)
     selections: list[dict[str, Any]] = []
     for request in visual_requests:
         if len(selections) >= max_total_images:
@@ -1711,7 +1717,8 @@ def summarize_transcript_with_frames(
     if not can_use_multimodal(provider_name):
         raise ValueError(f"Provider {provider_name} does not support multimodal")
     client = _get_client(provider=provider_name, api_key=api_key)
-    m = _normalize_model(provider_name, model)
+    # Default to a vision-capable model; the provider's plain default is text-only.
+    m = _normalize_model(provider_name, model or os.environ.get("QWEN_VISION_MODEL") or DEFAULT_QWEN_VISION_MODEL)
     prompt = _compose_multimodal_system_prompt(system_prompt)
     transcript_text = transcript.strip()
     if not transcript_text:
