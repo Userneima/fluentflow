@@ -36,7 +36,13 @@ import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from backend.core._env import GUEST_TRIAL_TOKEN_HEADER, INTERNAL_QUEUE_TOKEN
+from backend.core._env import (
+    GUEST_TRIAL_TOKEN_HEADER,
+    INTERNAL_QUEUE_TOKEN,
+    _env_truthy,
+    _public_mode_enabled,
+    _request_is_internal_queue,
+)
 from backend.core.cloud_proxy import (
     apply_remote_session_cookie,
     proxy_cloud_workspace_request,
@@ -98,10 +104,6 @@ def _access_control_enabled() -> bool:
     return bool(_configured_access_tokens())
 
 
-def _env_truthy(name: str) -> bool:
-    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _account_auth_enabled() -> bool:
     mode = (os.environ.get("FLUENTFLOW_AUTH_MODE") or "").strip().lower()
     return mode in {"account", "accounts"} or _env_truthy("FLUENTFLOW_ACCOUNT_AUTH")
@@ -113,10 +115,6 @@ def _account_signups_enabled() -> bool:
 
 def _cookie_secure_enabled() -> bool:
     return _env_truthy("FLUENTFLOW_COOKIE_SECURE")
-
-
-def _public_mode_enabled() -> bool:
-    return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
 
 
 def _guest_trial_enabled() -> bool:
@@ -232,11 +230,6 @@ def _should_proxy_cloud_workspace(request: Request) -> bool:
         "/auth/google/start",
         "/auth/google/callback",
     } or _is_api_route_path(path)
-
-
-def _request_is_internal_queue(request: Request) -> bool:
-    supplied = request.headers.get("x-fluentflow-internal-queue-token") or ""
-    return bool(supplied and hmac.compare_digest(supplied, INTERNAL_QUEUE_TOKEN))
 
 
 _proxy_response_headers = proxy_response_headers
