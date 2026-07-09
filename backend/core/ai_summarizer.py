@@ -379,6 +379,14 @@ _ASSISTANT_PREFACE_RE = re.compile(
     r"^\s*(好的，?)?根据.*?(提示词|字幕|转录|语音转文字).*?(生成|整理|产出).*?(笔记|提示词).*?$"
 )
 
+# Internal evidence IDs (E001, E003、E055 …) are a chapter-coverage pipeline
+# artifact and must never appear in the finished note. Strip the parenthesized
+# citations the model copies inline. Matches both Chinese and ASCII parens and
+# multi-id lists; leaves ordinary text untouched (IDs are always "E"+>=2 digits).
+_EVIDENCE_CITATION_RE = re.compile(
+    r"[ \t]*[（(]\s*E\d{2,}(?:\s*[、,，]\s*E?\d{2,})*\s*[)）]"
+)
+
 
 @dataclass(frozen=True)
 class SummaryResult:
@@ -623,7 +631,7 @@ def _strip_prompt_leakage(markdown: str) -> str:
         cleaned.append(line)
         i += 1
 
-    return "\n".join(cleaned).strip()
+    return _EVIDENCE_CITATION_RE.sub("", "\n".join(cleaned)).strip()
 
 
 # Independent per-chunk / per-chapter model calls are I/O-bound and order-safe,
@@ -1281,6 +1289,70 @@ def _evidence_markdown(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+_CN_DIGITS: Final[str] = "零一二三四五六七八九"
+
+# Only strips a leading heading NUMBER prefix (一、/ 第一、/ 3. / 3.1), never a
+# title that merely starts with a number word like "十亿美金".
+_LEADING_HEADING_NUMBER_RE = re.compile(
+    r"^\s*(?:"
+    r"第?\s*[一二三四五六七八九十百零]+\s*[、.．)）]\s*"
+    r"|\d+(?:[.．]\d+)+\s*"
+    r"|\d+\s*[、.．)）]\s*"
+    r")"
+)
+
+
+def _cn_number(n: int) -> str:
+    if n <= 0:
+        return str(n)
+    if n < 10:
+        return _CN_DIGITS[n]
+    if n < 20:
+        return "十" + (_CN_DIGITS[n - 10] if n > 10 else "")
+    tens, ones = divmod(n, 10)
+    return _CN_DIGITS[tens] + "十" + (_CN_DIGITS[ones] if ones else "")
+
+
+def _renumber_chapter_headings(markdown: str) -> str:
+    """Give chapter-coverage notes one consistent numbered hierarchy: top-level
+    chapters become '## 一、…', their sub-sections '### x.y …'. The mode builds
+    chapters independently, so it otherwise loses unified numbering (uses bare
+    '#' per chapter with no numbers). Deterministic, so it never depends on the
+    model getting numbering right."""
+    lines = markdown.splitlines()
+    depths = [len(m.group(1)) for line in lines if (m := re.match(r"^(#{1,6})\s+\S", line))]
+    if not depths:
+        return markdown
+    top = min(depths)
+    # A single top-level heading above deeper ones is the document title, not a
+    # chapter — keep it as '#' and treat the next level as the chapters.
+    has_deeper = any(d > top for d in depths)
+    title_depth = top if (depths.count(top) == 1 and has_deeper) else None
+    section_depth = min((d for d in depths if d > top), default=top) if title_depth else top
+    sec = 0
+    sub = 0
+    out: list[str] = []
+    for line in lines:
+        m = re.match(r"^(#{1,6})\s+(.*\S)\s*$", line)
+        if not m:
+            out.append(line)
+            continue
+        depth = len(m.group(1))
+        title = _LEADING_HEADING_NUMBER_RE.sub("", m.group(2)).strip()
+        if title_depth is not None and depth == title_depth:
+            out.append(f"# {title}")
+        elif depth <= section_depth:
+            sec += 1
+            sub = 0
+            out.append(f"## {_cn_number(sec)}、{title}")
+        else:
+            if sec == 0:
+                sec = 1
+            sub += 1
+            out.append(f"### {sec}.{sub} {title}")
+    return "\n".join(out)
+
+
 def _run_chapter_coverage_mode(
     client: OpenAI,
     model: str,
@@ -1370,6 +1442,10 @@ def _run_chapter_coverage_mode(
             )
             coverage_revision_used = True
             missing_count = max(missing_count, 1)
+
+    # Chapters are written independently, so normalize the assembled note into
+    # one consistent numbered hierarchy (## 一、 + ### x.y).
+    final_note = _renumber_chapter_headings(final_note)
 
     chapter_coverage = _build_chapter_coverage_table(
         segments=segments,

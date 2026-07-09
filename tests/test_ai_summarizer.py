@@ -313,5 +313,61 @@ class TestParallelMap(unittest.TestCase):
             _parallel_map(boom, [0, 1, 2, 3])
 
 
+class TestChapterCoverageCleanup(unittest.TestCase):
+    # Guards two real chapter-coverage defects the user hit (2026-07-09):
+    # internal evidence IDs leaking into the note, and headings losing their
+    # numbering because chapters are assembled independently.
+    def test_strip_prompt_leakage_removes_evidence_citations(self) -> None:
+        from backend.core.ai_summarizer import _strip_prompt_leakage
+
+        note = "# 标题\n\n这是一个观点（E001）。另一个（E003、E055）说明这里。"
+        out = _strip_prompt_leakage(note)
+
+        self.assertNotIn("E001", out)
+        self.assertNotIn("E055", out)
+        self.assertIn("这是一个观点", out)
+        self.assertIn("另一个", out)
+
+    def test_renumber_chapter_headings_builds_consistent_hierarchy(self) -> None:
+        from backend.core.ai_summarizer import _renumber_chapter_headings
+
+        md = "# 背景\n正文\n## 子节A\n更多\n# 方法\n## 子节B"
+        out = _renumber_chapter_headings(md)
+
+        self.assertIn("## 一、背景", out)
+        self.assertIn("## 二、方法", out)
+        self.assertIn("### 1.1 子节A", out)
+        self.assertIn("### 2.1 子节B", out)
+
+    def test_renumber_treats_single_top_heading_as_title_not_chapter(self) -> None:
+        # When the note has one '#' title above '##' chapters, the title must
+        # stay a title and the '##' chapters become the numbered sections —
+        # otherwise every chapter collapses under one "一、" (2026-07-09).
+        from backend.core.ai_summarizer import _renumber_chapter_headings
+
+        md = "# 大标题\n## 章一\n正文\n## 章二\n### 深层"
+        out = _renumber_chapter_headings(md)
+
+        self.assertIn("# 大标题", out)
+        self.assertNotIn("## 一、大标题", out)
+        self.assertIn("## 一、章一", out)
+        self.assertIn("## 二、章二", out)
+        self.assertIn("### 2.1 深层", out)
+
+    def test_renumber_keeps_titles_that_merely_start_with_a_number_word(self) -> None:
+        from backend.core.ai_summarizer import _renumber_chapter_headings
+
+        out = _renumber_chapter_headings("# 十亿美金的机会")
+        self.assertIn("## 一、十亿美金的机会", out)
+
+    def test_cn_number(self) -> None:
+        from backend.core.ai_summarizer import _cn_number
+
+        self.assertEqual(_cn_number(1), "一")
+        self.assertEqual(_cn_number(10), "十")
+        self.assertEqual(_cn_number(11), "十一")
+        self.assertEqual(_cn_number(23), "二十三")
+
+
 if __name__ == "__main__":
     unittest.main()
