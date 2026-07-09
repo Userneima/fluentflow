@@ -84,25 +84,21 @@ def test_planning_transcript_preview_samples_beginning_middle_and_end() -> None:
     assert "结尾行动清单" in preview
 
 
-def test_auto_note_mode_planning_selects_concrete_mode(monkeypatch) -> None:
-    fake_plan = NoteTaskPlan(
-        material_type="course",
-        recommended_note_mode="high_fidelity",
-        recommended_prompt_preset="default",
-        needs_qa_section=False,
-        needs_action_items=False,
-        confidence="high",
-        reason="材料特别长，适合完整覆盖。",
-        warnings=["会多花一些时间。"],
-        planner_provider="deepseek",
-        planner_model="deepseek-reasoner",
-    )
-    events: list[dict[str, Any]] = []
-    monkeypatch.setattr(_H, "plan_note_task", lambda **_kwargs: fake_plan)
-    monkeypatch.setattr(_H, "log_event", lambda **kwargs: events.append(kwargs))
+def test_note_mode_planner_removed_auto_passes_through(monkeypatch) -> None:
+    # Regression guard: the AI note-mode planner was removed (2026-07-09).
+    # _plan_note_mode_for_summary must be a pass-through — it leaves "auto" for
+    # the length rule in summarize_transcript_with_metadata and must never spend
+    # a model call to pick the mode.
+    planner_called = {"hit": False}
+
+    def _fail_if_called(**_kwargs):
+        planner_called["hit"] = True
+        raise AssertionError("planner should not be invoked after removal")
+
+    monkeypatch.setattr(_H, "plan_note_task", _fail_if_called)
 
     kwargs, metadata = _H._plan_note_mode_for_summary(
-        {"note_mode": "auto", "provider": "deepseek", "model": "deepseek-reasoner", "api_key": "test"},
+        {"note_mode": "auto", "provider": "deepseek", "model": "deepseek-chat", "api_key": "test"},
         "课程内容" * 200,
         task_id="task-1",
         route="/process",
@@ -110,29 +106,6 @@ def test_auto_note_mode_planning_selects_concrete_mode(monkeypatch) -> None:
         current_prompt_preset="default",
     )
 
-    assert kwargs["note_mode"] == "high_fidelity"
-    assert metadata["requested_note_mode"] == "auto"
-    assert metadata["note_mode_plan_selected_mode"] == "high_fidelity"
-    assert metadata["note_mode_plan_reason"] == "材料特别长，适合完整覆盖。"
-    assert metadata["note_mode_plan_fallback"] is False
-    assert events[0]["event_name"] == "note_mode_planned"
-
-
-def test_auto_note_mode_planning_falls_back_to_length_rule(monkeypatch) -> None:
-    events: list[dict[str, Any]] = []
-    monkeypatch.setattr(_H, "plan_note_task", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("planner down")))
-    monkeypatch.setattr(_H, "log_event", lambda **kwargs: events.append(kwargs))
-
-    kwargs, metadata = _H._plan_note_mode_for_summary(
-        {"note_mode": "auto", "provider": "deepseek"},
-        "课程内容" * 200,
-        task_id="task-1",
-        route="/process",
-        filename="course.mp4",
-    )
-
-    assert kwargs["note_mode"] == "auto"
-    assert metadata["requested_note_mode"] == "auto"
-    assert metadata["note_mode_plan_fallback"] is True
-    assert "按长度规则" in metadata["note_mode_plan_reason"]
-    assert events[0]["event_name"] == "note_mode_plan_failed"
+    assert kwargs["note_mode"] == "auto"  # left for the length rule downstream
+    assert metadata == {}  # no planner metadata is produced anymore
+    assert planner_called["hit"] is False

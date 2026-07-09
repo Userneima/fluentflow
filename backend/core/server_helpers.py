@@ -2508,76 +2508,13 @@ def _plan_note_mode_for_summary(
     duration_seconds: float | None = None,
     current_prompt_preset: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    requested_mode = _requested_note_mode(kwargs.get("note_mode"))
-    if requested_mode != "auto":
-        return kwargs, {}
-
-    started_at = time.perf_counter()
-    transcript = transcript_text or ""
-    try:
-        plan = plan_note_task(
-            filename=filename,
-            transcript_preview=_planning_transcript_preview(transcript),
-            transcript_length=len(transcript),
-            duration_seconds=duration_seconds,
-            current_note_mode="auto",
-            current_prompt_preset=current_prompt_preset,
-            provider=kwargs.get("provider"),
-            model=kwargs.get("model"),
-            api_key=kwargs.get("api_key"),
-        )
-        planned_mode = (plan.recommended_note_mode or "").strip()
-        if planned_mode not in PLANNER_NOTE_MODES:
-            planned_mode = "high_fidelity"
-        planned_kwargs = {**kwargs, "note_mode": planned_mode}
-        metadata = {
-            "requested_note_mode": "auto",
-            "note_mode_plan_material_type": plan.material_type,
-            "note_mode_plan_selected_mode": planned_mode,
-            "note_mode_plan_reason": plan.reason,
-            "note_mode_plan_confidence": plan.confidence,
-            "note_mode_plan_warnings": plan.warnings,
-            "note_mode_plan_provider": plan.planner_provider,
-            "note_mode_plan_model": plan.planner_model,
-            "note_mode_plan_fallback": False,
-        }
-        log_event(
-            task_id=task_id,
-            event_name="note_mode_planned",
-            source_filename=filename,
-            transcript_length=len(transcript),
-            stage="note_mode_plan",
-            duration_seconds=round(time.perf_counter() - started_at, 3),
-            success=True,
-            metadata=_metadata(
-                route=route,
-                selected_note_mode=planned_mode,
-                confidence=plan.confidence,
-                planner_provider=plan.planner_provider,
-                planner_model=plan.planner_model,
-            ),
-        )
-        return planned_kwargs, metadata
-    except Exception as exc:
-        friendly_error = _friendly_error_message(exc)
-        logger.warning("AI note mode planning failed, falling back to length rule: %s", exc)
-        log_event(
-            task_id=task_id,
-            event_name="note_mode_plan_failed",
-            source_filename=filename,
-            transcript_length=len(transcript),
-            stage="note_mode_plan",
-            duration_seconds=round(time.perf_counter() - started_at, 3),
-            success=False,
-            error_reason=friendly_error,
-            metadata=_metadata(route=route, raw_error=str(exc)),
-        )
-        return kwargs, {
-            "requested_note_mode": "auto",
-            "note_mode_plan_reason": "AI 规划失败，已按长度规则自动选择。",
-            "note_mode_plan_fallback": True,
-            "note_mode_plan_error": friendly_error,
-        }
+    # The AI note-mode planner was removed (2026-07-09): spending a separate
+    # model call to choose direct-vs-high_fidelity duplicated a decision the
+    # length rule inside summarize_transcript_with_metadata already makes
+    # (auto → direct if short, else high_fidelity). "auto" now passes straight
+    # through to that rule. Signature kept so call sites are untouched; callers
+    # get empty metadata, so note_mode_plan_* result fields are simply absent.
+    return kwargs, {}
 
 
 def _summary_result_metadata(summary_result: Any) -> dict[str, Any]:
