@@ -63,7 +63,7 @@ class TestAiSummarizer(unittest.TestCase):
         # Patch load_dotenv so the developer's real .env (which may define
         # DASHSCOPE_API_KEY) can't leak in and shadow the QWEN_API_KEY alias.
         with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True), \
-                patch("backend.core.ai_summarizer.load_dotenv", lambda *a, **k: None):
+                patch("backend.core.ai_client.load_dotenv", lambda *a, **k: None):
             self.assertEqual(_provider_api_key("qwen"), "legacy-qwen-key")
 
     def test_final_note_wrappers_do_not_force_course_framing(self) -> None:
