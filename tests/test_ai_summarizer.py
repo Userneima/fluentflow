@@ -92,7 +92,7 @@ class TestAiSummarizer(unittest.TestCase):
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")
-    def test_auto_mode_uses_high_fidelity_for_long_transcripts(self, mock_chat, mock_get_client) -> None:
+    def test_high_fidelity_mode_runs_evidence_flow_when_chosen(self, mock_chat, mock_get_client) -> None:
         mock_get_client.return_value = object()
 
         def fake_chat(_client, _model, system, _user, **_kwargs):
@@ -106,15 +106,44 @@ class TestAiSummarizer(unittest.TestCase):
         result = summarize_transcript_with_metadata(
             "a" * (DIRECT_MODE_MAX_CHARS + 2000),
             api_key="test-key",
-            note_mode="auto",
+            note_mode="high_fidelity",  # still available as an explicit choice
         )
 
         self.assertEqual(result.markdown, "final note")
-        self.assertEqual(result.requested_mode, "auto")
         self.assertEqual(result.resolved_mode, "high_fidelity")
         self.assertGreater(result.chunk_count, 1)
         self.assertTrue(result.coverage_checked)
         self.assertFalse(result.coverage_revision_used)
+
+    @patch("backend.core.ai_summarizer._get_client")
+    @patch("backend.core.ai_summarizer._chat")
+    def test_auto_mode_uses_chapter_coverage_for_long_transcripts(self, mock_chat, mock_get_client) -> None:
+        # Long-note default switched to chapter_coverage (2026-07-09). auto + a
+        # long transcript must now resolve to chapter_coverage, not high_fidelity.
+        mock_get_client.return_value = object()
+
+        def fake_chat(_client, _model, system, _user, **_kwargs):
+            if "长字幕证据抽取助手" in system:
+                return '[{"source_segment_ids":["S001"],"type":"argument","text":"重要观点","importance":5,"keywords":["观点"]}]'
+            if "章节规划助手" in system:
+                return '[{"title":"核心观点","purpose":"整理主要观点","used_evidence_ids":["E001"]}]'
+            if "章节笔记写作助手" in system:
+                return "## 核心观点\n\n- 重要观点"
+            if "长文档编校助手" in system:
+                return "final chapter note"
+            if "笔记覆盖率审查助手" in system:
+                return "COVERED"
+            return "final note"
+
+        mock_chat.side_effect = fake_chat
+        result = summarize_transcript_with_metadata(
+            "a" * (DIRECT_MODE_MAX_CHARS + 2000),
+            api_key="test-key",
+            note_mode="auto",
+        )
+
+        self.assertEqual(result.resolved_mode, "chapter_coverage")
+        self.assertGreater(result.chunk_count, 1)
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")

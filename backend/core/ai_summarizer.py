@@ -1063,7 +1063,12 @@ def select_visual_evidence_frames(
 def _resolve_note_mode(mode: str, transcript_length: int) -> str:
     if mode != "auto":
         return mode
-    return "direct" if transcript_length <= DIRECT_MODE_MAX_CHARS else "high_fidelity"
+    # Long-note default is chapter_coverage: on real transcripts it gave the best
+    # important-point coverage with the fewest hallucinations, and after
+    # parallelization it is no slower than high_fidelity (2026-07-09 evaluation,
+    # see docs/note_pipeline_evaluation.md). high_fidelity stays available as an
+    # explicit choice.
+    return "direct" if transcript_length <= DIRECT_MODE_MAX_CHARS else "chapter_coverage"
 
 
 def _chapter_segments(text: str, max_chars: int) -> list[dict[str, Any]]:
