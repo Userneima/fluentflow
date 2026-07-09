@@ -2695,6 +2695,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     if model_size in {"tiny", "base", "small"}:
         model_size = "medium"
     summary_disabled = _truthy_form(options.get("skip_summary"))
+    visuals_enabled = _truthy_form(options.get("generate_visuals"))
 
     account_id = _account_id_from_client_scope(client_id)
     account_user = get_user_by_id(account_id) if account_id else None
@@ -2769,6 +2770,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
         azure_blob_container_sas_value=resolve_secret(None, "azure_blob_container_sas_url") if stt_provider_value == "azure_batch" else None,
         do_lark=_truthy_form(options.get("export_to_lark")),
         summary_disabled=summary_disabled,
+        generate_visuals=visuals_enabled,
         source_last_modified_ms=None,
         export_to_lark=options.get("export_to_lark"),
         lark_export_route=options.get("lark_export_route"),
@@ -2845,6 +2847,7 @@ def _queue_options_from_form(
     ai_model: Optional[str],
     note_mode: Optional[str],
     skip_summary: Optional[str],
+    generate_visuals: Optional[str] = None,
     stt_model: Optional[str],
     stt_speed: Optional[str],
     stt_language: Optional[str],
@@ -2870,6 +2873,7 @@ def _queue_options_from_form(
         "ai_model": ai_model,
         "note_mode": note_mode,
         "skip_summary": skip_summary,
+        "generate_visuals": generate_visuals,
         "stt_model": stt_model,
         "stt_speed": stt_speed,
         "stt_language": stt_language,
@@ -2894,6 +2898,7 @@ def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str
         "ai_model",
         "note_mode",
         "skip_summary",
+        "generate_visuals",
         "stt_model",
         "stt_speed",
         "stt_language",

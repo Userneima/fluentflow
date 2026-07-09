@@ -100,6 +100,7 @@ const MediaText = () => {
         promptPreset: settings.promptPreset || DEFAULT_PROMPT_PRESET,
         promptPresetLabel: presetDisplayLabel(settings.promptPreset || DEFAULT_PROMPT_PRESET, settings, lang),
         speakerDiarization: !!settings.speakerDiarization,
+        generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 

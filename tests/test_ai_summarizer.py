@@ -60,7 +60,10 @@ class TestAiSummarizer(unittest.TestCase):
             self.assertEqual(_provider_api_key("qwen"), "dashscope-key")
 
     def test_provider_api_key_keeps_qwen_env_alias(self) -> None:
-        with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True):
+        # Patch load_dotenv so the developer's real .env (which may define
+        # DASHSCOPE_API_KEY) can't leak in and shadow the QWEN_API_KEY alias.
+        with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True), \
+                patch("backend.core.ai_summarizer.load_dotenv", lambda *a, **k: None):
             self.assertEqual(_provider_api_key("qwen"), "legacy-qwen-key")
 
     def test_final_note_wrappers_do_not_force_course_framing(self) -> None:

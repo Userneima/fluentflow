@@ -234,6 +234,7 @@ export const useApi = () => {
         if(options.noteMode) fd.append("note_mode", options.noteMode);
         if(options.promptPreset) fd.append("prompt_preset", options.promptPreset);
         if(options.promptPresetLabel) fd.append("prompt_preset_label", options.promptPresetLabel);
+        if(options.generateVisuals) fd.append("generate_visuals", "true");
     };
     const appendProcessOptions = (fd, options={}) => {
         if(options.exportToLark) {
@@ -399,6 +400,7 @@ export const useApi = () => {
         if(options.noteMode) payloadOptions.note_mode = options.noteMode;
         if(options.promptPreset) payloadOptions.prompt_preset = options.promptPreset;
         if(options.promptPresetLabel) payloadOptions.prompt_preset_label = options.promptPresetLabel;
+        if(options.generateVisuals) payloadOptions.generate_visuals = "true";
         if(options.sttProvider) payloadOptions.stt_provider = options.sttProvider;
         if(options.sttModel) payloadOptions.stt_model = options.sttModel;
         if(options.sttSpeed) payloadOptions.stt_speed = options.sttSpeed;

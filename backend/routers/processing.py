@@ -123,6 +123,7 @@ async def queue_process(
     ai_model: Optional[str] = Form(None),
     note_mode: Optional[str] = Form(None),
     skip_summary: Optional[str] = Form(None),
+    generate_visuals: Optional[str] = Form(None),
     stt_model: Optional[str] = Form(None),
     stt_speed: Optional[str] = Form(None),
     stt_language: Optional[str] = Form(None),
@@ -184,6 +185,7 @@ async def queue_process(
         ai_model=ai_model,
         note_mode=note_mode,
         skip_summary=skip_summary,
+        generate_visuals=generate_visuals,
         stt_model=stt_model,
         stt_speed=stt_speed,
         stt_language=stt_language,
@@ -315,6 +317,7 @@ class MediaJobContext:
     azure_blob_container_sas_value: str | None
     do_lark: bool
     summary_disabled: bool
+    generate_visuals: bool
     source_last_modified_ms: Any
     export_to_lark: Any
     lark_export_route: Any
@@ -371,6 +374,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
     azure_blob_container_sas_value = ctx.azure_blob_container_sas_value
     do_lark = ctx.do_lark
     summary_disabled = ctx.summary_disabled
+    generate_visuals = ctx.generate_visuals
     source_last_modified_ms = ctx.source_last_modified_ms
     export_to_lark = ctx.export_to_lark
     lark_export_route = ctx.lark_export_route
@@ -1159,7 +1163,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             if not summary_md.strip():
                 raise ValueError("AI summarization returned empty result")
             summary_status = "completed"
-            if source_type == "video" and note_segments_payload:
+            if generate_visuals and source_type == "video" and note_segments_payload:
                 try:
                     visual_plan = await loop.run_in_executor(
                         None,
@@ -1721,6 +1725,7 @@ async def process_video(
     ai_model: Optional[str] = Form(None),
     note_mode: Optional[str] = Form(None),
     skip_summary: Optional[str] = Form(None),
+    generate_visuals: Optional[str] = Form(None),
     stt_model: Optional[str] = Form(None),
     stt_speed: Optional[str] = Form(None),
     stt_language: Optional[str] = Form(None),
@@ -1746,6 +1751,7 @@ async def process_video(
 
     do_lark = H._truthy_form(export_to_lark)
     summary_disabled = H._truthy_form(skip_summary)
+    visuals_enabled = H._truthy_form(generate_visuals)
     suffix = Path(file.filename).suffix.lower() or ".mp4"
     if suffix not in H.ALLOWED_SUFFIXES:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
@@ -1903,6 +1909,7 @@ async def process_video(
         azure_blob_container_sas_value=azure_blob_container_sas_value,
         do_lark=do_lark,
         summary_disabled=summary_disabled,
+        generate_visuals=visuals_enabled,
         source_last_modified_ms=source_last_modified_ms,
         export_to_lark=export_to_lark,
         lark_export_route=lark_export_route,

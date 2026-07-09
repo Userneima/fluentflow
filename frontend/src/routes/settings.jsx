@@ -330,6 +330,22 @@ const Settings = () => {
                                 />
                             </label>
 
+                            <label htmlFor="settingsAutoIllustrate" className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start cursor-pointer hover:bg-[#faf9f9] dark:hover:bg-white/[0.04]">
+                                <span>
+                                    <span className="block text-sm font-bold">{lang === 'zh' ? '给笔记自动配图' : 'Auto-illustrate notes'}</span>
+                                    <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
+                                        {lang === 'zh'
+                                            ? '视频笔记自动截取关键画面配图；需配置通义千问（DashScope）视觉密钥，会产生额外费用。纯口播视频通常无可配图。'
+                                            : 'Capture key frames into video notes. Needs a Qwen (DashScope) vision key and adds cost. Talking-head videos usually have nothing to illustrate.'}
+                                    </span>
+                                </span>
+                                <SettingCheckbox
+                                    id="settingsAutoIllustrate"
+                                    checked={!!settings.autoIllustrate}
+                                    onChange={e=>updateSettingNow({autoIllustrate:e.target.checked})}
+                                />
+                            </label>
+
                             {sttProvider === 'local' && localRouteAvailable && (
                                 <details className="group px-5 py-4">
                                     <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">

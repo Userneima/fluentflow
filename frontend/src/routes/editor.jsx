@@ -839,6 +839,7 @@ const Editor = () => {
         systemPrompt: resolveSystemPromptFromSettings(settings)||null,
         noteMode: settings.noteMode||'auto',
         speakerDiarization: !!settings.speakerDiarization,
+        generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 
