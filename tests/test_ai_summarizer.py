@@ -317,16 +317,31 @@ class TestChapterCoverageCleanup(unittest.TestCase):
     # Guards two real chapter-coverage defects the user hit (2026-07-09):
     # internal evidence IDs leaking into the note, and headings losing their
     # numbering because chapters are assembled independently.
-    def test_strip_prompt_leakage_removes_evidence_citations(self) -> None:
+    def test_strip_prompt_leakage_removes_evidence_citations_all_shapes(self) -> None:
         from backend.core.ai_summarizer import _strip_prompt_leakage
 
-        note = "# 标题\n\n这是一个观点（E001）。另一个（E003、E055）说明这里。"
+        note = (
+            "# 标题\n\n"
+            "中文括号（E001）。ASCII(E002)。方括号【E003】。"
+            "裸露 E038 在句中。列表（E004、E055）说明。"
+        )
         out = _strip_prompt_leakage(note)
 
-        self.assertNotIn("E001", out)
-        self.assertNotIn("E055", out)
-        self.assertIn("这是一个观点", out)
-        self.assertIn("另一个", out)
+        for token in ("E001", "E002", "E003", "E038", "E004", "E055"):
+            self.assertNotIn(token, out)
+        self.assertIn("中文括号", out)
+        self.assertIn("裸露", out)
+        self.assertIn("在句中", out)
+
+    def test_strip_prompt_leakage_keeps_lookalikes(self) -> None:
+        # Must NOT delete real content that looks id-ish: 1-digit E5, non-E codes
+        # like H100/A100, which are not evidence IDs (E + >=3 digits).
+        from backend.core.ai_summarizer import _strip_prompt_leakage
+
+        out = _strip_prompt_leakage("# T\n\n这里提到 H100、A100 和 E5 芯片。")
+        self.assertIn("H100", out)
+        self.assertIn("A100", out)
+        self.assertIn("E5", out)
 
     def test_renumber_chapter_headings_builds_consistent_hierarchy(self) -> None:
         from backend.core.ai_summarizer import _renumber_chapter_headings
@@ -367,6 +382,29 @@ class TestChapterCoverageCleanup(unittest.TestCase):
         self.assertEqual(_cn_number(10), "十")
         self.assertEqual(_cn_number(11), "十一")
         self.assertEqual(_cn_number(23), "二十三")
+
+
+class TestJsonArrayResilience(unittest.TestCase):
+    # Guards chapter-coverage reliability: one malformed-JSON chunk from the
+    # model must not crash the whole note (2026-07-09). _chat_json_array retries,
+    # and the evidence path skips a still-bad chunk rather than aborting.
+    @patch("backend.core.ai_summarizer._chat")
+    def test_retries_then_succeeds_on_transient_bad_json(self, mock_chat) -> None:
+        from backend.core.ai_summarizer import _chat_json_array
+
+        mock_chat.side_effect = ["这不是 JSON", '[{"ok": 1}]']
+        out = _chat_json_array(object(), "m", "sys", "user", temperature=0.1)
+
+        self.assertEqual(out, [{"ok": 1}])
+        self.assertEqual(mock_chat.call_count, 2)
+
+    @patch("backend.core.ai_summarizer._chat")
+    def test_raises_after_exhausting_retries(self, mock_chat) -> None:
+        from backend.core.ai_summarizer import _chat_json_array
+
+        mock_chat.side_effect = ["坏的", "还是坏的"]
+        with self.assertRaises(ValueError):
+            _chat_json_array(object(), "m", "sys", "user", temperature=0.1)
 
 
 if __name__ == "__main__":

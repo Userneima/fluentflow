@@ -6,6 +6,7 @@ import os
 import re
 import json
 import base64
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Any, Callable, Final
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 DEEPSEEK_BASE_URL: Final[str] = "https://api.deepseek.com"
 OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
@@ -380,12 +383,26 @@ _ASSISTANT_PREFACE_RE = re.compile(
 )
 
 # Internal evidence IDs (E001, E003、E055 …) are a chapter-coverage pipeline
-# artifact and must never appear in the finished note. Strip the parenthesized
-# citations the model copies inline. Matches both Chinese and ASCII parens and
-# multi-id lists; leaves ordinary text untouched (IDs are always "E"+>=2 digits).
-_EVIDENCE_CITATION_RE = re.compile(
-    r"[ \t]*[（(]\s*E\d{2,}(?:\s*[、,，]\s*E?\d{2,})*\s*[)）]"
+# artifact and must never appear in the finished note. The model copies them
+# inline in several shapes — parenthesized, bracketed, or bare, sometimes as
+# 、/逗号 lists. IDs are always "E"+>=3 digits (see _normalize_evidence_items),
+# so matching that shape leaves ordinary text (e.g. "E5", "H100") untouched.
+_EVIDENCE_BRACKET_RE = re.compile(
+    r"[ \t]*[（(【\[]\s*E\d{3,}(?:\s*[、,，]\s*E?\d{2,})*\s*[)）】\]][ \t]*"
 )
+_EVIDENCE_BARE_RE = re.compile(
+    r"[ \t]*(?<![A-Za-z0-9])E\d{3,}(?:\s*[、,，]\s*E?\d{2,})*[ \t]*"
+)
+_EMPTY_BRACKETS_RE = re.compile(r"[（(【\[]\s*[)）】\]]")
+
+
+def _strip_evidence_ids(text: str) -> str:
+    text = _EVIDENCE_BRACKET_RE.sub("", text)
+    text = _EVIDENCE_BARE_RE.sub("", text)
+    text = _EMPTY_BRACKETS_RE.sub("", text)  # tidy any bracket left empty
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+([，。、；：！？）】\]])", r"\1", text)  # drop space before punctuation
+    return text
 
 
 @dataclass(frozen=True)
@@ -631,7 +648,7 @@ def _strip_prompt_leakage(markdown: str) -> str:
         cleaned.append(line)
         i += 1
 
-    return _EVIDENCE_CITATION_RE.sub("", "\n".join(cleaned)).strip()
+    return _strip_evidence_ids("\n".join(cleaned)).strip()
 
 
 # Independent per-chunk / per-chapter model calls are I/O-bound and order-safe,
@@ -714,6 +731,29 @@ def _extract_json_array(text: str) -> list[Any]:
     if not isinstance(parsed, list):
         raise ValueError("Translation response is not a JSON array")
     return parsed
+
+
+def _chat_json_array(
+    client: OpenAI,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    temperature: float,
+    retries: int = 1,
+) -> list[Any]:
+    """_chat + parse a JSON array, retrying on malformed model output. Models
+    occasionally emit invalid JSON; a retry with slightly higher temperature
+    usually breaks out of the bad pattern. Raises ValueError if all attempts
+    fail so callers can decide whether to skip or abort."""
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        temp = temperature if attempt == 0 else min(0.6, temperature + 0.3)
+        try:
+            return _extract_json_array(_chat(client, model, system, user, temperature=temp))
+        except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
+            last_exc = exc
+    raise last_exc if last_exc else ValueError("empty JSON array response")
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -1367,7 +1407,16 @@ def _run_chapter_coverage_mode(
 
     def _extract_segment_evidence(batch: dict[str, Any]) -> list[Any]:
         payload = json.dumps([batch], ensure_ascii=False)
-        return _extract_json_array(_chat(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1))
+        try:
+            return _chat_json_array(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1)
+        except ValueError:
+            # One malformed chunk must not sink the whole note — skip it and keep
+            # the rest. Logged (not silent) so lost coverage is visible.
+            logger.warning(
+                "Chapter-coverage evidence extraction returned unparseable JSON for "
+                "segment %s; skipping it.", batch.get("segment_id"),
+            )
+            return []
 
     # Extract each segment's evidence concurrently, then assign stable sequential
     # IDs in the original order so downstream references stay deterministic.
@@ -1380,7 +1429,7 @@ def _run_chapter_coverage_mode(
         raise ValueError("Chapter coverage evidence extraction returned no usable evidence")
 
     outline_payload = json.dumps(_compact_evidence_view(evidence), ensure_ascii=False)
-    raw_chapters = _extract_json_array(_chat(client, model, _CHAPTER_OUTLINE_SYSTEM, outline_payload, temperature=0.1))
+    raw_chapters = _chat_json_array(client, model, _CHAPTER_OUTLINE_SYSTEM, outline_payload, temperature=0.1)
     chapters = _normalize_chapters(raw_chapters, evidence)
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
 
