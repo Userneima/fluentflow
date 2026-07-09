@@ -6,9 +6,10 @@ import os
 import re
 import json
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -623,6 +624,22 @@ def _strip_prompt_leakage(markdown: str) -> str:
         i += 1
 
     return "\n".join(cleaned).strip()
+
+
+# Independent per-chunk / per-chapter model calls are I/O-bound and order-safe,
+# so they can run concurrently instead of one-after-another. Cap concurrency to
+# stay well under provider rate limits.
+_MAX_PARALLEL_CALLS: Final[int] = 6
+
+
+def _parallel_map(fn: Callable[[Any], Any], items: list[Any]) -> list[Any]:
+    """Run fn over items concurrently, preserving input order. Exceptions
+    propagate (first failure surfaces), matching the previous serial behavior."""
+    if len(items) <= 1:
+        return [fn(item) for item in items]
+    workers = min(_MAX_PARALLEL_CALLS, len(items))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(fn, items))
 
 
 def _chunk_text(text: str, max_chars: int, overlap: int) -> list[str]:
@@ -1275,10 +1292,16 @@ def _run_chapter_coverage_mode(
 ) -> SummaryResult:
     segments = _chapter_segments(transcript_text, segment_chars)
     valid_segment_ids = {segment["segment_id"] for segment in segments}
-    evidence: list[dict[str, Any]] = []
-    for batch in segments:
+
+    def _extract_segment_evidence(batch: dict[str, Any]) -> list[Any]:
         payload = json.dumps([batch], ensure_ascii=False)
-        raw_items = _extract_json_array(_chat(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1))
+        return _extract_json_array(_chat(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1))
+
+    # Extract each segment's evidence concurrently, then assign stable sequential
+    # IDs in the original order so downstream references stay deterministic.
+    raw_batches = _parallel_map(_extract_segment_evidence, segments)
+    evidence: list[dict[str, Any]] = []
+    for raw_items in raw_batches:
         evidence.extend(_normalize_evidence_items(raw_items, valid_segment_ids, start_index=len(evidence)))
 
     if not evidence:
@@ -1289,22 +1312,28 @@ def _run_chapter_coverage_mode(
     chapters = _normalize_chapters(raw_chapters, evidence)
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
 
-    chapter_notes: list[str] = []
-    covered_ids: set[str] = set()
-    for chapter in chapters:
-        chapter_evidence = [
+    def _chapter_evidence_for(chapter: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
             evidence_by_id[evidence_id]
             for evidence_id in chapter["used_evidence_ids"]
             if evidence_id in evidence_by_id
         ]
-        covered_ids.update(item["evidence_id"] for item in chapter_evidence)
+
+    covered_ids: set[str] = set()
+    for chapter in chapters:
+        covered_ids.update(item["evidence_id"] for item in _chapter_evidence_for(chapter))
+
+    def _write_chapter(chapter: dict[str, Any]) -> str:
         user = json.dumps({
             "chapter_id": chapter["chapter_id"],
             "title": chapter["title"],
             "purpose": chapter.get("purpose") or "",
-            "evidence": chapter_evidence,
+            "evidence": _chapter_evidence_for(chapter),
         }, ensure_ascii=False)
-        chapter_notes.append(_strip_prompt_leakage(_chat(client, model, _CHAPTER_NOTE_SYSTEM, user, temperature=0.2)))
+        return _strip_prompt_leakage(_chat(client, model, _CHAPTER_NOTE_SYSTEM, user, temperature=0.2))
+
+    # Each chapter is written independently from its own evidence; run concurrently, keep order.
+    chapter_notes: list[str] = _parallel_map(_write_chapter, chapters)
 
     draft = "\n\n".join(note for note in chapter_notes if note.strip())
     final_note = _strip_prompt_leakage(_chat(client, model, _CHAPTER_STYLE_SYSTEM, draft, temperature=0.2))
@@ -1486,11 +1515,15 @@ def summarize_transcript_with_metadata(
         )
 
     chunks = _chunk_text(transcript_text, evidence_chunk_chars, evidence_overlap)
-    evidence_items: list[str] = []
     total = len(chunks)
-    for idx, chunk in enumerate(chunks):
+
+    def _extract_evidence(indexed_chunk: tuple[int, str]) -> str:
+        idx, chunk = indexed_chunk
         user = f"这是整段转录的第 {idx + 1}/{total} 部分，请提取证据。\n\n{chunk}"
-        evidence_items.append(_chat(client, m, _EVIDENCE_SYSTEM, user, temperature=0.2))
+        return _chat(client, m, _EVIDENCE_SYSTEM, user, temperature=0.2)
+
+    # Each chunk's extraction is independent; run them concurrently but keep order.
+    evidence_items: list[str] = _parallel_map(_extract_evidence, list(enumerate(chunks)))
 
     evidence = "\n\n---\n\n".join(
         f"## 片段 {idx + 1}/{total}\n{item}" for idx, item in enumerate(evidence_items)

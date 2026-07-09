@@ -282,5 +282,36 @@ class TestAiSummarizer(unittest.TestCase):
         )
 
 
+class TestParallelMap(unittest.TestCase):
+    # Guards the note-mode speedup: independent evidence/chapter model calls run
+    # concurrently, but results MUST come back in input order (not completion
+    # order), or the note's structure and evidence IDs would scramble (2026-07-09).
+    def test_preserves_input_order_even_when_later_items_finish_first(self) -> None:
+        import time
+        from backend.core.ai_summarizer import _parallel_map
+
+        def slow(x: int) -> int:
+            time.sleep((5 - x) * 0.02)  # earlier indexes finish LAST on purpose
+            return x * 10
+
+        self.assertEqual(_parallel_map(slow, [0, 1, 2, 3, 4]), [0, 10, 20, 30, 40])
+
+    def test_single_item_runs_inline(self) -> None:
+        from backend.core.ai_summarizer import _parallel_map
+
+        self.assertEqual(_parallel_map(lambda x: x + 1, [41]), [42])
+
+    def test_propagates_exception(self) -> None:
+        from backend.core.ai_summarizer import _parallel_map
+
+        def boom(x: int) -> int:
+            if x == 2:
+                raise ValueError("boom")
+            return x
+
+        with self.assertRaises(ValueError):
+            _parallel_map(boom, [0, 1, 2, 3])
+
+
 if __name__ == "__main__":
     unittest.main()
