@@ -133,8 +133,13 @@ validated separately:
   `stt_providers` / `_pipeline` / `task_detail` / `processing_plan` / `tool_trace`,
   the azure-only error diagnostics (backend + `frontend/src/lib/format.js`), and
   all frontend azure naming (helpers, i18n keys, `azureBatchAudioSizeMb`). Cloud
-  STT is ElevenLabs-only now. `_pipeline.py` still duplicates the STT-provider
-  helpers found in `stt_providers.py` — a separate dedup candidate.
+  STT is ElevenLabs-only now.
+- **Deleted the dead `_pipeline.py` orphan (924 lines).** It was an early
+  "moved from server_helpers" extraction draft that nothing ever imported —
+  superseded by the wired extractions (stt_providers, storage_paths,
+  subtitle_format, media_job). Its STT-provider helpers were an unreachable
+  duplicate of `stt_providers.py`, so the fix was deletion, not in-file dedup.
+  Its entry was also removed from `check_change_control`'s WORKFLOW_REVIEW_PATHS.
 - **Shared task-list polling.** `/tasks` and `/agent` each carried a near-identical
   loadJobs + stable-ref polling effect (the source of the 2026-07-08 infinite
   refetch loop). Extracted into `frontend/src/lib/useJobPolling.js`, parameterized
