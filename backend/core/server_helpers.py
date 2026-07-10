@@ -327,174 +327,89 @@ async def beta_access_middleware(request: Request, call_next):
         },
     )
 
-try:
-    from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
-    from backend.core.frame_extractor import extract_candidate_frames
-    from backend.core.keyframe_provider import extract_keyframes
-    from backend.core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
-    from backend.core.local_stt import transcribe_audio, get_or_load_model
-    from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
-    from backend.core.elevenlabs_stt import transcribe_audio_scribe
-    from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
-    from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
-    from backend.core.lark_exporter import export_markdown_to_lark
-    from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
-    from backend.core.note_title import resolve_lark_doc_title
-    from backend.core.feishu_oauth import (
-        FeishuConnectionRequired,
-        FeishuOAuthError,
-        complete_feishu_oauth_callback,
-        create_feishu_authorize_url,
-        disconnect_feishu_user,
-        feishu_connection_status,
-        get_valid_feishu_user_access_token,
-    )
-    from backend.core.google_oauth import (
-        GoogleOAuthError,
-        complete_google_oauth_callback,
-        create_google_authorize_url,
-        google_oauth_enabled,
-    )
-    from backend.core.transcript_parser import parse_transcript_file
-    from backend.core.transcript_cleaner import clean_repeated_transcript
-    from backend.core.event_logger import log_event
-    from backend.core.job_lifecycle import (
-        job_has_transcript_result,
-        result_for_summary_failure,
-        result_for_summary_success,
-        result_for_transcript_only,
-    )
-    from backend.core.job_store import (
-        acquire_next_job_step,
-        cancel_job_steps,
-        complete_job_step,
-        delete_jobs,
-        enqueue_job_step,
-        fail_job_step,
-        get_job,
-        list_job_steps,
-        list_job_summaries,
-        list_jobs,
-        list_jobs_for_retention,
-        migrate_job_display_titles,
-        requeue_running_job_steps,
-        update_job_result,
-        upsert_job,
-    )
-    from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
-    from backend.core.account_store import (
-        authenticate_user,
-        count_users,
-        create_session,
-        create_user,
-        get_user_by_id,
-        get_user_by_session_token,
-        list_users,
-        revoke_session,
-        save_feishu_connection,
-    )
-    from backend.core.api_key_store import (
-        authenticate_api_key,
-        create_api_key,
-        list_api_keys,
-        revoke_api_key,
-    )
-    from backend.core.quota_store import (
-        InsufficientBalanceError,
-        account_quota_summary,
-        add_admin_adjustment,
-        finalize_task_charge,
-        grant_starter_balance,
-        release_reservation,
-        reserve_units,
-    )
-    from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-    from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
-except ImportError:
-    from core.audio_handler import extract_compressed_mp3, extract_stt_wav
-    from core.local_stt import transcribe_audio, get_or_load_model
-    from core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
-    from core.elevenlabs_stt import transcribe_audio_scribe
-    from core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from core.frame_extractor import extract_candidate_frames
-    from core.keyframe_provider import extract_keyframes
-    from core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
-    from core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
-    from core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
-    from core.lark_exporter import export_markdown_to_lark
-    from core.lark_cli_exporter import export_markdown_via_lark_cli
-    from core.note_title import resolve_lark_doc_title
-    from core.feishu_oauth import (
-        FeishuConnectionRequired,
-        FeishuOAuthError,
-        complete_feishu_oauth_callback,
-        create_feishu_authorize_url,
-        disconnect_feishu_user,
-        feishu_connection_status,
-        get_valid_feishu_user_access_token,
-    )
-    from core.google_oauth import (
-        GoogleOAuthError,
-        complete_google_oauth_callback,
-        create_google_authorize_url,
-        google_oauth_enabled,
-    )
-    from core.transcript_parser import parse_transcript_file
-    from core.transcript_cleaner import clean_repeated_transcript
-    from core.event_logger import log_event
-    from core.job_lifecycle import (
-        job_has_transcript_result,
-        result_for_summary_failure,
-        result_for_summary_success,
-        result_for_transcript_only,
-    )
-    from core.job_store import (
-        acquire_next_job_step,
-        cancel_job_steps,
-        complete_job_step,
-        delete_jobs,
-        enqueue_job_step,
-        fail_job_step,
-        get_job,
-        list_job_steps,
-        list_job_summaries,
-        list_jobs,
-        list_jobs_for_retention,
-        migrate_job_display_titles,
-        requeue_running_job_steps,
-        update_job_result,
-        upsert_job,
-    )
-    from core.local_config import credential_status, resolve_secret, save_sensitive_settings
-    from core.account_store import (
-        authenticate_user,
-        count_users,
-        create_session,
-        create_user,
-        get_user_by_id,
-        get_user_by_session_token,
-        list_users,
-        revoke_session,
-        save_feishu_connection,
-    )
-    from core.api_key_store import (
-        authenticate_api_key,
-        create_api_key,
-        list_api_keys,
-        revoke_api_key,
-    )
-    from core.quota_store import (
-        InsufficientBalanceError,
-        account_quota_summary,
-        add_admin_adjustment,
-        finalize_task_charge,
-        grant_starter_balance,
-        release_reservation,
-        reserve_units,
-    )
-    from core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-    from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
+from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
+from backend.core.frame_extractor import extract_candidate_frames
+from backend.core.keyframe_provider import extract_keyframes
+from backend.core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
+from backend.core.local_stt import transcribe_audio, get_or_load_model
+from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
+from backend.core.elevenlabs_stt import transcribe_audio_scribe
+from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
+from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
+from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
+from backend.core.lark_exporter import export_markdown_to_lark
+from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
+from backend.core.note_title import resolve_lark_doc_title
+from backend.core.feishu_oauth import (
+    FeishuConnectionRequired,
+    FeishuOAuthError,
+    complete_feishu_oauth_callback,
+    create_feishu_authorize_url,
+    disconnect_feishu_user,
+    feishu_connection_status,
+    get_valid_feishu_user_access_token,
+)
+from backend.core.google_oauth import (
+    GoogleOAuthError,
+    complete_google_oauth_callback,
+    create_google_authorize_url,
+    google_oauth_enabled,
+)
+from backend.core.transcript_parser import parse_transcript_file
+from backend.core.transcript_cleaner import clean_repeated_transcript
+from backend.core.event_logger import log_event
+from backend.core.job_lifecycle import (
+    job_has_transcript_result,
+    result_for_summary_failure,
+    result_for_summary_success,
+    result_for_transcript_only,
+)
+from backend.core.job_store import (
+    acquire_next_job_step,
+    cancel_job_steps,
+    complete_job_step,
+    delete_jobs,
+    enqueue_job_step,
+    fail_job_step,
+    get_job,
+    list_job_steps,
+    list_job_summaries,
+    list_jobs,
+    list_jobs_for_retention,
+    migrate_job_display_titles,
+    requeue_running_job_steps,
+    update_job_result,
+    upsert_job,
+)
+from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
+from backend.core.account_store import (
+    authenticate_user,
+    count_users,
+    create_session,
+    create_user,
+    get_user_by_id,
+    get_user_by_session_token,
+    list_users,
+    revoke_session,
+    save_feishu_connection,
+)
+from backend.core.api_key_store import (
+    authenticate_api_key,
+    create_api_key,
+    list_api_keys,
+    revoke_api_key,
+)
+from backend.core.quota_store import (
+    InsufficientBalanceError,
+    account_quota_summary,
+    add_admin_adjustment,
+    finalize_task_charge,
+    grant_starter_balance,
+    release_reservation,
+    reserve_units,
+)
+from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
+from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
 
 
 from backend.core.account_config import (
