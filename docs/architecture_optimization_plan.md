@@ -115,6 +115,32 @@ no circular imports form.
   to ~30 state/handler bindings each; extracting them would thread heavy props
   without decoupling state, so it is intentionally deferred (low value/risk ratio).
 
+### Follow-up cleanups (2026-07-10)
+
+Three targeted debt removals after the de-godification pass, each committed and
+validated separately:
+
+- **Dead `core.*` import fallbacks.** `server_helpers`, `stt_process`,
+  `speaker_diarization`, and `api_key_store` wrapped their imports in
+  `try: from backend.core.X except ImportError: from core.X`. The app only ever
+  runs with `backend` as the package root (main.py + all modules + tests use
+  `backend.core.*`; no `sys.path` shim), so the except branch was unreachable.
+  Flattened to a single import each; `server_helpers.py` 3001 → 2917.
+- **Legacy Azure Batch STT removed entirely.** It was unreachable from the UI
+  (the cloud option already runs on ElevenLabs) and config-disabled. Deleted
+  `azure_stt.py`, the azure pipeline branch / ctx fields / form fields, the
+  `/config/azure-speech/smoke-test` endpoint, azure normalization/labels across
+  `stt_providers` / `_pipeline` / `task_detail` / `processing_plan` / `tool_trace`,
+  the azure-only error diagnostics (backend + `frontend/src/lib/format.js`), and
+  all frontend azure naming (helpers, i18n keys, `azureBatchAudioSizeMb`). Cloud
+  STT is ElevenLabs-only now. `_pipeline.py` still duplicates the STT-provider
+  helpers found in `stt_providers.py` — a separate dedup candidate.
+- **Shared task-list polling.** `/tasks` and `/agent` each carried a near-identical
+  loadJobs + stable-ref polling effect (the source of the 2026-07-08 infinite
+  refetch loop). Extracted into `frontend/src/lib/useJobPolling.js`, parameterized
+  by live predicate / error semantics / wording. Fixes a latent
+  `TaskProgressOverview` bug that labeled any non-azure provider as local.
+
 ## Current Execution Notes
 
 - Start with P0 execution scope because it directly caused local/cloud task lookup and regeneration regressions.
