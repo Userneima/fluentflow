@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router-dom';
 import {
     AlertCircle,
@@ -39,6 +39,7 @@ import {
     TASK_STATE_CANCELLED,
     TASK_STATE_CACHED_ONLY,
 } from '../lib/taskState.js';
+import {useJobPolling} from '../lib/useJobPolling.js';
 
 const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
@@ -543,10 +544,7 @@ const AgentTasks = () => {
     const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
-    const canUseTaskCache = authMode !== 'accounts' || !!user?.id;
     const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
-    const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0);
-    const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
     const [deletingTaskId, setDeletingTaskId] = useState('');
@@ -563,25 +561,14 @@ const AgentTasks = () => {
     const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
     const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
 
-    const loadJobs = useCallback(async () => {
-        if (!canUseTaskCache) {
-            setLoading(false);
-            return;
-        }
-        const results = await Promise.allSettled([
-            getJobs(100),
-            getJobs(100, {sttProvider: 'local'}),
-        ]);
-        const fetchedJobs = results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => Array.isArray(result.value) ? result.value : [])
-            .map(markBackendJob);
-        const failedFetches = results.filter((result) => result.status === 'rejected');
-        const allFetchesFailed = failedFetches.length === results.length;
-        if (fetchedJobs.length) ingestJobs(fetchedJobs);
-        setError(allFetchesFailed ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。' : 'Failed to refresh tasks. Local cache is preserved.') : null);
-        setLoading(false);
-    }, [canUseTaskCache, getJobs, lang, ingestJobs]);
+    // Shared fetch + polling (see lib/useJobPolling.js). /agent warns only when
+    // every fetch fails and uses task-oriented wording.
+    const {loading, setLoading, error, setError, loadJobs, canUseTaskCache} = useJobPolling({
+        hasLiveJobs: hasLiveOrUploadingJobs,
+        errorOnAllOnly: true,
+        refreshFailedZh: '任务刷新失败，已保留本地缓存。',
+        refreshFailedEn: 'Failed to refresh tasks. Local cache is preserved.',
+    });
 
     // Surface a job passed via navigation state immediately by ingesting it.
     useEffect(() => {
@@ -598,23 +585,6 @@ const AgentTasks = () => {
         }
     }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
 
-    // Keep a stable ref to the latest loadJobs so the polling effect does not
-    // re-subscribe on every render. loadJobs' identity changes each render
-    // (ingestJobs/getJobs are not memoized), and the effect's immediate run()
-    // would then refetch every render — an infinite fetch loop that floods the
-    // backend and makes the refresh-failed toast flicker (2026-07-08).
-    const loadJobsRef = useRef(loadJobs);
-    useEffect(() => { loadJobsRef.current = loadJobs; }, [loadJobs]);
-    useEffect(() => {
-        let stale = false;
-        const run = async () => { if (!stale) await loadJobsRef.current(); };
-        run();
-        const timer = setInterval(run, hasLiveOrUploadingJobs ? 5000 : 30000);
-        return () => {
-            stale = true;
-            clearInterval(timer);
-        };
-    }, [hasLiveOrUploadingJobs]);
 
     const cancelLiveJob = async (job) => {
         const taskId = taskIdForJob(job);

@@ -1,5 +1,5 @@
 /* ═══════════════ History ═══════════════ */
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {useLocation, useNavigate, Link} from 'react-router-dom';
 import {
     Activity,
@@ -44,6 +44,7 @@ import {
     TASK_STATE_QUEUED,
     TASK_STATE_RUNNING,
 } from '../lib/taskState.js';
+import {useJobPolling} from '../lib/useJobPolling.js';
 
 const agentPlanSummary = (job, lang) => {
     const plan = job?.result?.processing_plan;
@@ -96,9 +97,6 @@ const Tasks = () => {
     const {getJobs, getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
-    const canUseTaskCache = authMode !== 'accounts' || !!user?.id;
-    const [loading, setLoading] = useState(() => jobs.length === 0);
-    const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [deletingTaskId, setDeletingTaskId] = useState('');
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
@@ -133,39 +131,18 @@ const Tasks = () => {
     }, [jobs, taskFilter]);
     const hasLiveJobs = Boolean(queueUploadJob || jobs.some(isLiveJob));
 
-    const loadJobs = useCallback(async () => {
-        if (!canUseTaskCache) {
-            setLoading(false);
-            return;
-        }
-        const results = await Promise.allSettled([
-            getJobs(100),
-            getJobs(100, {sttProvider: 'local'}),
-        ]);
-        const fetchedJobs = results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => Array.isArray(result.value) ? result.value : []);
-        const failedFetches = results.filter((result) => result.status === 'rejected');
-        // Push the batch into AppProvider's single list; reconcile there applies
-        // owner scoping, tombstones, cancelled pins, and freshness.
-        if (fetchedJobs.length) ingestJobs(fetchedJobs.map(markBackendJob));
-        setError(failedFetches.length
-            ? (lang === 'zh' ? '记录刷新失败，已保留本地缓存。' : 'Failed to refresh records. Local cache is preserved.')
-            : null);
-        setLoading(false);
-    }, [canUseTaskCache, getJobs, lang, ingestJobs]);
+    // Shared fetch + polling (see lib/useJobPolling.js). /tasks warns on any
+    // failed fetch and uses record-oriented wording.
+    const {loading, setLoading, error, setError, loadJobs, loadJobsRef, canUseTaskCache} = useJobPolling({
+        hasLiveJobs,
+        errorOnAllOnly: false,
+        refreshFailedZh: '记录刷新失败，已保留本地缓存。',
+        refreshFailedEn: 'Failed to refresh records. Local cache is preserved.',
+    });
 
     useEffect(() => {
         setError(location.state?.queueSubmitError || null);
     }, [location.state?.queueSubmitError]);
-
-    // Stable ref to the latest loadJobs. Its identity changes every render
-    // (ingestJobs/getJobs are not memoized), so any effect that both depends on
-    // it and calls it immediately would refetch on every render — an infinite
-    // fetch loop that floods the backend and flickers the refresh-failed toast
-    // (2026-07-08). Route calls through the ref and keep deps identity-free.
-    const loadJobsRef = useRef(loadJobs);
-    useEffect(() => { loadJobsRef.current = loadJobs; }, [loadJobs]);
 
     useEffect(() => {
         if(location.state?.queueSubmitError) {
@@ -178,17 +155,6 @@ const Tasks = () => {
             navigate('/tasks', {replace:true, state:{}});
         }
     }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
-
-    useEffect(() => {
-        let stale = false;
-        const run = async () => { if (!stale) await loadJobsRef.current(); };
-        run();
-        const timer = setInterval(run, hasLiveJobs ? 5000 : 30000);
-        return () => {
-            stale = true;
-            clearInterval(timer);
-        };
-    }, [hasLiveJobs]);
 
     const getJobWithFallback = async (job) => {
         const taskId = taskIdForJob(job);

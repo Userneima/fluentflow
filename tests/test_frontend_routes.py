@@ -495,22 +495,24 @@ def test_tasks_open_cached_result_without_backend_detail_request() -> None:
 
 def test_tasks_polling_respects_local_cancel_and_delete_mutations() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    # Fetch + polling is shared with /agent in this hook.
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
 
     # Local cancel/delete are now semantic mutations on AppProvider; its reconcile
     # (tombstones + cancelled pins) is what stops a later poll from resurrecting a
     # locally cancelled or deleted record. This page delegates to those mutations
     # instead of keeping its own ref sets and private jobs state.
     assert "markCancelled, revertCancelled, removeFromHistory, restoreTask" in source
-    assert "const results = await Promise.allSettled([" in source
+    assert "const results = await Promise.allSettled([" in polling
     # Polled batches flow into the single shared list via ingestJobs, not a private
     # setJobs/cache write.
-    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs.map(markBackendJob))" in source
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in polling
     assert "setJobs((current) => {" not in source
     assert "readCachedJobs().forEach((job) => {" not in source
     assert "writeCachedAccountJobs(requestCacheAccountId, next)" not in source
     # The list and loading flag derive from the shared AppProvider tasks state.
     assert "tasks: jobs, ingestJobs" in source
-    assert "const [loading, setLoading] = useState(() => jobs.length === 0)" in source
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
     assert "map(markCachedOnlyJob)" not in source
     # Delete tombstones through AppProvider and restores on backend failure.
     assert "removeFromHistory(taskId)" in source
@@ -569,15 +571,19 @@ def test_agent_tasks_merge_recent_activity_for_immediate_display() -> None:
 
 def test_agent_task_refresh_warning_only_when_all_sources_fail() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
 
-    assert "const results = await Promise.allSettled([" in source
-    assert "getJobs(100)," in source
-    assert "getJobs(100, {sttProvider: 'local'})," in source
-    assert "const allFetchesFailed = failedFetches.length === results.length" in source
+    assert "const results = await Promise.allSettled([" in polling
+    assert "getJobs(100)," in polling
+    assert "getJobs(100, {sttProvider: 'local'})," in polling
+    # The shared hook warns on all-failed vs any-failed per errorOnAllOnly; /agent
+    # opts into all-failed only and supplies its own task-oriented wording.
+    assert "errorOnAllOnly ? failedFetches.length === results.length : failedFetches.length > 0" in polling
+    assert "errorOnAllOnly: true," in source
+    assert "refreshFailedZh: '任务刷新失败，已保留本地缓存。'," in source
     # When every fetch fails there is nothing to ingest, so the shared list is
     # left untouched (only a successful fetch mutates it).
-    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in source
-    assert "setError(allFetchesFailed ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。'" in source
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in polling
 
 
 def test_agent_task_retry_resubmits_original_source() -> None:
@@ -686,7 +692,8 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     # the account cache itself.
     assert "tasks: jobs, ingestJobs" in tasks
     assert "const [jobs, setJobs] = useState(" not in tasks
-    assert "const [loading, setLoading] = useState(() => jobs.length === 0)" in tasks
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
     assert "sortJobsForHistoryView(" in tasks
     assert "const priority = {" not in tasks
     assert "timestampForJob(job) >= timestampForJob(existing)" in mapper
@@ -844,9 +851,11 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
 
     # Account-cache isolation is now owned entirely by AppProvider (plan Stage 3):
     # the routes no longer keep a per-page cache-account ref or write the cache,
-    # they only read the single shared list.
+    # they only read the single shared list. The canUseTaskCache gate lives in the
+    # shared useJobPolling hook both pages call.
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
+    assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in polling
     for source in (tasks, agent_tasks):
-        assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in source
         assert "tasks: jobs, ingestJobs" in source
         assert "writeCachedAccountJobs" not in source
         assert "readCachedAccountJobs" not in source
@@ -1331,13 +1340,14 @@ def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
 
 def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
 
     # Records now come from the single shared AppProvider list, not a per-page
     # account-cache read.
     assert "tasks: jobs, ingestJobs" in source
     assert "runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp()" in source
-    assert "getJobs(100)," in source
-    assert "getJobs(100, {sttProvider: 'local'})," in source
+    assert "getJobs(100)," in polling
+    assert "getJobs(100, {sttProvider: 'local'})," in polling
     assert "displayJobs" in source
     assert "displayJobs.map((job) => (" in source
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
@@ -1347,14 +1357,17 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "readWarmJobs" not in source
     assert "writeWarmJobs" not in source
     assert "if (seededJob) ingestJobs([seededJob])" in source
-    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in source
-    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in source
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in polling
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
     assert "const jobsFromCurrentJob = (currentJob) => {" in source
     assert "mergeJobs(currentJobRecords, jobs)" in source
     assert "const QueueUploadBanner = ({upload, lang}) => {" in source
     assert "每个文件的进程卡已显示在下方" in source
     assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source
-    assert "hasLiveOrUploadingJobs ? 5000 : 30000" in source
+    # The 5s/30s poll cadence lives in the shared hook; /agent feeds it its own
+    # live-or-uploading predicate.
+    assert "hasLiveJobs ? 5000 : 30000" in polling
+    assert "hasLiveJobs: hasLiveOrUploadingJobs," in source
     # Deletes tombstone through AppProvider (which keeps a poll from resurrecting
     # the record) instead of a per-page deleted-id ref set.
     assert "removeFromHistory(taskId)" in source
