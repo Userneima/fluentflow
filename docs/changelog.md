@@ -60,6 +60,7 @@
 - 前端新增 `docx` 依赖用于浏览器端生成 WordprocessingML `.docx`，并移除首页对 `html2pdf` CDN 的依赖。
 - `docs/word_export_format_reference.md` 改为记录原生 `.docx` / 原生 PDF 打印导出的当前合同、截图嵌入规则和不可取图降级边界。
 - `LOCAL_EXECUTION_EXACT_PATHS`（`backend/core/request_scope.py`）补入 `/queue/process` 与 `/summarize-transcript-file`，使本地执行豁免覆盖队列提交路径，与 `/process` 一致；信任模型不变（仍要求 localhost + `X-FluentFlow-Execution-Target: local` 头）。前端 `frontend/src/routes/media-text.jsx` 将非游客音视频上传统一改走 `/queue/process`，交由单后台 worker 串行执行。
+- 四个最大文件按「基座优先、抽出后原文件 import 兜回」的安全方式做了内聚拆分，**行为零变化**（每刀都跑全量测试与前端构建）：`ai_summarizer.py` 1771→1527、`server_helpers.py` 3389→3001、`processing.py` 2762→1264（媒体流水线抽到 `backend/core/media_job.py`）、`editor.jsx` 2138→1825（抽出 `editor-helpers.js` 纯函数与 `editor-dialogs.jsx` 弹窗组件）。详见 `docs/architecture_optimization_plan.md` 的「De-Godification Progress」小节。
 
 ### 注意事项
 

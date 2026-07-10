@@ -86,6 +86,35 @@ For the product-facing Agent execution roadmap, read `docs/agent_execution_plan.
 - [ ] Extract `useTranscriptEditing` from `editor.jsx`.
 - [ ] Extract `useMediaSource`, `useLarkExport`, and `useRetranscription` after task state is formalized.
 
+## De-Godification Progress (2026-07-10)
+
+A focused pass to shrink the four largest files via safe extract-and-re-export
+(facade) slices — behavior zero-change, full `pytest` / `npm run build:frontend`
+after every cut. Strategy: sink the lowest-level shared utilities into a base
+module first, then peel off the leaf clusters that depend only on that base, so
+no circular imports form.
+
+- `backend/core/ai_summarizer.py`: 1771 → 1527 lines. Extracted `ai_prompts.py`
+  (prompt strings), `ai_config.py` (constants), `ai_client.py` (client + `_chat`
+  / `_vision_chat`). Cleanest of the four.
+- `backend/core/server_helpers.py`: 3389 → 3001 lines. Deduped shared env
+  helpers into `_env.py`, then extracted `queue_options.py`, `subtitle_format.py`,
+  `storage_paths.py`, `guest_trial_config.py`, `limits_config.py`,
+  `retention_config.py`, `account_config.py`, `stt_providers.py`. The clean leaf
+  clusters are done; remaining functions are either tiny or entangled with the
+  globals-injection shim (diminishing returns).
+- `backend/routers/processing.py`: 2762 → 1264 lines. Moved `MediaJobContext`,
+  the `_stream_media_job` pipeline (~1300 lines), `execute_media_job`, and the
+  transcript-correction / source-language helpers into `backend/core/media_job.py`;
+  processing re-imports them (facade). The feared circular import did not occur
+  because the server_helpers queue worker already imports these lazily.
+- `frontend/src/routes/editor.jsx`: 2138 → 1825 lines. Extracted
+  `editor-helpers.js` (14 pure functions) and `editor-dialogs.jsx` (4 full-screen
+  modals as presentational components). The remaining bulk is the two large
+  `<section>` panels (transcript editor + note panel), which are tightly coupled
+  to ~30 state/handler bindings each; extracting them would thread heavy props
+  without decoupling state, so it is intentionally deferred (low value/risk ratio).
+
 ## Current Execution Notes
 
 - Start with P0 execution scope because it directly caused local/cloud task lookup and regeneration regressions.
