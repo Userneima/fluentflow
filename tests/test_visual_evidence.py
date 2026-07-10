@@ -211,7 +211,8 @@ def test_visual_requests_to_frame_segments_preserves_request_context() -> None:
 
 
 def test_processing_visual_selector_reads_qwen_secret_from_backend_config() -> None:
-    source = Path("backend/routers/processing.py").read_text(encoding="utf-8")
+    # The media pipeline (and this visual selector) moved to backend/core/media_job.py.
+    source = Path("backend/core/media_job.py").read_text(encoding="utf-8")
 
     assert 'H.resolve_secret(qwen_api_key, "qwen_api_key")' in source
     assert 'visual_api_key = (qwen_api_key or "").strip()' not in source
