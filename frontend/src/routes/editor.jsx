@@ -1000,7 +1000,7 @@ const Editor = () => {
                             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
                             sttStatus: ev.stt_status ?? prev.sttStatus,
                             sttProvider: ev.stt_provider ?? prev.sttProvider,
-                            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+                            cloudAudioSizeMb: ev.elevenlabs_audio_size_mb ?? prev.cloudAudioSizeMb,
                         } : null);
                 if(ev.stage === 'transcript_ready' && ev.result) setLastResult(ev.result);
             });

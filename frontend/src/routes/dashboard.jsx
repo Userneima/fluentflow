@@ -182,7 +182,7 @@ const Dashboard = () => {
             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
             sttStatus: ev.stt_status ?? prev.sttStatus,
             sttProvider: ev.stt_provider ?? prev.sttProvider,
-            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+            cloudAudioSizeMb: ev.elevenlabs_audio_size_mb ?? prev.cloudAudioSizeMb,
         } : null);
         if(ev.stage === 'transcript_ready' && ev.result) {
             setLastResult(ev.result);
@@ -852,8 +852,8 @@ const Dashboard = () => {
             : []),
         {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
         {label:t('dash.fileSize'), value:fmtFileSize(currentJob?.fileSizeMb)},
-        ...(isCloudSttProvider(currentJob?.sttProvider) && currentJob?.azureBatchAudioSizeMb != null
-            ? [{label:t('dash.azureUploadAudio'), value:fmtFileSize(currentJob.azureBatchAudioSizeMb)}]
+        ...(isCloudSttProvider(currentJob?.sttProvider) && currentJob?.cloudAudioSizeMb != null
+            ? [{label:t('dash.cloudUploadAudio'), value:fmtFileSize(currentJob.cloudAudioSizeMb)}]
             : []),
         {label:t('dash.modelProfile'), value:sttProfile},
         {label:t('dash.summaryMode'), value:currentJob?.skipSummary?t('dash.summaryOff'):`${t('dash.summaryOn')} / ${noteModeLabel(currentJob?.noteMode, lang)}`},

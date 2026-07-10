@@ -124,7 +124,7 @@ const routeLabel = (route, isZh) => {
 
 const currentJobRouteLabel = (job, isZh) => {
     if (!job || job.sourceType === 'transcript_file') return isZh ? '导入字幕整理' : 'subtitle import';
-    const local = String(job.sttProvider || '').toLowerCase() !== 'azure_batch';
+    const local = String(job.sttProvider || '').toLowerCase() === 'local';
     const route = local ? (isZh ? '本地转写' : 'local transcription') : (isZh ? '云端转写' : 'cloud transcription');
     const model = job.sttModel ? `${job.sttModel}${isZh ? ' 模型' : ' model'}` : '';
     return [route, model, job.sttSpeed].filter(Boolean).join(' / ');

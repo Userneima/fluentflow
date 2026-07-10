@@ -389,7 +389,7 @@ export const jobToCurrentJob = (sourceJob) => {
         durationSeconds: job.metadata?.duration_seconds,
         sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
         sttStatus: job.metadata?.stt_status,
-        azureBatchAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb ?? job.metadata?.azure_batch_audio_size_mb,
+        cloudAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb,
         summaryError: job.result?.summary_error || snapshot.failure_reason || job.error_reason || null,
         errorReason: snapshot.failure_reason || job.error_reason || job.result?.error_reason || null,
         nextAction: snapshot.next_action || null,

@@ -289,7 +289,6 @@ const routeLabel = (job, lang) => {
     );
     if (provider === 'local') return lang === 'zh' ? '本地转写' : 'Local STT';
     if (provider === 'elevenlabs_scribe') return lang === 'zh' ? 'ElevenLabs 云端' : 'ElevenLabs cloud';
-    if (provider === 'azure_batch') return lang === 'zh' ? '历史云端' : 'Legacy cloud';
     return lang === 'zh' ? '按任务决定' : 'Task default';
 };
 
