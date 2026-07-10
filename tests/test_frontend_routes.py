@@ -810,6 +810,7 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
     settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    editor_dialogs = Path("frontend/src/routes/editor-dialogs.jsx").read_text(encoding="utf-8")
 
     assert "larkExportRouteFromSettings(settings)" in settings
     assert "LARK_EXPORT_ROUTE_OPENAPI" in settings
@@ -831,7 +832,7 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     assert "isUserOAuthLarkExportRoute(larkExportRoute)" in editor
     assert "setFeishuExportPromptOpen(true)" in editor
     assert "err?.status === 409" in editor
-    assert "当前导出路线会写入你自己的飞书空间" in editor
+    assert "当前导出路线会写入你自己的飞书空间" in editor_dialogs
 
 
 def test_task_record_pages_isolate_account_cache_state() -> None:
@@ -870,9 +871,10 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
-    assert "const jobOptionsForResult = (result)" in source
+    assert "const jobOptionsForResult = (result)" in helpers
     assert "if (isLocalHistoryResult(result)) {" in source
     assert "getJob(result.task_id, resultJobOptions)" in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
@@ -937,12 +939,13 @@ def test_editor_and_trace_do_not_surface_auto_transcript_correction_ui() -> None
 
 def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
     settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
 
     assert "summaryFailureNextStep" in source
-    assert "const diagnosis = noteGenerationDiagnosis(result, lang)" in source
+    assert "const diagnosis = noteGenerationDiagnosis(result, lang)" in helpers
     assert "friendlyTaskError(result?.summary_error" not in source
     assert "agentWorkflowHref" in source
     assert "处理记录" in source
@@ -984,11 +987,12 @@ def test_editor_visual_evidence_stays_inline_and_secondary() -> None:
 
 def test_editor_surfaces_visual_key_moments_without_raw_frames() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
 
     assert "normalizeVisualKeyMoments(result)" in source
-    assert "result?.visual_key_moments" in source
-    assert "result?.visual?.key_moments" in source
-    assert "confidence === 'low'" in source
+    assert "result?.visual_key_moments" in helpers
+    assert "result?.visual?.key_moments" in helpers
+    assert "confidence === 'low'" in helpers
     assert "关键画面复查" in source
     assert "Key visual moments" in source
     assert "seekMediaTo(moment.timestamp)" in source
@@ -1057,13 +1061,14 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
 
 def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "const [transcriptReviewMode, setTranscriptReviewMode] = useState('text')" in source
     assert "const canShowVideoReview = isVideoResultSource(result, matchedLocalSourceFile);" in source
     assert "const canUseVideoReview = canShowVideoReview && mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
     assert "canShowVideoReview && segments.length > 0 && (" in source
-    assert "const isVideoResultSource = (result, sourceFile) => {" in source
+    assert "const isVideoResultSource = (result, sourceFile) => {" in helpers
     assert "const playbackMemoryKey = result ? `fluentflow_playback_position_${activeTaskId}` : ''" in source
     assert "localStorage.setItem(playbackMemoryKey" in source
     assert "restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)" in source
@@ -1109,8 +1114,9 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
 
 def test_editor_playback_ignores_stale_last_source_file() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
 
-    assert "const localSourceFileMatchesResult = (file, result) =>" in source
+    assert "const localSourceFileMatchesResult = (file, result) =>" in helpers
     assert "const matchedLocalSourceFile = localSourceFileMatchesResult(lastSourceFile, result) ? lastSourceFile : null;" in source
     assert "if (matchedLocalSourceFile) {" in source
     assert "loadMediaFile(matchedLocalSourceFile)" in source
@@ -1122,6 +1128,7 @@ def test_editor_playback_ignores_stale_last_source_file() -> None:
 
 def test_editor_destructive_top_actions_require_confirmation() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    dialogs = Path("frontend/src/routes/editor-dialogs.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
     legacy_i18n = Path("frontend/src/app/i18n.jsx").read_text(encoding="utf-8")
     format_helpers = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
@@ -1130,10 +1137,10 @@ def test_editor_destructive_top_actions_require_confirmation() -> None:
 
     assert "const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false)" in source
     assert "onClick={()=>setRegenerateConfirmOpen(true)}" in source
-    assert "edit.regenerateConfirmTitle" in source
-    assert "edit.regenerateConfirmDesc" in source
-    assert "edit.regenerateConfirmAction" in source
-    assert "onClick={handleRegenerate}" in source
+    assert "edit.regenerateConfirmTitle" in dialogs
+    assert "edit.regenerateConfirmDesc" in dialogs
+    assert "edit.regenerateConfirmAction" in dialogs
+    assert "onConfirm={handleRegenerate}" in source
     assert "setRetranscribeConfirmOpen(true)" in source
     assert "onClick={handleRetranscribe}" in source
     assert "'edit.regenerate':'重生笔记'" in shared
