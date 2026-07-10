@@ -309,7 +309,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--stt-provider",
         default=os.environ.get("FLUENTFLOW_CODEX_STT_PROVIDER", "auto"),
-        choices=["auto", "local", "elevenlabs_scribe", "azure_batch"],
+        choices=["auto", "local", "elevenlabs_scribe"],
         help="Transcription route. auto prefers local when available.",
     )
     parser.add_argument("--stt-model", default=os.environ.get("FLUENTFLOW_CODEX_STT_MODEL", "medium"))

@@ -83,22 +83,6 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             next_action="补足额度后重试，或降低本次处理成本。",
         )
 
-    if "cloud transcription backend configuration is incomplete" in lowered:
-        return _diag(
-            code="cloud_stt_config_missing",
-            title="云端转录配置缺失",
-            detail="云端转录暂不可用：后端 Azure Speech 配置不完整。请联系产品维护者检查 Speech endpoint 和 key。",
-            next_action="联系维护者补齐云端转录配置，或改用本地转录。",
-            retryable=False,
-        )
-    if "cloud transcription storage is not configured" in lowered:
-        return _diag(
-            code="cloud_storage_config_missing",
-            title="云端存储配置缺失",
-            detail="云端转录暂不可用：后端 Blob/SAS 存储配置缺失。请联系产品维护者检查 Azure 存储设置。",
-            next_action="联系维护者补齐云端存储配置，或改用本地转录。",
-            retryable=False,
-        )
     if "elevenlabs api key is not configured" in lowered or "elevenlabs transcription backend configuration is incomplete" in lowered:
         return _diag(
             code="cloud_stt_config_missing",
@@ -121,35 +105,6 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             detail="ElevenLabs 云端转录失败。请检查 API Key、账户额度、文件格式和音频长度后重试。",
             next_action="检查云端转录配置和额度；如果材料敏感或较长，改用本地转录。",
         )
-    if "only \"standard\" subscriptions" in lowered or 'only \\"standard\\" subscriptions' in lowered or "invalidsubscription" in lowered:
-        return _diag(
-            code="azure_subscription_invalid",
-            title="Azure 订阅不支持",
-            detail="云端转录提交失败：当前区域的 Speech 资源不是 Batch 支持的 Standard 订阅。请检查 Azure Speech 区域和定价层。",
-            next_action="更换支持 Batch 的 Azure Speech 资源，或改用本地转录。",
-            retryable=False,
-        )
-    if "invalidlocale" in lowered or "specified locale is not supported" in lowered:
-        return _diag(
-            code="stt_locale_unsupported",
-            title="音频语言不支持",
-            detail="云端转录提交失败：当前音频语言不被 Azure 支持。请切换为中文/英文，或改用本地转录。",
-            next_action="切换音频语言设置后重试，或改用本地转录。",
-        )
-    if "invalidmodel" in lowered or "specified model is not supported" in lowered:
-        return _diag(
-            code="stt_model_unsupported",
-            title="转录模型不支持",
-            detail="云端转录提交失败：当前 Azure 资源不支持所选模型。请切换云端 Batch 默认模型或改用本地转录。",
-            next_action="切换转录模型后重试，或改用本地转录。",
-        )
-    if "diarization is currently not supported" in lowered:
-        return _diag(
-            code="diarization_unsupported",
-            title="说话人区分不可用",
-            detail="云端转录提交失败：当前 Azure 路线不支持说话人区分。请关闭说话人区分后重试。",
-            next_action="关闭说话人区分后重试。",
-        )
     if "no position encodings are defined" in lowered:
         return _diag(
             code="local_diarization_too_long",
@@ -164,14 +119,6 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             detail="云端上传中断：通常是网络或云端转录服务断开连接。请重试；如果文件很大，先压缩或拆分音频。",
             next_action="重试；如果文件较大，压缩或拆分后再提交。",
         )
-    if "azure blob upload failed" in lowered:
-        return _diag(
-            code="cloud_storage_upload_failed",
-            title="云端上传失败",
-            detail="云端上传到 Blob 失败。请检查 SAS URL 是否仍有效、是否允许写入，以及网络是否稳定。",
-            next_action="检查 Azure 存储配置后重试，或改用本地转录。",
-        )
-
     if (
         "po token" in lowered
         or "gvs po token" in lowered

@@ -42,7 +42,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     _H._run_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
-        "options": {"stt_provider": "azure_batch", "skip_summary": "true"},
+        "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
         "base_url": "http://testserver",
     })
 
@@ -52,7 +52,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
         "filename": "demo123-测试视频.mp4",
         "raw_title": "测试视频",
         "display_title": "测试视频",
-        "options": {"stt_provider": "azure_batch", "skip_summary": "true"},
+        "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
         "base_url": "http://testserver",
     }]
     final_job = jobs[-1]
@@ -143,9 +143,9 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
             json={
                 "input": "3.21 复制打开抖音 https://v.douyin.com/demo/",
                 "options": {
-                    "stt_provider": "azure_batch",
+                    "stt_provider": "elevenlabs_scribe",
                     "deepseek_api_key": "secret",
-                    "azure_blob_container_sas_url": "https://example.com?sig=secret",
+                    "elevenlabs_api_key": "secret-key",
                 },
             },
         )
@@ -159,7 +159,7 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
     assert jobs[0]["stage"] == "queued"
     assert jobs[0]["progress"] == 0
     assert started
-    assert started[0]["options"] == {"stt_provider": "azure_batch"}
+    assert started[0]["options"] == {"stt_provider": "elevenlabs_scribe"}
 
 
 def test_video_source_job_publishes_resolving_progress(tmp_path, monkeypatch) -> None:
@@ -196,7 +196,7 @@ def test_video_source_job_publishes_resolving_progress(tmp_path, monkeypatch) ->
     _H._run_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
-        "options": {"stt_provider": "azure_batch"},
+        "options": {"stt_provider": "elevenlabs_scribe"},
         "base_url": "http://testserver",
     })
 
@@ -220,7 +220,7 @@ def test_start_video_source_job_writes_persistent_step(monkeypatch) -> None:
     _H._start_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
-        "options": {"stt_provider": "azure_batch"},
+        "options": {"stt_provider": "elevenlabs_scribe"},
     })
 
     assert steps[0]["task_id"] == "task-link"

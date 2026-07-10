@@ -125,15 +125,6 @@ def test_duration_limit_error_can_be_disabled(monkeypatch) -> None:
     assert _H._duration_limit_error(120, "demo.mp4") is None
 
 
-def test_friendly_error_message_translates_common_azure_errors() -> None:
-    message = (
-        'Azure Batch transcription submit failed: HTTP 400 { "code": "InvalidRequest", '
-        '"message": "Only \\"Standard\\" subscriptions for the region of the called service are valid." }'
-    )
-
-    assert "Standard 订阅" in _H._friendly_error_message(message)
-
-
 def test_friendly_error_message_keeps_video_link_failures_actionable() -> None:
     assert "直接上传视频文件" in _H._friendly_error_message("暂时无法自动解析这个视频链接，请上传视频文件")
 
@@ -645,14 +636,14 @@ def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp
             "status": "running",
             "client_id": "client-a",
             "source_filename": "ok.mp4",
-            "metadata": {"queue_options": {"stt_provider": "azure_batch"}, "source_path": str(source_path)},
+            "metadata": {"queue_options": {"stt_provider": "elevenlabs_scribe"}, "source_path": str(source_path)},
         },
         {
             "task_id": "task-missing",
             "status": "queued",
             "client_id": "client-a",
             "source_filename": "missing.mp4",
-            "metadata": {"queue_options": {"stt_provider": "azure_batch"}, "source_path": str(tmp_path / "missing.mp4")},
+            "metadata": {"queue_options": {"stt_provider": "elevenlabs_scribe"}, "source_path": str(tmp_path / "missing.mp4")},
         },
     ]
     updates: list[dict] = []
@@ -677,7 +668,7 @@ def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> Non
             "client_id": client_id,
             "metadata": {
                 "route": "/queue/process",
-                "queue_options": {"stt_provider": "azure_batch"},
+                "queue_options": {"stt_provider": "elevenlabs_scribe"},
                 "source_path": "/var/lib/fluentflow/sources/task/source.mp4",
             },
         },
@@ -691,7 +682,7 @@ def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> Non
     )
 
     assert metadata["route"] == "/process"
-    assert metadata["queue_options"] == {"stt_provider": "azure_batch"}
+    assert metadata["queue_options"] == {"stt_provider": "elevenlabs_scribe"}
     assert metadata["source_path"] == "/var/lib/fluentflow/sources/task/source.mp4"
     assert metadata["source_fingerprint"] == {"sha256": "abc"}
 
@@ -704,7 +695,7 @@ def test_ops_status_reports_stale_jobs_without_secret_values(tmp_path, monkeypat
     monkeypatch.setenv("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", str(tmp_path / "edited"))
     monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", str(tmp_path / "edit-records"))
     monkeypatch.setenv("FLUENTFLOW_VIDEO_SOURCE_DIR", str(tmp_path / "videos"))
-    monkeypatch.setenv("AZURE_SPEECH_KEY", "super-secret-value")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "super-secret-value")
     monkeypatch.setattr(
         _H,
         "list_jobs",

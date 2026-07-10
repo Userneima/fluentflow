@@ -56,9 +56,6 @@ async def queue_process(
     stt_language: Optional[str] = Form(None),
     stt_provider: Optional[str] = Form(None),
     elevenlabs_api_key: Optional[str] = Form(None),
-    azure_speech_key: Optional[str] = Form(None),
-    azure_speech_endpoint: Optional[str] = Form(None),
-    azure_blob_container_sas_url: Optional[str] = Form(None),
     speaker_diarization: Optional[str] = Form(None),
     lark_app_id: Optional[str] = Form(None),
     lark_app_secret: Optional[str] = Form(None),
@@ -118,9 +115,6 @@ async def queue_process(
         stt_language=stt_language,
         stt_provider=stt_provider,
         elevenlabs_api_key=elevenlabs_api_key,
-        azure_speech_key=azure_speech_key,
-        azure_speech_endpoint=azure_speech_endpoint,
-        azure_blob_container_sas_url=azure_blob_container_sas_url,
         speaker_diarization=speaker_diarization,
         lark_app_id=lark_app_id,
         lark_app_secret=lark_app_secret,
@@ -232,9 +226,6 @@ async def process_video(
     stt_language: Optional[str] = Form(None),
     stt_provider: Optional[str] = Form(None),
     elevenlabs_api_key: Optional[str] = Form(None),
-    azure_speech_key: Optional[str] = Form(None),
-    azure_speech_endpoint: Optional[str] = Form(None),
-    azure_blob_container_sas_url: Optional[str] = Form(None),
     speaker_diarization: Optional[str] = Form(None),
     lark_app_id: Optional[str] = Form(None),
     lark_app_secret: Optional[str] = Form(None),
@@ -358,23 +349,11 @@ async def process_video(
     language = "auto"
     stt_provider_value = H._normalize_stt_provider(stt_provider, request)
     elevenlabs_cloud_provider = stt_provider_value == "elevenlabs_scribe"
-    azure_cloud_provider = stt_provider_value == "azure_batch"
-    cloud_stt_provider = elevenlabs_cloud_provider or azure_cloud_provider
+    cloud_stt_provider = elevenlabs_cloud_provider
     diarization_requested = H._truthy_form(speaker_diarization)
     elevenlabs_key_value: str | None = None
-    azure_endpoint_value: str | None = None
-    azure_key_value: str | None = None
-    azure_blob_container_sas_value: str | None = None
     if elevenlabs_cloud_provider:
         elevenlabs_key_value = H.resolve_secret(elevenlabs_api_key, "elevenlabs_api_key")
-    if azure_cloud_provider:
-        azure_endpoint_value = H.resolve_secret(azure_speech_endpoint, "azure_speech_endpoint")
-        azure_key_value = H.resolve_secret(azure_speech_key, "azure_speech_key")
-    if stt_provider_value == "azure_batch":
-        azure_blob_container_sas_value = H.resolve_secret(
-            azure_blob_container_sas_url,
-            "azure_blob_container_sas_url",
-        )
 
     account_user = H._request_account_user(request)
     ctx = MediaJobContext(
@@ -401,13 +380,9 @@ async def process_video(
         language=language,
         stt_provider_value=stt_provider_value,
         elevenlabs_cloud_provider=elevenlabs_cloud_provider,
-        azure_cloud_provider=azure_cloud_provider,
         cloud_stt_provider=cloud_stt_provider,
         diarization_requested=diarization_requested,
         elevenlabs_key_value=elevenlabs_key_value,
-        azure_endpoint_value=azure_endpoint_value,
-        azure_key_value=azure_key_value,
-        azure_blob_container_sas_value=azure_blob_container_sas_value,
         do_lark=do_lark,
         summary_disabled=summary_disabled,
         generate_visuals=visuals_enabled,

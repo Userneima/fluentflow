@@ -136,13 +136,9 @@ class MediaJobContext:
     language: str
     stt_provider_value: str
     elevenlabs_cloud_provider: bool
-    azure_cloud_provider: bool
     cloud_stt_provider: bool
     diarization_requested: bool
     elevenlabs_key_value: str | None
-    azure_endpoint_value: str | None
-    azure_key_value: str | None
-    azure_blob_container_sas_value: str | None
     do_lark: bool
     summary_disabled: bool
     generate_visuals: bool
@@ -193,13 +189,9 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
     language = ctx.language
     stt_provider_value = ctx.stt_provider_value
     elevenlabs_cloud_provider = ctx.elevenlabs_cloud_provider
-    azure_cloud_provider = ctx.azure_cloud_provider
     cloud_stt_provider = ctx.cloud_stt_provider
     diarization_requested = ctx.diarization_requested
     elevenlabs_key_value = ctx.elevenlabs_key_value
-    azure_endpoint_value = ctx.azure_endpoint_value
-    azure_key_value = ctx.azure_key_value
-    azure_blob_container_sas_value = ctx.azure_blob_container_sas_value
     do_lark = ctx.do_lark
     summary_disabled = ctx.summary_disabled
     generate_visuals = ctx.generate_visuals
@@ -238,16 +230,6 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
         if elevenlabs_cloud_provider and not elevenlabs_key_value:
             raise RuntimeError(
                 "ElevenLabs transcription backend configuration is incomplete. "
-                "Please contact the product maintainer."
-            )
-        if azure_cloud_provider and (not azure_endpoint_value or not azure_key_value):
-            raise RuntimeError(
-                "Cloud transcription backend configuration is incomplete. "
-                "Please contact the product maintainer."
-            )
-        if stt_provider_value == "azure_batch" and not azure_blob_container_sas_value:
-            raise RuntimeError(
-                "Cloud transcription storage is not configured. "
                 "Please contact the product maintainer."
             )
 
@@ -391,69 +373,6 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
                     "stt_provider": stt_provider_value,
                 })
             tr = elevenlabs_task.result()
-        elif stt_provider_value == "azure_batch":
-            cloud_stt_metadata = {
-                "azure_batch_audio_size_mb": H._path_size_mb(out_audio),
-                "azure_batch_duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
-            }
-
-            def on_azure_batch_progress(status: str, metadata: dict[str, Any] | None = None) -> None:
-                progress_state["stt_status"] = status
-                if metadata:
-                    cloud_stt_metadata.update(metadata)
-
-            progress_state["stt_status"] = "azure_batch_uploading"
-            azure_task = loop.run_in_executor(
-                None,
-                lambda: H.transcribe_audio_batch(
-                    out_audio,
-                    endpoint=azure_endpoint_value,
-                    api_key=azure_key_value,
-                    container_sas_url=azure_blob_container_sas_value,
-                    locale=language,
-                    diarization_enabled=diarization_requested,
-                    display_name=f"FluentFlow {Path(source_filename).stem}",
-                    progress_callback=on_azure_batch_progress,
-                ),
-            )
-            last_emit_at = time.perf_counter()
-            while not azure_task.done():
-                await asyncio.sleep(1)
-                now = time.perf_counter()
-                if now - stt_started_at > stt_timeout:
-                    azure_task.cancel()
-                    try:
-                        await azure_task
-                    except Exception:
-                        pass
-                    raise RuntimeError("STT processing timed out")
-                if now - last_emit_at < 2:
-                    continue
-                last_emit_at = now
-                H.upsert_job(
-                    task_id=task_id_value,
-                    status="running",
-                    stage="stt",
-                    progress=25,
-                    metadata={
-                        "stt_provider": stt_provider_value,
-                        "stt_provider_label": H._stt_provider_label(stt_provider_value),
-                        **cloud_stt_metadata,
-                        "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
-                        "stt_elapsed_seconds": round(now - stt_started_at, 1),
-                        "stt_status": progress_state.get("stt_status"),
-                    },
-                )
-                yield H._sse({
-                    "stage": "stt",
-                    "progress": 25,
-                    **cloud_stt_metadata,
-                    "duration_seconds": round(duration_estimate_sec, 1) if duration_estimate_sec else None,
-                    "stt_elapsed_seconds": round(now - stt_started_at, 1),
-                    "stt_status": progress_state.get("stt_status"),
-                    "stt_provider": stt_provider_value,
-                })
-            tr = azure_task.result()
         else:
             stt_process, stt_queue = H.start_transcription_process(
                 out_audio,
@@ -571,9 +490,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
         duration_sec = tr.duration or (tr.segments[-1].end if tr.segments else 0)
         stt_realtime_factor = H._stt_realtime_factor(stt_elapsed_sec, duration_sec)
         transcript_text = tr.text
-        if stt_provider_value == "azure_batch":
-            stt_model_for_result = "azure-batch-transcription"
-        elif stt_provider_value == "elevenlabs_scribe":
+        if stt_provider_value == "elevenlabs_scribe":
             stt_model_for_result = "scribe_v2"
         else:
             stt_model_for_result = model_size
@@ -663,7 +580,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             if speakers:
                 speaker_payload.update({
                     "applied": True,
-                    "backend": getattr(tr, "model_source", None) or "azure_speech_transcription",
+                    "backend": getattr(tr, "model_source", None) or "cloud_transcription",
                     "speaker_count": len(speakers),
                 })
                 H.log_event(
@@ -677,7 +594,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
                     success=True,
                     metadata=H._metadata(
                         route="/process",
-                        backend=getattr(tr, "model_source", None) or "azure_speech_transcription",
+                        backend=getattr(tr, "model_source", None) or "cloud_transcription",
                         speaker_count=len(speakers),
                     ),
                 )
@@ -688,7 +605,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
                 )
                 speaker_payload.update({
                     "applied": False,
-                    "backend": getattr(tr, "model_source", None) or "azure_speech_transcription",
+                    "backend": getattr(tr, "model_source", None) or "cloud_transcription",
                     "error_reason": error_reason,
                 })
                 H.log_event(
@@ -701,7 +618,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
                     stage="speaker_diarization",
                     success=False,
                     error_reason=error_reason,
-                    metadata=H._metadata(route="/process", backend=getattr(tr, "model_source", None) or "azure_speech_transcription"),
+                    metadata=H._metadata(route="/process", backend=getattr(tr, "model_source", None) or "cloud_transcription"),
                 )
         elif diarization_requested:
             diarization_started_at = time.perf_counter()

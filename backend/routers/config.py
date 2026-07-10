@@ -58,35 +58,8 @@ def update_credentials(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         "lark_app_secret",
         "pyannote_auth_token",
         "elevenlabs_api_key",
-        "azure_speech_key",
-        "azure_speech_endpoint",
-        "azure_blob_container_sas_url",
     }
     return H.save_sensitive_settings({k: v for k, v in payload.items() if k in allowed})
-
-
-
-@router.post("/azure-speech/smoke-test")
-def azure_speech_smoke_test(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    endpoint = H.resolve_secret(payload.get("azure_speech_endpoint"), "azure_speech_endpoint")
-    api_key = H.resolve_secret(payload.get("azure_speech_key"), "azure_speech_key")
-    if not endpoint or not api_key:
-        missing = []
-        if not endpoint:
-            missing.append("Speech address")
-        if not api_key:
-            missing.append("Speech key")
-        raise HTTPException(status_code=400, detail="Azure Speech smoke test is missing " + " and ".join(missing))
-    try:
-        return H.run_short_audio_smoke_test(
-            endpoint=endpoint,
-            api_key=api_key,
-            language=(payload.get("language") or "en-US"),
-            phrase=payload.get("phrase"),
-            timeout=float(payload.get("timeout") or 60),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 

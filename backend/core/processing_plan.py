@@ -184,7 +184,7 @@ def _execution_scope(result: dict[str, Any], job: dict[str, Any] | None, metadat
     provider = provider or _text(queue_options.get("stt_provider"))
     if provider == "local":
         return "local"
-    if provider in {"elevenlabs_scribe", "azure_batch"}:
+    if provider == "elevenlabs_scribe":
         return "cloud"
     if _source_type(result, job) == "transcript_file":
         return "local"

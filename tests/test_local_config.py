@@ -16,9 +16,7 @@ def test_sensitive_settings_are_saved_server_side(tmp_path: Path) -> None:
             "deepseek_api_key": "ds-key",
             "dashscope_api_key": "dashscope-key",
             "lark_app_secret": "lark-secret",
-            "azure_speech_key": "azure-key",
-            "azure_speech_endpoint": "https://eastasia.api.cognitive.microsoft.com",
-            "azure_blob_container_sas_url": "https://example.blob.core.windows.net/fluentflow?sp=rcw",
+            "elevenlabs_api_key": "eleven-key",
         },
         path=path,
     )
@@ -27,9 +25,7 @@ def test_sensitive_settings_are_saved_server_side(tmp_path: Path) -> None:
     assert status["dashscope_api_key_configured"] is True
     assert status["qwen_api_key_configured"] is True
     assert status["lark_app_secret_configured"] is True
-    assert status["azure_speech_key_configured"] is True
-    assert status["azure_speech_endpoint_configured"] is True
-    assert status["azure_blob_container_sas_url_configured"] is True
+    assert status["elevenlabs_api_key_configured"] is True
     with patch.dict(os.environ, {}, clear=True):
         assert resolve_secret(None, "unknown") is None
 

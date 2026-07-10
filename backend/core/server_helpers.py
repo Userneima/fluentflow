@@ -332,7 +332,6 @@ from backend.core.frame_extractor import extract_candidate_frames
 from backend.core.keyframe_provider import extract_keyframes
 from backend.core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
 from backend.core.local_stt import transcribe_audio, get_or_load_model
-from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
 from backend.core.elevenlabs_stt import transcribe_audio_scribe
 from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
 from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
@@ -2293,7 +2292,6 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
 
     stt_provider_value = _canonical_stt_provider(options.get("stt_provider"))
     elevenlabs_cloud_provider = stt_provider_value == "elevenlabs_scribe"
-    azure_cloud_provider = stt_provider_value == "azure_batch"
     model_size = str(options.get("stt_model") or "").strip() or "medium"
     if model_size in {"tiny", "base", "small"}:
         model_size = "medium"
@@ -2364,13 +2362,9 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
         language="auto",
         stt_provider_value=stt_provider_value,
         elevenlabs_cloud_provider=elevenlabs_cloud_provider,
-        azure_cloud_provider=azure_cloud_provider,
-        cloud_stt_provider=elevenlabs_cloud_provider or azure_cloud_provider,
+        cloud_stt_provider=elevenlabs_cloud_provider,
         diarization_requested=_truthy_form(options.get("speaker_diarization")),
         elevenlabs_key_value=resolve_secret(None, "elevenlabs_api_key") if elevenlabs_cloud_provider else None,
-        azure_endpoint_value=resolve_secret(None, "azure_speech_endpoint") if azure_cloud_provider else None,
-        azure_key_value=resolve_secret(None, "azure_speech_key") if azure_cloud_provider else None,
-        azure_blob_container_sas_value=resolve_secret(None, "azure_blob_container_sas_url") if stt_provider_value == "azure_batch" else None,
         do_lark=_truthy_form(options.get("export_to_lark")),
         summary_disabled=summary_disabled,
         generate_visuals=visuals_enabled,

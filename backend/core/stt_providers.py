@@ -16,8 +16,6 @@ def _canonical_stt_provider(value: str | None) -> str:
     provider = (value or "").strip().lower().replace("-", "_")
     if provider in {"cloud", "cloud_stt", "elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2"}:
         return "elevenlabs_scribe"
-    if provider in {"azure", "azure_batch", "azure_blob", "azure_speech_batch", "azure_fast", "azure_speech"}:
-        return "azure_batch"
     if provider in {"local", "faster_whisper", "faster-whisper", "whisper"}:
         return "local"
     return "local"
@@ -41,7 +39,7 @@ def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
     providers: list[str] = []
     for item in raw.split(","):
         provider = _canonical_stt_provider(item)
-        if provider in {"elevenlabs_scribe", "azure_batch", "local"} and provider not in providers:
+        if provider in {"elevenlabs_scribe", "local"} and provider not in providers:
             providers.append(provider)
     if _request_can_use_local_stt(request) and "local" not in providers:
         providers.append("local")
@@ -65,6 +63,4 @@ def _normalize_stt_provider(value: str | None, request: Request | None = None) -
 def _stt_provider_label(provider: str) -> str:
     if provider == "elevenlabs_scribe":
         return "ElevenLabs Scribe"
-    if provider == "azure_batch":
-        return "Legacy Azure Batch"
     return "faster-whisper"

@@ -167,7 +167,7 @@ def test_report_same_source_cross_provider_comparison(tmp_path: Path) -> None:
         db_path=db_path,
     )
     log_event(
-        task_id="azure-task",
+        task_id="cloud-task",
         event_name="stt_completed",
         source_filename="sample.m4a",
         source_duration_seconds=100,
@@ -175,8 +175,8 @@ def test_report_same_source_cross_provider_comparison(tmp_path: Path) -> None:
         success=True,
         metadata={
             "source_fingerprint": fingerprint,
-            "stt_provider": "azure_batch",
-            "stt_model": "azure-batch-transcription",
+            "stt_provider": "elevenlabs_scribe",
+            "stt_model": "scribe_v2",
             "stt_realtime_factor": 0.2,
         },
         db_path=db_path,
@@ -187,7 +187,7 @@ def test_report_same_source_cross_provider_comparison(tmp_path: Path) -> None:
 
     assert summary["same_source_comparison_count"] == 1
     assert comparison["source_filename"] == "sample.m4a"
-    assert comparison["fastest_provider"] == "azure_batch"
+    assert comparison["fastest_provider"] == "elevenlabs_scribe"
     assert comparison["slowest_provider"] == "local"
     assert comparison["fastest_vs_slowest_speedup"] == 2.5
 
@@ -197,7 +197,7 @@ def test_report_markdown_includes_same_source_comparison(tmp_path: Path) -> None
     db_path = tmp_path / "events.sqlite"
     output = tmp_path / "report.md"
     fingerprint = {"sha256": "same-source"}
-    for provider, elapsed in (("local", 40), ("azure_batch", 10)):
+    for provider, elapsed in (("local", 40), ("elevenlabs_scribe", 10)):
         log_event(
             task_id=f"{provider}-task",
             event_name="stt_completed",
@@ -218,5 +218,5 @@ def test_report_markdown_includes_same_source_comparison(tmp_path: Path) -> None
 
     assert "Same-Source Comparisons" in text
     assert "same.m4a" in text
-    assert "azure_batch" in text
+    assert "elevenlabs_scribe" in text
     assert "4.0" in text
