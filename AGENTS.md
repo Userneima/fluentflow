@@ -59,8 +59,9 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 ## Validation Checklist
 
 - Always run `git diff --check` before reporting completion.
-- Frontend source changes: run `npm run build:frontend`.
-- Backend logic, state, queue, auth, quota, API, or persistence changes: run relevant `pytest` coverage.
+- Match CI (`.github/workflows/ci.yml`) locally, not just the build: it also runs `npm run lint:frontend` (fails on ESLint errors, e.g. no-undef) and `python3 -m pylint backend/ --errors-only --disable=import-error,no-member`. `npm run build:frontend` and `pytest` alone do NOT catch these — run the lint + pylint before reporting done.
+- Frontend source changes: run `npm run build:frontend` and `npm run lint:frontend`.
+- Backend logic, state, queue, auth, quota, API, or persistence changes: run relevant `pytest` coverage and `pylint backend/ --errors-only`.
 - User-facing workflow changes: run the Agent / MCP parity check in `docs/agent_mcp_parity.md`. Agent-actionable capabilities must update `/agent/v1`, MCP tools, task package fields, schemas, docs, or tests in the same work unit, unless the change is explicitly recorded as UI-only.
 - Before creating a finished local commit, stage intentionally and run `npm run change:check:staged`.
 
