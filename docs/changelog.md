@@ -64,6 +64,8 @@
 - 移除 4 个文件里 `try: from backend.core.X / except ImportError: from core.X` 的死回退（只为「在 backend/ 目录下运行」保留，实际全项目都以 backend 为包根，该分支从不执行）。`server_helpers.py` 因此再降到 2917 行。
 - **彻底移除遗留 Azure Batch 转录路径**：Azure 从 UI 已不可达（「云端转录」按钮早已提交 `elevenlabs_scribe`）且被配置禁用。删除 `azure_stt.py`、流水线里的 azure 分发分支与上下文字段、`/config/azure-speech/smoke-test` 接口、azure 表单字段/敏感字段、以及 `stt_providers`/`task_detail`/`processing_plan`/`tool_trace`/`error_diagnostics` 里的 azure 归一化与专属错误诊断；前端同步去掉 azure 命名（`azureBatchAudioSizeMb`→`cloudAudioSizeMb`、`sttAzure*`/`azureUpload*` i18n 键改为 `cloud` 版、删除 `isAzure*` helper 与 azure 错误诊断）。云端转录改由 ElevenLabs 承担，行为不变；`AZURE_SPEECH_*` / `AZURE_BLOB_CONTAINER_SAS_URL` 配置项不再使用。顺带修复 `TaskProgressOverview` 里「非 azure 即本地」的历史误判（ElevenLabs 云端曾被错标为本地）。
 - `/tasks` 与 `/agent` 两个记录页原本各有一份几乎相同的 loadJobs + 稳定 ref 轮询（就是 2026-07-08 无限刷新 bug 的源头），抽到共享 `frontend/src/lib/useJobPolling.js`，以页面参数区分（live 判定、错误告警语义、刷新文案），行为不变。
+- 删除死文件 `backend/core/_pipeline.py`（924 行）：早期「从 server_helpers 搬出」的抽取草稿，被后来真正接线的模块取代后无人 import，其 STT provider helper 是不可达副本。
+- **彻底移除云工作区代理**：这是让本地后端把 账号/任务/上传 请求整体转发到远程部署的「二选一路由开关」，从 UI 不可达、从未真正投用，只当过 2026-07-08「本地上传被静默转发到云端」卡死的元凶。删除 `cloud_proxy.py`、`server_helpers.py` 里的 `_cloud_workspace_*` / `_should_proxy_cloud_workspace` / `_proxy_cloud_workspace_request` 等助手与中间件/启动钩子、以及 5 个代理测试；`FLUENTFLOW_CLOUD_WORKSPACE_URL` / `FLUENTFLOW_ENABLE_CLOUD_WORKSPACE` 不再被任何代码读取。未来多设备同步应作为独立的显式同步/迁移功能重做，而非复活这个转发开关。
 
 ### 注意事项
 

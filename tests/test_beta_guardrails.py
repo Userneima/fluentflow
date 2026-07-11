@@ -168,164 +168,6 @@ def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch)
     assert _H._normalize_stt_provider("local", request) == "local"
 
 
-def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
-    monkeypatch.setenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", "1")
-
-    runtime_request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/runtime-config",
-        "headers": [],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    cloud_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_video_source_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/video-sources/jobs",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_job_events_request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/jobs/task-local/events",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_jobs_request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/jobs",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    remote_local_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("cloud.example.com", 443),
-    })
-
-    assert _H._should_proxy_cloud_workspace(runtime_request) is False
-    assert _H._should_proxy_cloud_workspace(local_process_request) is False
-    assert _H._should_proxy_cloud_workspace(local_video_source_request) is False
-    assert _H._should_proxy_cloud_workspace(local_job_events_request) is False
-    assert _H._should_proxy_cloud_workspace(cloud_process_request) is True
-    assert _H._request_is_local_execution(local_process_request) is True
-    assert _H._request_is_local_execution(local_jobs_request) is True
-    assert _H._request_is_local_execution(remote_local_process_request) is False
-
-
-def test_cloud_workspace_hard_disabled_without_explicit_optin(monkeypatch) -> None:
-    # Regression: a leftover FLUENTFLOW_CLOUD_WORKSPACE_URL alone must NOT enable
-    # the cloud proxy — that silently forwarded uploads to the cloud and caused
-    # stuck uploads. Enabling now requires FLUENTFLOW_ENABLE_CLOUD_WORKSPACE too.
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
-    monkeypatch.delenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", raising=False)
-
-    cloud_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [],
-        "server": ("127.0.0.1", 8000),
-    })
-
-    assert _H._cloud_workspace_enabled() is False
-    assert _H._should_proxy_cloud_workspace(cloud_process_request) is False
-
-    monkeypatch.setenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", "1")
-    assert _H._cloud_workspace_enabled() is True
-    assert _H._should_proxy_cloud_workspace(cloud_process_request) is True
-
-
-def test_cloud_workspace_buffers_json_api_but_streams_long_running_routes() -> None:
-    json_headers = _H.httpx.Headers({"content-type": "application/json"})
-    event_headers = _H.httpx.Headers({"content-type": "text/event-stream"})
-    download_headers = _H.httpx.Headers({"content-disposition": 'attachment; filename="source.mp4"'})
-
-    assert _H._should_stream_cloud_proxy_response("/jobs", json_headers) is False
-    assert _H._should_stream_cloud_proxy_response("/auth/status", json_headers) is False
-    assert _H._should_stream_cloud_proxy_response("/process", event_headers) is True
-    assert _H._should_stream_cloud_proxy_response("/jobs/task-1/events", json_headers) is True
-    assert _H._should_stream_cloud_proxy_response("/jobs/task-1/source", download_headers) is True
-
-
-def test_cloud_workspace_retries_incomplete_buffered_get(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
-
-    class DummyRemote:
-        status_code = 200
-        headers = _H.httpx.Headers({"content-type": "application/json"})
-
-        def __init__(self, fail: bool):
-            self.fail = fail
-
-        async def aread(self):
-            if self.fail:
-                raise _H.httpx.RemoteProtocolError("peer closed connection without sending complete message body")
-            return b'{"jobs":[]}'
-
-        async def aiter_bytes(self):
-            yield b'{"jobs":[]}'
-
-    class DummyStream:
-        def __init__(self, remote):
-            self.remote = remote
-
-        async def __aenter__(self):
-            return self.remote
-
-        async def __aexit__(self, *_args):
-            return None
-
-    class DummyAsyncClient:
-        calls = 0
-
-        def __init__(self, **_kwargs):
-            pass
-
-        def stream(self, *_args, **_kwargs):
-            type(self).calls += 1
-            return DummyStream(DummyRemote(fail=type(self).calls == 1))
-
-        async def aclose(self):
-            return None
-
-    monkeypatch.setattr(_H.httpx, "AsyncClient", DummyAsyncClient)
-    request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/jobs",
-        "query_string": b"limit=100",
-        "headers": [],
-        "server": ("127.0.0.1", 8000),
-        "scheme": "http",
-    })
-
-    response = asyncio.run(_H._proxy_cloud_workspace_request(request))
-
-    assert response.status_code == 200
-    assert response.body == b'{"jobs":[]}'
-    assert DummyAsyncClient.calls == 2
-
-
 def test_local_status_routes_are_public_only_on_localhost() -> None:
     local_request = Request({
         "type": "http",
@@ -349,7 +191,6 @@ def test_local_status_routes_are_public_only_on_localhost() -> None:
 def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCOUNT_AUTH", "1")
     monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
-    monkeypatch.delenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", raising=False)
     request = Request({
         "type": "http",
         "method": "POST",
@@ -368,7 +209,6 @@ def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -
 
 
 def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
 
     with TestClient(main.app) as client:
         response = client.get("/local-history/candidates?limit=20")

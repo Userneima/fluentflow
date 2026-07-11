@@ -145,6 +145,15 @@ validated separately:
   refetch loop). Extracted into `frontend/src/lib/useJobPolling.js`, parameterized
   by live predicate / error semantics / wording. Fixes a latent
   `TaskProgressOverview` bug that labeled any non-azure provider as local.
+- **Removed the cloud workspace proxy entirely (2026-07-11).** The "P1: Cloud
+  Proxy Resilience" and "extract cloud_proxy.py" items above are now obsolete:
+  the whole proxy was deleted. It let the local backend forward account/jobs/upload
+  requests to a remote deployment, was unreachable from the UI, and only ever
+  caused the 2026-07-08 stuck-upload incident (a leftover `FLUENTFLOW_CLOUD_WORKSPACE_URL`
+  silently proxied uploads). Deleted `cloud_proxy.py`, the `_cloud_workspace_*` /
+  `_should_proxy_cloud_workspace` / `_proxy_cloud_workspace_request` helpers and the
+  middleware/startup hooks in `server_helpers.py`, and the 5 proxy tests. A future
+  multi-device story should be a dedicated sync/migration feature, not this switch.
 
 ## Current Execution Notes
 

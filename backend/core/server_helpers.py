@@ -43,12 +43,6 @@ from backend.core._env import (
     _public_mode_enabled,
     _request_is_internal_queue,
 )
-from backend.core.cloud_proxy import (
-    apply_remote_session_cookie,
-    proxy_cloud_workspace_request,
-    proxy_response_headers,
-    should_stream_cloud_proxy_response,
-)
 from backend.core.error_diagnostics import diagnose_error
 from backend.core.request_scope import (
     normalize_client_id as _normalize_client_id,
@@ -129,86 +123,11 @@ from backend.core.guest_trial_config import (
 )
 
 
-def _cloud_workspace_url() -> str:
-    return (os.environ.get("FLUENTFLOW_CLOUD_WORKSPACE_URL") or "").strip().rstrip("/")
-
-
-def _cloud_workspace_enabled() -> bool:
-    # Hard-disabled by default. A leftover exported FLUENTFLOW_CLOUD_WORKSPACE_URL
-    # must NOT silently turn the local backend into a cloud proxy — that forwarded
-    # uploads to the cloud and caused stuck "uploading" with no progress
-    # (2026-07-08). Enabling the proxy now requires an explicit opt-in flag IN
-    # ADDITION to the URL. See docs/foundation_stabilization_plan.md.
-    if not _cloud_workspace_url():
-        return False
-    return _env_truthy("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE")
-
-
-LOCAL_CLOUD_WORKSPACE_PATHS = {
-    "/health",
-    "/version",
-    "/runtime-config",
-    "/credentials/status",
-    "/account/import-history",
-    "/local-history/candidates",
-    "/speaker-diarization/status",
-}
-
 LOCAL_STATUS_PUBLIC_PATHS = {
     "/credentials/status",
     "/speaker-diarization/status",
 }
 
-def _should_proxy_cloud_workspace(request: Request) -> bool:
-    if not _cloud_workspace_enabled():
-        return False
-    path = request.url.path
-    if path == "/" or path.startswith("/assets/"):
-        return False
-    if _is_frontend_spa_route(path):
-        return False
-    if path in LOCAL_CLOUD_WORKSPACE_PATHS:
-        return False
-    if _request_is_local_execution(request):
-        return False
-    return path in {
-        "/auth/status",
-        "/auth/login",
-        "/auth/register",
-        "/auth/logout",
-        "/auth/google/start",
-        "/auth/google/callback",
-    } or _is_api_route_path(path)
-
-
-_proxy_response_headers = proxy_response_headers
-
-
-def _should_stream_cloud_proxy_response(path: str, headers: httpx.Headers) -> bool:
-    return should_stream_cloud_proxy_response(path, headers)
-
-
-def _apply_remote_session_cookie(response: Response, request: Request, remote_headers: httpx.Headers) -> None:
-    apply_remote_session_cookie(
-        response,
-        request,
-        remote_headers,
-        session_cookie_name=SESSION_COOKIE_NAME,
-        session_max_age_seconds=_session_days() * 24 * 60 * 60,
-        cookie_secure=_cookie_secure_enabled(),
-    )
-
-
-async def _proxy_cloud_workspace_request(request: Request) -> Response:
-    return await proxy_cloud_workspace_request(
-        request,
-        base_url=_cloud_workspace_url(),
-        session_token=_request_account_session_token(request),
-        session_cookie_name=SESSION_COOKIE_NAME,
-        session_max_age_seconds=_session_days() * 24 * 60 * 60,
-        cookie_secure=_cookie_secure_enabled(),
-        logger=logger,
-    )
 
 
 def _request_access_token(request: Request) -> str:
@@ -290,8 +209,6 @@ def _is_public_request(request: Request) -> bool:
 
 
 async def beta_access_middleware(request: Request, call_next):
-    if _should_proxy_cloud_workspace(request):
-        return await _proxy_cloud_workspace_request(request)
     if _request_is_internal_queue(request):
         return await call_next(request)
     if _request_is_local_execution(request):
@@ -2737,17 +2654,6 @@ def _resume_queued_transcription_jobs(base_url: str | None = None) -> None:
 async def _startup_resume_queue() -> None:
     global _QUEUE_EVENT_LOOP
     _QUEUE_EVENT_LOOP = asyncio.get_running_loop()
-    # Make cloud-workspace proxy state loud at startup so a stale env var can
-    # never silently proxy uploads to the cloud again.
-    if _cloud_workspace_url():
-        if _cloud_workspace_enabled():
-            logger.warning("Cloud workspace proxy ENABLED -> forwarding to %s", _cloud_workspace_url())
-        else:
-            logger.warning(
-                "FLUENTFLOW_CLOUD_WORKSPACE_URL is set (%s) but cloud proxy is DISABLED; "
-                "set FLUENTFLOW_ENABLE_CLOUD_WORKSPACE=1 to enable. Ignoring the URL.",
-                _cloud_workspace_url(),
-            )
     migrated = migrate_job_display_titles()
     if migrated:
         logger.info("Backfilled display titles for %s existing jobs", migrated)

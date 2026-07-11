@@ -322,23 +322,6 @@ def test_local_api_key_keeps_agent_scope_with_created_client(monkeypatch, tmp_pa
     assert captured["client_id"] == "local-a"
 
 
-def test_cloud_workspace_proxy_bypasses_local_account_gate(monkeypatch, tmp_path) -> None:
-    _enable_account_auth(monkeypatch, tmp_path)
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "http://cloud.example")
-    monkeypatch.setenv("FLUENTFLOW_ENABLE_CLOUD_WORKSPACE", "1")
-
-    async def fake_proxy(request):
-        return JSONResponse({"proxied": request.url.path})
-
-    monkeypatch.setattr(_H, "_proxy_cloud_workspace_request", fake_proxy)
-
-    with TestClient(main.app) as client:
-        response = client.get("/jobs")
-
-    assert response.status_code == 200
-    assert response.json() == {"proxied": "/jobs"}
-
-
 def test_account_quota_endpoint_and_admin_adjustment(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
     monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")
