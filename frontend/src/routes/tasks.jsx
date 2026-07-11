@@ -29,7 +29,6 @@ import {
     timeAgo,
     useApi,
     useApp,
-    useAuth,
     useI18n,
 } from '../app/shared.jsx';
 import {
@@ -90,11 +89,10 @@ const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '')
 
 const Tasks = () => {
     const {t, lang} = useI18n();
-    const {authMode, user} = useAuth();
     // Read the shared task list and mutations from AppProvider; this page no
     // longer keeps a private jobs state or writes the cache (plan Stage 3b).
     const {currentJob, setLastResult, setCurrentJob, addToHistory, tasks: jobs, ingestJobs, markCancelled, revertCancelled, removeFromHistory, restoreTask} = useApp();
-    const {getJobs, getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob} = useApi();
+    const {getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
     const [deletingTaskId, setDeletingTaskId] = useState('');
@@ -133,7 +131,7 @@ const Tasks = () => {
 
     // Shared fetch + polling (see lib/useJobPolling.js). /tasks warns on any
     // failed fetch and uses record-oriented wording.
-    const {loading, setLoading, error, setError, loadJobs, loadJobsRef, canUseTaskCache} = useJobPolling({
+    const {loading, setLoading, error, setError, loadJobs, loadJobsRef} = useJobPolling({
         hasLiveJobs,
         errorOnAllOnly: false,
         refreshFailedZh: '记录刷新失败，已保留本地缓存。',

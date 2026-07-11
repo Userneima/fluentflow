@@ -24,7 +24,6 @@ import {
     sortJobsForHistoryView,
     useApi,
     useApp,
-    useAuth,
     useI18n,
 } from '../app/shared.jsx';
 import {
@@ -536,12 +535,11 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
 
 const AgentTasks = () => {
     const {lang} = useI18n();
-    const {authMode, user} = useAuth();
     // Read the shared task list + mutations from AppProvider; this page no
     // longer keeps a private jobs state, warm cache, or writes the cache
     // (plan Stage 3b).
     const {currentJob, setCurrentJob, setLastResult, addToHistory, removeFromHistory, runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp();
-    const {getJobs, getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
+    const {getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
     const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
@@ -563,7 +561,7 @@ const AgentTasks = () => {
 
     // Shared fetch + polling (see lib/useJobPolling.js). /agent warns only when
     // every fetch fails and uses task-oriented wording.
-    const {loading, setLoading, error, setError, loadJobs, canUseTaskCache} = useJobPolling({
+    const {loading, error, setError, loadJobs} = useJobPolling({
         hasLiveJobs: hasLiveOrUploadingJobs,
         errorOnAllOnly: true,
         refreshFailedZh: '任务刷新失败，已保留本地缓存。',
