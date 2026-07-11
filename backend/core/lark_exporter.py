@@ -736,6 +736,7 @@ class LarkExporter:
         )
         wants_convert = not disable_convert
         used_convert = False
+        block_count = 0
         converted_children_id: List[str] = []
         converted_descendants: List[dict] = []
         image_resolver = (

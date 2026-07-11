@@ -116,7 +116,8 @@ def _choose_repeat_candidate(text: str, start: int) -> tuple[str, int, int] | No
         if count < _repeat_threshold(unit):
             continue
         consumed = end - start
-        if best is None or consumed > best[2] - start or (consumed == best[2] - start and len(unit) < len(best[0])):
+        # best[...] only evaluated when best is not None (short-circuit); pylint can't narrow the `or`.
+        if best is None or consumed > best[2] - start or (consumed == best[2] - start and len(unit) < len(best[0])):  # pylint: disable=unsubscriptable-object
             best = (unit, count, end)
     return best
 
