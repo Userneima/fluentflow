@@ -4,21 +4,23 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 
 ## Project Shape
 
+- Context index: `docs/context_index.md`.
 - Backend: `backend/main.py`, `backend/routers/`, `backend/core/`.
 - Backend dependencies: `requirements.txt`; tests live under `tests/`.
 - Frontend package/config: `package.json`, `vite.config.mjs`.
 - Frontend source: `frontend/src/`.
 - Built frontend app: `frontend/dist/` from Vite.
 - Local runtime config template: `.env.example`; server deployment template: `deploy/fluentflow.env.example`.
+- Product current plan: `docs/current_version_plan.md`; product overview: `docs/product_overview.md`.
 - UI design system: `docs/ui_design_system.md`.
 - Workflow design system: `docs/workflow_design_system.md`.
 - Agent / MCP parity rule: `docs/agent_mcp_parity.md`.
 - Execution task brief: `docs/agent_task_brief.md`.
 - Git checkpoint workflow: `docs/git_checkpoint_workflow.md`.
+- Runtime and deployment operations: `docs/operations_runbook.md`, `deploy/README.md`.
 - Versioning and release: `docs/versioning_strategy.md`, `docs/release_process.md`.
 - Project skills: `.agents/skills/`.
 - Changelog: `docs/changelog.md`.
-- Homepage design skill: `.agents/skills/fluentflow-homepage-design`.
 
 ## Common Commands
 
@@ -34,6 +36,7 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 - Before major UI or information-architecture changes, discuss the proposed direction with the user first. State what will move, hide, or be removed; what user workflow changes; and what existing settings/data remain intact. Wait for explicit confirmation before editing. Small visual fixes and bug fixes may still be implemented directly.
 - Do not commit `.env`, SQLite databases, runtime artifacts, media files, transcripts, notes, logs, exports, or private docs.
 - Do not push or deploy unless explicitly requested.
+- Use `docs/context_index.md` as the first routing document before broad or ambiguous work.
 - Read `docs/agent_task_brief.md` before adding pages, changing user workflows,
   changing backend state/queue/auth/Agent API behavior, or doing broad multi-module work.
 - Keep each execution turn to one coherent, verifiable work unit. If the request
@@ -56,8 +59,9 @@ FluentFlow is a maintained video/audio-to-transcript-and-note product.
 ## Validation Checklist
 
 - Always run `git diff --check` before reporting completion.
-- Frontend source changes: run `npm run build:frontend`.
-- Backend logic, state, queue, auth, quota, API, or persistence changes: run relevant `pytest` coverage.
+- Match CI (`.github/workflows/ci.yml`) locally, not just the build: it also runs `npm run lint:frontend` (fails on ESLint errors, e.g. no-undef) and `python3 -m pylint backend/ --errors-only --disable=import-error,no-member`. `npm run build:frontend` and `pytest` alone do NOT catch these — run the lint + pylint before reporting done.
+- Frontend source changes: run `npm run build:frontend` and `npm run lint:frontend`.
+- Backend logic, state, queue, auth, quota, API, or persistence changes: run relevant `pytest` coverage and `pylint backend/ --errors-only`.
 - User-facing workflow changes: run the Agent / MCP parity check in `docs/agent_mcp_parity.md`. Agent-actionable capabilities must update `/agent/v1`, MCP tools, task package fields, schemas, docs, or tests in the same work unit, unless the change is explicitly recorded as UI-only.
 - Before creating a finished local commit, stage intentionally and run `npm run change:check:staged`.
 

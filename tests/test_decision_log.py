@@ -49,7 +49,7 @@ def test_decision_log_explains_material_route_note_and_export_choices() -> None:
     entries = {entry["id"]: entry for entry in log["entries"]}
 
     assert log["decision_log_version"] == "1"
-    assert entries["material_classification"]["decision"] in {"讲座材料", "课程材料"}
+    assert entries["material_classification"]["decision"] == "学习材料"
     assert entries["execution_route"]["decision"] == "本机处理"
     assert entries["execution_route"]["source"] == "recorded"
     assert entries["subtitle_strategy"]["decision"] == "生成中文对照字幕"

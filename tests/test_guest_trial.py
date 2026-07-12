@@ -68,7 +68,7 @@ def test_guest_trial_process_creates_private_queued_job(monkeypatch, tmp_path: P
             "/guest-trial/process",
             files={"file": ("demo.mp4", b"video-content", "video/mp4")},
             data={
-                "stt_provider": "azure_batch",
+                "stt_provider": "elevenlabs_scribe",
                 "system_prompt": "note prompt",
             },
         )

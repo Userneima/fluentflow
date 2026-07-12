@@ -9,8 +9,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from backend.core.runtime_paths import default_config_path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "data" / "fluentflow_config.json"
+DEFAULT_CONFIG_PATH = default_config_path()
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 
 SENSITIVE_FIELDS = {
@@ -22,9 +24,6 @@ SENSITIVE_FIELDS = {
     "lark_app_secret",
     "pyannote_auth_token",
     "elevenlabs_api_key",
-    "azure_speech_key",
-    "azure_speech_endpoint",
-    "azure_blob_container_sas_url",
 }
 
 ENV_FALLBACKS = {
@@ -36,9 +35,6 @@ ENV_FALLBACKS = {
     "lark_app_secret": "LARK_APP_SECRET",
     "pyannote_auth_token": "PYANNOTE_AUTH_TOKEN",
     "elevenlabs_api_key": "ELEVENLABS_API_KEY",
-    "azure_speech_key": "AZURE_SPEECH_KEY",
-    "azure_speech_endpoint": "AZURE_SPEECH_ENDPOINT",
-    "azure_blob_container_sas_url": "AZURE_BLOB_CONTAINER_SAS_URL",
 }
 
 SECRET_ALIASES = {
@@ -130,9 +126,6 @@ def credential_status(path: Path | str | None = None) -> dict[str, Any]:
         "lark_app_secret_configured": bool(get_sensitive_setting("lark_app_secret", path)),
         "pyannote_auth_token_configured": bool(get_sensitive_setting("pyannote_auth_token", path)),
         "elevenlabs_api_key_configured": bool(get_sensitive_setting("elevenlabs_api_key", path)),
-        "azure_speech_key_configured": bool(get_sensitive_setting("azure_speech_key", path)),
-        "azure_speech_endpoint_configured": bool(get_sensitive_setting("azure_speech_endpoint", path)),
-        "azure_blob_container_sas_url_configured": bool(get_sensitive_setting("azure_blob_container_sas_url", path)),
         "storage": "backend_local_file",
     }
 

@@ -10,12 +10,22 @@ import argparse
 import json
 import os
 import shutil
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.core.runtime_paths import (  # noqa: E402
+    default_artifact_dir,
+    default_edited_transcript_dir,
+    default_source_dir,
+    default_transcript_edit_records_dir,
+    default_video_source_dir,
+)
 
 
 def _path_from_env(name: str, default: Path) -> Path:
@@ -91,11 +101,11 @@ def main() -> int:
     args = parser.parse_args()
 
     buckets = [
-        ("sources", _path_from_env("FLUENTFLOW_SOURCE_DIR", PROJECT_ROOT / "data" / "sources"), args.sources_days),
-        ("artifacts", _path_from_env("FLUENTFLOW_ARTIFACT_DIR", PROJECT_ROOT / "data" / "artifacts"), args.artifacts_days),
-        ("edited_transcripts", _path_from_env("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", PROJECT_ROOT / "data" / "edited_transcripts"), args.edited_days),
-        ("transcript_edit_records", _path_from_env("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", PROJECT_ROOT / "data" / "transcript_edit_records"), args.edit_records_days),
-        ("video_sources", _path_from_env("FLUENTFLOW_VIDEO_SOURCE_DIR", PROJECT_ROOT / "视频文件"), args.video_sources_days),
+        ("sources", _path_from_env("FLUENTFLOW_SOURCE_DIR", default_source_dir()), args.sources_days),
+        ("artifacts", _path_from_env("FLUENTFLOW_ARTIFACT_DIR", default_artifact_dir()), args.artifacts_days),
+        ("edited_transcripts", _path_from_env("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", default_edited_transcript_dir()), args.edited_days),
+        ("transcript_edit_records", _path_from_env("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", default_transcript_edit_records_dir()), args.edit_records_days),
+        ("video_sources", _path_from_env("FLUENTFLOW_VIDEO_SOURCE_DIR", default_video_source_dir()), args.video_sources_days),
     ]
     report = [_clean_bucket(name, root, days, args.apply) for name, root, days in buckets]
     print(json.dumps({"apply": args.apply, "buckets": report}, ensure_ascii=False, indent=2))

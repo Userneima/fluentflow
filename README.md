@@ -139,6 +139,15 @@ tests/                   后端和关键行为测试
 data/                    旧版本地运行数据目录；新默认在系统应用数据目录
 ```
 
+如果仓库里已有旧运行数据，先执行迁移脚本：
+
+```bash
+./venv/bin/python scripts/migrate_runtime_storage.py
+./venv/bin/python scripts/migrate_runtime_storage.py --apply
+```
+
+迁移会复制旧数据，不会删除旧目录。迁移验证通过后，仓库内旧运行数据保留 14 天作为回退窗口；超过窗口后可按 `docs/operations_runbook.md` 清理。
+
 ## 常用命令
 
 ```bash
@@ -176,6 +185,7 @@ bash deploy/deploy_server.sh
 
 ## 进一步了解
 
+- 上下文索引：`docs/context_index.md`
 - 产品边界：`docs/product_overview.md`
 - 架构说明：`docs/architecture.md`
 - UI 设计系统：`docs/ui_design_system.md`

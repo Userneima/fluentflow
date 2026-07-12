@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from dotenv import load_dotenv
+from backend.core.feishu_markdown import normalize_markdown_for_feishu
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,7 @@ def _markdown_to_feishu_blocks_with_image_refs(
     """Convert Markdown to flat blocks and track resolvable image blocks."""
     blocks: List[dict] = []
     image_refs: List[dict[str, Any]] = []
+    markdown = normalize_markdown_for_feishu(markdown)
     lines = markdown.split("\n")
     i = 0
     n = len(lines)
@@ -303,35 +305,25 @@ def _convert_markdown_via_openapi(
     return data.get("data") or {}
 
 
-def _block_to_create_payload(b: dict, by_id: Dict[str, dict]) -> dict:
-    """Strip server-side ids and rebuild nested children for create-children API."""
-    out = {k: v for k, v in b.items() if k not in ("block_id", "parent_id")}
-    cids = b.get("children")
-    if cids and isinstance(cids, list) and len(cids) > 0 and isinstance(cids[0], str):
-        out["children"] = [
-            _block_to_create_payload(by_id[cid], by_id) for cid in cids if cid in by_id
-        ]
-    else:
-        out.pop("children", None)
+def _sanitize_converted_block_for_descendant(b: dict) -> dict:
+    """Prepare a convert API block for create-descendant API."""
+    out = {k: v for k, v in b.items() if k != "parent_id"}
     tbl = out.get("table")
     if isinstance(tbl, dict):
-        # `cells` in convert output references server-generated block ids,
-        # which are invalid when creating a new document. The nested `children`
-        # payload already preserves the table cell structure.
+        # `cells` and `merge_info` in convert output are server-generated/read-only.
+        # The create-descendant API uses block `children` relationships instead.
         tbl.pop("cells", None)
         prop = tbl.get("property")
         if isinstance(prop, dict):
-            # Merge metadata is server-generated in convert output. For
-            # Markdown tables without merged cells we can omit it safely.
             prop.pop("merge_info", None)
     return out
 
 
-def _convert_data_to_root_children(data: dict) -> List[dict]:
-    """Use first_level_block_ids + blocks from convert response."""
+def _convert_data_to_descendant_payload(data: dict) -> tuple[List[str], List[dict]]:
+    """Use convert response as the official create-descendant payload."""
     blocks = data.get("blocks") or []
     if not blocks:
-        return []
+        return [], []
     by_id: Dict[str, dict] = {}
     for b in blocks:
         bid = b.get("block_id")
@@ -339,15 +331,21 @@ def _convert_data_to_root_children(data: dict) -> List[dict]:
             by_id[str(bid)] = b
     first_ids = data.get("first_level_block_ids") or []
     if not first_ids:
-        # 极少数返回无 first_level：若均为扁平块则按数组顺序作为根
         if all(not (x.get("children") or []) for x in blocks):
-            return [_block_to_create_payload(x, by_id) for x in blocks if x.get("block_id")]
+            descendants = [
+                _sanitize_converted_block_for_descendant(x)
+                for x in blocks
+                if x.get("block_id")
+            ]
+            return [str(x["block_id"]) for x in descendants], descendants
         raise ValueError("convert response missing first_level_block_ids")
-    return [
-        _block_to_create_payload(by_id[str(bid)], by_id)
-        for bid in first_ids
-        if str(bid) in by_id
+    children_id = [str(bid) for bid in first_ids if str(bid) in by_id]
+    descendants = [
+        _sanitize_converted_block_for_descendant(b)
+        for b in blocks
+        if b.get("block_id")
     ]
+    return children_id, descendants
 
 
 def _post_block_children(
@@ -381,6 +379,42 @@ def _post_block_children(
         except Exception:
             raise RuntimeError(f"Feishu 写入块 HTTP {e.code}: {raw[:1200]}") from e
         raise RuntimeError(f"Feishu 写入块 HTTP {e.code}: {err}") from e
+
+
+def _post_block_descendants(
+    token: str,
+    base_url: str,
+    doc_id: str,
+    children_id: List[str],
+    descendants: List[dict],
+    timeout: int = 15,
+    *,
+    document_revision_id: int = -1,
+) -> dict:
+    qs: Dict[str, Union[int, str]] = {"document_revision_id": document_revision_id}
+    query = "?" + urlencode(qs)
+    url = (
+        f"{base_url.rstrip('/')}/open-apis/docx/v1/documents/{doc_id}/"
+        f"blocks/{doc_id}/descendant{query}"
+    )
+    body = json.dumps(
+        {"children_id": children_id, "index": -1, "descendants": descendants},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode()
+        try:
+            err = json.loads(raw)
+        except Exception:
+            raise RuntimeError(f"Feishu 写入嵌套块 HTTP {e.code}: {raw[:1200]}") from e
+        raise RuntimeError(f"Feishu 写入嵌套块 HTTP {e.code}: {err}") from e
 
 
 def _created_block_ids(result: dict[str, Any], expected_count: int) -> List[Optional[str]]:
@@ -582,31 +616,32 @@ class LarkExporter:
             raise RuntimeError("Lark returned no document_id")
         return doc.document_id
 
-    def _write_root_blocks_batched(self, doc_id: str, token: str, root_children: List[dict]) -> None:
-        """Append root-level blocks (may nest children) in batches; fail on API error."""
-        if not root_children:
+    def _write_converted_descendants(
+        self,
+        doc_id: str,
+        token: str,
+        children_id: List[str],
+        descendants: List[dict],
+    ) -> None:
+        """Append official converted block trees through create-descendant API."""
+        if not children_id or not descendants:
             raise RuntimeError("没有可写入的文档块（内容为空）")
-        rev: Optional[int] = None
+        if len(descendants) > 1000:
+            raise RuntimeError("Feishu 官方转换结果超过单次嵌套块写入上限（1000 块）")
         t = max(self.timeout, 90)
-        for start in range(0, len(root_children), _MAX_BLOCKS_PER_BATCH):
-            batch = root_children[start : start + _MAX_BLOCKS_PER_BATCH]
-            doc_rev = -1 if rev is None else rev
-            result = _post_block_children(
-                token,
-                self.base_url,
-                doc_id,
-                batch,
-                t,
-                document_revision_id=doc_rev,
+        result = _post_block_descendants(
+            token,
+            self.base_url,
+            doc_id,
+            children_id,
+            descendants,
+            t,
+            document_revision_id=-1,
+        )
+        if result.get("code") != 0:
+            raise RuntimeError(
+                f"Feishu 写入嵌套块失败: code={result.get('code')} msg={result.get('msg')} body={result}"
             )
-            if result.get("code") != 0:
-                raise RuntimeError(
-                    f"Feishu 写入块失败: code={result.get('code')} msg={result.get('msg')} body={result}"
-                )
-            data = result.get("data") or {}
-            r = data.get("document_revision_id")
-            if r is not None:
-                rev = int(r)
 
     def _write_flat_blocks_batched(self, doc_id: str, token: str, blocks: List[dict]) -> List[Optional[str]]:
         """Legacy flat blocks from markdown_to_feishu_blocks; fail on API error."""
@@ -674,9 +709,10 @@ class LarkExporter:
     ) -> Dict[str, Any]:
         """Create a Feishu document and populate it with parsed Markdown content."""
         self._require_creds()
+        export_markdown = normalize_markdown_for_feishu(markdown)
 
         if self.dry_run:
-            blocks = markdown_to_feishu_blocks(markdown)
+            blocks = markdown_to_feishu_blocks(export_markdown)
             logger.info(
                 "Dry-run: would create doc '%s' (%d blocks) in folder '%s'",
                 title, len(blocks), folder_token,
@@ -694,15 +730,15 @@ class LarkExporter:
             )
             auth_mode = "tenant_token"
         conv_timeout = max(self.timeout, 90)
-        # 默认走内置扁平块写入。官方 convert 会把 Markdown 表格转成嵌套 table/table_cell
-        # 块，但 create-children 接口当前会拒绝这类嵌套结构，导致整次导出失败。
-        # 若需实验 OpenAPI 转换，可设置 FLUENTFLOW_LARK_USE_OPENAPI_CONVERT=1。
-        wants_convert = (
-            os.environ.get("FLUENTFLOW_LARK_USE_OPENAPI_CONVERT", "").strip().lower()
+        disable_convert = (
+            os.environ.get("FLUENTFLOW_LARK_DISABLE_OPENAPI_CONVERT", "").strip().lower()
             in ("1", "true", "yes", "on")
         )
+        wants_convert = not disable_convert
         used_convert = False
-        root_children: List[dict] = []
+        block_count = 0
+        converted_children_id: List[str] = []
+        converted_descendants: List[dict] = []
         image_resolver = (
             lambda src: _resolve_markdown_artifact_image(src, task_id=task_id, artifact_root=artifact_root)
         )
@@ -711,10 +747,10 @@ class LarkExporter:
         if wants_convert:
             try:
                 conv_data = _convert_markdown_via_openapi(
-                    token, self.base_url, markdown, conv_timeout
+                    token, self.base_url, export_markdown, conv_timeout
                 )
-                root_children = _convert_data_to_root_children(conv_data)
-                used_convert = bool(root_children)
+                converted_children_id, converted_descendants = _convert_data_to_descendant_payload(conv_data)
+                used_convert = bool(converted_children_id and converted_descendants)
             except Exception as exc:
                 logger.warning(
                     "Feishu Markdown→blocks 官方转换失败，改用内置解析: %s",
@@ -722,11 +758,24 @@ class LarkExporter:
                 )
 
         if used_convert:
-            self._write_root_blocks_batched(doc_id, token, root_children)
-            block_count = len(root_children)
-        else:
+            try:
+                self._write_converted_descendants(
+                    doc_id,
+                    token,
+                    converted_children_id,
+                    converted_descendants,
+                )
+                block_count = len(converted_descendants)
+            except Exception as exc:
+                logger.warning(
+                    "Feishu 官方转换块写入失败，改用内置解析: %s",
+                    exc,
+                )
+                used_convert = False
+
+        if not used_convert:
             flat, image_refs = _markdown_to_feishu_blocks_with_image_refs(
-                markdown,
+                export_markdown,
                 image_resolver=image_resolver,
             )
             created_ids = self._write_flat_blocks_batched(doc_id, token, flat)
@@ -738,7 +787,7 @@ class LarkExporter:
             )
             block_count = len(flat)
 
-        md_nonempty = bool((markdown or "").strip())
+        md_nonempty = bool((export_markdown or "").strip())
         if md_nonempty and block_count == 0:
             raise RuntimeError(
                 "摘要内容未能解析为飞书文档块（0 块）。请检查 Markdown 是否为空或仅含不支持的语法。"
@@ -751,6 +800,7 @@ class LarkExporter:
             "image_upload_count": image_upload_count,
             "image_upload_errors": image_upload_errors,
             "via": "openapi_convert" if used_convert else "legacy_markdown",
+            "markdown_format": "feishu_normalized",
             "auth_mode": auth_mode,
             "url": _public_docx_url(doc_id, self.base_url),
         }

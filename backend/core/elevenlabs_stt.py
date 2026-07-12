@@ -1,7 +1,7 @@
 """ElevenLabs Scribe speech-to-text adapter.
 
 The adapter converts ElevenLabs responses into the same TranscriptionResult
-shape used by local faster-whisper and the legacy Azure path.
+shape used by local faster-whisper.
 """
 
 from __future__ import annotations

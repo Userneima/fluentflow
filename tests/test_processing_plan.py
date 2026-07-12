@@ -78,7 +78,7 @@ def test_ensure_processing_plan_replaces_out_of_scope_goal_and_merges_note_strat
     next_result = ensure_processing_plan(result)
 
     plan = next_result["processing_plan"]
-    assert plan["goal"]["primary"] == "course_notes"
+    assert plan["goal"]["primary"] == "learning_notes"
     assert plan["note_strategy"]["requested_mode"] == "auto"
     assert plan["note_strategy"]["resolved_mode"] == "high_fidelity"
 
@@ -104,3 +104,35 @@ def test_processing_plan_treats_filename_as_weak_signal_until_transcript_exists(
     assert completed["planning_stage"] == "completed"
     assert completed["material"]["confidence"] == "high"
     assert completed["material"]["evidence_policy"]["transcript_content"] == "primary"
+
+
+def test_processing_plan_uses_planned_material_type_for_sharing_sessions() -> None:
+    result = {
+        "source": "video",
+        "filename": "第一次集会（上）.mp4",
+        "audio_duration_seconds": 2111,
+        "transcript_text": "这次分享会讨论 workflow 和 agent 的区别，大家结合录播复盘自己的理解。",
+        "note_mode_plan_material_type": "career_talk",
+        "note_mode_plan_confidence": "high",
+    }
+
+    plan = build_processing_plan(result)
+
+    assert plan["material"]["type"] == "sharing_session_material"
+    assert plan["material"]["confidence"] == "high"
+    assert plan["goal"]["primary"] == "learning_notes"
+    assert "note planner material_type=career_talk" in plan["material"]["evidence"]
+
+
+def test_processing_plan_does_not_call_structured_learning_discussion_a_course() -> None:
+    result = {
+        "source": "video",
+        "filename": "第一次集会（上）.mp4",
+        "audio_duration_seconds": 2111,
+        "transcript_text": "首先讨论大家看录播的理解，然后复盘 agent 调研方法，最后交流实战限制。",
+    }
+
+    plan = build_processing_plan(result)
+
+    assert plan["material"]["type"] == "sharing_session_material"
+    assert plan["goal"]["primary"] == "learning_notes"

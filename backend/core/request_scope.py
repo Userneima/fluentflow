@@ -16,6 +16,8 @@ LOCAL_REQUEST_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
 
 LOCAL_EXECUTION_EXACT_PATHS = {
     "/process",
+    "/queue/process",
+    "/summarize-transcript-file",
     "/regenerate-summary",
     "/export-lark",
     "/video-sources/jobs",

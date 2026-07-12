@@ -204,13 +204,13 @@ Azure Batch 代码保留为 legacy 兼容和历史任务诊断路径，不再作
 
 | 数据 | 位置 | 内容 | 注意事项 |
 | --- | --- | --- | --- |
-| 任务历史 | `data/fluentflow_jobs.sqlite` | task_id、状态、进度、结果 JSON、metadata | 按账号或设备过滤 |
-| 事件日志 | `data/fluentflow_events.sqlite` | 阶段事件、耗时、状态、错误、链接 | 不保存完整正文 |
-| 账号 | `data/fluentflow_accounts.sqlite` 或 env 指定路径 | 用户、会话、角色 | 公开试用不要删除 |
-| 原始源文件 | `data/sources/` | 上传音视频或链接下载结果 | 可短期保留 |
-| 生成产物 | `data/artifacts/` | TXT/SRT/VTT/Markdown 等 | 用户可能会下载 |
-| 编辑稿 | `data/edited_transcripts/` | 用户修改后的转录稿 | 属于用户劳动成果 |
-| 修改记录 | `data/transcript_edit_records/` | 修改前后文本和上下文 | 可用于 STT 质量评估 |
+| 任务历史 | 系统应用数据目录下的 `fluentflow_jobs.sqlite` | task_id、状态、进度、结果 JSON、metadata | 按账号或设备过滤 |
+| 事件日志 | 系统应用数据目录下的 `fluentflow_events.sqlite` | 阶段事件、耗时、状态、错误、链接 | 不保存完整正文 |
+| 账号 | 系统应用数据目录下的 `fluentflow_accounts.sqlite` 或 env 指定路径 | 用户、会话、角色 | 公开试用不要删除 |
+| 原始源文件 | 系统应用数据目录下的 `sources/` | 上传音视频或链接下载结果 | 可短期保留 |
+| 生成产物 | 系统应用数据目录下的 `artifacts/` | TXT/SRT/VTT/Markdown 等 | 用户可能会下载 |
+| 编辑稿 | 系统应用数据目录下的 `edited_transcripts/` | 用户修改后的转录稿 | 属于用户劳动成果 |
+| 修改记录 | 系统应用数据目录下的 `transcript_edit_records/` | 修改前后文本和上下文 | 可用于 STT 质量评估 |
 | 历史快照报告 | `reports/` | localStorage/日志回溯报告 | 不等于事件日志 |
 
 ## 身份与隔离

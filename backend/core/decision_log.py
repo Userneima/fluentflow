@@ -41,8 +41,16 @@ def _material_type_label(value: str) -> str:
         "course_transcript_file": "课程字幕文件",
         "course_material": "课程材料",
         "lecture_material": "讲座材料",
+        "sharing_session_material": "分享讨论材料",
+        "interview_material": "访谈材料",
+        "meeting_material": "会议材料",
+        "research_material": "研究材料",
+        "briefing_material": "资料解读材料",
+        "training_material": "培训材料",
+        "learning_material": "学习材料",
         "course_video_pending_content": "待转录课程视频",
         "lecture_video_pending_content": "待转录讲座视频",
+        "learning_material_pending_content": "待判断学习材料",
         "course_or_lecture_pending_content": "待判断学习材料",
     }
     return labels.get(value, value or "未知材料")

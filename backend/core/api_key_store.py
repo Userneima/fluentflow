@@ -10,10 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-try:
-    from backend.core.account_store import _db_path, _now_iso, ensure_account_db
-except ImportError:  # pragma: no cover - supports running from backend/ as cwd
-    from core.account_store import _db_path, _now_iso, ensure_account_db
+from backend.core.account_store import _db_path, _now_iso, ensure_account_db
 
 
 API_KEY_PREFIX = "ff_"

@@ -18,6 +18,7 @@ def test_error_diagnostics_classifies_common_failures() -> None:
         ("Queued source file is missing", "source_file_missing", "重新上传"),
         ("Unsupported note generation mode: chapter_coverage", "unsupported_note_mode", "自动"),
         ("AI summarization returned empty result", "empty_ai_note", "重生笔记"),
+        ("Error code: 401 - {'error': {'message': 'Incorrect API key provided.', 'code': 'invalid_api_key'}}", "invalid_api_key", "设置页"),
         ("Feishu 图片上传失败: storage error", "feishu_image_upload_failed", "Markdown"),
     ]
 

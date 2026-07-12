@@ -91,9 +91,28 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
                         "caption": "核心示意图",
                         "reason": "这张图最清晰。",
                         "confidence": "high",
+                        "purpose": "inline_evidence",
                         "timestamp_seconds": 12.5,
                     }
                 ],
+                "visual_key_moments": [
+                    {
+                        "id": "key_visual_001",
+                        "request_id": "vr_002",
+                        "timestamp_seconds": 42.0,
+                        "caption": "代码演示画面",
+                        "reason": "适合复查代码示例，但不插入正文。",
+                        "note_section": "代码演示",
+                        "confidence": "medium",
+                        "purpose": "key_moment",
+                        "source": "visual_frame_selection",
+                        "provider": "local_ffmpeg",
+                        "artifact_url": "/jobs/task-agent/artifacts/frame?file=code_001.jpg",
+                        "filename": "frames/code_001.jpg",
+                    }
+                ],
+                "visual_key_moments_status": "completed",
+                "visual_key_moments_reason": "视觉模型选择了适合复查但未插入正文的关键画面。",
                 "visual_evidence_pipeline": "text_plan_qwen_local_window",
                 "visual_evidence": [
                     {
@@ -156,6 +175,7 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert any(entry["id"] == "note_generation_outcome" for entry in package["decision_log"]["entries"])
     assert package["artifacts"]["summary_md"]["url"] == "/jobs/task-agent/artifacts/summary_md"
     assert package["visual"]["available"] is True
+    assert package["visual"]["key_moments_available"] is True
     assert package["visual"]["candidate_frame_count"] == 1
     assert package["visual"]["evidence"][0]["artifact_url"] == "/jobs/task-agent/artifacts/frame?file=visual_001.jpg"
     assert package["visual"]["evidence"][0]["reason"] == "这一帧展示了课程中的核心示意图。"
@@ -163,6 +183,10 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["visual"]["pipeline"] == "text_plan_qwen_local_window"
     assert package["visual"]["requests"][0]["id"] == "vr_001"
     assert package["visual"]["frame_selections"][0]["request_id"] == "vr_001"
+    assert package["visual"]["frame_selections"][0]["purpose"] == "inline_evidence"
+    assert package["visual"]["key_moments"][0]["purpose"] == "key_moment"
+    assert package["visual"]["key_moments"][0]["artifact_url"].endswith("code_001.jpg")
+    assert package["visual"]["key_moments_status"] == "completed"
     assert package["next_actions"] == []
 
 

@@ -42,7 +42,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     _H._run_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
-        "options": {"stt_provider": "azure_batch", "skip_summary": "true"},
+        "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
         "base_url": "http://testserver",
     })
 
@@ -52,7 +52,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
         "filename": "demo123-测试视频.mp4",
         "raw_title": "测试视频",
         "display_title": "测试视频",
-        "options": {"stt_provider": "azure_batch", "skip_summary": "true"},
+        "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
         "base_url": "http://testserver",
     }]
     final_job = jobs[-1]
@@ -143,9 +143,9 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
             json={
                 "input": "3.21 复制打开抖音 https://v.douyin.com/demo/",
                 "options": {
-                    "stt_provider": "azure_batch",
+                    "stt_provider": "elevenlabs_scribe",
                     "deepseek_api_key": "secret",
-                    "azure_blob_container_sas_url": "https://example.com?sig=secret",
+                    "elevenlabs_api_key": "secret-key",
                 },
             },
         )
@@ -159,7 +159,7 @@ def test_create_video_source_job_filters_sensitive_options(monkeypatch) -> None:
     assert jobs[0]["stage"] == "queued"
     assert jobs[0]["progress"] == 0
     assert started
-    assert started[0]["options"] == {"stt_provider": "azure_batch"}
+    assert started[0]["options"] == {"stt_provider": "elevenlabs_scribe"}
 
 
 def test_video_source_job_publishes_resolving_progress(tmp_path, monkeypatch) -> None:
@@ -196,7 +196,7 @@ def test_video_source_job_publishes_resolving_progress(tmp_path, monkeypatch) ->
     _H._run_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
-        "options": {"stt_provider": "azure_batch"},
+        "options": {"stt_provider": "elevenlabs_scribe"},
         "base_url": "http://testserver",
     })
 
@@ -220,7 +220,7 @@ def test_start_video_source_job_writes_persistent_step(monkeypatch) -> None:
     _H._start_video_source_job({
         "task_id": "task-link",
         "input": "https://v.douyin.com/demo/",
-        "options": {"stt_provider": "azure_batch"},
+        "options": {"stt_provider": "elevenlabs_scribe"},
     })
 
     assert steps[0]["task_id"] == "task-link"
@@ -229,38 +229,64 @@ def test_start_video_source_job_writes_persistent_step(monkeypatch) -> None:
     assert signals == [{"wake": "video_source", "task_id": "task-link"}]
 
 
-def test_local_queued_transcription_keeps_process_request_local(tmp_path, monkeypatch) -> None:
+def test_local_queued_transcription_runs_in_process_without_http(tmp_path, monkeypatch) -> None:
+    """Queued transcription runs the pipeline in-process, not via an HTTP self-call.
+
+    Regression guard for the queue refactor: the worker must call
+    execute_media_job directly (no /process round-trip, no auth boundary) with a
+    context that carries the requested local STT provider.
+    """
+    import backend.routers.processing as P
+
     source_file = tmp_path / "source.mp4"
     source_file.write_bytes(b"video")
-    captured: list[dict] = []
+    captured: dict = {}
 
-    class DummyResponse:
-        is_error = False
+    async def fake_execute(ctx):
+        captured["ctx"] = ctx
 
-    class DummyClient:
-        def __enter__(self):
-            return self
+    monkeypatch.setattr(P, "execute_media_job", fake_execute)
 
-        def __exit__(self, exc_type, exc, tb):
+    class FakeLoop:
+        def is_closed(self):
             return False
 
-        def post(self, url, **kwargs):
-            captured.append({"url": url, **kwargs})
-            return DummyResponse()
+    monkeypatch.setattr(_H, "_QUEUE_EVENT_LOOP", FakeLoop())
 
+    def fake_run_coro(coro, loop):
+        inner = _H.asyncio.new_event_loop()
+        try:
+            inner.run_until_complete(coro)
+        finally:
+            inner.close()
+
+        class _Future:
+            def result(self, timeout=None):
+                return None
+
+        return _Future()
+
+    monkeypatch.setattr(_H.asyncio, "run_coroutine_threadsafe", fake_run_coro)
+
+    def _no_http(*args, **kwargs):
+        raise AssertionError("queued transcription must not make an HTTP self-call")
+
+    monkeypatch.setattr(_H.httpx, "Client", _no_http)
     monkeypatch.setattr(_H, "get_job", lambda *args, **kwargs: None)
-    monkeypatch.setattr(_H.httpx, "Client", lambda **kwargs: DummyClient())
+    monkeypatch.setattr(_H, "log_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "upsert_job", lambda *args, **kwargs: None)
 
     _H._run_queued_transcription({
         "task_id": "task-local",
         "source_path": str(source_file),
         "filename": source_file.name,
         "options": {"stt_provider": "local"},
-        "base_url": "http://127.0.0.1:8000",
+        "client_id": "local-single-user",
     })
 
-    assert captured
-    assert captured[0]["headers"]["X-FluentFlow-Execution-Target"] == "local"
+    assert "ctx" in captured
+    assert captured["ctx"].task_id_value == "task-local"
+    assert captured["ctx"].stt_provider_value == "local"
 
 
 def test_local_transcript_source_submission_keeps_request_local(tmp_path, monkeypatch) -> None:

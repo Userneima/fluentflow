@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
-from http.cookies import SimpleCookie
 import importlib.metadata
 import json
 import logging
@@ -30,15 +29,28 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
 from urllib.parse import quote
 
 import httpx
 from fastapi import Request, Response, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
-from backend.core._env import GUEST_TRIAL_TOKEN_HEADER, INTERNAL_QUEUE_TOKEN
+from backend.core._env import (
+    GUEST_TRIAL_TOKEN_HEADER,
+    INTERNAL_QUEUE_TOKEN,
+    _env_truthy,
+    _public_mode_enabled,
+    _request_is_internal_queue,
+)
 from backend.core.error_diagnostics import diagnose_error
+from backend.core.request_scope import (
+    normalize_client_id as _normalize_client_id,
+    request_client_id as _request_client_id,
+    request_is_local_execution as _request_is_local_execution,
+    request_is_localhost as _request_is_localhost,
+    request_prefers_local_execution as _request_prefers_local_execution,
+)
 from backend.core.result_schema import (
     canonical_display_segments,
     canonical_raw_segments,
@@ -48,6 +60,13 @@ from backend.core.result_schema import (
 )
 from backend.core.title_display import display_title_for_user
 from backend.core.versioning import get_app_version
+from backend.core.runtime_paths import (
+    default_artifact_dir,
+    default_edited_transcript_dir,
+    default_source_dir,
+    default_transcript_edit_records_dir,
+    default_video_source_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,33 +74,14 @@ EVENT_SCHEMA_VERSION = "1.3"
 APP_VERSION = get_app_version()
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
-
-
-def _source_storage_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_SOURCE_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "sources"
-
-
-def _video_source_storage_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_VIDEO_SOURCE_DIR")
-    return Path(override).expanduser() if override else _project_root() / "视频文件"
-
-
-def _edited_transcript_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_EDITED_TRANSCRIPT_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "edited_transcripts"
-
-
-def _artifact_storage_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_ARTIFACT_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "artifacts"
-
-
-def _transcript_edit_records_dir() -> Path:
-    override = os.environ.get("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR")
-    return Path(override).expanduser() if override else _project_root() / "data" / "transcript_edit_records"
+from backend.core.storage_paths import (
+    _project_root,
+    _source_storage_dir,
+    _video_source_storage_dir,
+    _edited_transcript_dir,
+    _artifact_storage_dir,
+    _transcript_edit_records_dir,
+)
 
 
 from backend.core.job_event_hub import JobEventHub, _sse
@@ -98,10 +98,6 @@ def _access_control_enabled() -> bool:
     return bool(_configured_access_tokens())
 
 
-def _env_truthy(name: str) -> bool:
-    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _account_auth_enabled() -> bool:
     mode = (os.environ.get("FLUENTFLOW_AUTH_MODE") or "").strip().lower()
     return mode in {"account", "accounts"} or _env_truthy("FLUENTFLOW_ACCOUNT_AUTH")
@@ -115,240 +111,23 @@ def _cookie_secure_enabled() -> bool:
     return _env_truthy("FLUENTFLOW_COOKIE_SECURE")
 
 
-def _public_mode_enabled() -> bool:
-    return _env_truthy("FLUENTFLOW_PUBLIC_MODE")
+from backend.core.guest_trial_config import (
+    _guest_trial_enabled,
+    _guest_file_limit_mb,
+    _guest_duration_limit_seconds,
+    _guest_active_processing_slots,
+    _guest_waiting_queue_limit,
+    _guest_daily_trials_per_ip,
+    _guest_result_retention_hours,
+    _guest_wait_estimate_per_task_minutes,
+)
 
-
-def _guest_trial_enabled() -> bool:
-    raw = os.environ.get("FLUENTFLOW_GUEST_TRIAL_ENABLED")
-    if raw is None:
-        return True
-    return _env_truthy("FLUENTFLOW_GUEST_TRIAL_ENABLED")
-
-
-def _guest_file_limit_mb() -> float:
-    try:
-        return max(float(os.environ.get("FLUENTFLOW_GUEST_FILE_LIMIT_MB", "150")), 1.0)
-    except ValueError:
-        return 150.0
-
-
-def _guest_duration_limit_seconds() -> float:
-    try:
-        return max(float(os.environ.get("FLUENTFLOW_GUEST_DURATION_LIMIT_SECONDS", "900")), 1.0)
-    except ValueError:
-        return 900.0
-
-
-def _guest_active_processing_slots() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_GUEST_ACTIVE_PROCESSING_SLOTS", "1")), 1)
-    except ValueError:
-        return 1
-
-
-def _guest_waiting_queue_limit() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_GUEST_WAITING_QUEUE_LIMIT", "5")), 0)
-    except ValueError:
-        return 5
-
-
-def _guest_daily_trials_per_ip() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_GUEST_DAILY_TRIALS_PER_IP", "2")), 0)
-    except ValueError:
-        return 2
-
-
-def _guest_result_retention_hours() -> float:
-    try:
-        return max(float(os.environ.get("FLUENTFLOW_GUEST_RESULT_RETENTION_HOURS", "24")), 1.0)
-    except ValueError:
-        return 24.0
-
-
-def _guest_wait_estimate_per_task_minutes() -> tuple[int, int]:
-    raw = (os.environ.get("FLUENTFLOW_GUEST_WAIT_ESTIMATE_PER_TASK_MINUTES") or "8-12").strip()
-    try:
-        if "-" in raw:
-            lo, hi = raw.split("-", 1)
-            low = max(int(float(lo)), 1)
-            high = max(int(float(hi)), low)
-            return low, high
-        value = max(int(float(raw)), 1)
-        return value, value
-    except ValueError:
-        return 8, 12
-
-
-def _cloud_workspace_url() -> str:
-    return (os.environ.get("FLUENTFLOW_CLOUD_WORKSPACE_URL") or "").strip().rstrip("/")
-
-
-def _cloud_workspace_enabled() -> bool:
-    return bool(_cloud_workspace_url())
-
-
-LOCAL_CLOUD_WORKSPACE_PATHS = {
-    "/health",
-    "/version",
-    "/runtime-config",
-    "/credentials/status",
-    "/account/import-history",
-    "/local-history/candidates",
-    "/speaker-diarization/status",
-}
 
 LOCAL_STATUS_PUBLIC_PATHS = {
     "/credentials/status",
     "/speaker-diarization/status",
 }
 
-LOCAL_REQUEST_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
-
-
-def _request_is_localhost(request: Request) -> bool:
-    client_host = ((request.client.host if request.client else "") or "").strip().lower()
-    url_host = (request.url.hostname or "").strip().lower()
-    return client_host in LOCAL_REQUEST_HOSTS or url_host in LOCAL_REQUEST_HOSTS
-
-
-def _request_prefers_local_execution(request: Request) -> bool:
-    return (request.headers.get("x-fluentflow-execution-target") or "").strip().lower() == "local"
-
-
-def _request_is_local_execution(request: Request) -> bool:
-    if not (_request_prefers_local_execution(request) and _request_is_localhost(request)):
-        return False
-    path = request.url.path
-    return (
-        path == "/process"
-        or path == "/export-lark"
-        or path == "/video-sources/jobs"
-        or path == "/jobs"
-        or path.startswith("/jobs/")
-    )
-
-
-def _should_proxy_cloud_workspace(request: Request) -> bool:
-    if not _cloud_workspace_enabled():
-        return False
-    path = request.url.path
-    if path == "/" or path.startswith("/assets/"):
-        return False
-    if _is_frontend_spa_route(path):
-        return False
-    if path in LOCAL_CLOUD_WORKSPACE_PATHS:
-        return False
-    if _request_is_local_execution(request):
-        return False
-    return path in {"/auth/status", "/auth/login", "/auth/register", "/auth/logout"} or _is_api_route_path(path)
-
-
-def _request_is_internal_queue(request: Request) -> bool:
-    supplied = request.headers.get("x-fluentflow-internal-queue-token") or ""
-    return bool(supplied and hmac.compare_digest(supplied, INTERNAL_QUEUE_TOKEN))
-
-
-def _proxy_response_headers(headers: httpx.Headers) -> dict[str, str]:
-    blocked = {
-        "connection",
-        "content-encoding",
-        "content-length",
-        "set-cookie",
-        "transfer-encoding",
-        "www-authenticate",
-    }
-    return {key: value for key, value in headers.items() if key.lower() not in blocked}
-
-
-def _apply_remote_session_cookie(response: Response, request: Request, remote_headers: httpx.Headers) -> None:
-    path = request.url.path
-    if path == "/auth/logout":
-        response.delete_cookie(SESSION_COOKIE_NAME, samesite="lax")
-        response.delete_cookie("fluentflow_access_token", samesite="lax")
-        return
-    if path not in {"/auth/login", "/auth/register"}:
-        return
-    for header in remote_headers.get_list("set-cookie"):
-        cookie = SimpleCookie()
-        try:
-            cookie.load(header)
-        except Exception:
-            continue
-        morsel = cookie.get(SESSION_COOKIE_NAME)
-        if not morsel:
-            continue
-        max_age_text = morsel.get("max-age")
-        try:
-            max_age = int(max_age_text) if max_age_text else _session_days() * 24 * 60 * 60
-        except ValueError:
-            max_age = _session_days() * 24 * 60 * 60
-        response.set_cookie(
-            key=SESSION_COOKIE_NAME,
-            value=morsel.value,
-            max_age=max_age,
-            httponly=True,
-            secure=_cookie_secure_enabled(),
-            samesite="lax",
-        )
-        break
-
-
-async def _proxy_cloud_workspace_request(request: Request) -> StreamingResponse:
-    base_url = _cloud_workspace_url()
-    target = f"{base_url}{request.url.path}"
-    if request.url.query:
-        target = f"{target}?{request.url.query}"
-
-    blocked_headers = {
-        "connection",
-        "content-length",
-        "cookie",
-        "host",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailer",
-        "transfer-encoding",
-        "upgrade",
-    }
-    headers = {key: value for key, value in request.headers.items() if key.lower() not in blocked_headers}
-    session_token = _request_account_session_token(request)
-    if session_token:
-        headers["X-FluentFlow-Session"] = session_token
-
-    async def body_iter() -> AsyncGenerator[bytes, None]:
-        async for chunk in request.stream():
-            if chunk:
-                yield chunk
-
-    client = httpx.AsyncClient(timeout=None, follow_redirects=False)
-    stream = client.stream(request.method, target, headers=headers, content=body_iter())
-    try:
-        remote = await stream.__aenter__()
-    except Exception as exc:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Cloud workspace unavailable: {exc}") from exc
-
-    async def response_iter() -> AsyncGenerator[bytes, None]:
-        try:
-            async for chunk in remote.aiter_raw():
-                if chunk:
-                    yield chunk
-        finally:
-            await stream.__aexit__(None, None, None)
-            await client.aclose()
-
-    response = StreamingResponse(
-        response_iter(),
-        status_code=remote.status_code,
-        headers=_proxy_response_headers(remote.headers),
-    )
-    _apply_remote_session_cookie(response, request, remote.headers)
-    return response
 
 
 def _request_access_token(request: Request) -> str:
@@ -384,23 +163,6 @@ def _request_has_access(request: Request) -> bool:
     return bool(_request_api_key_auth(request))
 
 
-def _normalize_client_id(value: str | None) -> str | None:
-    text = (value or "").strip()
-    if not text:
-        return None
-    safe = "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_"})
-    return safe[:96] or None
-
-
-def _request_client_id(request: Request | None) -> str | None:
-    if request is None:
-        return None
-    return _normalize_client_id(
-        request.headers.get("x-fluentflow-client-id")
-        or request.cookies.get("fluentflow_client_id")
-    )
-
-
 def _request_client_scope(request: Request | None) -> str:
     if request is not None:
         api_key_auth = _request_api_key_auth(request)
@@ -426,7 +188,18 @@ def _is_public_request(request: Request) -> bool:
         return True
     if path.startswith("/guest-trial"):
         return True
-    if path in {"/", "/health", "/version", "/auth/status", "/auth/login", "/auth/register", "/auth/logout", "/runtime-config"}:
+    if path in {
+        "/",
+        "/health",
+        "/version",
+        "/auth/status",
+        "/auth/login",
+        "/auth/register",
+        "/auth/logout",
+        "/auth/google/start",
+        "/auth/google/callback",
+        "/runtime-config",
+    }:
         return True
     if path.startswith("/assets/"):
         return True
@@ -436,8 +209,6 @@ def _is_public_request(request: Request) -> bool:
 
 
 async def beta_access_middleware(request: Request, call_next):
-    if _should_proxy_cloud_workspace(request):
-        return await _proxy_cloud_workspace_request(request)
     if _request_is_internal_queue(request):
         return await call_next(request)
     if _request_is_local_execution(request):
@@ -473,213 +244,98 @@ async def beta_access_middleware(request: Request, call_next):
         },
     )
 
-try:
-    from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
-    from backend.core.frame_extractor import extract_candidate_frames
-    from backend.core.keyframe_provider import extract_keyframes
-    from backend.core.visual_evidence import build_visual_evidence_from_note_images, inject_visual_evidence_references, rewrite_note_image_references
-    from backend.core.local_stt import transcribe_audio, get_or_load_model
-    from backend.core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
-    from backend.core.elevenlabs_stt import transcribe_audio_scribe
-    from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
-    from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields
-    from backend.core.lark_exporter import export_markdown_to_lark
-    from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
-    from backend.core.note_title import resolve_lark_doc_title
-    from backend.core.feishu_oauth import (
-        FeishuConnectionRequired,
-        FeishuOAuthError,
-        complete_feishu_oauth_callback,
-        create_feishu_authorize_url,
-        disconnect_feishu_user,
-        feishu_connection_status,
-        get_valid_feishu_user_access_token,
-    )
-    from backend.core.note_planner import plan_note_task
-    from backend.core.transcript_parser import parse_transcript_file
-    from backend.core.transcript_cleaner import clean_repeated_transcript
-    from backend.core.event_logger import log_event
-    from backend.core.job_lifecycle import (
-        job_has_transcript_result,
-        result_for_summary_failure,
-        result_for_summary_success,
-        result_for_transcript_only,
-    )
-    from backend.core.job_store import (
-        acquire_next_job_step,
-        cancel_job_steps,
-        complete_job_step,
-        delete_jobs,
-        enqueue_job_step,
-        fail_job_step,
-        get_job,
-        list_job_steps,
-        list_job_summaries,
-        list_jobs,
-        list_jobs_for_retention,
-        migrate_job_display_titles,
-        requeue_running_job_steps,
-        update_job_result,
-        upsert_job,
-    )
-    from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
-    from backend.core.account_store import (
-        authenticate_user,
-        count_users,
-        create_session,
-        create_user,
-        get_user_by_id,
-        get_user_by_session_token,
-        list_users,
-        revoke_session,
-        save_feishu_connection,
-    )
-    from backend.core.api_key_store import (
-        authenticate_api_key,
-        create_api_key,
-        list_api_keys,
-        revoke_api_key,
-    )
-    from backend.core.quota_store import (
-        InsufficientBalanceError,
-        account_quota_summary,
-        add_admin_adjustment,
-        finalize_task_charge,
-        grant_starter_balance,
-        release_reservation,
-        reserve_units,
-    )
-    from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-    from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
-except ImportError:
-    from core.audio_handler import extract_compressed_mp3, extract_stt_wav
-    from core.local_stt import transcribe_audio, get_or_load_model
-    from core.azure_stt import run_short_audio_smoke_test, transcribe_audio_batch
-    from core.elevenlabs_stt import transcribe_audio_scribe
-    from core.stt_process import drain_queue, start_transcription_process, terminate_process
-    from core.frame_extractor import extract_candidate_frames
-    from core.keyframe_provider import extract_keyframes
-    from core.visual_evidence import build_visual_evidence_from_note_images, inject_visual_evidence_references, rewrite_note_image_references
-    from core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
-    from core.transcript_correction import correct_transcript_segments, correction_result_fields
-    from core.lark_exporter import export_markdown_to_lark
-    from core.lark_cli_exporter import export_markdown_via_lark_cli
-    from core.note_title import resolve_lark_doc_title
-    from core.feishu_oauth import (
-        FeishuConnectionRequired,
-        FeishuOAuthError,
-        complete_feishu_oauth_callback,
-        create_feishu_authorize_url,
-        disconnect_feishu_user,
-        feishu_connection_status,
-        get_valid_feishu_user_access_token,
-    )
-    from core.note_planner import plan_note_task
-    from core.transcript_parser import parse_transcript_file
-    from core.transcript_cleaner import clean_repeated_transcript
-    from core.event_logger import log_event
-    from core.job_lifecycle import (
-        job_has_transcript_result,
-        result_for_summary_failure,
-        result_for_summary_success,
-        result_for_transcript_only,
-    )
-    from core.job_store import (
-        acquire_next_job_step,
-        cancel_job_steps,
-        complete_job_step,
-        delete_jobs,
-        enqueue_job_step,
-        fail_job_step,
-        get_job,
-        list_job_steps,
-        list_job_summaries,
-        list_jobs,
-        list_jobs_for_retention,
-        migrate_job_display_titles,
-        requeue_running_job_steps,
-        update_job_result,
-        upsert_job,
-    )
-    from core.local_config import credential_status, resolve_secret, save_sensitive_settings
-    from core.account_store import (
-        authenticate_user,
-        count_users,
-        create_session,
-        create_user,
-        get_user_by_id,
-        get_user_by_session_token,
-        list_users,
-        revoke_session,
-        save_feishu_connection,
-    )
-    from core.api_key_store import (
-        authenticate_api_key,
-        create_api_key,
-        list_api_keys,
-        revoke_api_key,
-    )
-    from core.quota_store import (
-        InsufficientBalanceError,
-        account_quota_summary,
-        add_admin_adjustment,
-        finalize_task_charge,
-        grant_starter_balance,
-        release_reservation,
-        reserve_units,
-    )
-    from core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-    from core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
+from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
+from backend.core.frame_extractor import extract_candidate_frames
+from backend.core.keyframe_provider import extract_keyframes
+from backend.core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
+from backend.core.local_stt import transcribe_audio, get_or_load_model
+from backend.core.elevenlabs_stt import transcribe_audio_scribe
+from backend.core.stt_process import drain_queue, start_transcription_process, terminate_process
+from backend.core.ai_summarizer import can_use_multimodal, generate_bilingual_segments_zh, plan_visual_evidence_requests, select_visual_evidence_frames, summarize_transcript_to_markdown, summarize_transcript_with_frames, summarize_transcript_with_metadata, translate_segments_to_zh, visual_requests_to_frame_segments
+from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
+from backend.core.lark_exporter import export_markdown_to_lark
+from backend.core.lark_cli_exporter import export_markdown_via_lark_cli
+from backend.core.note_title import resolve_lark_doc_title
+from backend.core.feishu_oauth import (
+    FeishuConnectionRequired,
+    FeishuOAuthError,
+    complete_feishu_oauth_callback,
+    create_feishu_authorize_url,
+    disconnect_feishu_user,
+    feishu_connection_status,
+    get_valid_feishu_user_access_token,
+)
+from backend.core.google_oauth import (
+    GoogleOAuthError,
+    complete_google_oauth_callback,
+    create_google_authorize_url,
+    google_oauth_enabled,
+)
+from backend.core.transcript_parser import parse_transcript_file
+from backend.core.transcript_cleaner import clean_repeated_transcript
+from backend.core.event_logger import log_event
+from backend.core.job_lifecycle import (
+    job_has_transcript_result,
+    result_for_summary_failure,
+    result_for_summary_success,
+    result_for_transcript_only,
+)
+from backend.core.job_store import (
+    acquire_next_job_step,
+    cancel_job_steps,
+    complete_job_step,
+    delete_jobs,
+    enqueue_job_step,
+    fail_job_step,
+    get_job,
+    list_job_steps,
+    list_job_summaries,
+    list_jobs,
+    list_jobs_for_retention,
+    migrate_job_display_titles,
+    requeue_running_job_steps,
+    update_job_result,
+    upsert_job,
+)
+from backend.core.local_config import credential_status, resolve_secret, save_sensitive_settings
+from backend.core.account_store import (
+    authenticate_user,
+    count_users,
+    create_session,
+    create_user,
+    get_user_by_id,
+    get_user_by_session_token,
+    list_users,
+    revoke_session,
+    save_feishu_connection,
+)
+from backend.core.api_key_store import (
+    authenticate_api_key,
+    create_api_key,
+    list_api_keys,
+    revoke_api_key,
+)
+from backend.core.quota_store import (
+    InsufficientBalanceError,
+    account_quota_summary,
+    add_admin_adjustment,
+    finalize_task_charge,
+    grant_starter_balance,
+    release_reservation,
+    reserve_units,
+)
+from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
+from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
 
 
-SESSION_COOKIE_NAME = "fluentflow_session"
-
-
-def _session_days() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_SESSION_DAYS", "30")), 1)
-    except ValueError:
-        return 30
-
-
-def _request_account_session_token(request: Request) -> str:
-    auth = request.headers.get("authorization") or ""
-    if auth.lower().startswith("bearer "):
-        return auth[7:].strip()
-    header_token = (request.headers.get("x-fluentflow-session") or "").strip()
-    if header_token:
-        return header_token
-    return (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
-
-
-def _public_account_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not user:
-        return None
-    return {
-        "id": user.get("id"),
-        "email": user.get("email"),
-        "role": user.get("role"),
-        "created_at": user.get("created_at"),
-        "last_login_at": user.get("last_login_at"),
-    }
-
-
-def _account_quota_payload(user: dict[str, Any] | None) -> dict[str, Any]:
-    if not user or not user.get("id"):
-        return {"balance_units": 0, "recent_transactions": [], "unlimited": False, "quota_exempt": False}
-    summary = account_quota_summary(str(user["id"]))
-    is_admin = user.get("role") == "admin"
-    summary["unlimited"] = bool(is_admin)
-    summary["quota_exempt"] = bool(is_admin)
-    return summary
-
-
-def _starter_balance_units() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_STARTER_BALANCE_UNITS", "100")), 0)
-    except ValueError:
-        return 100
+from backend.core.account_config import (
+    SESSION_COOKIE_NAME,
+    _session_days,
+    _request_account_session_token,
+    _public_account_user,
+    _account_quota_payload,
+    _starter_balance_units,
+)
 
 
 def _public_account_payload(user: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -957,105 +613,19 @@ AUDIO_SUFFIXES = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opu
 VIDEO_SUFFIXES = ALLOWED_SUFFIXES - AUDIO_SUFFIXES
 
 
-def _max_upload_mb() -> float:
-    try:
-        return max(float(os.environ.get("FLUENTFLOW_MAX_UPLOAD_MB", "2048")), 1.0)
-    except ValueError:
-        return 2048.0
-
-
-def _max_queue_files() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_MAX_QUEUE_FILES", "5")), 1)
-    except ValueError:
-        return 5
-
-
-def _max_active_jobs_per_client() -> int:
-    raw = os.environ.get("FLUENTFLOW_MAX_ACTIVE_JOBS_PER_CLIENT")
-    if raw is None:
-        return 2 if _public_mode_enabled() else 0
-    try:
-        return max(int(raw), 0)
-    except ValueError:
-        return 2 if _public_mode_enabled() else 0
-
-
-def _max_active_jobs_global() -> int:
-    raw = os.environ.get("FLUENTFLOW_MAX_ACTIVE_JOBS_GLOBAL")
-    if raw is None:
-        return 6 if _public_mode_enabled() else 0
-    try:
-        return max(int(raw), 0)
-    except ValueError:
-        return 6 if _public_mode_enabled() else 0
-
-
-def _daily_job_limit_per_client() -> int:
-    raw = os.environ.get("FLUENTFLOW_DAILY_JOB_LIMIT_PER_CLIENT")
-    if raw is None:
-        return 10 if _public_mode_enabled() else 0
-    try:
-        return max(int(raw), 0)
-    except ValueError:
-        return 10 if _public_mode_enabled() else 0
-
-
-def _daily_job_limit_global() -> int:
-    raw = os.environ.get("FLUENTFLOW_DAILY_JOB_LIMIT_GLOBAL")
-    if raw is None:
-        return 80 if _public_mode_enabled() else 0
-    try:
-        return max(int(raw), 0)
-    except ValueError:
-        return 80 if _public_mode_enabled() else 0
-
-
-def _daily_upload_mb_per_client() -> float:
-    raw = os.environ.get("FLUENTFLOW_DAILY_UPLOAD_MB_PER_CLIENT")
-    if raw is None:
-        return 4096.0 if _public_mode_enabled() else 0.0
-    try:
-        return max(float(raw), 0.0)
-    except ValueError:
-        return 4096.0 if _public_mode_enabled() else 0.0
-
-
-def _daily_upload_mb_global() -> float:
-    raw = os.environ.get("FLUENTFLOW_DAILY_UPLOAD_MB_GLOBAL")
-    if raw is None:
-        return 32768.0 if _public_mode_enabled() else 0.0
-    try:
-        return max(float(raw), 0.0)
-    except ValueError:
-        return 32768.0 if _public_mode_enabled() else 0.0
-
-
-def _submission_rate_limit_per_ip() -> int:
-    raw = os.environ.get("FLUENTFLOW_SUBMISSION_RATE_LIMIT_PER_IP")
-    if raw is None:
-        return 12 if _public_mode_enabled() else 0
-    try:
-        return max(int(raw), 0)
-    except ValueError:
-        return 12 if _public_mode_enabled() else 0
-
-
-def _submission_rate_limit_window_seconds() -> float:
-    raw = os.environ.get("FLUENTFLOW_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS")
-    if raw is None:
-        return 60.0
-    try:
-        return max(float(raw), 1.0)
-    except ValueError:
-        return 60.0
-
-
-def _max_media_duration_seconds() -> float:
-    try:
-        return max(float(os.environ.get("FLUENTFLOW_MAX_MEDIA_DURATION_SECONDS", "14400")), 0.0)
-    except ValueError:
-        return 14400.0
+from backend.core.limits_config import (
+    _max_upload_mb,
+    _max_queue_files,
+    _max_active_jobs_per_client,
+    _max_active_jobs_global,
+    _daily_job_limit_per_client,
+    _daily_job_limit_global,
+    _daily_upload_mb_per_client,
+    _daily_upload_mb_global,
+    _submission_rate_limit_per_ip,
+    _submission_rate_limit_window_seconds,
+    _max_media_duration_seconds,
+)
 
 
 def _runtime_limits() -> dict[str, Any]:
@@ -1638,44 +1208,13 @@ def _cleanup_task_all_files(task_id: str, metadata: dict[str, Any] | None = None
     return cleanup
 
 
-def _history_retention_per_client() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_HISTORY_RETENTION_PER_CLIENT", "20")), 0)
-    except ValueError:
-        return 20
-
-
-def _artifact_retention_days() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_ARTIFACT_RETENTION_DAYS", "30")), 0)
-    except ValueError:
-        return 30
-
-
-def _source_retention_days() -> int:
-    try:
-        return max(int(os.environ.get("FLUENTFLOW_SOURCE_RETENTION_DAYS", "7")), 0)
-    except ValueError:
-        return 7
-
-
-def _parse_job_time(value: Any) -> datetime | None:
-    if not value:
-        return None
-    try:
-        text = str(value).replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(text)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except Exception:
-        return None
-
-
-def _source_retention_expiry(days: int) -> str:
-    return (
-        datetime.now(timezone.utc).astimezone() + timedelta(days=days)
-    ).isoformat(timespec="seconds")
+from backend.core.retention_config import (
+    _history_retention_per_client,
+    _artifact_retention_days,
+    _source_retention_days,
+    _parse_job_time,
+    _source_retention_expiry,
+)
 
 
 def _expire_retained_source_file(job: dict[str, Any], *, now: datetime | None = None) -> bool:
@@ -1833,43 +1372,7 @@ def _artifact_filename(result: dict[str, Any], suffix: str) -> str:
     return f"{stem}{suffix}"
 
 
-def _format_subtitle_timestamp(seconds: Any, *, separator: str) -> str:
-    try:
-        value = max(0.0, float(seconds))
-    except (TypeError, ValueError):
-        value = 0.0
-    total = int(value)
-    millis = int(round((value - total) * 1000))
-    if millis >= 1000:
-        total += 1
-        millis -= 1000
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}{separator}{millis:03d}"
-
-
-def _format_srt(segments: list[dict[str, Any]]) -> str:
-    blocks: list[str] = []
-    for index, segment in enumerate(segments, start=1):
-        text = str(segment.get("text") or "").strip()
-        if not text:
-            continue
-        start = _format_subtitle_timestamp(segment.get("start"), separator=",")
-        end = _format_subtitle_timestamp(segment.get("end"), separator=",")
-        blocks.append(f"{index}\n{start} --> {end}\n{text}\n")
-    return "\n".join(blocks).rstrip() + ("\n" if blocks else "")
-
-
-def _format_vtt(segments: list[dict[str, Any]]) -> str:
-    blocks = ["WEBVTT\n"]
-    for segment in segments:
-        text = str(segment.get("text") or "").strip()
-        if not text:
-            continue
-        start = _format_subtitle_timestamp(segment.get("start"), separator=".")
-        end = _format_subtitle_timestamp(segment.get("end"), separator=".")
-        blocks.append(f"{start} --> {end}\n{text}\n")
-    return "\n".join(blocks).rstrip() + "\n"
+from backend.core.subtitle_format import _format_subtitle_timestamp, _format_srt, _format_vtt
 
 
 def _bilingual_segments(
@@ -2334,60 +1837,14 @@ def _stt_realtime_factor(stt_elapsed_seconds: float | None, duration_seconds: fl
     return max(round(stt_elapsed_seconds / duration_seconds, 4), 0.0001)
 
 
-def _canonical_stt_provider(value: str | None) -> str:
-    provider = (value or "").strip().lower().replace("-", "_")
-    if provider in {"cloud", "cloud_stt", "elevenlabs", "elevenlabs_scribe", "scribe", "scribe_v2"}:
-        return "elevenlabs_scribe"
-    if provider in {"azure", "azure_batch", "azure_blob", "azure_speech_batch", "azure_fast", "azure_speech"}:
-        return "azure_batch"
-    if provider in {"local", "faster_whisper", "faster-whisper", "whisper"}:
-        return "local"
-    return "local"
-
-
-def _request_can_use_local_stt(request: Request | None = None) -> bool:
-    if not _public_mode_enabled():
-        return True
-    if request is None:
-        return False
-    if _request_is_internal_queue(request):
-        return True
-    url_host = (request.url.hostname or "").strip().lower()
-    return url_host in {"127.0.0.1", "localhost", "::1", "testclient"}
-
-
-def _allowed_stt_providers(request: Request | None = None) -> tuple[str, ...]:
-    raw = os.environ.get("FLUENTFLOW_ALLOWED_STT_PROVIDERS")
-    if raw is None or not raw.strip():
-        return ("elevenlabs_scribe", "local") if _request_can_use_local_stt(request) else ("elevenlabs_scribe",)
-    providers: list[str] = []
-    for item in raw.split(","):
-        provider = _canonical_stt_provider(item)
-        if provider in {"elevenlabs_scribe", "azure_batch", "local"} and provider not in providers:
-            providers.append(provider)
-    if _public_mode_enabled() and not _request_can_use_local_stt(request):
-        providers = [provider for provider in providers if provider != "local"]
-    return tuple(providers) or (("elevenlabs_scribe", "local") if _request_can_use_local_stt(request) else ("elevenlabs_scribe",))
-
-
-def _default_stt_provider(request: Request | None = None) -> str:
-    requested = _canonical_stt_provider(os.environ.get("FLUENTFLOW_DEFAULT_STT_PROVIDER") or "elevenlabs_scribe")
-    allowed = _allowed_stt_providers(request)
-    return requested if requested in allowed else allowed[0]
-
-
-def _normalize_stt_provider(value: str | None, request: Request | None = None) -> str:
-    provider = _canonical_stt_provider(value) if value else _default_stt_provider(request)
-    allowed = _allowed_stt_providers(request)
-    return provider if provider in allowed else _default_stt_provider(request)
-
-
-def _stt_provider_label(provider: str) -> str:
-    if provider == "elevenlabs_scribe":
-        return "ElevenLabs Scribe"
-    if provider == "azure_batch":
-        return "Legacy Azure Batch"
-    return "faster-whisper"
+from backend.core.stt_providers import (
+    _canonical_stt_provider,
+    _request_can_use_local_stt,
+    _allowed_stt_providers,
+    _default_stt_provider,
+    _normalize_stt_provider,
+    _stt_provider_label,
+)
 
 
 def _lark_export_target(lark_export_route: Optional[str] = None, lark_via_cli: Optional[str] = None) -> str:
@@ -2502,62 +1959,6 @@ def _ai_kwargs(
     return kwargs
 
 
-PLANNER_NOTE_MODES = {"direct", "high_fidelity"}
-PLANNER_SAMPLE_CHARS = 3000
-
-
-def _requested_note_mode(note_mode: str | None) -> str:
-    value = (note_mode or os.environ.get("FLUENTFLOW_NOTE_MODE") or "auto").strip().lower()
-    return "direct" if value == "fast" else value
-
-
-def _language_hint_for_planning(text: str) -> str:
-    cjk = 0
-    latin = 0
-    for char in text:
-        code = ord(char)
-        if 0x4E00 <= code <= 0x9FFF:
-            cjk += 1
-        elif "a" <= char.lower() <= "z":
-            latin += 1
-    if cjk > latin:
-        return "zh"
-    if latin > cjk:
-        return "en_or_latin"
-    return "unknown"
-
-
-def _planning_transcript_preview(transcript_text: str, *, sample_chars: int = PLANNER_SAMPLE_CHARS) -> str:
-    transcript = (transcript_text or "").strip()
-    if not transcript:
-        return ""
-    sample_size = max(500, sample_chars)
-    total = len(transcript)
-    non_empty_lines = [line.strip() for line in transcript.splitlines() if line.strip()]
-    question_count = transcript.count("?") + transcript.count("？")
-    avg_line_chars = round(sum(len(line) for line in non_empty_lines) / len(non_empty_lines), 1) if non_empty_lines else total
-    stats = "\n".join([
-        "【材料统计】",
-        f"- total_chars: {total}",
-        f"- non_empty_lines: {len(non_empty_lines)}",
-        f"- avg_line_chars: {avg_line_chars}",
-        f"- question_marks: {question_count}",
-        f"- language_hint: {_language_hint_for_planning(transcript)}",
-    ])
-    if total <= sample_size * 2:
-        return f"{stats}\n\n【全文样本】\n{transcript[:sample_size * 2]}"
-    head = transcript[:sample_size]
-    mid_start = max(0, (total // 2) - (sample_size // 2))
-    middle = transcript[mid_start: mid_start + sample_size]
-    tail = transcript[-sample_size:]
-    return "\n\n".join([
-        stats,
-        f"【开头样本】\n{head}",
-        f"【中段样本】\n{middle}",
-        f"【结尾样本】\n{tail}",
-    ])
-
-
 def _plan_note_mode_for_summary(
     kwargs: dict[str, Any],
     transcript_text: str,
@@ -2568,75 +1969,13 @@ def _plan_note_mode_for_summary(
     duration_seconds: float | None = None,
     current_prompt_preset: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    requested_mode = _requested_note_mode(kwargs.get("note_mode"))
-    if requested_mode != "auto":
-        return kwargs, {}
-
-    started_at = time.perf_counter()
-    transcript = transcript_text or ""
-    try:
-        plan = plan_note_task(
-            filename=filename,
-            transcript_preview=_planning_transcript_preview(transcript),
-            transcript_length=len(transcript),
-            duration_seconds=duration_seconds,
-            current_note_mode="auto",
-            current_prompt_preset=current_prompt_preset,
-            provider=kwargs.get("provider"),
-            model=kwargs.get("model"),
-            api_key=kwargs.get("api_key"),
-        )
-        planned_mode = (plan.recommended_note_mode or "").strip()
-        if planned_mode not in PLANNER_NOTE_MODES:
-            planned_mode = "high_fidelity"
-        planned_kwargs = {**kwargs, "note_mode": planned_mode}
-        metadata = {
-            "requested_note_mode": "auto",
-            "note_mode_plan_selected_mode": planned_mode,
-            "note_mode_plan_reason": plan.reason,
-            "note_mode_plan_confidence": plan.confidence,
-            "note_mode_plan_warnings": plan.warnings,
-            "note_mode_plan_provider": plan.planner_provider,
-            "note_mode_plan_model": plan.planner_model,
-            "note_mode_plan_fallback": False,
-        }
-        log_event(
-            task_id=task_id,
-            event_name="note_mode_planned",
-            source_filename=filename,
-            transcript_length=len(transcript),
-            stage="note_mode_plan",
-            duration_seconds=round(time.perf_counter() - started_at, 3),
-            success=True,
-            metadata=_metadata(
-                route=route,
-                selected_note_mode=planned_mode,
-                confidence=plan.confidence,
-                planner_provider=plan.planner_provider,
-                planner_model=plan.planner_model,
-            ),
-        )
-        return planned_kwargs, metadata
-    except Exception as exc:
-        friendly_error = _friendly_error_message(exc)
-        logger.warning("AI note mode planning failed, falling back to length rule: %s", exc)
-        log_event(
-            task_id=task_id,
-            event_name="note_mode_plan_failed",
-            source_filename=filename,
-            transcript_length=len(transcript),
-            stage="note_mode_plan",
-            duration_seconds=round(time.perf_counter() - started_at, 3),
-            success=False,
-            error_reason=friendly_error,
-            metadata=_metadata(route=route, raw_error=str(exc)),
-        )
-        return kwargs, {
-            "requested_note_mode": "auto",
-            "note_mode_plan_reason": "AI 规划失败，已按长度规则自动选择。",
-            "note_mode_plan_fallback": True,
-            "note_mode_plan_error": friendly_error,
-        }
+    # The AI note-mode planner was removed (2026-07-09): spending a separate
+    # model call to choose direct-vs-high_fidelity duplicated a decision the
+    # length rule inside summarize_transcript_with_metadata already makes
+    # (auto → direct if short, else high_fidelity). "auto" now passes straight
+    # through to that rule. Signature kept so call sites are untouched; callers
+    # get empty metadata, so note_mode_plan_* result fields are simply absent.
+    return kwargs, {}
 
 
 def _summary_result_metadata(summary_result: Any) -> dict[str, Any]:
@@ -2833,7 +2172,6 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     task_id = str(item.get("task_id") or "")
     source_path = Path(str(item.get("source_path") or ""))
     filename = str(item.get("filename") or source_path.name or "source")
-    base_url = str(item.get("base_url") or _queue_base_url_from_request()).rstrip("/")
     options = dict(item.get("options") or {})
     client_id = _normalize_client_scope(str(item.get("client_id") or ""))
     if not task_id:
@@ -2845,34 +2183,134 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     if job and job.get("status") in {"completed", "failed", "cancelled"}:
         return
 
-    fields = {
-        **options,
-        "task_id": task_id,
-        "title": options.get("title") or str(item.get("display_title") or "").strip() or display_title_for_user(filename, Path(filename).stem),
-        "raw_title": str(item.get("raw_title") or "").strip(),
-        "display_title": str(item.get("display_title") or "").strip(),
-    }
-    headers = {"Accept": "text/event-stream"}
-    if str(options.get("stt_provider") or "").strip().lower() == "local":
-        headers["X-FluentFlow-Execution-Target"] = "local"
-    if client_id:
-        headers["X-FluentFlow-Client-Id"] = client_id
-    headers["X-FluentFlow-Internal-Queue-Token"] = INTERNAL_QUEUE_TOKEN
-    tokens = _configured_access_tokens()
-    if tokens:
-        headers["X-FluentFlow-Access-Token"] = tokens[0]
-    data_fields = {k: str(v) for k, v in fields.items() if v is not None and str(v) != ""}
-    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    with httpx.Client(timeout=_queue_timeout_seconds()) as client:
-        with open(source_path, "rb") as f:
-            response = client.post(
-                f"{base_url}/process",
-                data=data_fields,
-                files={"file": (filename, f, content_type)},
-                headers=headers,
-            )
-        if response.is_error:
-            raise RuntimeError(f"Queued processing request failed: HTTP {response.status_code} {response.text[:800]}")
+    # Run the SAME media pipeline the /process endpoint uses, but in-process on
+    # the server event loop. No HTTP self-call, no auth boundary, no re-running
+    # of the public submission guards. Imported lazily to avoid a module cycle
+    # (processing imports server_helpers at module load).
+    from backend.routers.processing import MediaJobContext, execute_media_job
+
+    loop = _QUEUE_EVENT_LOOP
+    if loop is None or loop.is_closed():
+        raise RuntimeError("Queue event loop is not available for in-process transcription")
+
+    suffix = Path(filename).suffix.lower() or ".mp4"
+    raw_title_value = (
+        str(item.get("raw_title") or "").strip()
+        or str(options.get("title") or "").strip()
+        or Path(filename).stem
+    ).strip()
+    display_title_value = (
+        str(item.get("display_title") or "").strip()
+        or display_title_for_user(raw_title_value, filename)
+    ).strip()
+    source_type = _source_type_for_suffix(suffix)
+    source_file_size_mb = _path_size_mb(source_path)
+    source_fingerprint = _source_fingerprint_for_path(source_path, filename)
+
+    stt_provider_value = _canonical_stt_provider(options.get("stt_provider"))
+    elevenlabs_cloud_provider = stt_provider_value == "elevenlabs_scribe"
+    model_size = str(options.get("stt_model") or "").strip() or "medium"
+    if model_size in {"tiny", "base", "small"}:
+        model_size = "medium"
+    summary_disabled = _truthy_form(options.get("skip_summary"))
+    visuals_enabled = _truthy_form(options.get("generate_visuals"))
+
+    account_id = _account_id_from_client_scope(client_id)
+    account_user = get_user_by_id(account_id) if account_id else None
+
+    # Mirror the /process import-stage bookkeeping so metadata (titles,
+    # fingerprint) matches the direct-upload path.
+    log_event(
+        task_id=task_id,
+        event_name="source_imported",
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="import",
+        success=True,
+        metadata=_metadata(
+            route="/queue/process",
+            raw_title=raw_title_value,
+            display_title=display_title_value,
+            source_fingerprint=source_fingerprint,
+        ),
+    )
+    upsert_job(
+        task_id=task_id,
+        status="running",
+        client_id=client_id,
+        stage="import",
+        progress=0,
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        metadata=_job_metadata_for_update(
+            task_id,
+            client_id,
+            route="/queue/process",
+            raw_title=raw_title_value,
+            display_title=display_title_value,
+            source_fingerprint=source_fingerprint,
+        ),
+    )
+
+    td = tempfile.mkdtemp()
+    ctx = MediaJobContext(
+        task_id_value=task_id,
+        client_id=client_id,
+        source_type=source_type,
+        source_filename=filename,
+        raw_title_value=raw_title_value,
+        display_title_value=display_title_value,
+        suffix=suffix,
+        td=td,
+        in_path=source_path,
+        content=b"",
+        source_fingerprint=source_fingerprint,
+        source_file_size_mb=source_file_size_mb,
+        max_upload_mb=None,
+        duration_preflight_sec=_media_duration_seconds(source_path),
+        quota_estimate=None,
+        quota_reservation=None,
+        task_started_at=time.perf_counter(),
+        loop=loop,
+        model_size=model_size,
+        speed_profile=str(options.get("stt_speed") or "").strip() or "balanced",
+        language="auto",
+        stt_provider_value=stt_provider_value,
+        elevenlabs_cloud_provider=elevenlabs_cloud_provider,
+        cloud_stt_provider=elevenlabs_cloud_provider,
+        diarization_requested=_truthy_form(options.get("speaker_diarization")),
+        elevenlabs_key_value=resolve_secret(None, "elevenlabs_api_key") if elevenlabs_cloud_provider else None,
+        do_lark=_truthy_form(options.get("export_to_lark")),
+        summary_disabled=summary_disabled,
+        generate_visuals=visuals_enabled,
+        source_last_modified_ms=None,
+        export_to_lark=options.get("export_to_lark"),
+        lark_export_route=options.get("lark_export_route"),
+        lark_via_cli=options.get("lark_via_cli"),
+        folder_token=options.get("folder_token"),
+        deepseek_api_key=None,
+        openai_api_key=None,
+        qwen_api_key=None,
+        ai_provider=options.get("ai_provider"),
+        ai_model=options.get("ai_model"),
+        note_mode=options.get("note_mode"),
+        skip_summary=options.get("skip_summary"),
+        system_prompt=options.get("system_prompt"),
+        prompt_preset=options.get("prompt_preset"),
+        prompt_preset_label=options.get("prompt_preset_label"),
+        account_user=account_user,
+        title=options.get("title"),
+        lark_app_id=options.get("lark_app_id"),
+        lark_app_secret=options.get("lark_app_secret"),
+        duration_limit_seconds=None,
+    )
+    try:
+        future = asyncio.run_coroutine_threadsafe(execute_media_job(ctx), loop)
+        future.result(timeout=_queue_timeout_seconds())
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
 
 
 def _submit_transcript_source_file(
@@ -2910,87 +2348,10 @@ def _submit_transcript_source_file(
             raise RuntimeError(f"Queued transcript summary request failed: HTTP {response.status_code} {response.text[:800]}")
 
 
-def _queue_options_from_form(
-    *,
-    export_to_lark: Optional[str],
-    lark_export_route: Optional[str],
-    lark_via_cli: Optional[str],
-    title: Optional[str],
-    folder_token: Optional[str],
-    deepseek_api_key: Optional[str],
-    openai_api_key: Optional[str],
-    ai_provider: Optional[str],
-    ai_model: Optional[str],
-    note_mode: Optional[str],
-    skip_summary: Optional[str],
-    stt_model: Optional[str],
-    stt_speed: Optional[str],
-    stt_language: Optional[str],
-    stt_provider: Optional[str],
-    elevenlabs_api_key: Optional[str],
-    azure_speech_key: Optional[str],
-    azure_speech_endpoint: Optional[str],
-    azure_blob_container_sas_url: Optional[str],
-    speaker_diarization: Optional[str],
-    lark_app_id: Optional[str],
-    lark_app_secret: Optional[str],
-    system_prompt: Optional[str],
-    prompt_preset: Optional[str] = None,
-    prompt_preset_label: Optional[str] = None,
-) -> dict[str, str]:
-    raw: dict[str, Optional[str]] = {
-        "export_to_lark": export_to_lark,
-        "lark_export_route": lark_export_route,
-        "lark_via_cli": lark_via_cli,
-        "title": title,
-        "folder_token": folder_token,
-        "ai_provider": ai_provider,
-        "ai_model": ai_model,
-        "note_mode": note_mode,
-        "skip_summary": skip_summary,
-        "stt_model": stt_model,
-        "stt_speed": stt_speed,
-        "stt_language": stt_language,
-        "stt_provider": stt_provider,
-        "azure_speech_endpoint": azure_speech_endpoint,
-        "speaker_diarization": speaker_diarization,
-        "system_prompt": system_prompt,
-        "prompt_preset": prompt_preset,
-        "prompt_preset_label": prompt_preset_label,
-    }
-    return {key: value.strip() for key, value in raw.items() if isinstance(value, str) and value.strip()}
-
-
-def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str]:
-    allowed = {
-        "export_to_lark",
-        "lark_export_route",
-        "lark_via_cli",
-        "title",
-        "folder_token",
-        "ai_provider",
-        "ai_model",
-        "note_mode",
-        "skip_summary",
-        "stt_model",
-        "stt_speed",
-        "stt_language",
-        "stt_provider",
-        "azure_speech_endpoint",
-        "speaker_diarization",
-        "system_prompt",
-        "prompt_preset",
-        "prompt_preset_label",
-        "duration_limit_seconds",
-    }
-    result: dict[str, str] = {}
-    for key, value in (payload or {}).items():
-        if key not in allowed or value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            result[key] = text
-    return result
+from backend.core.queue_options import (
+    _queue_options_from_form,
+    _queue_options_from_mapping,
+)
 
 
 def _public_video_source_metadata(saved: SavedVideoSource) -> dict[str, Any]:

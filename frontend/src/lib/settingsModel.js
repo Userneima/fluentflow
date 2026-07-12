@@ -1,4 +1,4 @@
-export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'dashscopeApiKey', 'qwenApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey', 'azureSpeechKey', 'azureSpeechEndpoint', 'azureBlobContainerSasUrl'];
+export const SENSITIVE_SETTING_KEYS = ['deepseekApiKey', 'openaiApiKey', 'dashscopeApiKey', 'qwenApiKey', 'larkAppId', 'larkAppSecret', 'elevenLabsApiKey'];
 export const LEGACY_REMOVED_SETTING_KEYS = ['hotwordLibrary', 'hotwordLibraries', 'reviewMode', 'reviewUseAi'];
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
@@ -65,9 +65,6 @@ export const sensitivePatchFromSettings = (settings={}) => ({
     lark_app_id: settings.larkAppId || '',
     lark_app_secret: settings.larkAppSecret || '',
     elevenlabs_api_key: settings.elevenLabsApiKey || '',
-    azure_speech_key: settings.azureSpeechKey || '',
-    azure_speech_endpoint: settings.azureSpeechEndpoint || '',
-    azure_blob_container_sas_url: settings.azureBlobContainerSasUrl || '',
 });
 
 export const noteModeLabel = (mode, lang) => {
@@ -82,16 +79,11 @@ export const normalizeSttProvider = (provider) => {
     const value = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
     if (value === 'local') return 'local';
     if (value === 'cloud' || value === 'cloud_stt' || value === 'elevenlabs' || value === 'elevenlabs_scribe' || value === 'scribe' || value === 'scribe_v2') return 'elevenlabs_scribe';
-    if (value === 'azure_batch') return 'azure_batch';
     return DEFAULT_STT_PROVIDER;
 };
 
 export const isElevenLabsCloudProvider = (provider) => (
     normalizeSttProvider(provider) === 'elevenlabs_scribe'
-);
-
-export const isAzureCloudProvider = (provider) => (
-    normalizeSttProvider(provider) === 'azure_batch'
 );
 
 export const isCloudSttProvider = (provider) => (
@@ -102,18 +94,8 @@ const isElevenLabsConfigured = (status) => (
     !!status?.elevenlabs_api_key_configured
 );
 
-export const isAzureSpeechConfigured = (status) => (
-    !!status?.azure_speech_endpoint_configured && !!status?.azure_speech_key_configured
-);
-
-export const isAzureBatchConfigured = (status) => (
-    isAzureSpeechConfigured(status) && !!status?.azure_blob_container_sas_url_configured
-);
-
 export const isCloudSttConfigured = (provider, status) => (
-    isElevenLabsCloudProvider(provider)
-        ? isElevenLabsConfigured(status)
-        : (isAzureCloudProvider(provider) ? isAzureBatchConfigured(status) : true)
+    isElevenLabsCloudProvider(provider) ? isElevenLabsConfigured(status) : true
 );
 
 export const DEFAULT_RUNTIME_CONFIG = {
@@ -122,13 +104,14 @@ export const DEFAULT_RUNTIME_CONFIG = {
     defaultSttProvider: DEFAULT_STT_PROVIDER,
     showMaintainerSettings: true,
     guestTrial: {enabled: false},
+    jobRetryFromStoredSource: false,
 };
 
 export const normalizeRuntimeConfig = (config={}) => {
     const allowed = Array.isArray(config.allowed_stt_providers)
         ? config.allowed_stt_providers.map(normalizeSttProvider)
         : DEFAULT_RUNTIME_CONFIG.allowedSttProviders;
-    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'elevenlabs_scribe' || item === 'azure_batch' || item === 'local'))];
+    const uniqueAllowed = [...new Set(allowed.filter((item) => item === 'elevenlabs_scribe' || item === 'local'))];
     const publicMode = !!config.public_mode;
     const localAwareAllowed = publicMode || uniqueAllowed.includes('local')
         ? uniqueAllowed
@@ -142,6 +125,7 @@ export const normalizeRuntimeConfig = (config={}) => {
         showMaintainerSettings: config.show_maintainer_settings !== false,
         limits: config.limits || {},
         guestTrial: config.guest_trial || config.limits?.guest_trial || DEFAULT_RUNTIME_CONFIG.guestTrial,
+        jobRetryFromStoredSource: config.features?.job_retry_from_stored_source === true,
     };
 };
 
@@ -155,8 +139,6 @@ export const cloudSttMissingMessage = (lang) => (
         ? '云端转录暂不可用，请联系产品维护者检查后台配置。'
         : 'Cloud transcription is unavailable. Ask the product maintainer to check backend configuration.'
 );
-
-export const azureSpeechMissingMessage = cloudSttMissingMessage;
 
 export const normalizeSttModel = (model) => (
     DEFAULT_STT_MODEL

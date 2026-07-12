@@ -257,8 +257,6 @@ def _stt_route(result: dict[str, Any], metadata: dict[str, Any]) -> str:
         return "本地 · faster-whisper" + (f" / {model}" if model else "")
     if provider == "elevenlabs_scribe":
         return "云端 · ElevenLabs" + (f" / {model}" if model else "")
-    if provider == "azure_batch":
-        return "云端 · Azure Speech" + (f" / {model}" if model else "")
     if provider:
         return f"转写引擎：{provider}" + (f" / {model}" if model else "")
     return ""
@@ -325,7 +323,7 @@ def _route_snapshot(job: dict[str, Any], result: dict[str, Any], metadata: dict[
         transcription = "transcript_file"
     elif provider == "local":
         transcription = "local"
-    elif provider in {"elevenlabs_scribe", "azure_batch"}:
+    elif provider == "elevenlabs_scribe":
         transcription = "cloud"
     elif provider:
         transcription = provider

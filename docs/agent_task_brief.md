@@ -10,6 +10,13 @@ It does not replace `AGENTS.md`, `docs/versioning_strategy.md`,
 `docs/ui_design_system.md`, or `docs/workflow_design_system.md`. It is the
 short handoff layer that points each execution thread to the right checks.
 
+During the foundation-stabilization phase, read
+`docs/foundation_stabilization_plan.md` first. It defines the current scope
+freeze, the four spines and their owner files, the parallel-work rules (one
+owner per shared file, especially `backend/core/server_helpers.py`), and the
+pre-unfreeze acceptance checklist. Do not start new-feature work while that
+freeze is in effect.
+
 ## When To Use
 
 Use this brief before work that adds pages, changes user workflows, changes

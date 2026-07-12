@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 import time
 import uuid
@@ -12,13 +11,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.core.runtime_paths import default_job_db_path
 from backend.core.result_schema import normalize_result_for_read, normalize_result_for_storage
 from backend.core.title_display import display_title_for_user
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB_PATH = Path(os.environ.get("FLUENTFLOW_JOB_DB_PATH") or PROJECT_ROOT / "data" / "fluentflow_jobs.sqlite").expanduser()
+DEFAULT_DB_PATH = default_job_db_path()
 
 
 SCHEMA_SQL = """

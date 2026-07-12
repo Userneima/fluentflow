@@ -78,7 +78,6 @@ WORKFLOW_REVIEW_PATHS = (
     "frontend/src/app/",
     "frontend/src/components/",
     "backend/routers/jobs.py",
-    "backend/core/_pipeline.py",
     "backend/core/error_diagnostics.py",
     "backend/core/job_store.py",
     "backend/core/server_helpers.py",

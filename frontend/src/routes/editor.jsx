@@ -31,7 +31,6 @@ import {
     dlTranscriptVtt,
     fmtFileSize,
     fmtTime,
-    friendlyTaskError,
     apiFetch,
     DropdownMenu,
     fileNameStem,
@@ -50,6 +49,7 @@ import {
     pickDisplayTranscriptSegments,
     normalizeSttModel,
     normalizeSttProvider,
+    noteGenerationDiagnosis,
     pickTranscriptBaselineSegments,
     pickTranscriptSegments,
     resultToHistoryEntry,
@@ -64,71 +64,19 @@ import {
     useSettings,
 } from '../app/shared.jsx';
 import PromptTemplateDialog from '../components/PromptTemplateDialog.jsx';
+import {FeishuExportPrompt, RegenerateConfirmDialog, RetranscribeConfirmDialog, EditRecordsDialog} from './editor-dialogs.jsx';
 import {
-    formatCorrectionConfidence,
-    transcriptCorrectionInfo,
-    transcriptCorrectionStatusText,
-} from '../lib/transcriptCorrection.js';
+    jobOptionsForResult,
+    isLikelyVideoFile,
+    isVideoResultSource,
+    localSourceFileMatchesResult,
+    summaryFailureNextStep,
+    formatElapsedMinuteSecond,
+    formatSttOriginalRatio,
+    normalizeVisualKeyMoments,
+    downloadBrowserFile,
+} from './editor-helpers.js';
 
-const jobOptionsForResult = (result) => (
-    normalizeSttProvider(result?.stt_provider) === 'local'
-    || result?.playback_audio_storage === 'local'
-    || result?.source_file_storage === 'local'
-        ? {sttProvider: 'local'}
-        : {}
-);
-
-const isLikelyVideoFile = (fileOrName) => {
-    if (!fileOrName) return false;
-    if (typeof fileOrName === 'object' && fileOrName.type) return String(fileOrName.type).startsWith('video/');
-    const name = typeof fileOrName === 'string' ? fileOrName : fileOrName.name || '';
-    return /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(name);
-};
-
-const localSourceFileMatchesResult = (file, result) => {
-    if (!file || !result) return false;
-    const fingerprint = result.source_fingerprint || {};
-    const expectedName = String(fingerprint.source_filename || result.filename || '').trim();
-    const expectedSize = Number(fingerprint.source_size_bytes || 0);
-    const nameMatches = expectedName && file.name === expectedName;
-    const sizeMatches = expectedSize > 0 && file.size === expectedSize;
-    if (nameMatches && sizeMatches) return true;
-    if (sizeMatches && !expectedName) return true;
-    return false;
-};
-
-const summaryFailureNextStep = (result, lang) => {
-    if (!(result?.summary_status === 'failed' || result?.summary_error)) return '';
-    const error = friendlyTaskError(result?.summary_error, lang);
-    return lang === 'zh'
-        ? `原因：${error} 下一步：点击“重生笔记”；如果还失败，先更换提示词或缩短材料。`
-        : `Reason: ${error} Next: click Regenerate note; if it still fails, change the prompt or shorten the material.`;
-};
-
-const formatElapsedMinuteSecond = (seconds) => {
-    const n = Math.max(0, Math.floor(Number(seconds) || 0));
-    const m = Math.floor(n / 60);
-    const s = n % 60;
-    return `${String(m).padStart(2, '0')}m${String(s).padStart(2, '0')}s`;
-};
-
-const formatSttOriginalRatio = (factor, lang) => {
-    const n = Number(factor);
-    if (!Number.isFinite(n) || n <= 0) return '';
-    const pct = Math.max(1, Math.round(n * 100));
-    return lang === 'zh' ? `原 ${pct}%` : `${pct}% of original`;
-};
-
-const downloadBrowserFile = (file, fallbackName = 'download') => {
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file?.name || fallbackName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-};
 
 const Editor = () => {
     const {t, lang} = useI18n();
@@ -243,9 +191,10 @@ const Editor = () => {
     const [summaryEditing, setSummaryEditing] = useState(false);
     const [summaryUnsaved, setSummaryUnsaved] = useState(false);
     const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
+    const [hydratingResult, setHydratingResult] = useState(false);
+    const [hydrationFailed, setHydrationFailed] = useState(false);
     const [transcriptView, setTranscriptView] = useState('bilingual');
     const [editRecordsOpen, setEditRecordsOpen] = useState(false);
-    const [correctionDetailsOpen, setCorrectionDetailsOpen] = useState(false);
     const mediaRef = useRef(null);
     const mediaInputRef = useRef(null);
     const transcriptScrollRef = useRef(null);
@@ -257,13 +206,26 @@ const Editor = () => {
     ]);
 
     useEffect(() => {
-        if (!result?.task_id || transcriptUnsaved) return;
-        if (isLocalHistoryResult(result)) return;
+        if (!result?.task_id || transcriptUnsaved) {
+            setHydratingResult(false);
+            setHydrationFailed(false);
+            return;
+        }
+        if (isLocalHistoryResult(result)) {
+            setHydratingResult(false);
+            setHydrationFailed(false);
+            return;
+        }
         const currentSegments = pickTranscriptSegments(result);
         const currentText = result.transcript_text || '';
         const needsHydration = currentSegments.length === 0 || currentText.length <= 260;
-        if (!needsHydration || hydratedTaskIdsRef.current.has(result.task_id)) return;
-        hydratedTaskIdsRef.current.add(result.task_id);
+        if (!needsHydration || hydratedTaskIdsRef.current.has(result.task_id)) {
+            setHydratingResult(false);
+            if (!needsHydration) setHydrationFailed(false);
+            return;
+        }
+        setHydratingResult(true);
+        setHydrationFailed(false);
         let cancelled = false;
         const jobRequest = isGuestResult
             ? getGuestTrialJob(result.task_id, getGuestTrialToken())
@@ -289,8 +251,14 @@ const Editor = () => {
                     setTranscriptDirty(!!full.transcript_edited);
                     setTranscriptSaveStatus(full.transcript_edited ? 'saved' : 'idle');
                 }
+                hydratedTaskIdsRef.current.add(result.task_id);
             })
-            .catch(() => {});
+            .catch(() => {
+                if (!cancelled) setHydrationFailed(true);
+            })
+            .finally(() => {
+                if (!cancelled) setHydratingResult(false);
+            });
         return () => { cancelled = true; };
     }, [resultKey, transcriptUnsaved, isGuestResult, resultJobOptions]);
 
@@ -507,12 +475,26 @@ const Editor = () => {
         () => simpleMd(summary, {renderImages: !hasInlineVisualEvidence || visualEvidenceVisible}),
         [summary, hasInlineVisualEvidence, visualEvidenceVisible]
     );
+    const visualKeyMoments = useMemo(() => normalizeVisualKeyMoments(result), [result]);
     const displayTranscriptSegments = pickDisplayTranscriptSegments(result, segments);
     const bilingualTranscriptSegments = displayTranscriptSegments
         .filter((seg) => String(seg.text_zh || '').trim());
     const hasBilingualTranscript = bilingualTranscriptSegments.length > 0;
     const visibleTranscriptView = hasBilingualTranscript && transcriptView !== 'raw' ? 'bilingual' : 'raw';
     const visibleTranscriptSegments = visibleTranscriptView === 'bilingual' ? bilingualTranscriptSegments : segments;
+    const isTranscriptHydrationPending = !!result?.task_id
+        && !transcriptUnsaved
+        && !isLocalHistoryResult(result)
+        && segments.length === 0
+        && (result.transcript_text || '').length > 0
+        && !hydrationFailed
+        && (!hydratedTaskIdsRef.current.has(result.task_id) || hydratingResult);
+    const isTranscriptHydrationFailed = !!result?.task_id
+        && !transcriptUnsaved
+        && !isLocalHistoryResult(result)
+        && segments.length === 0
+        && (result.transcript_text || '').length > 0
+        && hydrationFailed;
     const canUseStoredSource = !!result?.source_file_available && !!result?.task_id;
     const canUsePlaybackAudio = !!result?.artifacts?.playback_audio && !!result?.task_id;
     const canRetranscribeStoredMedia = !!matchedLocalSourceFile || canUseStoredSource || canUsePlaybackAudio;
@@ -544,7 +526,8 @@ const Editor = () => {
         isLikelyVideoFile(matchedLocalSourceFile || result?.filename)
         && (matchedLocalSourceFile || (result?.task_id && result?.source_file_available))
     );
-    const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0;
+    const canShowVideoReview = isVideoResultSource(result, matchedLocalSourceFile);
+    const canUseVideoReview = canShowVideoReview && mediaKind === 'video' && !!mediaUrl && segments.length > 0;
     const activeReviewMode = canUseVideoReview ? transcriptReviewMode : 'text';
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
@@ -558,12 +541,6 @@ const Editor = () => {
         })()
         : -1;
     const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;
-    const correctionInfo = useMemo(() => transcriptCorrectionInfo(result), [result]);
-    const correctionStatusText = transcriptCorrectionStatusText(correctionInfo, lang);
-    const showCorrectionDisclosure = !!(
-        correctionInfo.ran
-        && (correctionInfo.hasAcceptedCorrections || correctionInfo.status === 'no_changes' || correctionInfo.status === 'completed')
-    );
     const updateMediaCurrentTime = useCallback((time, options={}) => {
         const next = Math.max(0, Number(time) || 0);
         setMediaCurrentTime(next);
@@ -716,6 +693,7 @@ const Editor = () => {
         systemPrompt: resolveSystemPromptFromSettings(settings)||null,
         noteMode: settings.noteMode||'auto',
         speakerDiarization: !!settings.speakerDiarization,
+        generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 
@@ -1022,7 +1000,7 @@ const Editor = () => {
                             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
                             sttStatus: ev.stt_status ?? prev.sttStatus,
                             sttProvider: ev.stt_provider ?? prev.sttProvider,
-                            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+                            cloudAudioSizeMb: ev.elevenlabs_audio_size_mb ?? prev.cloudAudioSizeMb,
                         } : null);
                 if(ev.stage === 'transcript_ready' && ev.result) setLastResult(ev.result);
             });
@@ -1184,267 +1162,34 @@ const Editor = () => {
                                                 </div>
         )}
         {feishuExportPromptOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="feishuExportPromptTitle">
-                <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
-                    <div className="flex items-start gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
-                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white">
-                            <SvgIcon name="cloud_done" className=""/>
-                        </div>
-                        <div className="min-w-0">
-                            <h2 id="feishuExportPromptTitle" className="font-headline text-xl font-extrabold text-[#111111] dark:text-white">
-                                {lang === 'zh' ? '先连接飞书账号' : 'Connect Feishu first'}
-                            </h2>
-                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
-                                {lang === 'zh'
-                                    ? '当前导出路线会写入你自己的飞书空间。连接一次后，之后导出不需要填写 App ID、Secret 或 token。'
-                                    : 'This export route writes to your own Feishu space. Connect once; future exports do not ask for app IDs, secrets, or tokens.'}
-                            </p>
-                            <div className="mt-4 rounded-[16px] border border-[#e4e0e0] bg-[#f8f7fb] p-3 text-xs font-semibold leading-relaxed text-on-surface-variant dark:border-white/[0.12] dark:bg-white/[0.06]">
-                                {lang === 'zh'
-                                    ? '连接完成后回到编辑器，再点击“导出到飞书”。'
-                                    : 'After connecting, return to the editor and click Export to Lark again.'}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex flex-col-reverse gap-3 px-6 py-4 sm:flex-row sm:justify-end">
-                        <button
-                            type="button"
-                            onClick={()=>setFeishuExportPromptOpen(false)}
-                            className="rounded-[13px] bg-[#efeeee] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
-                        >
-                            {t('edit.cancel')}
-                        </button>
-                        <Link
-                            to="/settings#export"
-                            onClick={()=>setFeishuExportPromptOpen(false)}
-                            className="inline-flex items-center justify-center gap-2 rounded-[13px] border border-[#dedada] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:text-white dark:hover:bg-white/[0.10]"
-                        >
-                            <SvgIcon name="settings" className="text-base"/>
-                            {lang === 'zh' ? '去设置页' : 'Open Settings'}
-                        </Link>
-                        <button
-                            type="button"
-                            onClick={connectFeishuForExport}
-                            disabled={feishuExportConnecting}
-                            className="inline-flex items-center justify-center gap-2 rounded-[13px] bg-[#111111] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2a2a2a] disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
-                        >
-                            <SvgIcon name={feishuExportConnecting ? 'sync' : 'cloud_done'} className={`text-base ${feishuExportConnecting ? 'animate-spin' : ''}`}/>
-                            {lang === 'zh' ? '连接飞书' : 'Connect Feishu'}
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <FeishuExportPrompt
+                onCancel={()=>setFeishuExportPromptOpen(false)}
+                onConnect={connectFeishuForExport}
+                connecting={feishuExportConnecting}
+            />
         )}
         {regenerateConfirmOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
-                <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
-                    <div className="flex items-start gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
-                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white">
-                            <SvgIcon name="refresh" className=""/>
-                        </div>
-                        <div className="min-w-0">
-                            <h2 className="font-headline text-xl font-extrabold text-[#111111] dark:text-white">
-                                {t('edit.regenerateConfirmTitle')}
-                            </h2>
-                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
-                                {t('edit.regenerateConfirmDesc')}
-                            </p>
-                            <div className="mt-4 rounded-[16px] border border-[#e4e0e0] bg-[#f8f7fb] p-3 dark:border-white/[0.12] dark:bg-white/[0.06]">
-                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#777] dark:text-white/45">{lang === 'zh' ? '当前转录' : 'Current transcript'}</p>
-                                <p className="truncate text-sm font-bold text-[#111111] dark:text-white">{rawEditorTitle}</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex flex-col-reverse gap-3 px-6 py-4 sm:flex-row sm:justify-end">
-                        <button
-                            type="button"
-                            onClick={()=>setRegenerateConfirmOpen(false)}
-                            className="rounded-[13px] bg-[#efeeee] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
-                        >
-                            {t('edit.cancel')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleRegenerate}
-                            className="inline-flex items-center justify-center gap-2 rounded-[13px] bg-[#111111] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
-                        >
-                            <SvgIcon name="refresh" className="text-base"/>
-                            {t('edit.regenerateConfirmAction')}
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <RegenerateConfirmDialog
+                transcriptTitle={rawEditorTitle}
+                onCancel={()=>setRegenerateConfirmOpen(false)}
+                onConfirm={handleRegenerate}
+            />
         )}
         {retranscribeConfirmOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
-                <div className="w-full max-w-lg overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
-                    <div className="flex items-start gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
-                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ff] text-primary dark:bg-white/[0.08] dark:text-white">
-                            <SvgIcon name="record_voice_over" className=""/>
-                        </div>
-                        <div className="min-w-0">
-                            <h2 className="font-headline text-xl font-extrabold text-[#111111] dark:text-white">
-                                {canRetranscribeStoredMedia ? t('edit.retranscribeConfirmTitle') : t('edit.retranscribeUnavailableTitle')}
-                            </h2>
-                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
-                                {canRetranscribeStoredMedia ? t('edit.retranscribeConfirmDesc') : t('edit.retranscribeUnavailableDesc')}
-                            </p>
-                            <div className="mt-4 rounded-[16px] border border-[#e4e0e0] bg-[#f8f7fb] p-3 dark:border-white/[0.12] dark:bg-white/[0.06]">
-                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#777] dark:text-white/45">{retranscribeSourceLabel}</p>
-                                <p className="truncate text-sm font-bold text-[#111111] dark:text-white">{retranscribeSourceName}</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex flex-col-reverse gap-3 px-6 py-4 sm:flex-row sm:justify-end">
-                        <button
-                            type="button"
-                            onClick={()=>setRetranscribeConfirmOpen(false)}
-                            className="rounded-[13px] bg-[#efeeee] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#e4e0e0] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
-                        >
-                            {t('edit.cancel')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={confirmRetranscribe}
-                            className="inline-flex items-center justify-center gap-2 rounded-[13px] bg-[#111111] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2a2a2a] dark:bg-white dark:text-[#111111] dark:hover:bg-white/85"
-                        >
-                            <SvgIcon name={canRetranscribeStoredMedia ? 'sync' : 'upload_file'} className="text-base"/>
-                            {canRetranscribeStoredMedia ? t('edit.retranscribeConfirmAction') : t('edit.retranscribeChooseAction')}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
-        {correctionDetailsOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
-                <div className="flex max-h-[82vh] w-full max-w-4xl flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
-                    <div className="flex items-start justify-between gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
-                        <div className="min-w-0">
-                            <h2 className="flex items-center gap-2 font-headline text-xl font-extrabold text-[#111111] dark:text-white">
-                                <SvgIcon name="auto_fix_high" className="text-primary"/>
-                                {lang === 'zh' ? '字幕纠错记录' : 'Transcript corrections'}
-                                <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-bold text-primary dark:bg-white/[0.08] dark:text-white">{correctionInfo.corrections.length}</span>
-                            </h2>
-                            <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
-                                {lang === 'zh'
-                                    ? '这里只展示通过后端验证并被接受的高置信修正；编辑器里的转录原文仍保留原始字幕，方便回溯。'
-                                    : 'Only high-confidence corrections accepted by backend validation are shown. The editor transcript still keeps the original subtitles for traceability.'}
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={()=>setCorrectionDetailsOpen(false)}
-                            className="flex h-9 w-9 items-center justify-center rounded-[13px] bg-[#efeeee] text-[#666] transition hover:bg-[#e4e0e0] hover:text-[#111111] dark:bg-white/[0.08] dark:text-white/60 dark:hover:bg-white/[0.12] dark:hover:text-white"
-                        >
-                            <SvgIcon name="close" className="text-lg"/>
-                        </button>
-                    </div>
-                    <div className="flex-1 space-y-4 overflow-y-auto p-5">
-                        {correctionInfo.corrections.length === 0 ? (
-                            <div className="rounded-[18px] bg-[#f8f7fb] px-5 py-8 text-center text-sm font-medium text-[#666] dark:bg-white/[0.06] dark:text-white/60">
-                                {lang === 'zh' ? '没有已接受的字幕修正。' : 'No accepted transcript corrections.'}
-                            </div>
-                        ) : correctionInfo.corrections.map((item, idx) => (
-                            <article key={`${item.segment_index ?? idx}-${item.start ?? ''}`} className="overflow-hidden rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                <div className="flex flex-wrap items-center gap-3 bg-[#f8f7fb] px-4 py-3 text-xs font-semibold text-[#666] dark:bg-white/[0.04] dark:text-white/60">
-                                    <button
-                                        type="button"
-                                        onClick={()=>{ setCorrectionDetailsOpen(false); seekToSegment(item); }}
-                                        className="font-mono font-bold text-primary hover:underline"
-                                    >
-                                        {item.start != null ? fmtTime(item.start) : (lang === 'zh' ? '无时间点' : 'No time')}
-                                    </button>
-                                    <span>#{Number.isFinite(Number(item.segment_index)) ? Number(item.segment_index) + 1 : idx + 1}</span>
-                                    <span>{lang === 'zh' ? '置信度' : 'Confidence'} {formatCorrectionConfidence(item.confidence, lang)}</span>
-                                    {(item.provider || item.model) && <span className="truncate">{[item.provider, item.model].filter(Boolean).join(' · ')}</span>}
-                                </div>
-                                <div className="space-y-3 p-4">
-                                    <div className="grid gap-3 md:grid-cols-2">
-                                        <div className="rounded-[14px] border border-red-500/10 bg-red-50/70 p-3 dark:bg-red-500/10">
-                                            <p className="mb-1 text-[10px] font-bold text-red-600 dark:text-red-300">{lang === 'zh' ? '原始字幕' : 'Original'}</p>
-                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{item.original_text || '-'}</p>
-                                        </div>
-                                        <div className="rounded-[14px] border border-emerald-500/10 bg-emerald-50/80 p-3 dark:bg-emerald-500/10">
-                                            <p className="mb-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">{lang === 'zh' ? '修正后' : 'Corrected'}</p>
-                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{item.corrected_text || '-'}</p>
-                                        </div>
-                                    </div>
-                                    {item.reason && (
-                                        <div className="rounded-[14px] bg-[#f8f7fb] p-3 text-xs font-semibold leading-relaxed text-[#666] dark:bg-white/[0.06] dark:text-white/62">
-                                            <span className="font-bold text-[#111111] dark:text-white">{lang === 'zh' ? '原因：' : 'Reason: '}</span>{item.reason}
-                                        </div>
-                                    )}
-                                </div>
-                            </article>
-                        ))}
-                    </div>
-                </div>
-            </div>
+            <RetranscribeConfirmDialog
+                canRetranscribe={canRetranscribeStoredMedia}
+                sourceLabel={retranscribeSourceLabel}
+                sourceName={retranscribeSourceName}
+                onCancel={()=>setRetranscribeConfirmOpen(false)}
+                onConfirm={confirmRetranscribe}
+            />
         )}
         {editRecordsOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm">
-                <div className="flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-[24px] border border-[#e4e0e0] bg-white shadow-[0_24px_70px_-35px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-[#151515]">
-                    <div className="flex items-start justify-between gap-4 border-b border-[#e4e0e0] px-6 py-5 dark:border-white/[0.12]">
-                        <div className="min-w-0">
-                            <h2 className="flex items-center gap-2 font-headline text-xl font-extrabold text-[#111111] dark:text-white">
-                                <SvgIcon name="edit_note" className="text-primary"/>
-                                {t('edit.editRecordsTitle')}
-                                <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-bold text-primary dark:bg-white/[0.08] dark:text-white">{visibleEditRecords.length}</span>
-                            </h2>
-                            <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">{t('edit.editRecordsDesc')}</p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={()=>setEditRecordsOpen(false)}
-                            className="flex h-9 w-9 items-center justify-center rounded-[13px] bg-[#efeeee] text-[#666] transition hover:bg-[#e4e0e0] hover:text-[#111111] dark:bg-white/[0.08] dark:text-white/60 dark:hover:bg-white/[0.12] dark:hover:text-white"
-                        >
-                            <SvgIcon name="close" className="text-lg"/>
-                        </button>
-                    </div>
-                    <div className="flex-1 space-y-4 overflow-y-auto p-5">
-                        {visibleEditRecords.length === 0 ? (
-                            <div className="rounded-[18px] bg-[#f8f7fb] px-5 py-8 text-center text-sm font-medium text-[#666] dark:bg-white/[0.06] dark:text-white/60">
-                                {t('edit.editRecordsEmpty')}
-                            </div>
-                        ) : visibleEditRecords.map((record, idx) => (
-                            <article key={`${record.index}-${record.start}-${idx}`} className="overflow-hidden rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                <div className="flex items-center gap-3 bg-[#f8f7fb] px-4 py-3 dark:bg-white/[0.04]">
-                                    <button
-                                        type="button"
-                                        onClick={()=>{ setEditRecordsOpen(false); seekToSegment(record); }}
-                                        className="font-mono text-xs font-bold text-primary hover:underline"
-                                    >
-                                        {fmtTime(record.start || 0)}
-                                    </button>
-                                    <span className="text-xs font-semibold text-[#777] dark:text-white/45">#{record.index + 1}</span>
-                                </div>
-                                <div className="space-y-3 p-4">
-                                    <div className="grid gap-3 md:grid-cols-2">
-                                        <div className="rounded-[14px] border border-red-500/10 bg-red-50/70 p-3 dark:bg-red-500/10">
-                                            <p className="mb-1 text-[10px] font-bold text-red-600 dark:text-red-300">{t('edit.before')}</p>
-                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{record.before}</p>
-                                        </div>
-                                        <div className="rounded-[14px] border border-green-500/10 bg-green-50/80 p-3 dark:bg-green-500/10">
-                                            <p className="mb-1 text-[10px] font-bold text-green-700 dark:text-green-300">{t('edit.after')}</p>
-                                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#111111] dark:text-white">{record.after}</p>
-                                        </div>
-                                    </div>
-                                    <div className="grid gap-3 text-xs text-[#666] dark:text-white/60 md:grid-cols-2">
-                                        <div className="rounded-[14px] bg-[#f8f7fb] p-3 dark:bg-white/[0.06]">
-                                            <p className="mb-1 font-bold text-[#111111] dark:text-white">{t('edit.previousSentence')}</p>
-                                            <p className="whitespace-pre-wrap leading-relaxed">{record.previous_before || record.previous_after || '-'}</p>
-                                        </div>
-                                        <div className="rounded-[14px] bg-[#f8f7fb] p-3 dark:bg-white/[0.06]">
-                                            <p className="mb-1 font-bold text-[#111111] dark:text-white">{t('edit.nextSentence')}</p>
-                                            <p className="whitespace-pre-wrap leading-relaxed">{record.next_before || record.next_after || '-'}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </article>
-                        ))}
-                    </div>
-                </div>
-            </div>
+            <EditRecordsDialog
+                records={visibleEditRecords}
+                onClose={()=>setEditRecordsOpen(false)}
+                onSeek={(record)=>{ setEditRecordsOpen(false); seekToSegment(record); }}
+            />
         )}
         <input
             ref={retranscribeInputRef}
@@ -1587,7 +1332,7 @@ const Editor = () => {
                                             </div>
                                         </div>
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                            {segments.length > 0 && (
+                                            {canShowVideoReview && segments.length > 0 && (
                                                 <div className="inline-flex h-9 items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                                     <button
                                                         type="button"
@@ -1670,31 +1415,6 @@ const Editor = () => {
                                             />
                                         </div>
                                     </div>
-                                    {showCorrectionDisclosure && (
-                                        <div className="mt-3 flex flex-col gap-2 rounded-[16px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.08] sm:flex-row sm:items-center sm:justify-between">
-                                            <div className="flex min-w-0 items-start gap-2">
-                                                <SvgIcon name="auto_fix_high" className="mt-0.5 flex-shrink-0 text-[15px] text-primary dark:text-white"/>
-                                                <p className="min-w-0 text-xs font-semibold leading-relaxed text-[#4b5563] dark:text-white/72">
-                                                    {correctionStatusText}
-                                                    {correctionInfo.hasAcceptedCorrections && (
-                                                        <span className="ml-1 text-[#666] dark:text-white/55">
-                                                            {lang === 'zh' ? '转录原文保留未覆盖。' : 'Original transcript remains traceable.'}
-                                                        </span>
-                                                    )}
-                                                </p>
-                                            </div>
-                                            {correctionInfo.corrections.length > 0 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={()=>setCorrectionDetailsOpen(true)}
-                                                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[12px] border border-[#c7d2fe] bg-white px-3 text-[12px] font-extrabold text-primary transition hover:bg-[#f8f7fb] dark:border-white/[0.14] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
-                                                >
-                                                    <SvgIcon name="visibility" className="text-sm"/>
-                                                    {lang === 'zh' ? '查看修正' : 'View corrections'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
                                 </div>
                         {activeReviewMode === 'video' && currentVideoSegment ? (
                             <div className="min-h-0 flex-1 overflow-hidden p-4">
@@ -1813,7 +1533,35 @@ const Editor = () => {
                                         />
                                     </div>
                                         </div>
-                                )) : (
+                                )) : isTranscriptHydrationPending ? (
+                                    <div className="flex min-h-[320px] items-center justify-center rounded-[16px] border border-dashed border-outline-variant bg-surface-container-low px-4 py-8 text-center">
+                                        <div className="max-w-[28rem]">
+                                            <SvgIcon name="sync" className="mx-auto mb-3 h-5 w-5 animate-spin text-primary"/>
+                                            <p className="text-sm font-bold text-on-surface">
+                                                {lang === 'zh' ? '正在加载逐段转录' : 'Loading timestamped transcript'}
+                                            </p>
+                                            <p className="mt-1 text-xs font-semibold leading-relaxed text-on-surface-variant">
+                                                {lang === 'zh'
+                                                    ? '刚从最近活动打开时会先读取轻量缓存，完整时间戳分段正在从处理记录补全。'
+                                                    : 'FluentFlow opened a lightweight cached result first and is restoring the full timestamped segments from the processing record.'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : isTranscriptHydrationFailed ? (
+                                    <div className="flex min-h-[320px] items-center justify-center rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-8 text-center text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+                                        <div className="max-w-[30rem]">
+                                            <SvgIcon name="info" className="mx-auto mb-3 h-5 w-5 text-amber-600 dark:text-amber-200"/>
+                                            <p className="text-sm font-bold">
+                                                {lang === 'zh' ? '完整逐段转录还没加载出来' : 'Full timestamped transcript did not load'}
+                                            </p>
+                                            <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-800 dark:text-amber-100/75">
+                                                {lang === 'zh'
+                                                    ? '当前只拿到了浏览器缓存预览，不能当作完整转录编辑。请回到处理记录刷新，或稍后重新打开结果。'
+                                                    : 'Only a cached preview is available, so this is not safe to edit as the full transcript. Refresh processing records or reopen the result later.'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
                                     <div className="min-h-full flex flex-col gap-2">
                                         <div className="flex items-center gap-2 rounded-[12px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 dark:border-white/[0.12] dark:bg-white/[0.08]">
                                             <SvgIcon name="info" className="text-primary text-[15px] flex-shrink-0"/>
@@ -1941,10 +1689,14 @@ const Editor = () => {
                                                 {divider:true},
                                                 {icon:'picture_as_pdf', label:t('dl.pdf'), badge:'PDF', disabled:!summary, onClick:async()=>{
                                                     setDownloading('pdf');
-                                                    try{ await dlSummaryPdf(summaryRef,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                                    try{ await dlSummaryPdf(summary,resultDownloadName); recordDownload('summary_downloaded','pdf'); showToast(t('dl.pdfPrintOpened')); }catch(e){showToast(e.message,false);}
                                                     finally{setDownloading(null);}
                                                 }},
-                                                {icon:'article', label:t('dl.word'), badge:'DOC', disabled:!summary, onClick:()=>{dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','doc'); showToast(t('dl.success'));}},
+                                                {icon:'article', label:t('dl.word'), badge:'DOCX', disabled:!summary, onClick:async()=>{
+                                                    setDownloading('docx');
+                                                    try{ await dlSummaryWord(summary,resultDownloadName); recordDownload('summary_downloaded','docx'); showToast(t('dl.success')); }catch(e){showToast(e.message,false);}
+                                                    finally{setDownloading(null);}
+                                                }},
                                             ]}
                                         />
                                     </div>
@@ -1987,6 +1739,71 @@ const Editor = () => {
                                     </div>
                                 ) : (
                                     <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summaryPending')}</p>
+                                )}
+                                {visualKeyMoments.length > 0 && (
+                                    <section className="mt-8 rounded-[18px] border border-[#d8ebe2] bg-[#f7fbf8] p-4 text-[#111111] dark:border-emerald-300/20 dark:bg-emerald-300/[0.06] dark:text-white">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <h3 className="flex items-center gap-2 font-headline text-sm font-extrabold">
+                                                    <SvgIcon name="visibility" className="text-base text-emerald-700 dark:text-emerald-300"/>
+                                                    {lang === 'zh' ? '关键画面复查' : 'Key visual moments'}
+                                                </h3>
+                                                <p className="mt-1 text-xs font-semibold leading-relaxed text-[#5f6f67] dark:text-white/60">
+                                                    {lang === 'zh'
+                                                        ? '这些画面适合回看图表、代码、界面、公式或流程；正文只保留已插入笔记的高置信插图。'
+                                                        : 'Use these frames to revisit charts, code, UI, formulas, or flows. The note body only keeps high-confidence inline evidence.'}
+                                                </p>
+                                            </div>
+                                            <span className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:border-emerald-300/20 dark:bg-white/[0.06] dark:text-emerald-200">
+                                                {visualKeyMoments.length}
+                                            </span>
+                                        </div>
+                                        <div className="mt-4 grid gap-3">
+                                            {visualKeyMoments.map((moment, index) => {
+                                                const timeLabel = moment.timestamp == null ? '' : fmtTime(moment.timestamp);
+                                                const title = moment.caption || moment.noteSection || (lang === 'zh' ? `关键画面 ${index + 1}` : `Visual moment ${index + 1}`);
+                                                return (
+                                                    <article key={moment.id} className="grid gap-3 rounded-[16px] border border-[#dfe7e2] bg-white/80 p-3 shadow-[0_10px_28px_-24px_rgba(17,17,17,.45)] sm:grid-cols-[132px_minmax(0,1fr)] dark:border-white/[0.10] dark:bg-white/[0.05] dark:shadow-none">
+                                                        {moment.imageUrl ? (
+                                                            <img
+                                                                src={moment.imageUrl}
+                                                                alt={title}
+                                                                loading="lazy"
+                                                                className="h-[82px] w-full rounded-[12px] border border-black/5 object-cover sm:h-full dark:border-white/[0.08]"
+                                                            />
+                                                        ) : (
+                                                            <div className="flex h-[82px] items-center justify-center rounded-[12px] border border-dashed border-[#cbd9d0] bg-[#edf6f0] text-xs font-bold text-[#5f6f67] sm:h-full dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white/50">
+                                                                {lang === 'zh' ? '无预览图' : 'No preview'}
+                                                            </div>
+                                                        )}
+                                                        <div className="min-w-0 space-y-2">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                {timeLabel && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={()=>seekMediaTo(moment.timestamp)}
+                                                                        className="inline-flex h-7 items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 font-mono text-[11px] font-bold text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-200 dark:hover:bg-emerald-300/15"
+                                                                        title={lang === 'zh' ? '跳到这个时间点' : 'Jump to this timestamp'}
+                                                                    >
+                                                                        {timeLabel}
+                                                                    </button>
+                                                                )}
+                                                                {moment.noteSection && (
+                                                                    <span className="min-w-0 truncate rounded-full border border-[#e4e0e0] bg-[#fbfbfb] px-2.5 py-1 text-[11px] font-bold text-[#666] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/60" title={moment.noteSection}>
+                                                                        {moment.noteSection}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-sm font-extrabold leading-snug text-[#111111] dark:text-white">{title}</p>
+                                                            {moment.reason && (
+                                                                <p className="text-xs font-semibold leading-relaxed text-[#59635e] dark:text-white/60">{moment.reason}</p>
+                                                            )}
+                                                        </div>
+                                                    </article>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
                                 )}
                                 </div>
                                 <div className="flex justify-end border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">

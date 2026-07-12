@@ -9,6 +9,7 @@ const AccessGate = ({children}) => {
     const [authMode, setAuthMode] = useState('open');
     const [allowSignups, setAllowSignups] = useState(false);
     const [bootstrapRequired, setBootstrapRequired] = useState(false);
+    const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
     const [user, setUser] = useState(null);
     const [guestTrial, setGuestTrial] = useState(null);
     const [guestMode, setGuestMode] = useState(false);
@@ -33,28 +34,43 @@ const AccessGate = ({children}) => {
             setAuthenticated(!nextRequired || !!data.authenticated || nextGuestAllowed);
             setAllowSignups(!!data.allow_signups);
             setBootstrapRequired(!!data.bootstrap_required);
+            setGoogleOAuthEnabled(!!data.google_oauth_enabled);
             setUser(data.user || null);
             setGuestTrial(nextGuestTrial);
             setGuestMode(nextGuestAllowed);
             if (data.bootstrap_required) setFormMode('register');
-        } catch(_) {
+        } catch {
             setAuthMode('accounts');
             setRequired(true);
             setAuthenticated(false);
             setUser(null);
             setGuestTrial(null);
             setGuestMode(false);
+            setGoogleOAuthEnabled(false);
         } finally {
             setChecking(false);
         }
     }, []);
 
     useEffect(() => { refreshStatus(); }, [refreshStatus]);
+    useEffect(() => {
+        const params = new window.URLSearchParams(window.location.search || '');
+        const authError = params.get('auth_error');
+        if (!authError) return;
+        setError(authError);
+        params.delete('auth_error');
+        const nextSearch = params.toString();
+        window.history.replaceState(
+            {},
+            '',
+            `${window.location.pathname || '/'}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`,
+        );
+    }, []);
 
     const logout = useCallback(async () => {
         try {
             await apiFetch(`${API_BASE}/auth/logout`, {method:'POST'});
-        } catch(_) {}
+        } catch {}
         setAccessToken('');
         setToken('');
         setUser(null);
@@ -116,12 +132,34 @@ const AccessGate = ({children}) => {
         }
     };
 
+    const startGoogleLogin = async () => {
+        setError('');
+        setSubmitting(true);
+        try {
+            const current = `${window.location.pathname || '/app'}${window.location.search || ''}`;
+            const nextUrl = current === '/' ? '/app' : current;
+            const r = await apiFetch(`${API_BASE}/auth/google/start`, {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({next_url: nextUrl}),
+            });
+            const data = await r.json().catch(()=>({}));
+            if(!r.ok || !data.authorize_url) {
+                throw new Error(data.detail || (lang === 'zh' ? '无法开始 Google 登录' : 'Unable to start Google sign-in'));
+            }
+            window.location.assign(data.authorize_url);
+        } catch(err) {
+            setError(err.message || (lang === 'zh' ? '无法开始 Google 登录' : 'Unable to start Google sign-in'));
+            setSubmitting(false);
+        }
+    };
+
     if (checking) {
         return (
             <div className="flex min-h-dvh items-center justify-center bg-[#f8f7fb] px-6 text-sm font-semibold text-[#676970] dark:bg-[#101010] dark:text-white/55">
                 <div className="flex items-center gap-3 rounded-[18px] border border-[#dedada] bg-white px-4 py-3 shadow-[0_18px_48px_-36px_rgba(17,17,17,.45)] dark:border-white/[0.12] dark:bg-white/[0.06]">
                     <span className="h-2 w-2 rounded-full bg-[#111111] dark:bg-white"/>
-                    {lang === 'zh' ? '正在检查访问权限…' : 'Checking access…'}
+                    {lang === 'zh' ? '正在打开 FluentFlow…' : 'Opening FluentFlow…'}
                 </div>
             </div>
         );
@@ -137,6 +175,7 @@ const AccessGate = ({children}) => {
 
     const accountFlow = authMode === 'accounts';
     const registerMode = accountFlow && formMode === 'register';
+    const showGoogleLogin = accountFlow && googleOAuthEnabled;
     const title = accountFlow
         ? (registerMode
             ? (bootstrapRequired ? (lang === 'zh' ? '创建管理员账号' : 'Create admin account') : (lang === 'zh' ? '创建账号' : 'Create account'))
@@ -172,6 +211,26 @@ const AccessGate = ({children}) => {
                     </p>
                 </div>
                 <div className="px-6 py-5">
+                {showGoogleLogin && (
+                    <div className="mb-5">
+                        <button
+                            type="button"
+                            onClick={startGoogleLogin}
+                            disabled={submitting}
+                            className="flex h-12 w-full items-center justify-center gap-3 rounded-[15px] border border-[#dedada] bg-white px-5 text-sm font-bold text-[#171717] transition hover:bg-[#f5f5f5] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]"
+                        >
+                            <span className="flex size-6 items-center justify-center rounded-full bg-white text-[15px] font-black text-[#4285f4] shadow-[inset_0_0_0_1px_rgba(0,0,0,.08)] dark:bg-white">
+                                G
+                            </span>
+                            {lang === 'zh' ? '使用 Google 继续' : 'Continue with Google'}
+                        </button>
+                        <div className="my-5 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.12em] text-[#9a9ba1] dark:text-white/35">
+                            <span className="h-px flex-1 bg-[#ece8e8] dark:bg-white/[0.10]"/>
+                            {lang === 'zh' ? '或' : 'or'}
+                            <span className="h-px flex-1 bg-[#ece8e8] dark:bg-white/[0.10]"/>
+                        </div>
+                    </div>
+                )}
                 {accountFlow ? (
                     <div className="space-y-4">
                         <div className="space-y-2">

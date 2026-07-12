@@ -20,6 +20,11 @@ def test_request_scope_requires_localhost_header_and_allowed_route() -> None:
     assert request_scope.request_is_local_execution(_request("/agent/v1/tasks/task/package")) is True
     assert request_scope.request_is_local_execution(_request("/jobs/task")) is True
     assert request_scope.request_is_local_execution(_request("/process")) is True
+    # Regression: the multi-file queue submission and queued transcript summary
+    # endpoints must be local-executable like /process, otherwise local
+    # single-user mode gets 401 when queueing multiple files.
+    assert request_scope.request_is_local_execution(_request("/queue/process")) is True
+    assert request_scope.request_is_local_execution(_request("/summarize-transcript-file")) is True
     assert request_scope.request_is_local_execution(_request("/runtime-config")) is False
     assert request_scope.request_is_local_execution(_request("/jobs/task", local=False)) is False
     assert request_scope.request_is_local_execution(_request("/jobs/task", host="cloud.example.com")) is False

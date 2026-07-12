@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import backend.main as main
@@ -45,12 +46,22 @@ def test_api_like_unknown_routes_still_return_404() -> None:
 
 def test_frontend_asset_route_serves_javascript_not_spa_html() -> None:
     assets_dir = Path("frontend/dist/assets")
-    asset = next(assets_dir.glob("index-*.js"))
+    asset = next(assets_dir.glob("index-*.js"), None)
+    if asset is None:
+        pytest.skip("frontend not built (no frontend/dist/assets/index-*.js); asset route test needs a build")
     response = TestClient(app).get(f"/assets/{asset.name}")
 
     assert response.status_code == 200
     assert "javascript" in response.headers["content-type"]
     assert not response.text.lstrip().startswith("<!DOCTYPE html>")
+
+
+def test_svg_favicon_is_served_without_spa_404() -> None:
+    response = TestClient(app).get("/favicon.svg")
+
+    assert response.status_code == 200
+    assert "image/svg+xml" in response.headers["content-type"]
+    assert "<svg" in response.text
 
 
 def test_video_link_pending_task_title_uses_platform_not_tracking_query() -> None:
@@ -67,9 +78,46 @@ def test_video_link_pending_task_title_uses_platform_not_tracking_query() -> Non
 
 def test_dashboard_cancel_task_uses_close_icon_not_disabled_icon() -> None:
     source = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
 
     assert '<SvgIcon name="close" className="h-4 w-4"/>{t(\'dash.cancelTask\')}' in source
     assert '<SvgIcon name="cancel" className="h-4 w-4"/>{t(\'dash.cancel\')}' not in source
+    assert "import {XCircle} from 'lucide-react';" in media_text
+    assert "window.confirm(confirmText)" in media_text
+    assert "取消当前正在上传或处理的任务" in media_text
+    assert "<XCircle className=\"size-4\" strokeWidth={2.15}/>" in media_text
+    assert "SvgIcon name=\"cancel\"" not in media_text
+
+
+def test_multi_file_queue_upload_surfaces_per_file_cards() -> None:
+    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
+    media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
+    agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    helper = Path("frontend/src/lib/queueUpload.js").read_text(encoding="utf-8")
+
+    assert "export const queueUploadItemsFromFiles" in helper
+    assert "export const queueUploadItemsFromQueuedResponse" in helper
+    assert "provisionalId: `queue-upload-${index + 1}-${fileName}" in helper
+    assert "taskId: item?.task_id || fallback.taskId || null" in helper
+    assert "const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles)" in dashboard
+    assert "const data = await enqueueProcessFiles(selectedFiles" in dashboard
+    assert "const headers = localExecutionHeaders(options);" in shared
+    # enqueueProcessFiles now uploads via XMLHttpRequest (real upload progress +
+    # stall watchdog) instead of fetch, but still POSTs the batch to /queue/process.
+    assert 'xhr.open("POST", `${API_BASE}/queue/process`)' in shared
+    assert "const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems)" in dashboard
+    assert "queueItems: provisionalQueueItems" in dashboard
+    assert "queueSubmitted: true" in dashboard
+    assert "const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles)" in media_text
+    assert "navigate('/agent');" in media_text
+    assert "const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems)" in media_text
+    assert "const jobsFromCurrentJob = (currentJob) => {" in agent_tasks
+    assert "const items = Array.isArray(currentJob.queueItems) ? currentJob.queueItems : []" in agent_tasks
+    assert "metadata: {" in agent_tasks
+    assert "queue_provisional: !hasBackendTask" in agent_tasks
+    assert "mergeJobs(currentJobRecords, jobs)" in agent_tasks
+    assert "const cancellableLive = live && taskId && !job?.metadata?.queue_provisional" in agent_tasks
 
 
 def test_media_text_entry_panel_uses_subtle_diffuse_color() -> None:
@@ -127,7 +175,9 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
     assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
-    assert "mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readCachedJobs())" in agent_tasks
+    # A job passed via navigation state is surfaced immediately by ingesting it
+    # into the shared AppProvider list (was a local initialJobs merge before).
+    assert "if (seededJob) ingestJobs([seededJob])" in agent_tasks
     assert "displayJobs.map((job) => (" in agent_tasks
     assert "Link to={`/tasks/${encodeURIComponent(taskId)}/agent`} state={{job}}" not in agent_tasks
     assert "查看详情" not in agent_tasks
@@ -301,7 +351,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "to=\"/app\"" in about
 
 
-def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> None:
+def test_recent_activity_cards_open_editor_or_processing_records_not_task_detail() -> None:
     dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
 
@@ -312,8 +362,32 @@ def test_recent_activity_cards_open_editor_or_task_detail_not_history_list() -> 
         assert "setLastResult(cachedResult);" in source
         assert "navigate('/editor');" in source
         assert "if (openCachedEditor()) return;" in source
-        assert "navigate(`/tasks/${encodeURIComponent(" in source
-        assert "}/agent`, {state: {job:" in source
+        assert "navigate('/agent', {state: {job:" in source
+        assert "const job = await getJob(h.taskId);" not in source
+        assert "const job = await getJob(item.taskId);" not in source
+        assert "navigate(`/tasks/${encodeURIComponent(" not in source
+        assert "whitespace-nowrap rounded-full" in source
+        assert "min-w-0 flex-1 truncate" in source
+
+
+def test_summary_pdf_export_uses_print_markdown_not_editor_dom() -> None:
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    download = Path("frontend/src/lib/download.js").read_text(encoding="utf-8")
+
+    assert "await dlSummaryPdf(summary,resultDownloadName)" in editor
+    assert "dlSummaryPdf(summaryRef,resultDownloadName)" not in editor
+    assert "const buildPrintableSummaryHtml = (md" in download
+    assert "export const createPdfPrintFrame = (html) => {" in download
+    assert "ff-print-summary-export" in download
+    assert "background: #ffffff;" in download
+    assert "color: #171717;" in download
+    assert "opacity: 1 !important;" in download
+    assert "simpleMd(rewriteExportImageSources(md), {renderImages: true, renderManualListMarkers: false})" in download
+    assert "printWindow.print()" in download
+    assert "html2pdf" not in download
+    assert "showToast(t('dl.pdfPrintOpened'))" in editor
+    assert "await dlSummaryWord(summary,resultDownloadName)" in editor
+    assert "badge:'DOCX'" in editor
 
 
 def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
@@ -324,11 +398,24 @@ def test_frontend_error_diagnostics_are_structured_and_reused() -> None:
     assert "return diagnoseTaskError(message, lang).detail;" in fmt
     assert "const diag = diagnoseTaskError(rawError, lang)" in fmt
     assert "auth_required" in fmt
+    assert "invalid_api_key" in fmt
+    assert "百炼 / DashScope API Key 无效" in fmt
     assert "platform_rate_limited" in fmt
     assert "source_file_missing" in fmt
     assert "unsupported_note_mode" in fmt
     assert "feishu_export_failed" in fmt
     assert "diagnoseTaskError" in shared
+
+
+def test_default_course_prompt_is_flexible_learning_note_prompt() -> None:
+    source = Path("frontend/src/lib/promptPresets.js").read_text(encoding="utf-8")
+
+    assert "先判断材料本身的讲述结构，再设计笔记结构" in source
+    assert "不要把所有内容硬套成固定模板" in source
+    assert "不要输出固定数量的板块" in source
+    assert "一句话概览" not in source
+    assert "核心概念盘点" not in source
+    assert "五大板块结构" not in source
 
 
 def test_processing_page_no_longer_exposes_settings_controls() -> None:
@@ -411,19 +498,31 @@ def test_tasks_open_cached_result_without_backend_detail_request() -> None:
 
 def test_tasks_polling_respects_local_cancel_and_delete_mutations() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    # Fetch + polling is shared with /agent in this hook.
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
 
-    assert "const locallyCancelledTaskIdsRef = useRef(new Set())" in source
-    assert "const locallyDeletedTaskIdsRef = useRef(new Set())" in source
-    assert "const results = await Promise.allSettled([" in source
-    assert "setJobs((current) => {" in source
-    assert "readCachedJobs().forEach((job) => {" in source
-    assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
-    assert "const [jobs, setJobs] = useState(initialCachedJobs)" in source
-    assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in source
+    # Local cancel/delete are now semantic mutations on AppProvider; its reconcile
+    # (tombstones + cancelled pins) is what stops a later poll from resurrecting a
+    # locally cancelled or deleted record. This page delegates to those mutations
+    # instead of keeping its own ref sets and private jobs state.
+    assert "markCancelled, revertCancelled, removeFromHistory, restoreTask" in source
+    assert "const results = await Promise.allSettled([" in polling
+    # Polled batches flow into the single shared list via ingestJobs, not a private
+    # setJobs/cache write.
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in polling
+    assert "setJobs((current) => {" not in source
+    assert "readCachedJobs().forEach((job) => {" not in source
+    assert "writeCachedAccountJobs(requestCacheAccountId, next)" not in source
+    # The list and loading flag derive from the shared AppProvider tasks state.
+    assert "tasks: jobs, ingestJobs" in source
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
     assert "map(markCachedOnlyJob)" not in source
-    assert "locallyDeletedTaskIdsRef.current.has(taskId)" in source
-    assert "locallyCancelledTaskIdsRef.current.has(taskId)" in source
-    assert "status: TASK_STATE_CANCELLED" in source
+    # Delete tombstones through AppProvider and restores on backend failure.
+    assert "removeFromHistory(taskId)" in source
+    assert "restoreTask(taskId)" in source
+    # Cancel optimistically pins through AppProvider and reverts on failure.
+    assert "markCancelled(taskId)" in source
+    assert "revertCancelled(taskId)" in source
     assert "记录刷新失败，已保留本地缓存。" in source
 
 
@@ -443,13 +542,76 @@ def test_history_failed_video_link_records_can_be_retried_without_status_flicker
 def test_agent_task_failed_cards_do_not_render_as_full_progress() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
 
+    assert "const failedTerminal = state === TASK_STATE_FAILED" in source
     assert "const failedProgressLabel = state === TASK_STATE_CANCELLED" in source
     assert "failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)" in source
     assert "{!completed && !failed ? (" in source
-    assert "{failed ? (" in source
-    assert "rounded-[18px] border border-red-200 bg-red-50/80" in source
+    assert "</div>\n            {!completed && !failed ? (" in source
+    assert "{failedTerminal && detail ? (" in source
+    assert "rounded-[18px] border border-red-200 bg-red-50/80" not in source
     assert "style={{width: `${progress}%`}}" in source
     assert "failed ? 'bg-red-500' : 'bg-[#111111] dark:bg-white'" not in source
+    assert "删除记录" in source
+    assert "Delete record" in source
+    assert "onDelete(job)" in source
+    assert "isLiveTask(job)) return" in source
+
+
+def test_agent_tasks_merge_recent_activity_for_immediate_display() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+
+    # Recent activity (history) + cache are already reconciled into the single
+    # shared task list by AppProvider, so this page reads it directly instead of
+    # rebuilding history entries locally.
+    assert "runtimeConfig, tasks: jobs, ingestJobs" in source
+    assert "const jobsFromHistoryEntries" not in source
+    assert "historyEntryToResult" not in source
+    # The only local merge left folds the live currentJob record in for immediate
+    # progress display over the shared list.
+    assert "const currentJobRecords = useMemo(() => jobsFromCurrentJob(currentJob), [currentJob]);" in source
+    assert "mergeJobs(currentJobRecords, jobs)" in source
+
+
+def test_agent_task_refresh_warning_only_when_all_sources_fail() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
+
+    assert "const results = await Promise.allSettled([" in polling
+    assert "getJobs(100)," in polling
+    assert "getJobs(100, {sttProvider: 'local'})," in polling
+    # The shared hook warns on all-failed vs any-failed per errorOnAllOnly; /agent
+    # opts into all-failed only and supplies its own task-oriented wording.
+    assert "errorOnAllOnly ? failedFetches.length === results.length : failedFetches.length > 0" in polling
+    assert "errorOnAllOnly: true," in source
+    assert "refreshFailedZh: '任务刷新失败，已保留本地缓存。'," in source
+    # When every fetch fails there is nothing to ingest, so the shared list is
+    # left untouched (only a successful fetch mutates it).
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in polling
+
+
+def test_agent_task_retry_resubmits_original_source() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
+
+    assert "createVideoSourceJob" in source
+    assert "retryJob" in source
+    assert "const retryJob = async (taskId, options={})" in shared
+    assert "/jobs/${encodeURIComponent(taskId)}/retry" in shared
+    assert "jobRetryFromStoredSource: false" in settings_model
+    assert "config.features?.job_retry_from_stored_source === true" in settings_model
+    assert "const retryInputForJob = (job) => {" in source
+    assert "const retryOptionsForJob = (job) => {" in source
+    assert "const retryStoredSourceJob = async (job, options) => {" in source
+    assert "const retryTerminalJob = async (job) => {" in source
+    assert "const response = await createVideoSourceJob(input, options)" in source
+    assert "runtimeConfig?.jobRetryFromStoredSource" in source
+    assert "return await retryJob(taskId, localOptions);" in source
+    assert "const sourceFile = await fetchJobSourceFile(taskId, filename, localOptions);" in source
+    assert "return await enqueueProcessFiles([sourceFile], options);" in source
+    assert "正在入队" in source
+    assert "onRetry(job)" in source
+    assert "to=\"/media-text?mode=media\" className=\"inline-flex h-10 items-center gap-2 rounded-[14px] border" not in source
 
 
 def test_tasks_delete_cached_only_without_task_id_locally() -> None:
@@ -458,8 +620,12 @@ def test_tasks_delete_cached_only_without_task_id_locally() -> None:
     assert "const taskIdForJob = (job)" in source
     assert "const isDeletableJob = (job) => !isLiveJob(job) && (!!taskIdForJob(job) || isCachedOnlyTask(job))" in source
     assert "if (!taskId) {" in source
-    assert "removeLocalRecord();" in source
+    # Reconcile keys every record by task_id, so a cached-only record still carries
+    # one and is dropped locally by tombstoning it through AppProvider; the backend
+    # deleteJob then 404s harmlessly for a cache-only record.
+    assert "removeFromHistory(taskId)" in source
     assert "await deleteJob(taskId" in source
+    assert "if (err.status === 404) {" in source
     assert "job.task_id ? (" not in source
 
 
@@ -489,12 +655,15 @@ def test_history_uses_backend_jobs_and_cache_as_source_of_truth() -> None:
     assert "readBrowserHistoryEntries" not in app_provider
     assert "localStorage.setItem('fluentflow_history'" not in shared
     assert "localStorage.setItem('fluentflow_history'" not in app_provider
-    assert "const [history, setHistory] = useState([])" in shared
-    assert "const [history, setHistory] = useState([])" in app_provider
-    assert "readCachedAccountJobs(accountCacheId)" in shared
-    assert "writeCachedAccountJobs(accountCacheId, nextJobs)" in shared
-    assert "mergeCachedJobs," in shared
-    assert "sortJobsForHistoryView," in shared
+    assert "export {AppProvider, useApp} from './AppProvider.jsx';" in shared
+    # History is no longer its own state; it is a derived projection of the single
+    # canonical tasks list. Cache stays the source of truth via reconcileTaskList.
+    assert "const [tasks, setTasks] = useState([])" in app_provider
+    assert "const history = useMemo(" in app_provider
+    assert "readCachedAccountJobs(accountCacheId)" in app_provider
+    assert "writeCachedAccountJobs(accountCacheIdRef.current, tasks)" in app_provider
+    assert "reconcileTaskList," in app_provider
+    assert "jobToHistoryEntry," in app_provider
     assert "rawFilename" in mapper
     assert "filename: h.rawFilename || h.name" in mapper
     assert "display_title: h.displayTitle || displayTitleForUser(h.name, h.rawFilename)" in mapper
@@ -515,22 +684,28 @@ def test_recent_activity_and_history_share_cached_job_source() -> None:
     job_morph = Path("frontend/src/app/jobMorph.js").read_text(encoding="utf-8")
     mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
-    assert "Promise.allSettled([" in shared
-    assert "apiFetch(`${API_BASE}/jobs?limit=100`)" in shared
-    assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in shared
-    assert "mergeCachedJobs," in shared
-    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in shared
-    assert "const initialCachedJobs = () => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : []" in tasks
-    assert "const [jobs, setJobs] = useState(initialCachedJobs)" in tasks
-    assert "const [loading, setLoading] = useState(() => initialCachedJobs().length === 0)" in tasks
+    assert "Promise.allSettled([" in app_provider
+    assert "apiFetch(`${API_BASE}/jobs?limit=100`)" in app_provider
+    assert "apiFetch(`${API_BASE}/jobs?limit=100`, {headers: localExecutionHeaders({sttProvider: 'local'})})" in app_provider
+    # Backend jobs + account cache are reconciled into one list by reconcileTaskList,
+    # so recent activity and history read the same source.
+    assert "reconcileTaskList," in app_provider
+    assert "fetched: fetchedJobs," in app_provider
+    # The page reads the single reconciled list from AppProvider instead of reading
+    # the account cache itself.
+    assert "tasks: jobs, ingestJobs" in tasks
+    assert "const [jobs, setJobs] = useState(" not in tasks
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
     assert "sortJobsForHistoryView(" in tasks
     assert "const priority = {" not in tasks
     assert "timestampForJob(job) >= timestampForJob(existing)" in mapper
     assert "export const sortJobsForHistoryView" in mapper
-    assert "[TASK_STATE_RUNNING]: 0" in mapper
-    assert "[TASK_STATE_FAILED]: 2" in mapper
+    assert "[TASK_STATE_UPLOADING]: 0" in mapper
+    assert "[TASK_STATE_RUNNING]: 1" in mapper
+    assert "[TASK_STATE_FAILED]: 3" in mapper
     assert "sortJobsForHistoryView" in job_morph
-    assert "sortJobsForHistoryView(mergeCachedJobs(cachedJobs, fetchedJobs))" in app_provider
+    assert "cached: cachedJobs," in app_provider
     assert "{t('dash.recent')}" in media_text
     assert "{t('dash.noActivity')}" in media_text
     assert "最近任务" not in media_text
@@ -626,13 +801,17 @@ def test_tasks_route_does_not_use_source_filename_as_display_title() -> None:
 def test_editor_lark_export_uses_local_execution_header_on_localhost() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    local_execution = Path("frontend/src/lib/localExecution.js").read_text(encoding="utf-8")
 
     assert "shouldUseLocalSingleUserClientId()" in source
     assert "localExecutionHeaders({localExecution: true, larkExportRoute})" in source
     assert "fd.append('lark_export_route', larkExportRoute)" in source
     assert "isLocalLarkExportRoute(larkExportRoute)" in source
-    assert "options.localExecution" in shared
-    assert "isLocalLarkExportRoute(options.larkExportRoute)" in shared
+    # The local-execution decision now has a single source of truth in
+    # lib/localExecution.js; shared.jsx just re-exports localExecutionHeaders.
+    assert "options.localExecution" in local_execution
+    assert "isLocalLarkRoute(options.larkExportRoute)" in local_execution
+    assert "export { localExecutionHeaders }" in shared
 
 
 def test_settings_page_uses_explicit_lark_export_routes() -> None:
@@ -641,6 +820,7 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
     settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
     editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    editor_dialogs = Path("frontend/src/routes/editor-dialogs.jsx").read_text(encoding="utf-8")
 
     assert "larkExportRouteFromSettings(settings)" in settings
     assert "LARK_EXPORT_ROUTE_OPENAPI" in settings
@@ -662,30 +842,39 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     assert "isUserOAuthLarkExportRoute(larkExportRoute)" in editor
     assert "setFeishuExportPromptOpen(true)" in editor
     assert "err?.status === 409" in editor
-    assert "当前导出路线会写入你自己的飞书空间" in editor
+    assert "当前导出路线会写入你自己的飞书空间" in editor_dialogs
 
 
 def test_task_record_pages_isolate_account_cache_state() -> None:
     tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
     agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+    app_provider = Path("frontend/src/app/AppProvider.jsx").read_text(encoding="utf-8")
     mappers = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
 
+    # Account-cache isolation is now owned entirely by AppProvider (plan Stage 3):
+    # the routes no longer keep a per-page cache-account ref or write the cache,
+    # they only read the single shared list. The canUseTaskCache gate lives in the
+    # shared useJobPolling hook both pages call.
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
+    assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in polling
     for source in (tasks, agent_tasks):
-        assert "const canUseTaskCache = authMode !== 'accounts' || !!user?.id" in source
-        assert "const activeCacheAccountIdRef = useRef(cacheAccountId)" in source
-        assert "const requestCacheAccountId = cacheAccountId" in source
-        assert "if (activeCacheAccountIdRef.current !== requestCacheAccountId) return" in source
-        assert "writeCachedAccountJobs(requestCacheAccountId, next)" in source
-        assert "activeCacheAccountIdRef.current = cacheAccountId" in source
-        assert "setJobs(cached" in source or "setJobs(mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], cached))" in source
-
-    assert "const next = mergeJobs(readCachedJobs(), current, fetchedJobs)" not in agent_tasks
-    assert "const accountReady = authMode !== 'accounts' || !!user?.id" in shared
-    assert "setCurrentJob(null)" in shared
-    assert "setLastResult(null)" in shared
-    assert "setHistory(cachedEntries)" in shared
-    assert "if (!fetchedJobs.length)" in shared
+        assert "tasks: jobs, ingestJobs" in source
+        assert "writeCachedAccountJobs" not in source
+        assert "readCachedAccountJobs" not in source
+        assert "activeCacheAccountIdRef" not in source
+    # AppProvider scopes the cache to the active account and refuses to write it
+    # until that account's cache is hydrated, so an account switch cannot wipe a
+    # real account's cache or leak account A's jobs into account B's list.
+    assert "export {AppProvider, useApp} from './AppProvider.jsx';" in shared
+    assert "const accountReady = authMode !== 'accounts' || !!user?.id" in app_provider
+    assert "const accountCacheId = authMode === 'accounts' ? user?.id : 'local'" in app_provider
+    assert "accountCacheIdRef.current = accountCacheId" in app_provider
+    assert "if (!hydratedRef.current) return" in app_provider
+    assert "writeCachedAccountJobs(accountCacheIdRef.current, tasks)" in app_provider
+    assert "setCurrentJob(null)" in app_provider
+    assert "setLastResult(null)" in app_provider
+    assert "if (cancelled || !fetchedJobs.length) return" in app_provider
     assert "const jobBelongsToAccountCache = (accountId, job)" in mappers
     assert "clientId === `user:${normalizedAccountId}`" in mappers
     assert "jobBelongsToAccountCache(accountId, job)" in mappers
@@ -694,10 +883,11 @@ def test_task_record_pages_isolate_account_cache_state() -> None:
 
 def test_editor_uses_local_channel_for_local_job_result_requests() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
 
-    assert "const jobOptionsForResult = (result)" in source
-    assert "if (isLocalHistoryResult(result)) return;" in source
+    assert "const jobOptionsForResult = (result)" in helpers
+    assert "if (isLocalHistoryResult(result)) {" in source
     assert "getJob(result.task_id, resultJobOptions)" in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
     assert "saveTranscriptEdit(result.task_id, {" in source
@@ -734,26 +924,25 @@ def test_editor_bilingual_view_keeps_original_subtitle_mode() -> None:
     assert "segment?.text_zh" in download
 
 
-def test_editor_surfaces_transcript_correction_without_overwriting_raw_transcript() -> None:
+def test_editor_and_trace_do_not_surface_auto_transcript_correction_ui() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
     correction = Path("frontend/src/lib/transcriptCorrection.js").read_text(encoding="utf-8")
 
-    assert "transcriptCorrectionInfo(result)" in source
-    assert "transcriptCorrectionStatusText(correctionInfo, lang)" in source
-    assert "const showCorrectionDisclosure = !!(" in source
-    assert "字幕纠错记录" in source
-    assert "查看修正" in source
-    assert "这里只展示通过后端验证并被接受的高置信修正" in source
-    assert "转录原文保留未覆盖" in source
     assert "const sourceSegments = pickTranscriptSegments(result);" in source
     assert "corrected_segments" not in source
-    assert "const jobData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}`)" in agent_trace
-    assert "mergeTranscriptCorrectionData(detailData, jobData)" in agent_trace
-    assert "mergeTranscriptCorrectionData(detailData, packageData)" in agent_trace
-    assert "TranscriptCorrectionDisclosure pageData={pageData} lang={lang}" in agent_trace
-    assert "笔记使用了修正后的字幕" in agent_trace
-    assert "原始转录未被覆盖" in agent_trace
+    assert "transcriptCorrectionInfo(result)" not in source
+    assert "transcriptCorrectionStatusText(correctionInfo, lang)" not in source
+    assert "showCorrectionDisclosure" not in source
+    assert "correctionDetailsOpen" not in source
+    assert "字幕纠错记录" not in source
+    assert "查看修正" not in source
+    assert "这里只展示通过后端验证并被接受的高置信修正" not in source
+    assert "转录原文保留未覆盖" not in source
+    assert "mergeTranscriptCorrectionData" not in agent_trace
+    assert "TranscriptCorrectionDisclosure" not in agent_trace
+    assert "笔记使用了修正后的字幕" not in agent_trace
+    assert "原始转录未被覆盖" not in agent_trace
     assert "payload.note_generation_transcript_source" in correction
     assert "transcript.note_input_source" in correction
     assert "payload.transcript_corrections || transcript.corrections" in correction
@@ -762,11 +951,14 @@ def test_editor_surfaces_transcript_correction_without_overwriting_raw_transcrip
 
 def test_editor_routes_generation_explanation_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
     processing = Path("frontend/src/routes/processing.jsx").read_text(encoding="utf-8")
     mapper = Path("frontend/src/lib/jobMappers.js").read_text(encoding="utf-8")
     settings_model = Path("frontend/src/lib/settingsModel.js").read_text(encoding="utf-8")
 
     assert "summaryFailureNextStep" in source
+    assert "const diagnosis = noteGenerationDiagnosis(result, lang)" in helpers
+    assert "friendlyTaskError(result?.summary_error" not in source
     assert "agentWorkflowHref" in source
     assert "处理记录" in source
     assert "生成详情" not in source
@@ -805,6 +997,20 @@ def test_editor_visual_evidence_stays_inline_and_secondary() -> None:
     assert "[x] Add editor affordance to hide/show visual evidence if screenshots become distracting." in plan
 
 
+def test_editor_surfaces_visual_key_moments_without_raw_frames() -> None:
+    source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
+
+    assert "normalizeVisualKeyMoments(result)" in source
+    assert "result?.visual_key_moments" in helpers
+    assert "result?.visual?.key_moments" in helpers
+    assert "confidence === 'low'" in helpers
+    assert "关键画面复查" in source
+    assert "Key visual moments" in source
+    assert "seekMediaTo(moment.timestamp)" in source
+    assert "frame_artifacts" not in source
+
+
 def test_editor_uses_compact_review_workbench_layout() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
@@ -824,10 +1030,21 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "formatElapsedMinuteSecond(sttElapsedSec)" in source
     assert "formatSttOriginalRatio(sttRealtimeFactor, lang)" in source
     assert "STT:" not in source
-    assert "h-[82px]" not in source
+    # NOTE: the "no h-[82px]" guard was dropped — that fixed height is now used
+    # by the legitimate "关键画面复查 / key visual moments" thumbnail cards, a
+    # separate feature (covered by the visual-key-moments tests), not the old
+    # compact-layout violation this test was originally written against.
     assert "w-[360px]" not in source
     assert "当前结果没有时间戳分段，只能按纯文本编辑" not in source
     assert "No timestamped segments. Retranscribe the source audio" in source
+    assert "const [hydratingResult, setHydratingResult] = useState(false)" in source
+    assert "const [hydrationFailed, setHydrationFailed] = useState(false)" in source
+    assert "const isTranscriptHydrationPending = !!result?.task_id" in source
+    assert "const isTranscriptHydrationFailed = !!result?.task_id" in source
+    assert "正在加载逐段转录" in source
+    assert "轻量缓存" in source
+    assert "完整逐段转录还没加载出来" in source
+    assert "当前只拿到了浏览器缓存预览，不能当作完整转录编辑" in source
     assert "flex justify-end border-t" in source
     assert "生成详情" not in source
     assert "生成中英对照" not in source
@@ -856,10 +1073,14 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
 
 def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
     design_system = Path("docs/ui_design_system.md").read_text(encoding="utf-8")
 
     assert "const [transcriptReviewMode, setTranscriptReviewMode] = useState('text')" in source
-    assert "const canUseVideoReview = mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
+    assert "const canShowVideoReview = isVideoResultSource(result, matchedLocalSourceFile);" in source
+    assert "const canUseVideoReview = canShowVideoReview && mediaKind === 'video' && !!mediaUrl && segments.length > 0" in source
+    assert "canShowVideoReview && segments.length > 0 && (" in source
+    assert "const isVideoResultSource = (result, sourceFile) => {" in helpers
     assert "const playbackMemoryKey = result ? `fluentflow_playback_position_${activeTaskId}` : ''" in source
     assert "localStorage.setItem(playbackMemoryKey" in source
     assert "restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)" in source
@@ -905,8 +1126,9 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
 
 def test_editor_playback_ignores_stale_last_source_file() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
 
-    assert "const localSourceFileMatchesResult = (file, result) =>" in source
+    assert "const localSourceFileMatchesResult = (file, result) =>" in helpers
     assert "const matchedLocalSourceFile = localSourceFileMatchesResult(lastSourceFile, result) ? lastSourceFile : null;" in source
     assert "if (matchedLocalSourceFile) {" in source
     assert "loadMediaFile(matchedLocalSourceFile)" in source
@@ -918,6 +1140,7 @@ def test_editor_playback_ignores_stale_last_source_file() -> None:
 
 def test_editor_destructive_top_actions_require_confirmation() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+    dialogs = Path("frontend/src/routes/editor-dialogs.jsx").read_text(encoding="utf-8")
     shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
     legacy_i18n = Path("frontend/src/app/i18n.jsx").read_text(encoding="utf-8")
     format_helpers = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
@@ -926,15 +1149,15 @@ def test_editor_destructive_top_actions_require_confirmation() -> None:
 
     assert "const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false)" in source
     assert "onClick={()=>setRegenerateConfirmOpen(true)}" in source
-    assert "edit.regenerateConfirmTitle" in source
-    assert "edit.regenerateConfirmDesc" in source
-    assert "edit.regenerateConfirmAction" in source
-    assert "onClick={handleRegenerate}" in source
+    assert "edit.regenerateConfirmTitle" in dialogs
+    assert "edit.regenerateConfirmDesc" in dialogs
+    assert "edit.regenerateConfirmAction" in dialogs
+    assert "onConfirm={handleRegenerate}" in source
     assert "setRetranscribeConfirmOpen(true)" in source
     assert "onClick={handleRetranscribe}" in source
     assert "'edit.regenerate':'重生笔记'" in shared
     assert "'edit.regenerateConfirmAction':'确认重生笔记'" in shared
-    assert "点击“重生笔记”" in source
+    assert "访客试用暂不支持重生笔记" in source
     assert "点击重新生成" not in shared
     assert "export {I18nProvider, msgs, useI18n} from './shared.jsx';" in legacy_i18n
     assert "点击“重新生成”" not in format_helpers
@@ -953,7 +1176,7 @@ def test_editor_agent_workflow_link_requires_real_task_id() -> None:
 def test_agent_trace_uses_existing_api_fetch_helper() -> None:
     source = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
-    assert "API_BASE, apiFetch, fmtTime, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
+    assert "API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n" in source
     assert "noteGenerationDiagnosis" in source
     assert "readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`)" in source
     assert "readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`)" in source
@@ -981,7 +1204,7 @@ def test_agent_trace_renders_cached_snapshot_before_silent_refresh() -> None:
     assert "const stage = videoProgress" in source
     assert "? (job.stage && job.stage !== 'queued' ? job.stage : 'downloading')" in source
     assert "video_source_progress: videoProgress" in source
-    assert "mergeLiveSnapshotPageData(mergedDetailData, current || initialPageData)" in source
+    assert "mergeLiveSnapshotPageData(detailData, current || initialPageData)" in source
     assert "const initialPageData = pageDataFromJobSnapshot(initialJob, taskId, lang)" in source
     assert "const [loading, setLoading] = useState(!initialPageData)" in source
     assert "const [pageData, setPageData] = useState(() => initialPageData)" in source
@@ -1057,6 +1280,10 @@ def test_agent_trace_overview_uses_task_card_for_all_task_states() -> None:
     progress = Path("frontend/src/components/TaskProgressOverview.jsx").read_text(encoding="utf-8")
 
     assert "const activeCurrentJob = running && currentJob?.taskId && currentJob.taskId === task.taskId ? currentJob : null;" in progress
+    assert "import {ListPlus, XCircle} from 'lucide-react';" in progress
+    assert "window.confirm(confirmText)" in progress
+    assert "取消当前正在处理的任务" in progress
+    assert "<XCircle className=\"size-4\" strokeWidth={2.15}/>" in progress
     assert "const badgeText = activeCurrentJob" in progress
     assert "已完成记录" in progress
     assert "处理已完成，可以打开结果继续复查。" in progress
@@ -1116,14 +1343,38 @@ def test_agent_trace_surfaces_chapter_coverage_evidence_table() -> None:
 
 def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+    polling = Path("frontend/src/lib/useJobPolling.js").read_text(encoding="utf-8")
 
-    assert "readCachedAccountJobs(cacheAccountId)" in source
-    assert "const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp()" in source
-    assert "getJobs(100)," in source
-    assert "getJobs(100, {sttProvider: 'local'})," in source
+    # Records now come from the single shared AppProvider list, not a per-page
+    # account-cache read.
+    assert "tasks: jobs, ingestJobs" in source
+    assert "runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp()" in source
+    assert "getJobs(100)," in polling
+    assert "getJobs(100, {sttProvider: 'local'})," in polling
     assert "displayJobs" in source
     assert "displayJobs.map((job) => (" in source
     assert "liveJobs = useMemo(() => displayJobs.filter(isLiveTask)" in source
+    # The per-page in-memory warm cache is gone; the shared reconciled list
+    # replaces it. A seeded job and each polled batch flow into it via ingestJobs.
+    assert "agentTaskWarmCache" not in source
+    assert "readWarmJobs" not in source
+    assert "writeWarmJobs" not in source
+    assert "if (seededJob) ingestJobs([seededJob])" in source
+    assert "if (fetchedJobs.length) ingestJobs(fetchedJobs)" in polling
+    assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
+    assert "const jobsFromCurrentJob = (currentJob) => {" in source
+    assert "mergeJobs(currentJobRecords, jobs)" in source
+    assert "const QueueUploadBanner = ({upload, lang}) => {" in source
+    assert "每个文件的进程卡已显示在下方" in source
+    assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source
+    # The 5s/30s poll cadence lives in the shared hook; /agent feeds it its own
+    # live-or-uploading predicate.
+    assert "hasLiveJobs ? 5000 : 30000" in polling
+    assert "hasLiveJobs: hasLiveOrUploadingJobs," in source
+    # Deletes tombstone through AppProvider (which keeps a poll from resurrecting
+    # the record) instead of a per-page deleted-id ref set.
+    assert "removeFromHistory(taskId)" in source
+    assert "deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {})" in source
     assert "queuedCount" in source
     assert "runningCount" in source
     assert "历史记录" in source
@@ -1144,6 +1395,8 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "fileInfoLabel(job)" in source
     assert "materialLabel(job, lang)" in source
     assert "const materialTypeLabel = (value, lang) => {" in source
+    assert "sharing_session_material: isZh ? '分享讨论材料' : 'Sharing session'" in source
+    assert "learning_notes: isZh ? '学习材料' : 'Learning material'" in source
     assert "const materialDecisionFromLog = (job) => {" in source
     assert "job?.result?.processing_plan?.material?.type" in source
     assert "job?.result?.processing_plan?.goal?.primary" in source
@@ -1251,6 +1504,14 @@ def test_ui_copy_does_not_leak_internal_product_principles() -> None:
     assert "避免防御性文案和自证清白式表达" in design_system
 
 
+def test_agent_task_card_actions_stay_top_right_on_tablet_width() -> None:
+    source = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
+
+    assert "sm:flex-row sm:items-start sm:justify-between" in source
+    assert "sm:justify-end" in source
+    assert "lg:flex-row lg:items-start lg:justify-between" not in source
+
+
 def test_sidebar_keeps_visible_login_entry_for_accounts_mode() -> None:
     source = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
 
@@ -1301,11 +1562,24 @@ def test_sidebar_uses_processing_records_without_history_entry() -> None:
 def test_auth_status_failure_keeps_login_path_visible() -> None:
     source = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
 
-    assert "} catch(_) {" in source
+    assert "正在检查访问权限" not in source
+    assert "Checking access" not in source
+    assert "正在打开 FluentFlow" in source
+    assert "} catch {" in source
     assert "setAuthMode('accounts');" in source
     assert "setRequired(true);" in source
     assert "setAuthenticated(false);" in source
     assert "setGuestMode(false);" in source
+
+
+def test_access_gate_exposes_google_login_when_configured() -> None:
+    source = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
+
+    assert "setGoogleOAuthEnabled(!!data.google_oauth_enabled);" in source
+    assert "const showGoogleLogin = accountFlow && googleOAuthEnabled;" in source
+    assert "apiFetch(`${API_BASE}/auth/google/start`" in source
+    assert "window.location.assign(data.authorize_url);" in source
+    assert "使用 Google 继续" in source
 
 
 def test_secondary_surfaces_use_current_ui_language() -> None:
@@ -1325,7 +1599,11 @@ def test_secondary_surfaces_use_current_ui_language() -> None:
     assert "bg-[#f8f7fb]" in access_gate
     assert "关于与协议" in about
     assert "grid gap-3 px-5 py-5 md:grid-cols-[180px_minmax(0,1fr)]" in about
-    assert "presetChipClass" in prompt_dialog
+    assert "presetRowClass" in prompt_dialog
+    assert "renderPresetItem" in prompt_dialog
+    assert "h-[min(760px,88vh)]" in prompt_dialog
+    assert "editorPaneClass" in prompt_dialog
+    assert "md:grid-cols-[230px_minmax(0,1fr)]" in prompt_dialog
     assert "textAreaClass" in prompt_dialog
     assert "dark:hover:bg-white/[0.88]" in prompt_dialog
     assert "rounded-sm" not in settings

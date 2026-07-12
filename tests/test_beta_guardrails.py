@@ -125,15 +125,6 @@ def test_duration_limit_error_can_be_disabled(monkeypatch) -> None:
     assert _H._duration_limit_error(120, "demo.mp4") is None
 
 
-def test_friendly_error_message_translates_common_azure_errors() -> None:
-    message = (
-        'Azure Batch transcription submit failed: HTTP 400 { "code": "InvalidRequest", '
-        '"message": "Only \\"Standard\\" subscriptions for the region of the called service are valid." }'
-    )
-
-    assert "Standard 订阅" in _H._friendly_error_message(message)
-
-
 def test_friendly_error_message_keeps_video_link_failures_actionable() -> None:
     assert "直接上传视频文件" in _H._friendly_error_message("暂时无法自动解析这个视频链接，请上传视频文件")
 
@@ -177,69 +168,6 @@ def test_public_mode_allows_localhost_to_choose_local_transcription(monkeypatch)
     assert _H._normalize_stt_provider("local", request) == "local"
 
 
-def test_cloud_workspace_keeps_local_capability_routes_on_localhost(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
-
-    runtime_request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/runtime-config",
-        "headers": [],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    cloud_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_video_source_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/video-sources/jobs",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_job_events_request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/jobs/task-local/events",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    local_jobs_request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/jobs",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("127.0.0.1", 8000),
-    })
-    remote_local_process_request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": "/process",
-        "headers": [(b"x-fluentflow-execution-target", b"local")],
-        "server": ("cloud.example.com", 443),
-    })
-
-    assert _H._should_proxy_cloud_workspace(runtime_request) is False
-    assert _H._should_proxy_cloud_workspace(local_process_request) is False
-    assert _H._should_proxy_cloud_workspace(local_video_source_request) is False
-    assert _H._should_proxy_cloud_workspace(local_job_events_request) is False
-    assert _H._should_proxy_cloud_workspace(cloud_process_request) is True
-    assert _H._request_is_local_execution(local_process_request) is True
-    assert _H._request_is_local_execution(local_jobs_request) is True
-    assert _H._request_is_local_execution(remote_local_process_request) is False
-
-
 def test_local_status_routes_are_public_only_on_localhost() -> None:
     local_request = Request({
         "type": "http",
@@ -263,7 +191,6 @@ def test_local_status_routes_are_public_only_on_localhost() -> None:
 def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCOUNT_AUTH", "1")
     monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
-    monkeypatch.delenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", raising=False)
     request = Request({
         "type": "http",
         "method": "POST",
@@ -282,7 +209,6 @@ def test_local_execution_bypasses_account_middleware_on_localhost(monkeypatch) -
 
 
 def test_local_history_candidates_endpoint_is_removed(monkeypatch) -> None:
-    monkeypatch.setenv("FLUENTFLOW_CLOUD_WORKSPACE_URL", "https://cloud.example.com")
 
     with TestClient(main.app) as client:
         response = client.get("/local-history/candidates?limit=20")
@@ -305,6 +231,23 @@ def test_explicit_provider_allowlist_preserves_local_dev(monkeypatch) -> None:
 
     assert _H._allowed_stt_providers() == ("local", "elevenlabs_scribe")
     assert _H._normalize_stt_provider(None) == "local"
+
+
+def test_explicit_cloud_allowlist_still_allows_local_dev_choice(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_PUBLIC_MODE", raising=False)
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "elevenlabs_scribe")
+
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/process",
+        "headers": [(b"x-fluentflow-execution-target", b"local")],
+        "server": ("127.0.0.1", 8000),
+    })
+
+    assert _H._allowed_stt_providers(request) == ("elevenlabs_scribe", "local")
+    assert _H._normalize_stt_provider("local", request) == "local"
 
 
 def test_active_job_limit_blocks_new_work_but_allows_same_task(monkeypatch) -> None:
@@ -519,6 +462,7 @@ def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None
     assert payload["public_mode"] is True
     assert payload["allowed_stt_providers"] == ["elevenlabs_scribe"]
     assert payload["show_maintainer_settings"] is False
+    assert payload["features"]["job_retry_from_stored_source"] is True
     assert "key" not in str(payload).lower()
 
 
@@ -532,14 +476,14 @@ def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp
             "status": "running",
             "client_id": "client-a",
             "source_filename": "ok.mp4",
-            "metadata": {"queue_options": {"stt_provider": "azure_batch"}, "source_path": str(source_path)},
+            "metadata": {"queue_options": {"stt_provider": "elevenlabs_scribe"}, "source_path": str(source_path)},
         },
         {
             "task_id": "task-missing",
             "status": "queued",
             "client_id": "client-a",
             "source_filename": "missing.mp4",
-            "metadata": {"queue_options": {"stt_provider": "azure_batch"}, "source_path": str(tmp_path / "missing.mp4")},
+            "metadata": {"queue_options": {"stt_provider": "elevenlabs_scribe"}, "source_path": str(tmp_path / "missing.mp4")},
         },
     ]
     updates: list[dict] = []
@@ -564,7 +508,7 @@ def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> Non
             "client_id": client_id,
             "metadata": {
                 "route": "/queue/process",
-                "queue_options": {"stt_provider": "azure_batch"},
+                "queue_options": {"stt_provider": "elevenlabs_scribe"},
                 "source_path": "/var/lib/fluentflow/sources/task/source.mp4",
             },
         },
@@ -578,7 +522,7 @@ def test_job_metadata_update_preserves_queue_recovery_fields(monkeypatch) -> Non
     )
 
     assert metadata["route"] == "/process"
-    assert metadata["queue_options"] == {"stt_provider": "azure_batch"}
+    assert metadata["queue_options"] == {"stt_provider": "elevenlabs_scribe"}
     assert metadata["source_path"] == "/var/lib/fluentflow/sources/task/source.mp4"
     assert metadata["source_fingerprint"] == {"sha256": "abc"}
 
@@ -591,7 +535,7 @@ def test_ops_status_reports_stale_jobs_without_secret_values(tmp_path, monkeypat
     monkeypatch.setenv("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", str(tmp_path / "edited"))
     monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", str(tmp_path / "edit-records"))
     monkeypatch.setenv("FLUENTFLOW_VIDEO_SOURCE_DIR", str(tmp_path / "videos"))
-    monkeypatch.setenv("AZURE_SPEECH_KEY", "super-secret-value")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "super-secret-value")
     monkeypatch.setattr(
         _H,
         "list_jobs",

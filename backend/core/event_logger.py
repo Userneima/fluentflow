@@ -14,10 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.core.runtime_paths import default_event_db_path
+
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "fluentflow_events.sqlite"
+DEFAULT_DB_PATH = default_event_db_path()
 
 EVENT_COLUMNS = [
     "event_id",

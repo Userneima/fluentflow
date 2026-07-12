@@ -10,7 +10,6 @@ const normalizeExecutionSttProvider = (provider) => {
     const value = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
     if (value === 'local') return 'local';
     if (value === 'cloud' || value === 'cloud_stt' || value === 'elevenlabs' || value === 'elevenlabs_scribe' || value === 'scribe' || value === 'scribe_v2') return 'elevenlabs_scribe';
-    if (value === 'azure_batch') return 'azure_batch';
     return 'elevenlabs_scribe';
 };
 
@@ -20,7 +19,12 @@ const isLocalLarkRoute = (route) => {
 };
 
 export const shouldUseLocalExecution = (options={}) => (
+    // On localhost single-user everything runs locally, so mark every request as
+    // local execution regardless of STT provider — otherwise cloud-STT requests
+    // are not exempted from account auth and get 401. The backend still verifies
+    // the request originates from localhost, so public deployments are unaffected.
     !!options.localExecution
+    || shouldUseLocalSingleUserClientId()
     || normalizeExecutionSttProvider(options.sttProvider) === 'local'
     || isLocalLarkRoute(options.larkExportRoute)
     || !!options.larkViaCli

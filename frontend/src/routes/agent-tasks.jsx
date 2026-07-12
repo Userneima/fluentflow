@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router-dom';
 import {
     AlertCircle,
@@ -9,6 +9,7 @@ import {
     Plus,
     RefreshCw,
     SlidersHorizontal,
+    Trash2,
     XCircle,
 } from 'lucide-react';
 import {
@@ -20,13 +21,10 @@ import {
     jobDisplayTitle,
     jobToHistoryEntry,
     jobToCurrentJob,
-    readCachedAccountJobs,
     sortJobsForHistoryView,
     useApi,
     useApp,
-    useAuth,
     useI18n,
-    writeCachedAccountJobs,
 } from '../app/shared.jsx';
 import {
     isLiveTask,
@@ -40,10 +38,56 @@ import {
     TASK_STATE_CANCELLED,
     TASK_STATE_CACHED_ONLY,
 } from '../lib/taskState.js';
+import {useJobPolling} from '../lib/useJobPolling.js';
 
 const taskIdForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
 
 const isLocalJob = (job) => String(job?.client_id || '').startsWith('local-') || job?.metadata?.stt_provider === 'local';
+
+const retryInputForJob = (job) => {
+    const metadata = job?.metadata || {};
+    const videoSource = metadata.video_source || {};
+    return String(
+        metadata.video_source_input_preview
+        || videoSource.source_url
+        || videoSource.url
+        || videoSource.webpage_url
+        || metadata.raw_input
+        || ''
+    ).trim();
+};
+
+const retryOptionsForJob = (job) => {
+    const queueOptions = job?.metadata?.queue_options;
+    const metadata = job?.metadata || {};
+    const base = queueOptions && typeof queueOptions === 'object' ? queueOptions : metadata;
+    return {
+        exportToLark: base.export_to_lark === true || base.export_to_lark === 'true',
+        larkExportRoute: base.lark_export_route,
+        larkViaCli: base.lark_via_cli === true || base.lark_via_cli === 'true',
+        skipSummary: base.skip_summary === true || base.skip_summary === 'true',
+        aiProvider: base.ai_provider,
+        aiModel: base.ai_model,
+        noteMode: base.note_mode,
+        promptPreset: base.prompt_preset,
+        promptPresetLabel: base.prompt_preset_label,
+        sttProvider: base.stt_provider,
+        sttModel: base.stt_model,
+        sttSpeed: base.stt_speed,
+        sttLanguage: base.stt_language || 'auto',
+        speakerDiarization: base.speaker_diarization === true || base.speaker_diarization === 'true',
+    };
+};
+
+const mediaSourceForJob = (job) => {
+    const sourceType = String(job?.source_type || job?.result?.source || '').toLowerCase();
+    const filename = String(job?.source_filename || job?.result?.filename || '').toLowerCase();
+    if (sourceType === 'video_link') return 'video_link';
+    if (sourceType === 'transcript_file') return 'transcript_file';
+    if (sourceType === 'audio_file' || /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i.test(filename)) return 'media_file';
+    if (sourceType === 'video_file' || sourceType === 'queue_upload' || /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(filename)) return 'media_file';
+    return '';
+};
 
 const formatTaskDateTime = (value, lang) => {
     const date = new Date(value || '');
@@ -106,28 +150,37 @@ const taskProcessingTimeLabel = (job, lang) => {
     return lang === 'zh' ? `${elapsedLabel}（处理耗时）` : `${elapsedLabel} elapsed`;
 };
 
-const jobFromCurrentJob = (currentJob) => {
-    if (!currentJob) return null;
+const jobsFromCurrentJob = (currentJob) => {
+    if (!currentJob) return [];
     if (currentJob.queueUpload) {
-        return {
-            task_id: currentJob.taskId || 'queue-upload',
-            status: TASK_STATE_UPLOADING,
-            task_state: TASK_STATE_UPLOADING,
-            stage: 'upload',
-            progress: currentJob.progress ?? 2,
-            source_type: 'queue_upload',
-            source_filename: currentJob.fileName,
-            source_file_size_mb: currentJob.fileSizeMb,
-            created_at: currentJob.startedAt ? new Date(currentJob.startedAt).toISOString() : new Date().toISOString(),
-            metadata: {
-                display_title: currentJob.fileName,
-                queue_total: currentJob.queueTotal,
-                stt_provider: currentJob.sttProvider || null,
-            },
-        };
+        const items = Array.isArray(currentJob.queueItems) ? currentJob.queueItems : [];
+        return items.map((item, index) => {
+            const taskId = item.taskId || item.task_id || item.provisionalId || `queue-upload-${index + 1}`;
+            const fileName = item.fileName || item.filename || taskId;
+            const hasBackendTask = !!(item.taskId || item.task_id);
+            const taskState = item.taskState || item.status || (hasBackendTask ? TASK_STATE_QUEUED : TASK_STATE_UPLOADING);
+            return {
+                task_id: taskId,
+                status: taskState,
+                task_state: taskState,
+                stage: item.stage || (hasBackendTask ? 'queued' : currentJob.stage || 'upload'),
+                progress: item.progress ?? (hasBackendTask ? 0 : currentJob.progress ?? 2),
+                source_type: item.sourceType || item.source_type || currentJob.sourceType || null,
+                source_filename: fileName,
+                source_file_size_mb: item.fileSizeMb ?? item.source_file_size_mb ?? null,
+                created_at: currentJob.startedAt ? new Date(currentJob.startedAt).toISOString() : new Date().toISOString(),
+                metadata: {
+                    display_title: fileName,
+                    queue_position: item.queuePosition || item.queue_position || index + 1,
+                    queue_total: item.queueTotal || item.queue_total || currentJob.queueTotal || items.length,
+                    queue_provisional: !hasBackendTask,
+                    stt_provider: currentJob.sttProvider || null,
+                },
+            };
+        });
     }
-    if (!currentJob.taskId) return null;
-    return {
+    if (!currentJob.taskId) return [];
+    return [{
         task_id: currentJob.taskId,
         status: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : TASK_STATE_RUNNING),
         task_state: currentJob.taskState || (currentJob.stage === 'done' ? 'completed' : TASK_STATE_RUNNING),
@@ -142,7 +195,7 @@ const jobFromCurrentJob = (currentJob) => {
             stt_provider: currentJob.sttProvider || null,
             video_source_progress: currentJob.videoSourceProgress || null,
         },
-    };
+    }];
 };
 
 const mergeJobs = (...groups) => {
@@ -236,7 +289,6 @@ const routeLabel = (job, lang) => {
     );
     if (provider === 'local') return lang === 'zh' ? '本地转写' : 'Local STT';
     if (provider === 'elevenlabs_scribe') return lang === 'zh' ? 'ElevenLabs 云端' : 'ElevenLabs cloud';
-    if (provider === 'azure_batch') return lang === 'zh' ? '历史云端' : 'Legacy cloud';
     return lang === 'zh' ? '按任务决定' : 'Task default';
 };
 
@@ -255,11 +307,20 @@ const materialTypeLabel = (value, lang) => {
         course_transcript_file: isZh ? '课程字幕文件' : 'Course subtitle file',
         course_material: isZh ? '课程材料' : 'Course material',
         lecture_material: isZh ? '讲座材料' : 'Lecture material',
+        sharing_session_material: isZh ? '分享讨论材料' : 'Sharing session',
+        interview_material: isZh ? '访谈材料' : 'Interview material',
+        meeting_material: isZh ? '会议材料' : 'Meeting material',
+        research_material: isZh ? '研究材料' : 'Research material',
+        briefing_material: isZh ? '资料解读材料' : 'Briefing material',
+        training_material: isZh ? '培训材料' : 'Training material',
+        learning_material: isZh ? '学习材料' : 'Learning material',
         course_video_pending_content: isZh ? '待转录课程视频' : 'Course video pending transcript',
         lecture_video_pending_content: isZh ? '待转录讲座视频' : 'Lecture video pending transcript',
+        learning_material_pending_content: isZh ? '待判断学习材料' : 'Learning material pending transcript',
         course_or_lecture_pending_content: isZh ? '学习材料' : 'Learning material',
         course_notes: isZh ? '课程材料' : 'Course material',
         lecture_notes: isZh ? '讲座材料' : 'Lecture material',
+        learning_notes: isZh ? '学习材料' : 'Learning material',
         course: isZh ? '课程材料' : 'Course material',
         lecture: isZh ? '讲座材料' : 'Lecture material',
         interview: isZh ? '访谈材料' : 'Interview material',
@@ -310,18 +371,61 @@ const statePillClass = (state) => {
     return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200';
 };
 
-const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, onOpenResult}) => {
+const QueueUploadBanner = ({upload, lang}) => {
+    if (!upload?.queueUpload || upload?.queueSubmitted) return null;
+    const count = Number(upload.queueTotal || 0) || 1;
+    const progress = Math.max(0, Math.min(100, Number(upload.progress) || 2));
+    const totalSize = upload.fileSizeMb ? fmtFileSize(upload.fileSizeMb) : '';
+    return (
+        <section className="rounded-[20px] border border-blue-200 bg-blue-50/80 p-4 shadow-[0_16px_42px_-36px_rgba(17,17,17,.45)] dark:border-blue-400/20 dark:bg-blue-400/10 dark:shadow-none">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                    <p className="inline-flex items-center gap-2 text-[12px] font-extrabold text-blue-700 dark:text-blue-200">
+                        <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/>
+                        {lang === 'zh' ? '正在接收上传批次' : 'Receiving upload batch'}
+                    </p>
+                    <h2 className="mt-2 font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
+                        {lang === 'zh' ? `${count} 个文件正在上传` : `${count} files are uploading`}
+                    </h2>
+                    <p className="mt-1 text-[13px] font-semibold leading-5 text-[#57585d] dark:text-white/64">
+                        {lang === 'zh'
+                            ? '每个文件的进程卡已显示在下方，上传提交完成后会切换为真实任务记录。'
+                            : 'Each file is shown below; after upload is submitted, the cards switch to real task records.'}
+                    </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {totalSize ? (
+                        <span className="rounded-full border border-blue-200 bg-white/70 px-3 py-1 text-[12px] font-extrabold text-blue-700 dark:border-blue-400/20 dark:bg-white/[0.08] dark:text-blue-100">
+                            {totalSize}
+                        </span>
+                    ) : null}
+                    <span className="rounded-full border border-blue-200 bg-white/70 px-3 py-1 text-[12px] font-extrabold tabular-nums text-blue-700 dark:border-blue-400/20 dark:bg-white/[0.08] dark:text-blue-100">
+                        {progress}%
+                    </span>
+                </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-white/[0.12]">
+                <div className="h-full rounded-full bg-blue-700 transition-all duration-500 dark:bg-blue-200" style={{width: `${progress}%`}}/>
+            </div>
+        </section>
+    );
+};
+
+const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTaskId, retryingTaskId, onCancel, onDelete, onOpenResult, onRetry}) => {
     const taskId = taskIdForJob(job);
     const state = normalizeTaskState(job);
     const live = isLiveTask(job);
     const completed = state === TASK_STATE_COMPLETED || state === TASK_STATE_CACHED_ONLY;
-    const failed = state === TASK_STATE_FAILED || state === TASK_STATE_CANCELLED;
+    const cancelled = state === TASK_STATE_CANCELLED;
+    const failedTerminal = state === TASK_STATE_FAILED;
+    const failed = failedTerminal || cancelled;
+    const terminal = completed || failed;
+    const cancellableLive = live && taskId && !job?.metadata?.queue_provisional;
     const progress = completed ? 100 : Math.max(0, Math.min(100, Number(job?.progress) || (state === TASK_STATE_QUEUED ? 0 : 2)));
     const current = jobToCurrentJob(job);
     const progressUnknown = isSttProgressUnmeasured(current);
     const displayTitle = jobDisplayTitle(job, lang);
     const updatedAt = Date.parse(job?.updated_at || job?.created_at || '') || 0;
-    const queueTotal = job?.metadata?.queue_total;
     const detail = failed
         ? friendlyTaskError(job?.error_reason || job?.result?.summary_error || '', lang)
         : completed
@@ -344,7 +448,7 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
     ];
     return (
         <article className="rounded-[24px] border border-[#dedada] bg-white p-5 shadow-[0_18px_44px_-38px_rgba(17,17,17,.45)] dark:border-white/[0.10] dark:bg-white/[0.055] dark:shadow-none">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statePillClass(state)}`}>
@@ -360,43 +464,30 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                     <p className="mt-1 text-[13px] font-semibold leading-5 text-[#676970] dark:text-white/60">
                         {subtitle}
                         {failed ? ` · ${progressLabel}` : (!completed && ` · ${lang === 'zh' ? '进度' : 'Progress'}：${progressLabel}`)}
-                        {queueTotal ? ` · ${lang === 'zh' ? `${queueTotal} 个文件` : `${queueTotal} files`}` : ''}
                     </p>
-
-                    {!completed && !failed ? (
-                        <div className="mt-4">
-                            <div className="mb-2 flex items-end justify-between gap-4">
-                                <div>
-                                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
-                                    <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
-                                </div>
-                                <p className="font-headline text-[24px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progressLabel}</p>
-                            </div>
-                            <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
-                                {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
-                            </div>
-                            <p className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
-                                {detail}
-                            </p>
-                        </div>
-                    ) : null}
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                     {completed ? (
                         <button type="button" disabled={!job?.result || openingTaskId === taskId} onClick={() => onOpenResult(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]">
                             {openingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <FileText className="size-4" strokeWidth={2.15}/>}
                             {lang === 'zh' ? '查看结果' : 'View result'}
                         </button>
                     ) : failed ? (
-                        <Link to="/media-text?mode=media" className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
-                            <AlertCircle className="size-4" strokeWidth={2.15}/>
-                            {lang === 'zh' ? '重新提交' : 'Submit again'}
-                        </Link>
+                        <button type="button" disabled={retryingTaskId === taskId} onClick={() => onRetry(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-[#f4f3f3] px-4 text-[13px] font-extrabold text-[#111111] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.12]">
+                            {retryingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <AlertCircle className="size-4" strokeWidth={2.15}/>}
+                            {retryingTaskId === taskId ? (lang === 'zh' ? '正在入队…' : 'Queuing…') : (lang === 'zh' ? '重新提交' : 'Submit again')}
+                        </button>
                     ) : null}
-                    {live && taskId && taskId !== 'queue-upload' ? (
+                    {cancellableLive ? (
                         <button type="button" disabled={cancellingTaskId === taskId} onClick={() => onCancel(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-4 text-[13px] font-extrabold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20">
                             {cancellingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <XCircle className="size-4" strokeWidth={2.15}/>}
                             {lang === 'zh' ? '取消' : 'Cancel'}
+                        </button>
+                    ) : null}
+                    {terminal && taskId ? (
+                        <button type="button" disabled={deletingTaskId === taskId} onClick={() => onDelete(job)} className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-[13px] font-extrabold text-[#57585d] transition hover:bg-[#efeeee] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.10]">
+                            {deletingTaskId === taskId ? <LoaderCircle className="size-4 animate-spin" strokeWidth={2.15}/> : <Trash2 className="size-4" strokeWidth={2.15}/>}
+                            {lang === 'zh' ? '删除记录' : 'Delete record'}
                         </button>
                     ) : null}
                     {completed && !job?.result ? (
@@ -407,21 +498,28 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
                     ) : null}
                 </div>
             </div>
-            {failed ? (
-                <div className="mt-4 rounded-[18px] border border-red-200 bg-red-50/80 px-4 py-3 dark:border-red-500/20 dark:bg-red-500/10">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                            <p className="text-[12px] font-extrabold text-red-700 dark:text-red-200">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
+            {!completed && !failed ? (
+                <div className="mt-4">
+                    <div className="mb-2 flex items-end justify-between gap-4">
+                        <div>
+                            <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '当前阶段' : 'Current stage'}</p>
                             <p className="mt-1 font-headline text-[22px] font-extrabold text-[#111111] dark:text-white">{stageLabel(job, lang)}</p>
                         </div>
-                        <span className="inline-flex h-8 shrink-0 items-center rounded-[12px] border border-red-200 bg-white px-3 text-[12px] font-extrabold text-red-700 dark:border-red-500/25 dark:bg-white/[0.08] dark:text-red-200">
-                            {progressLabel}
-                        </span>
+                        <p className="font-headline text-[24px] font-extrabold tabular-nums text-[#111111] dark:text-white">{progressLabel}</p>
                     </div>
-                    <p className="mt-3 rounded-[14px] border border-red-200 bg-white px-3 py-2 text-[12px] font-semibold leading-5 text-red-800 dark:border-red-500/20 dark:bg-white/[0.06] dark:text-red-100">
+                    <div className={`h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12] ${progressUnknown && live ? 'progress-indeterminate' : ''}`}>
+                        {!progressUnknown && <div className="h-full rounded-full bg-[#111111] transition-all duration-500 dark:bg-white" style={{width: `${progress}%`}}/>}
+                    </div>
+                    <p className="mt-3 rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[12px] font-semibold leading-5 text-[#57585d] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/62">
                         {detail}
                     </p>
                 </div>
+            ) : null}
+            {failedTerminal && detail ? (
+                <p className="mt-3 inline-flex max-w-full items-start gap-2 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-semibold leading-5 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" strokeWidth={2.15}/>
+                    <span className="min-w-0 break-words">{detail}</span>
+                </p>
             ) : null}
             <div className="mt-4 grid gap-2 md:grid-cols-4">
                 {metaItems.map((item) => (
@@ -437,66 +535,47 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, openingTaskId, onCancel, on
 
 const AgentTasks = () => {
     const {lang} = useI18n();
-    const {authMode, user} = useAuth();
-    const {currentJob, setCurrentJob, setLastResult, addToHistory} = useApp();
-    const {getJobs, getJob, cancelJob} = useApi();
+    // Read the shared task list + mutations from AppProvider; this page no
+    // longer keeps a private jobs state, warm cache, or writes the cache
+    // (plan Stage 3b).
+    const {currentJob, setCurrentJob, setLastResult, addToHistory, removeFromHistory, runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp();
+    const {getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
-    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
-    const canUseTaskCache = authMode !== 'accounts' || !!user?.id;
-    const activeCacheAccountIdRef = useRef(cacheAccountId);
-    const readCachedJobs = useCallback(() => canUseTaskCache ? readCachedAccountJobs(cacheAccountId) : [], [cacheAccountId, canUseTaskCache]);
     const seededJob = location.state?.job && typeof location.state.job === 'object' ? location.state.job : null;
-    const [jobs, setJobs] = useState(() => mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], readCachedJobs()));
-    const [loading, setLoading] = useState(() => canUseTaskCache && readCachedJobs().length === 0);
-    const [error, setError] = useState(() => location.state?.queueSubmitError || null);
     const [cancellingTaskId, setCancellingTaskId] = useState('');
     const [openingTaskId, setOpeningTaskId] = useState('');
-    const locallyCancelledTaskIdsRef = useRef(new Set());
-    const currentJobRecord = useMemo(() => jobFromCurrentJob(currentJob), [currentJob]);
+    const [deletingTaskId, setDeletingTaskId] = useState('');
+    const [retryingTaskId, setRetryingTaskId] = useState('');
+    const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
+    const currentJobRecords = useMemo(() => jobsFromCurrentJob(currentJob), [currentJob]);
+    // The shared list already reflects history + cache; merge in the live
+    // currentJob record for immediate progress display.
     const displayJobs = useMemo(() => (
-        mergeJobs(currentJobRecord ? [currentJobRecord] : [], jobs)
-            .filter((job) => !locallyCancelledTaskIdsRef.current.has(taskIdForJob(job)))
-            .slice(0, 30)
-    ), [currentJobRecord, jobs, cancellingTaskId]);
+        mergeJobs(currentJobRecords, jobs).slice(0, 30)
+    ), [currentJobRecords, jobs]);
     const liveJobs = useMemo(() => displayJobs.filter(isLiveTask), [displayJobs]);
+    const hasLiveOrUploadingJobs = Boolean(queueUploadJob) || liveJobs.length > 0;
     const queuedCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_QUEUED).length;
     const runningCount = liveJobs.filter((job) => normalizeTaskState(job) === TASK_STATE_RUNNING || normalizeTaskState(job) === TASK_STATE_UPLOADING).length;
 
-    const loadJobs = useCallback(async () => {
-        if (!canUseTaskCache) {
-            setJobs([]);
-            setLoading(false);
-            return;
-        }
-        const requestCacheAccountId = cacheAccountId;
-        const results = await Promise.allSettled([
-            getJobs(100),
-            getJobs(100, {sttProvider: 'local'}),
-        ]);
-        if (activeCacheAccountIdRef.current !== requestCacheAccountId) return;
-        const fetchedJobs = results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => Array.isArray(result.value) ? result.value : [])
-            .map(markBackendJob);
-        const failedFetches = results.filter((result) => result.status === 'rejected');
-        setJobs((current) => {
-            const next = mergeJobs(readCachedJobs(), fetchedJobs);
-            writeCachedAccountJobs(requestCacheAccountId, next);
-            return failedFetches.length === results.length && current.length ? current : next;
-        });
-        setError(failedFetches.length ? (lang === 'zh' ? '任务刷新失败，已保留本地缓存。' : 'Failed to refresh tasks. Local cache is preserved.') : null);
-        setLoading(false);
-    }, [cacheAccountId, canUseTaskCache, getJobs, lang, readCachedJobs]);
+    // Shared fetch + polling (see lib/useJobPolling.js). /agent warns only when
+    // every fetch fails and uses task-oriented wording.
+    const {loading, error, setError, loadJobs} = useJobPolling({
+        hasLiveJobs: hasLiveOrUploadingJobs,
+        errorOnAllOnly: true,
+        refreshFailedZh: '任务刷新失败，已保留本地缓存。',
+        refreshFailedEn: 'Failed to refresh tasks. Local cache is preserved.',
+    });
+
+    // Surface a job passed via navigation state immediately by ingesting it.
+    useEffect(() => {
+        if (seededJob) ingestJobs([seededJob]);
+    }, [seededJob, ingestJobs]);
 
     useEffect(() => {
-        activeCacheAccountIdRef.current = cacheAccountId;
-        const cached = canUseTaskCache ? readCachedJobs() : [];
-        setJobs(mergeJobs(canUseTaskCache && seededJob ? [seededJob] : [], cached));
-        setLoading(canUseTaskCache && cached.length === 0);
         setError(location.state?.queueSubmitError || null);
-        locallyCancelledTaskIdsRef.current.clear();
-    }, [cacheAccountId, canUseTaskCache, readCachedJobs, seededJob, location.state?.queueSubmitError]);
+    }, [location.state?.queueSubmitError]);
 
     useEffect(() => {
         if (location.state?.queueSubmitError || location.state?.queueSubmittedAt) {
@@ -504,43 +583,107 @@ const AgentTasks = () => {
         }
     }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
 
-    useEffect(() => {
-        let stale = false;
-        const run = async () => { if (!stale) await loadJobs(); };
-        run();
-        const timer = setInterval(run, liveJobs.length ? 5000 : 30000);
-        return () => {
-            stale = true;
-            clearInterval(timer);
-        };
-    }, [loadJobs, liveJobs.length]);
 
     const cancelLiveJob = async (job) => {
         const taskId = taskIdForJob(job);
         if (!taskId) return;
         const confirmText = lang === 'zh'
-            ? '取消这个正在处理的任务？已生成的完整结果不会保留。'
-            : 'Cancel this active task? A complete result will not be kept.';
+            ? '取消这个正在处理的任务？任务会中止，完整结果不会生成；这不是删除历史记录。'
+            : 'Cancel this active task? The task will stop and a complete result will not be created. This does not delete history.';
         if (!window.confirm(confirmText)) return;
-        locallyCancelledTaskIdsRef.current.add(taskId);
         setCancellingTaskId(taskId);
-        setJobs((current) => current.map((item) => taskIdForJob(item) === taskId ? {
-            ...item,
-            status: 'cancelled',
-            task_state: 'cancelled',
-            error_reason: 'user_cancelled',
-            updated_at: new Date().toISOString(),
-        } : item));
+        markCancelled(taskId);
         try {
             await cancelJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
             if (currentJob?.taskId === taskId) setCurrentJob(null);
             await loadJobs();
         } catch (err) {
-            locallyCancelledTaskIdsRef.current.delete(taskId);
+            revertCancelled(taskId);
             setError(friendlyTaskError(err.message || String(err), lang));
             await loadJobs();
         } finally {
             setCancellingTaskId('');
+        }
+    };
+
+    const deleteTerminalJob = async (job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId || isLiveTask(job)) return;
+        const confirmText = lang === 'zh'
+            ? '删除这条处理记录？会清理这条记录可删除的任务文件；这不是取消正在执行的任务。'
+            : 'Delete this processing record? This also cleans up deletable task files; it does not cancel a running task.';
+        if (!window.confirm(confirmText)) return;
+        setDeletingTaskId(taskId);
+        // Tombstone + drop through AppProvider so an in-flight poll cannot
+        // resurrect it; restore if the backend delete fails (non-404).
+        removeFromHistory(taskId);
+        if (currentJob?.taskId === taskId) setCurrentJob(null);
+        try {
+            await deleteJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
+            setError(null);
+        } catch (err) {
+            if (err.status === 404) {
+                setError(null);
+                return;
+            }
+            restoreTask(taskId);
+            setError(friendlyTaskError(err.message || String(err), lang));
+            await loadJobs();
+        } finally {
+            setDeletingTaskId('');
+        }
+    };
+
+    const rememberRetriedJobs = (nextJobs=[]) => {
+        const normalized = nextJobs.filter(Boolean).map(markBackendJob);
+        if (!normalized.length) return;
+        ingestJobs(normalized);
+    };
+
+    const retryStoredSourceJob = async (job, options) => {
+        const taskId = taskIdForJob(job);
+        const localOptions = isLocalJob(job) ? {sttProvider: 'local'} : {};
+        if (runtimeConfig?.jobRetryFromStoredSource) {
+            return await retryJob(taskId, localOptions);
+        }
+        const filename = job?.source_filename || job?.result?.filename || 'source';
+        const sourceFile = await fetchJobSourceFile(taskId, filename, localOptions);
+        return await enqueueProcessFiles([sourceFile], options);
+    };
+
+    const retryTerminalJob = async (job) => {
+        const taskId = taskIdForJob(job);
+        if (!taskId || isLiveTask(job)) return;
+        setRetryingTaskId(taskId);
+        setError(null);
+        try {
+            const options = retryOptionsForJob(job);
+            const sourceKind = mediaSourceForJob(job);
+            if (sourceKind === 'video_link') {
+                const input = retryInputForJob(job);
+                if (!input) {
+                    throw new Error(lang === 'zh' ? '这条记录没有保留原视频链接，请从开始处理页重新提交。' : 'This record does not keep the original video link. Submit it again from the start page.');
+                }
+                const response = await createVideoSourceJob(input, options);
+                const nextJob = response?.job ? markBackendJob(response.job) : null;
+                if (nextJob) rememberRetriedJobs([nextJob]);
+                await loadJobs();
+                return;
+            }
+            if (sourceKind === 'media_file') {
+                const response = await retryStoredSourceJob(job, options);
+                const nextJobs = response?.job
+                    ? [response.job]
+                    : (Array.isArray(response?.queued) ? response.queued : []);
+                rememberRetriedJobs(nextJobs);
+                await loadJobs();
+                return;
+            }
+            throw new Error(lang === 'zh' ? '这条记录的来源暂不支持直接重新提交，请从开始处理页重新提交。' : 'This record source cannot be resubmitted directly yet. Submit it again from the start page.');
+        } catch (err) {
+            setError(friendlyTaskError(err.message || String(err), lang));
+        } finally {
+            setRetryingTaskId('');
         }
     };
 
@@ -613,6 +756,8 @@ const AgentTasks = () => {
                     </div>
                 )}
 
+                {queueUploadJob ? <QueueUploadBanner upload={queueUploadJob} lang={lang}/> : null}
+
                 <section className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">
                         <p className="text-[11px] font-extrabold text-[#85868c] dark:text-white/55">{lang === 'zh' ? '进行中' : 'Running'}</p>
@@ -629,13 +774,13 @@ const AgentTasks = () => {
                 </section>
 
                 <section className="space-y-3">
-                    {loading && !displayJobs.length && (
+                    {loading && !displayJobs.length && !queueUploadJob && (
                         <div className="flex h-48 items-center justify-center rounded-[22px] border border-[#dedada] bg-white text-sm font-semibold text-[#676970] dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/60">
                             <LoaderCircle className="mr-2 size-4 animate-spin" strokeWidth={2.15}/>
                             {lang === 'zh' ? '正在读取任务...' : 'Loading tasks...'}
                         </div>
                     )}
-                    {!loading && displayJobs.length === 0 && (
+                    {!loading && displayJobs.length === 0 && !queueUploadJob && (
                         <div className="rounded-[24px] border border-[#dedada] bg-white p-8 text-center dark:border-white/[0.10] dark:bg-white/[0.055]">
                             <History className="mx-auto size-9 text-[#85868c] dark:text-white/45" strokeWidth={2.15}/>
                             <h2 className="mt-3 font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
@@ -658,9 +803,13 @@ const AgentTasks = () => {
                             job={job}
                             lang={lang}
                             cancellingTaskId={cancellingTaskId}
+                            deletingTaskId={deletingTaskId}
                             openingTaskId={openingTaskId}
+                            retryingTaskId={retryingTaskId}
                             onCancel={cancelLiveJob}
+                            onDelete={deleteTerminalJob}
                             onOpenResult={openResult}
+                            onRetry={retryTerminalJob}
                         />
                     ))}
                 </section>

@@ -12,7 +12,6 @@ import {
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
-    cacheJobRecord,
     cloudSttMissingMessage,
     clearGuestTrialSession,
     compactDisplayFilename,
@@ -56,11 +55,15 @@ import {
     useSettings,
     videoLinkDisplayTitle,
 } from '../app/shared.jsx';
+import {
+    queueUploadItemsFromFiles,
+    queueUploadItemsFromQueuedResponse,
+} from '../lib/queueUpload.js';
 import SvgIcon from '../components/SvgIcon.jsx';
 
 const Dashboard = () => {
     const {t, lang} = useI18n();
-    const {authMode, guestMode, guestTrial, user} = useAuth();
+    const {guestMode, guestTrial} = useAuth();
     const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
@@ -76,7 +79,6 @@ const Dashboard = () => {
     const [videoLinkInput, setVideoLinkInput] = useState('');
     const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
     const [queueSubmitting, setQueueSubmitting] = useState(false);
-    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -125,6 +127,7 @@ const Dashboard = () => {
         promptPreset: settings.promptPreset||DEFAULT_PROMPT_PRESET,
         promptPresetLabel: presetDisplayLabel(settings.promptPreset||DEFAULT_PROMPT_PRESET, settings, lang),
         speakerDiarization: !!settings.speakerDiarization,
+        generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 
@@ -136,22 +139,9 @@ const Dashboard = () => {
             navigate('/editor');
             return true;
         };
-        if(!h.taskId) {
-            openCachedEditor();
-            return;
-        }
-        try {
-            const job = await getJob(h.taskId);
-            if(job?.result) {
-                if(hasTranscriptResult(job.result)) {
-                    setLastResult(job.result);
-                    navigate('/editor');
-                    return;
-                }
-            }
-        } catch(_) {}
         if (openCachedEditor()) return;
-        navigate(`/tasks/${encodeURIComponent(h.taskId)}/agent`, {state: {job: h}});
+        if(!h.taskId) return;
+        navigate('/agent', {state: {job: h}});
     };
 
     const settleCompletedJob = (job, fallbackJob = currentJob) => {
@@ -192,7 +182,7 @@ const Dashboard = () => {
             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
             sttStatus: ev.stt_status ?? prev.sttStatus,
             sttProvider: ev.stt_provider ?? prev.sttProvider,
-            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+            cloudAudioSizeMb: ev.elevenlabs_audio_size_mb ?? prev.cloudAudioSizeMb,
         } : null);
         if(ev.stage === 'transcript_ready' && ev.result) {
             setLastResult(ev.result);
@@ -205,7 +195,7 @@ const Dashboard = () => {
         const errorText = friendlyTaskError(rawMessage || job?.error_reason || 'Task failed.', lang);
         if (!taskId || fallback.guestTrial) return errorText;
         const now = new Date().toISOString();
-        const failedJob = cacheJobRecord(cacheAccountId, {
+        const failedJob = {
             ...job,
             task_id: taskId,
             status: 'failed',
@@ -223,8 +213,10 @@ const Dashboard = () => {
             },
             created_at: job?.created_at || (fallback.startedAt ? new Date(fallback.startedAt).toISOString() : now),
             updated_at: now,
-        });
-        if (failedJob) addToHistory(jobToHistoryEntry(failedJob));
+        };
+        // AppProvider.addToHistory upserts into the single task list and its
+        // projection effect persists the cache (see task_list_reconciliation_plan).
+        addToHistory(jobToHistoryEntry(failedJob));
         setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
         return errorText;
     };
@@ -519,6 +511,7 @@ const Dashboard = () => {
         if(selectedFiles.length > 1) {
             setLastSourceFile(null);
             const queuedFileCount = selectedFiles.length;
+            const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles);
             setCurrentJob({
                 taskId: null,
                 fileName: lang === 'zh' ? `${queuedFileCount} 个文件` : `${queuedFileCount} files`,
@@ -528,11 +521,12 @@ const Dashboard = () => {
                 sourceType:'queue_upload',
                 fileSizeMb: totalFileSizeMb(selectedFiles),
                 queueTotal: queuedFileCount,
+                queueItems: provisionalQueueItems,
                 queueUpload: true,
             });
             navigate('/agent');
             try {
-                await enqueueProcessFiles(selectedFiles, {
+                const data = await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark||false,
                     larkExportRoute: larkExportRouteFromSettings(settings),
                     larkViaCli: !!settings.larkViaCli,
@@ -543,7 +537,20 @@ const Dashboard = () => {
                     sttSpeed: settings.sttSpeed||'balanced',
                     sttLanguage: 'auto',
                 });
-                setCurrentJob(null);
+                const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
+                setCurrentJob({
+                    taskId: null,
+                    fileName: lang === 'zh' ? `${queuedFileCount} 个文件` : `${queuedFileCount} files`,
+                    stage:'queued',
+                    progress:100,
+                    startedAt: Date.now(),
+                    sourceType:'queue_upload',
+                    fileSizeMb: totalFileSizeMb(selectedFiles),
+                    queueTotal: queuedFileCount,
+                    queueItems,
+                    queueUpload: true,
+                    queueSubmitted: true,
+                });
                 navigate('/agent', {replace:true, state:{queueSubmittedAt: Date.now()}});
             } catch(err) {
                 setCurrentJob(null);
@@ -845,8 +852,8 @@ const Dashboard = () => {
             : []),
         {label:t('dash.elapsed'), value:fmtElapsed(elapsedSec)},
         {label:t('dash.fileSize'), value:fmtFileSize(currentJob?.fileSizeMb)},
-        ...(isCloudSttProvider(currentJob?.sttProvider) && currentJob?.azureBatchAudioSizeMb != null
-            ? [{label:t('dash.azureUploadAudio'), value:fmtFileSize(currentJob.azureBatchAudioSizeMb)}]
+        ...(isCloudSttProvider(currentJob?.sttProvider) && currentJob?.cloudAudioSizeMb != null
+            ? [{label:t('dash.cloudUploadAudio'), value:fmtFileSize(currentJob.cloudAudioSizeMb)}]
             : []),
         {label:t('dash.modelProfile'), value:sttProfile},
         {label:t('dash.summaryMode'), value:currentJob?.skipSummary?t('dash.summaryOff'):`${t('dash.summaryOn')} / ${noteModeLabel(currentJob?.noteMode, lang)}`},
@@ -1012,8 +1019,8 @@ const Dashboard = () => {
                                                 </div>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="mb-1 flex items-start justify-between gap-2">
-                                                        <h5 className="truncate pr-2 text-sm font-extrabold text-[#111111] dark:text-white">{h.name}</h5>
-                                                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${historyDone?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':historyProcessing?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'}`}>
+                                                        <h5 className="min-w-0 flex-1 truncate pr-2 text-sm font-extrabold text-[#111111] dark:text-white">{h.name}</h5>
+                                                        <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${historyDone?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':historyProcessing?'bg-white text-[#111111] dark:bg-white/[0.16] dark:text-white':'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'}`}>
                                                             {t(historyDone?'dash.statusCompleted':historyProcessing?'dash.statusProcessing':'dash.statusFailed')}
                                                         </span>
                                                     </div>

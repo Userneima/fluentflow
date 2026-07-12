@@ -9,14 +9,9 @@ import {
     LoaderCircle,
     XCircle,
 } from 'lucide-react';
-import {API_BASE, apiFetch, fmtTime, localExecutionHeaders, noteModeLabel, useApp, useI18n, noteGenerationDiagnosis} from '../app/shared.jsx';
+import {API_BASE, apiFetch, localExecutionHeaders, noteModeLabel, useApp, useI18n, noteGenerationDiagnosis} from '../app/shared.jsx';
 import TaskProgressOverview from '../components/TaskProgressOverview.jsx';
 import {normalizeTaskState} from '../lib/taskState.js';
-import {
-    formatCorrectionConfidence,
-    transcriptCorrectionInfo,
-    transcriptCorrectionStatusText,
-} from '../lib/transcriptCorrection.js';
 
 const statusText = (status, lang) => {
     const isZh = lang === 'zh';
@@ -190,31 +185,6 @@ const chapterCoverageData = (pageData) => {
     const packageCoverage = pageData?.note?.chapter_coverage;
     if (packageCoverage && typeof packageCoverage === 'object') return packageCoverage;
     return null;
-};
-
-const mergeTranscriptCorrectionData = (pageData, sourceData) => {
-    const result = sourceData?.result && typeof sourceData.result === 'object' ? sourceData.result : null;
-    const sourceCorrection = transcriptCorrectionInfo(sourceData);
-    const resultCorrection = transcriptCorrectionInfo(result);
-    if (!sourceCorrection.ran && !resultCorrection.ran) return pageData;
-    const sourceTranscript = sourceData?.transcript && typeof sourceData.transcript === 'object' ? sourceData.transcript : {};
-    const resultTranscript = result ? {
-        corrected_text: result.corrected_transcript_text || '',
-        corrected_segments: Array.isArray(result.corrected_segments) ? result.corrected_segments : [],
-        corrections: Array.isArray(result.transcript_corrections) ? result.transcript_corrections : [],
-        correction: result.transcript_correction && typeof result.transcript_correction === 'object'
-            ? result.transcript_correction
-            : (result.transcript_correction_status ? {status: result.transcript_correction_status} : null),
-        note_input_source: result.note_generation_transcript_source || 'transcript_text',
-    } : {};
-    return {
-        ...pageData,
-        transcript: {
-            ...(pageData?.transcript || {}),
-            ...sourceTranscript,
-            ...resultTranscript,
-        },
-    };
 };
 
 const formatSeconds = (value) => {
@@ -438,86 +408,6 @@ const ChapterCoverageEvidence = ({coverage, lang}) => {
             {hiddenCount > 0 && (
                 <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/[0.72]">
                     {isZh ? `还有 ${hiddenCount} 条证据未在此处展开。` : `${hiddenCount} more evidence rows hidden here.`}
-                </p>
-            )}
-        </section>
-    );
-};
-
-const TranscriptCorrectionDisclosure = ({pageData, lang}) => {
-    const info = transcriptCorrectionInfo(pageData);
-    const isZh = lang === 'zh';
-    const shouldShow = !!(
-        info.ran
-        && (
-            info.hasAcceptedCorrections
-            || info.status === 'no_changes'
-            || info.status === 'completed'
-            || info.status === 'failed'
-            || info.status === 'unavailable'
-        )
-    );
-    if (!shouldShow) return null;
-    const visibleCorrections = info.corrections.slice(0, 5);
-    const hiddenCount = Math.max(info.corrections.length - visibleCorrections.length, 0);
-    const statusLabel = transcriptCorrectionStatusText(info, lang);
-    return (
-        <section className="rounded-[18px] border border-[#dedada] bg-white px-4 py-3.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                    <p className="text-[12px] font-extrabold text-[#85868c] dark:text-white/[0.72]">
-                        {isZh ? '字幕纠错' : 'Transcript correction'}
-                    </p>
-                    <h2 className="mt-1 font-headline text-[18px] font-extrabold text-[#111111] dark:text-white">
-                        {info.noteUsesCorrected
-                            ? (isZh ? '笔记使用了修正后的字幕' : 'Note used corrected transcript')
-                            : (isZh ? '原始字幕仍是笔记输入' : 'Original transcript remained the note input')}
-                    </h2>
-                    <p className="mt-1 max-w-3xl text-[13px] font-semibold leading-6 text-[#4b5563] dark:text-white/[0.76]">
-                        {statusLabel}
-                        {info.hasAcceptedCorrections && (
-                            <span className="ml-1 text-[#676970] dark:text-white/[0.62]">
-                                {isZh ? '原始转录未被覆盖，可在编辑器继续回溯。' : 'The original transcript was not overwritten and remains traceable in the editor.'}
-                            </span>
-                        )}
-                    </p>
-                    {info.error && ['failed', 'unavailable'].includes(info.status) && (
-                        <p className="mt-2 rounded-[12px] border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-semibold leading-relaxed text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
-                            {info.error}
-                        </p>
-                    )}
-                </div>
-                <div className="grid min-w-[13rem] grid-cols-2 gap-2 text-[12px]">
-                    <StatBlock label={isZh ? '已接受' : 'Accepted'} value={info.appliedCount || info.corrections.length || 0}/>
-                    <StatBlock label={isZh ? '笔记输入' : 'Note input'} value={info.noteUsesCorrected ? (isZh ? '修正字幕' : 'Corrected') : (isZh ? '原始字幕' : 'Original')}/>
-                </div>
-            </div>
-            {visibleCorrections.length > 0 && (
-                <div className="mt-4 overflow-x-auto rounded-[16px] border border-[#dedada] dark:border-white/[0.10]">
-                    <div className="grid min-w-[46rem] grid-cols-[5.5rem_minmax(0,1fr)_minmax(0,1fr)_8rem] border-b border-[#dedada] bg-[#fbfbfb] px-3 py-2 text-[11px] font-extrabold text-[#85868c] dark:border-white/[0.10] dark:bg-white/[0.035] dark:text-white/[0.72]">
-                        <span>{isZh ? '时间点' : 'Time'}</span>
-                        <span>{isZh ? '原始字幕' : 'Original'}</span>
-                        <span>{isZh ? '修正后 / 原因' : 'Corrected / reason'}</span>
-                        <span>{isZh ? '置信度' : 'Confidence'}</span>
-                    </div>
-                    <div className="min-w-[46rem] divide-y divide-[#dedada] bg-white dark:divide-white/[0.08] dark:bg-white/[0.035]">
-                        {visibleCorrections.map((item, index) => (
-                            <div key={`${item.segment_index ?? index}-${item.start ?? ''}`} className="grid grid-cols-[5.5rem_minmax(0,1fr)_minmax(0,1fr)_8rem] gap-3 px-3 py-3 text-[12px] leading-5">
-                                <span className="font-mono font-bold tabular-nums text-primary">{item.start != null ? fmtTime(item.start) : '-'}</span>
-                                <span className="min-w-0 font-semibold text-[#3f4148] dark:text-white/[0.76]">{item.original_text || '-'}</span>
-                                <span className="min-w-0 font-semibold text-[#111111] dark:text-white">
-                                    {item.corrected_text || '-'}
-                                    {item.reason && <span className="block pt-1 text-[#676970] dark:text-white/[0.62]">{item.reason}</span>}
-                                </span>
-                                <span className="font-bold text-[#676970] dark:text-white/[0.74]">{formatCorrectionConfidence(item.confidence, lang)}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-            {hiddenCount > 0 && (
-                <p className="mt-2 text-[12px] font-bold text-[#85868c] dark:text-white/[0.72]">
-                    {isZh ? `还有 ${hiddenCount} 条修正可在编辑器里查看。` : `${hiddenCount} more corrections are available in the editor.`}
                 </p>
             )}
         </section>
@@ -814,20 +704,10 @@ const AgentTrace = () => {
         setError(null);
         try {
             const detailData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}/detail`);
-            let mergedDetailData = detailData;
-            try {
-                const jobData = await readJsonWithLocalFallback(`/jobs/${encodeURIComponent(taskId)}`);
-                mergedDetailData = mergeTranscriptCorrectionData(detailData, jobData);
-            } catch (_) {
-                try {
-                    const packageData = await readJsonWithLocalFallback(`/agent/v1/tasks/${encodeURIComponent(taskId)}/package`);
-                    mergedDetailData = mergeTranscriptCorrectionData(detailData, packageData);
-                } catch (_) {}
-            }
             if (!staleRef.current) {
                 setPageData((current) => silent
-                    ? mergeLiveSnapshotPageData(mergedDetailData, current || initialPageData)
-                    : mergedDetailData);
+                    ? mergeLiveSnapshotPageData(detailData, current || initialPageData)
+                    : detailData);
             }
         } catch (detailError) {
             try {
@@ -952,8 +832,6 @@ const AgentTrace = () => {
                 </header>
 
                 <TaskProgressOverview pageData={pageData} materialJudgment={materialJudgmentValue(materialEntry, lang)}/>
-
-                <TranscriptCorrectionDisclosure pageData={pageData} lang={lang}/>
 
                 <ChapterCoverageEvidence coverage={chapterCoverage} lang={lang}/>
 

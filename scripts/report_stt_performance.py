@@ -6,13 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "fluentflow_events.sqlite"
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.core.runtime_paths import default_event_db_path  # noqa: E402
+
+DEFAULT_DB_PATH = default_event_db_path()
 
 
 def _average_numeric(rows: list[dict[str, Any]], metadata_key: str) -> float | None:
@@ -197,8 +202,8 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
             "sample_count": len(rows),
             "inferred_provider_count": inferred_count,
             "detected_languages": _detected_languages(rows),
-            "avg_cloud_upload_audio_size_mb": _average_first_numeric(rows, ("elevenlabs_audio_size_mb", "azure_batch_audio_size_mb")),
-            "avg_cloud_upload_duration_seconds": _average_first_numeric(rows, ("elevenlabs_duration_seconds", "azure_batch_duration_seconds")),
+            "avg_cloud_upload_audio_size_mb": _average_first_numeric(rows, ("elevenlabs_audio_size_mb",)),
+            "avg_cloud_upload_duration_seconds": _average_first_numeric(rows, ("elevenlabs_duration_seconds",)),
             "source_duration_seconds": round(row_duration_sum, 3),
             "stt_elapsed_seconds": round(row_stt_sum, 3),
             "weighted_realtime_factor": round(row_factor, 4) if row_factor else None,
@@ -219,8 +224,8 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
             "stt_language": key[5],
             "sample_count": len(rows),
             "detected_languages": _detected_languages(rows),
-            "avg_cloud_upload_audio_size_mb": _average_first_numeric(rows, ("elevenlabs_audio_size_mb", "azure_batch_audio_size_mb")),
-            "avg_cloud_upload_duration_seconds": _average_first_numeric(rows, ("elevenlabs_duration_seconds", "azure_batch_duration_seconds")),
+            "avg_cloud_upload_audio_size_mb": _average_first_numeric(rows, ("elevenlabs_audio_size_mb",)),
+            "avg_cloud_upload_duration_seconds": _average_first_numeric(rows, ("elevenlabs_duration_seconds",)),
             "source_duration_seconds": round(row_duration_sum, 3),
             "stt_elapsed_seconds": round(row_stt_sum, 3),
             "weighted_realtime_factor": round(row_factor, 4) if row_factor else None,

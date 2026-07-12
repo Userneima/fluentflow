@@ -43,8 +43,6 @@ def _tool_vendor(tool_id: str, result: dict[str, Any], job: dict[str, Any]) -> s
         provider = _text(result.get("stt_provider") or job.get("stt_provider"))
         if provider == "elevenlabs_scribe":
             return "elevenlabs"
-        if provider == "azure_batch":
-            return "azure-speech"
         return "cloud-stt"
     if tool_id == "diarize_speakers":
         return "pyannote"

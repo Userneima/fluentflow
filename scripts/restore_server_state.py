@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import shutil
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -18,6 +19,18 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.core.runtime_paths import (  # noqa: E402
+    default_account_db_path,
+    default_artifact_dir,
+    default_edited_transcript_dir,
+    default_event_db_path,
+    default_job_db_path,
+    default_source_dir,
+    default_transcript_edit_records_dir,
+    default_video_source_dir,
+)
 
 
 def _load_env_file(path: Path) -> None:
@@ -67,16 +80,16 @@ def restore_backup(*, archive_path: Path, env_file: Path | None, apply: bool) ->
         _load_env_file(env_file)
     targets = {
         "storage": {
-            "sources": _path_from_env("FLUENTFLOW_SOURCE_DIR", PROJECT_ROOT / "data" / "sources"),
-            "artifacts": _path_from_env("FLUENTFLOW_ARTIFACT_DIR", PROJECT_ROOT / "data" / "artifacts"),
-            "edited_transcripts": _path_from_env("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", PROJECT_ROOT / "data" / "edited_transcripts"),
-            "transcript_edit_records": _path_from_env("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", PROJECT_ROOT / "data" / "transcript_edit_records"),
-            "video_sources": _path_from_env("FLUENTFLOW_VIDEO_SOURCE_DIR", PROJECT_ROOT / "视频文件"),
+            "sources": _path_from_env("FLUENTFLOW_SOURCE_DIR", default_source_dir()),
+            "artifacts": _path_from_env("FLUENTFLOW_ARTIFACT_DIR", default_artifact_dir()),
+            "edited_transcripts": _path_from_env("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", default_edited_transcript_dir()),
+            "transcript_edit_records": _path_from_env("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", default_transcript_edit_records_dir()),
+            "video_sources": _path_from_env("FLUENTFLOW_VIDEO_SOURCE_DIR", default_video_source_dir()),
         },
         "databases": {
-            "jobs.sqlite": _path_from_env("FLUENTFLOW_JOB_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_jobs.sqlite"),
-            "accounts.sqlite": _path_from_env("FLUENTFLOW_ACCOUNT_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_accounts.sqlite"),
-            "events.sqlite": _path_from_env("FLUENTFLOW_EVENT_DB_PATH", PROJECT_ROOT / "data" / "fluentflow_events.sqlite"),
+            "jobs.sqlite": _path_from_env("FLUENTFLOW_JOB_DB_PATH", default_job_db_path()),
+            "accounts.sqlite": _path_from_env("FLUENTFLOW_ACCOUNT_DB_PATH", default_account_db_path()),
+            "events.sqlite": _path_from_env("FLUENTFLOW_EVENT_DB_PATH", default_event_db_path()),
         },
     }
     with tempfile.TemporaryDirectory(prefix="fluentflow_restore_") as tmp:

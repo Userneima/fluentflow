@@ -1,4 +1,4 @@
-export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, cacheJobRecord, mergeCachedJobs, sortJobsForHistoryView, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
+export { accountJobsCacheKey, readCachedAccountJobs, writeCachedAccountJobs, cacheJobRecord, mergeCachedJobs, reconcileTaskList, entryToJob, taskKeyForJob, sortJobsForHistoryView, hasTranscriptResult, historyStatusFromJob, jobVisibleInHistory, resultDisplayTitle, jobDisplayTitle, resultToHistoryEntry, jobToHistoryEntry, jobToCurrentJob, historyEntryToResult } from '../lib/jobMappers.js';
 export {
     SENSITIVE_SETTING_KEYS,
     LEGACY_REMOVED_SETTING_KEYS,
@@ -20,16 +20,12 @@ export {
     DEFAULT_STT_PROVIDER,
     normalizeSttProvider,
     isElevenLabsCloudProvider,
-    isAzureCloudProvider,
     isCloudSttProvider,
-    isAzureSpeechConfigured,
-    isAzureBatchConfigured,
     isCloudSttConfigured,
     DEFAULT_RUNTIME_CONFIG,
     normalizeRuntimeConfig,
     effectiveSttProvider,
     cloudSttMissingMessage,
-    azureSpeechMissingMessage,
     normalizeSttModel,
 } from '../lib/settingsModel.js';
 

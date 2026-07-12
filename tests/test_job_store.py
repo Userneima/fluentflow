@@ -201,6 +201,42 @@ def test_job_steps_are_persistent_claimable_and_completable(tmp_path: Path) -> N
     assert acquire_next_job_step(db_path=db) is None
 
 
+def test_queued_steps_are_handed_out_one_at_a_time_in_order(tmp_path: Path) -> None:
+    # Guards the multi-file queue invariant: several files enqueued at once must
+    # be processed serially, in FIFO order, and a step already claimed (running,
+    # not yet finished) must never be handed to a second worker. Regression origin:
+    # multiple videos could not be queued into notes (2026-07-08).
+    db = tmp_path / "jobs.sqlite"
+
+    first = enqueue_job_step(
+        task_id="task-a", step_type="transcription", input={"n": 1}, db_path=db
+    )
+    second = enqueue_job_step(
+        task_id="task-b", step_type="transcription", input={"n": 2}, db_path=db
+    )
+    assert first is not None and second is not None
+
+    claimed_a = acquire_next_job_step(db_path=db)
+    assert claimed_a is not None
+    assert claimed_a["task_id"] == "task-a"  # FIFO: earliest enqueued goes first
+
+    # The first step is now running/locked. A second acquire must NOT re-hand it;
+    # it must hand out the next queued step instead — this is what keeps
+    # processing to one file at a time without double-claiming.
+    claimed_b = acquire_next_job_step(db_path=db)
+    assert claimed_b is not None
+    assert claimed_b["task_id"] == "task-b"
+    assert claimed_a["id"] != claimed_b["id"]
+
+    # With both steps claimed and none completed, there is nothing left to hand out.
+    assert acquire_next_job_step(db_path=db) is None
+
+    # Both finish independently; the queue drains completely.
+    assert complete_job_step(claimed_a["id"], result={"ok": True}, db_path=db) is not None
+    assert complete_job_step(claimed_b["id"], result={"ok": True}, db_path=db) is not None
+    assert acquire_next_job_step(db_path=db) is None
+
+
 def test_running_job_steps_requeue_and_cancel_by_task(tmp_path: Path) -> None:
     db = tmp_path / "jobs.sqlite"
     enqueue_job_step(task_id="task-recover", step_type="transcription", input={}, db_path=db)

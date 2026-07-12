@@ -1,12 +1,12 @@
 import {useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useSearchParams} from 'react-router-dom';
+import {XCircle} from 'lucide-react';
 import {
     DEFAULT_PROMPT_PRESET,
     presetDisplayLabel,
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
-    cacheJobRecord,
     cloudSttMissingMessage,
     createTaskId,
     effectiveSttProvider,
@@ -33,6 +33,10 @@ import {
     useSettings,
     videoLinkDisplayTitle,
 } from '../app/shared.jsx';
+import {
+    queueUploadItemsFromFiles,
+    queueUploadItemsFromQueuedResponse,
+} from '../lib/queueUpload.js';
 import SvgIcon from '../components/SvgIcon.jsx';
 
 const mediaExts = /\.(mp4|mov|avi|mkv|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|wma|opus)$/i;
@@ -48,7 +52,7 @@ const platformItems = [
 
 const MediaText = () => {
     const {t, lang} = useI18n();
-    const {authMode, guestMode, guestTrial, user} = useAuth();
+    const {guestMode, guestTrial} = useAuth();
     const {
         history,
         addToHistory,
@@ -60,7 +64,6 @@ const MediaText = () => {
         runtimeConfig,
     } = useApp();
     const {
-        processVideoSSE,
         enqueueProcessFiles,
         processGuestTrialFile,
         createVideoSourceJob,
@@ -68,7 +71,6 @@ const MediaText = () => {
         summarizeTranscriptFile,
         cancelGuestTrialJob,
         cancelJob,
-        getJob,
         getCredentialsStatus,
         checkHealth,
     } = useApi();
@@ -84,7 +86,6 @@ const MediaText = () => {
     const fileInputRef = useRef(null);
     const subtitleInputRef = useRef(null);
     const abortRef = useRef(null);
-    const cacheAccountId = authMode === 'accounts' ? user?.id : 'local';
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -99,6 +100,7 @@ const MediaText = () => {
         promptPreset: settings.promptPreset || DEFAULT_PROMPT_PRESET,
         promptPresetLabel: presetDisplayLabel(settings.promptPreset || DEFAULT_PROMPT_PRESET, settings, lang),
         speakerDiarization: !!settings.speakerDiarization,
+        generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
     });
 
@@ -125,7 +127,7 @@ const MediaText = () => {
             sttElapsedSeconds: ev.stt_elapsed_seconds ?? prev.sttElapsedSeconds,
             sttStatus: ev.stt_status ?? prev.sttStatus,
             sttProvider: ev.stt_provider ?? prev.sttProvider,
-            azureBatchAudioSizeMb: ev.elevenlabs_audio_size_mb ?? ev.azure_batch_audio_size_mb ?? prev.azureBatchAudioSizeMb,
+            cloudAudioSizeMb: ev.elevenlabs_audio_size_mb ?? prev.cloudAudioSizeMb,
         } : null);
         if (ev.stage === 'transcript_ready' && ev.result) {
             setLastResult(ev.result);
@@ -139,7 +141,7 @@ const MediaText = () => {
         if (!taskId) return errorText;
         const now = new Date().toISOString();
         const displayTitle = job?.metadata?.display_title || job?.source_filename || videoLinkDisplayTitle(input, lang);
-        const failedJob = cacheJobRecord(cacheAccountId, {
+        const failedJob = {
             ...job,
             task_id: taskId,
             status: 'failed',
@@ -156,8 +158,10 @@ const MediaText = () => {
             },
             created_at: job?.created_at || now,
             updated_at: now,
-        });
-        if (failedJob) addToHistory(jobToHistoryEntry(failedJob));
+        };
+        // AppProvider.addToHistory upserts into the single task list and its
+        // projection effect persists the cache (see task_list_reconciliation_plan).
+        addToHistory(jobToHistoryEntry(failedJob));
         setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
         return errorText;
     };
@@ -199,22 +203,32 @@ const MediaText = () => {
         const sttProvider = effectiveSttProvider(settings, runtimeConfig);
         if (!(await ensureCloudReady(sttProvider))) return;
 
-        if (!guestMode && selectedFiles.length > 1) {
+        // All non-guest media uploads (single or multiple) go through the
+        // background queue so the single worker processes them one at a time.
+        // This is the only way to guarantee "one video at a time" regardless of
+        // whether the user uploads files individually or selects several at once.
+        if (!guestMode) {
+            const queueLabel = selectedFiles.length === 1
+                ? selectedFiles[0].name
+                : (lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`);
             setSubmitting(true);
             setLastSourceFile(null);
+            const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles);
             setCurrentJob({
                 taskId: null,
-                fileName: lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`,
+                fileName: queueLabel,
                 stage: 'upload',
                 progress: 2,
                 startedAt: Date.now(),
                 sourceType: 'queue_upload',
                 fileSizeMb: totalFileSizeMb(selectedFiles),
                 queueTotal: selectedFiles.length,
+                queueItems: provisionalQueueItems,
                 queueUpload: true,
             });
+            navigate('/agent');
             try {
-                await enqueueProcessFiles(selectedFiles, {
+                const data = await enqueueProcessFiles(selectedFiles, {
                     exportToLark: settings.exportToLark || false,
                     larkExportRoute: larkExportRouteFromSettings(settings),
                     larkViaCli: !!settings.larkViaCli,
@@ -224,11 +238,43 @@ const MediaText = () => {
                     sttModel,
                     sttSpeed: settings.sttSpeed || 'balanced',
                     sttLanguage: 'auto',
+                }, {
+                    onProgress: (pct) => setCurrentJob((prev) => (
+                        prev && prev.queueUpload && !prev.queueSubmitted
+                            ? {...prev, progress: Math.max(2, Math.min(99, pct))}
+                            : prev
+                    )),
                 });
-                navigate('/agent', {state: {queueSubmittedAt: Date.now()}});
+                const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
+                setCurrentJob({
+                    taskId: null,
+                    fileName: queueLabel,
+                    stage: 'queued',
+                    progress: 100,
+                    startedAt: Date.now(),
+                    sourceType: 'queue_upload',
+                    fileSizeMb: totalFileSizeMb(selectedFiles),
+                    queueTotal: selectedFiles.length,
+                    queueItems,
+                    queueUpload: true,
+                    queueSubmitted: true,
+                });
+                navigate('/agent', {replace: true, state: {queueSubmittedAt: Date.now()}});
             } catch (err) {
-                setUploadError(friendlyTaskError(err.message || 'Queue failed.', lang));
                 setCurrentJob(null);
+                if (err?.aborted) {
+                    navigate('/agent', {replace: true});
+                    return;
+                }
+                const submitError = err?.status
+                    ? friendlyTaskError(err.message || 'Queue failed.', lang)
+                    : (lang === 'zh'
+                        ? '上传失败或中断，请重新提交。'
+                        : 'Upload failed or was interrupted. Please submit again.');
+                navigate('/agent', {
+                    replace: true,
+                    state: {queueSubmitError: submitError},
+                });
             } finally {
                 setSubmitting(false);
             }
@@ -284,31 +330,6 @@ const MediaText = () => {
                 navigate('/editor');
                 return;
             }
-
-            let openedTranscript = false;
-            const result = await processVideoSSE(file, {
-                taskId,
-                sourceLastModifiedMs: file.lastModified || null,
-                exportToLark: settings.exportToLark || false,
-                larkExportRoute: larkExportRouteFromSettings(settings),
-                larkViaCli: !!settings.larkViaCli,
-                title: file.name.replace(/\.[^/.]+$/, ''),
-                ...buildAiOptions(settings),
-                skipSummary: !!settings.skipAiSummary,
-                sttProvider,
-                sttModel,
-                sttSpeed: settings.sttSpeed || 'balanced',
-                sttLanguage: 'auto',
-            }, (ev) => {
-                applyProgressEvent(ev);
-                if (ev.stage === 'transcript_ready' && ev.result && !openedTranscript) {
-                    openedTranscript = true;
-                    setLastResult(ev.result);
-                    setProcessingResult(ev.result);
-                    navigate('/editor');
-                }
-            }, ac.signal);
-            settleResult(result, {taskId, fileName: file.name});
         } catch (err) {
             if (err.name !== 'AbortError') {
                 setUploadError(err.message || 'Processing failed.');
@@ -454,15 +475,19 @@ const MediaText = () => {
     };
 
     const handleCancel = async () => {
+        const confirmText = lang === 'zh'
+            ? '取消当前正在上传或处理的任务？任务会中止，完整结果不会生成；如果任务已经进入队列，可到处理记录查看已取消记录。这不是删除历史记录。'
+            : 'Cancel the current upload or processing task? The task will stop and a complete result will not be created. If it already entered the queue, you can check the cancelled record in Processing records. This does not delete history.';
+        if (!window.confirm(confirmText)) return;
         if (abortRef.current) {
             abortRef.current.abort();
             abortRef.current = null;
         }
         if (currentJob?.guestTrial && currentJob.taskId) {
-            try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken); } catch (_) {}
+            try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken); } catch (err) { setUploadError(friendlyTaskError(err.message || String(err), lang)); }
         }
         if (currentJob?.taskId && !currentJob?.guestTrial) {
-            try { await cancelJob(currentJob.taskId, {sttProvider: currentJob.sttProvider}); } catch (_) {}
+            try { await cancelJob(currentJob.taskId, {sttProvider: currentJob.sttProvider}); } catch (err) { setUploadError(friendlyTaskError(err.message || String(err), lang)); }
         }
         setCurrentJob(null);
         setSubmitting(false);
@@ -478,20 +503,9 @@ const MediaText = () => {
             navigate('/editor');
             return true;
         };
-        if (!item.taskId) {
-            openCachedEditor();
-            return;
-        }
-        try {
-            const job = await getJob(item.taskId);
-            if (job?.result && hasTranscriptResult(job.result)) {
-                setLastResult(job.result);
-                navigate('/editor');
-                return;
-            }
-        } catch (_) {}
         if (openCachedEditor()) return;
-        navigate(`/tasks/${encodeURIComponent(item.taskId)}/agent`, {state: {job: item}});
+        if (!item.taskId) return;
+        navigate('/agent', {state: {job: item}});
     };
 
     return (
@@ -624,12 +638,15 @@ const MediaText = () => {
                                 <p className="mt-1 text-sm font-semibold text-[#666] dark:text-white/55">{t(`status.${currentJob.stage}`)}</p>
                             </div>
                             <button type="button" onClick={handleCancel} className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3 text-xs font-extrabold text-red-600 hover:bg-red-100 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/20">
-                                <SvgIcon name="cancel" className="size-4"/>
+                                <XCircle className="size-4" strokeWidth={2.15}/>
                                 {t('dash.cancel')}
                             </button>
                         </div>
-                        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12]">
-                            <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width: `${Math.max(0, Math.min(100, Number(currentJob?.progress) || 0))}%`}}/>
+                        <div className="mt-4 flex items-center gap-3">
+                            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[#efeeee] dark:bg-white/[0.12]">
+                                <div className="h-full rounded-full bg-[#111111] transition-all duration-700 dark:bg-white" style={{width: `${Math.max(0, Math.min(100, Number(currentJob?.progress) || 0))}%`}}/>
+                            </div>
+                            <span className="shrink-0 text-sm font-extrabold tabular-nums">{Math.round(Math.max(0, Math.min(100, Number(currentJob?.progress) || 0)))}%</span>
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                             <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
@@ -637,8 +654,16 @@ const MediaText = () => {
                                 <p className="mt-1 text-sm font-extrabold">{fmtFileSize(currentJob.fileSizeMb)}</p>
                             </div>
                             <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
-                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">STT</p>
+                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">{lang === 'zh' ? '转录路线' : 'Transcription'}</p>
+                                <p className="mt-1 truncate text-sm font-extrabold">{currentJob.sttProvider ? (String(currentJob.sttProvider).toLowerCase() === 'local' ? (lang === 'zh' ? '本地' : 'Local') : (lang === 'zh' ? '云端' : 'Cloud')) : '-'}</p>
+                            </div>
+                            <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
+                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">{lang === 'zh' ? 'STT 模型' : 'STT model'}</p>
                                 <p className="mt-1 truncate text-sm font-extrabold">{currentJob.sttModel || '-'}</p>
+                            </div>
+                            <div className="rounded-[16px] bg-[#f4f3f3] p-3 dark:bg-white/[0.08]">
+                                <p className="text-[11px] font-bold text-[#777] dark:text-white/55">{lang === 'zh' ? '来源' : 'Source'}</p>
+                                <p className="mt-1 truncate text-sm font-extrabold">{(() => { const s = String(currentJob.sourceType || '').toLowerCase(); if (s.includes('audio')) return lang === 'zh' ? '音频' : 'Audio'; if (s.includes('transcript') || s.includes('subtitle')) return lang === 'zh' ? '字幕' : 'Subtitle'; if (s.includes('video') || s === 'queue_upload') return lang === 'zh' ? '视频' : 'Video'; return '-'; })()}</p>
                             </div>
                         </div>
                     </section>
@@ -661,8 +686,8 @@ const MediaText = () => {
                             {recent.map((item) => (
                                 <button key={item.id} type="button" onClick={() => openRecentTask(item)} className="min-w-0 rounded-[18px] bg-[#f4f3f3] p-4 text-left transition hover:bg-[#efeeee] dark:bg-white/[0.08] dark:hover:bg-white/[0.12]">
                                     <div className="mb-2 flex items-center justify-between gap-2">
-                                        <h3 className="truncate text-sm font-extrabold">{item.name}</h3>
-                                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[#666] dark:bg-white/[0.16] dark:text-white/70">{t(item.status === 'completed' ? 'dash.statusCompleted' : item.status === 'processing' ? 'dash.statusProcessing' : 'dash.statusFailed')}</span>
+                                        <h3 className="min-w-0 flex-1 truncate text-sm font-extrabold">{item.name}</h3>
+                                        <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[#666] dark:bg-white/[0.16] dark:text-white/70">{t(item.status === 'completed' ? 'dash.statusCompleted' : item.status === 'processing' ? 'dash.statusProcessing' : 'dash.statusFailed')}</span>
                                     </div>
                                     <p className="text-xs font-semibold text-[#777] dark:text-white/55">{timeAgo(item.timestamp, t)}{item.durationMin > 0 && ` · ${item.durationMin} ${t('dash.minUnit')}`}</p>
                                 </button>

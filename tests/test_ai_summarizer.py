@@ -10,6 +10,9 @@ from backend.core.ai_summarizer import (
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_OPENAI_MODEL,
     DIRECT_MODE_MAX_CHARS,
+    _FINAL_WRAPPER,
+    _HIGH_FIDELITY_FINAL_WRAPPER,
+    _REVISION_WRAPPER,
     _compose_note_system_prompt,
     _normalize_model,
     _normalize_provider,
@@ -57,8 +60,19 @@ class TestAiSummarizer(unittest.TestCase):
             self.assertEqual(_provider_api_key("qwen"), "dashscope-key")
 
     def test_provider_api_key_keeps_qwen_env_alias(self) -> None:
-        with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True):
+        # Patch load_dotenv so the developer's real .env (which may define
+        # DASHSCOPE_API_KEY) can't leak in and shadow the QWEN_API_KEY alias.
+        with patch.dict(os.environ, {"QWEN_API_KEY": "legacy-qwen-key"}, clear=True), \
+                patch("backend.core.ai_client.load_dotenv", lambda *a, **k: None):
             self.assertEqual(_provider_api_key("qwen"), "legacy-qwen-key")
+
+    def test_final_note_wrappers_do_not_force_course_framing(self) -> None:
+        combined = "\n".join([_FINAL_WRAPPER, _HIGH_FIDELITY_FINAL_WRAPPER, _REVISION_WRAPPER])
+
+        self.assertIn("长视频或音频材料", combined)
+        self.assertIn("学习笔记", combined)
+        self.assertNotIn("同一门课程", combined)
+        self.assertNotIn("Markdown 课程笔记", combined)
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")
@@ -81,7 +95,7 @@ class TestAiSummarizer(unittest.TestCase):
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")
-    def test_auto_mode_uses_high_fidelity_for_long_transcripts(self, mock_chat, mock_get_client) -> None:
+    def test_high_fidelity_mode_runs_evidence_flow_when_chosen(self, mock_chat, mock_get_client) -> None:
         mock_get_client.return_value = object()
 
         def fake_chat(_client, _model, system, _user, **_kwargs):
@@ -95,15 +109,44 @@ class TestAiSummarizer(unittest.TestCase):
         result = summarize_transcript_with_metadata(
             "a" * (DIRECT_MODE_MAX_CHARS + 2000),
             api_key="test-key",
-            note_mode="auto",
+            note_mode="high_fidelity",  # still available as an explicit choice
         )
 
         self.assertEqual(result.markdown, "final note")
-        self.assertEqual(result.requested_mode, "auto")
         self.assertEqual(result.resolved_mode, "high_fidelity")
         self.assertGreater(result.chunk_count, 1)
         self.assertTrue(result.coverage_checked)
         self.assertFalse(result.coverage_revision_used)
+
+    @patch("backend.core.ai_summarizer._get_client")
+    @patch("backend.core.ai_summarizer._chat")
+    def test_auto_mode_uses_chapter_coverage_for_long_transcripts(self, mock_chat, mock_get_client) -> None:
+        # Long-note default switched to chapter_coverage (2026-07-09). auto + a
+        # long transcript must now resolve to chapter_coverage, not high_fidelity.
+        mock_get_client.return_value = object()
+
+        def fake_chat(_client, _model, system, _user, **_kwargs):
+            if "长字幕证据抽取助手" in system:
+                return '[{"source_segment_ids":["S001"],"type":"argument","text":"重要观点","importance":5,"keywords":["观点"]}]'
+            if "章节规划助手" in system:
+                return '[{"title":"核心观点","purpose":"整理主要观点","used_evidence_ids":["E001"]}]'
+            if "章节笔记写作助手" in system:
+                return "## 核心观点\n\n- 重要观点"
+            if "长文档编校助手" in system:
+                return "final chapter note"
+            if "笔记覆盖率审查助手" in system:
+                return "COVERED"
+            return "final note"
+
+        mock_chat.side_effect = fake_chat
+        result = summarize_transcript_with_metadata(
+            "a" * (DIRECT_MODE_MAX_CHARS + 2000),
+            api_key="test-key",
+            note_mode="auto",
+        )
+
+        self.assertEqual(result.resolved_mode, "chapter_coverage")
+        self.assertGreater(result.chunk_count, 1)
 
     @patch("backend.core.ai_summarizer._get_client")
     @patch("backend.core.ai_summarizer._chat")
@@ -232,7 +275,7 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertIn("笔记必须忠实于转录稿", seen_systems[0])
         self.assertIn("即使输入转录稿是英文，也应直接理解英文原文并写成中文笔记", seen_systems[0])
         self.assertIn("Feishu Note Formatting Preferences", seen_systems[0])
-        self.assertIn("正文标题默认使用清晰的层级编号", seen_systems[0])
+        self.assertIn("正文标题使用少量清晰层级", seen_systems[0])
 
     def test_note_system_prompt_injects_content_policy_and_format_preferences(self) -> None:
         prompt = _compose_note_system_prompt("你是自定义助手。")
@@ -242,6 +285,16 @@ class TestAiSummarizer(unittest.TestCase):
         self.assertIn("不要引入原文没有的背景、观点、案例、结论或建议", prompt)
         self.assertIn("短标签式文本在中文冒号前加粗标签", prompt)
         self.assertIn("普通说明、流程、页面布局、URL 和纯文本列表不要使用代码块", prompt)
+
+    def test_default_course_prompt_avoids_fixed_note_template(self) -> None:
+        prompt = _compose_note_system_prompt(None)
+
+        self.assertIn("先判断材料本身的讲述结构，再设计笔记结构", prompt)
+        self.assertIn("不要把所有内容硬套成固定模板", prompt)
+        self.assertIn("不要输出固定数量的板块", prompt)
+        self.assertNotIn("一句话概览", prompt)
+        self.assertNotIn("核心概念盘点", prompt)
+        self.assertNotIn("五大板块结构", prompt)
 
     def test_strip_prompt_leakage_keeps_real_note_after_separator(self) -> None:
         leaked = (
@@ -259,6 +312,152 @@ class TestAiSummarizer(unittest.TestCase):
             _strip_prompt_leakage(leaked),
             "# 一句话总结\n\n这场分享的核心是理解数据岗位的业务判断。",
         )
+
+
+class TestVisualFrameModel(unittest.TestCase):
+    # Guards the video-illustration feature: frame selection must send images to
+    # a VISION (qwen-vl) model. The provider's plain default is a text model, and
+    # sending images to it makes the whole visual step report "unavailable"
+    # (2026-07-09). Regression origin: DEFAULT_QWEN_MODEL is text-only.
+    @patch("backend.core.ai_summarizer._get_client", return_value=object())
+    @patch(
+        "backend.core.ai_summarizer._candidate_frames_for_request",
+        return_value=[{"path": "/tmp/f.jpg", "timestamp_seconds": 1.0}],
+    )
+    @patch("backend.core.ai_summarizer._vision_chat", return_value='{"selections": []}')
+    def test_frame_selection_uses_vision_model_by_default(self, mock_vision, _cands, _client) -> None:
+        from backend.core.ai_summarizer import select_visual_evidence_frames
+
+        select_visual_evidence_frames([{"request_id": "r1"}], [{"path": "/tmp/f.jpg"}], api_key="k")
+
+        self.assertTrue(mock_vision.called)
+        model_arg = mock_vision.call_args.args[1]
+        self.assertIn("vl", model_arg)  # a vision model, not the text default
+
+
+class TestParallelMap(unittest.TestCase):
+    # Guards the note-mode speedup: independent evidence/chapter model calls run
+    # concurrently, but results MUST come back in input order (not completion
+    # order), or the note's structure and evidence IDs would scramble (2026-07-09).
+    def test_preserves_input_order_even_when_later_items_finish_first(self) -> None:
+        import time
+        from backend.core.ai_summarizer import _parallel_map
+
+        def slow(x: int) -> int:
+            time.sleep((5 - x) * 0.02)  # earlier indexes finish LAST on purpose
+            return x * 10
+
+        self.assertEqual(_parallel_map(slow, [0, 1, 2, 3, 4]), [0, 10, 20, 30, 40])
+
+    def test_single_item_runs_inline(self) -> None:
+        from backend.core.ai_summarizer import _parallel_map
+
+        self.assertEqual(_parallel_map(lambda x: x + 1, [41]), [42])
+
+    def test_propagates_exception(self) -> None:
+        from backend.core.ai_summarizer import _parallel_map
+
+        def boom(x: int) -> int:
+            if x == 2:
+                raise ValueError("boom")
+            return x
+
+        with self.assertRaises(ValueError):
+            _parallel_map(boom, [0, 1, 2, 3])
+
+
+class TestChapterCoverageCleanup(unittest.TestCase):
+    # Guards two real chapter-coverage defects the user hit (2026-07-09):
+    # internal evidence IDs leaking into the note, and headings losing their
+    # numbering because chapters are assembled independently.
+    def test_strip_prompt_leakage_removes_evidence_citations_all_shapes(self) -> None:
+        from backend.core.ai_summarizer import _strip_prompt_leakage
+
+        note = (
+            "# 标题\n\n"
+            "中文括号（E001）。ASCII(E002)。方括号【E003】。"
+            "裸露 E038 在句中。列表（E004、E055）说明。"
+        )
+        out = _strip_prompt_leakage(note)
+
+        for token in ("E001", "E002", "E003", "E038", "E004", "E055"):
+            self.assertNotIn(token, out)
+        self.assertIn("中文括号", out)
+        self.assertIn("裸露", out)
+        self.assertIn("在句中", out)
+
+    def test_strip_prompt_leakage_keeps_lookalikes(self) -> None:
+        # Must NOT delete real content that looks id-ish: 1-digit E5, non-E codes
+        # like H100/A100, which are not evidence IDs (E + >=3 digits).
+        from backend.core.ai_summarizer import _strip_prompt_leakage
+
+        out = _strip_prompt_leakage("# T\n\n这里提到 H100、A100 和 E5 芯片。")
+        self.assertIn("H100", out)
+        self.assertIn("A100", out)
+        self.assertIn("E5", out)
+
+    def test_renumber_chapter_headings_builds_consistent_hierarchy(self) -> None:
+        from backend.core.ai_summarizer import _renumber_chapter_headings
+
+        md = "# 背景\n正文\n## 子节A\n更多\n# 方法\n## 子节B"
+        out = _renumber_chapter_headings(md)
+
+        self.assertIn("## 一、背景", out)
+        self.assertIn("## 二、方法", out)
+        self.assertIn("### 1.1 子节A", out)
+        self.assertIn("### 2.1 子节B", out)
+
+    def test_renumber_treats_single_top_heading_as_title_not_chapter(self) -> None:
+        # When the note has one '#' title above '##' chapters, the title must
+        # stay a title and the '##' chapters become the numbered sections —
+        # otherwise every chapter collapses under one "一、" (2026-07-09).
+        from backend.core.ai_summarizer import _renumber_chapter_headings
+
+        md = "# 大标题\n## 章一\n正文\n## 章二\n### 深层"
+        out = _renumber_chapter_headings(md)
+
+        self.assertIn("# 大标题", out)
+        self.assertNotIn("## 一、大标题", out)
+        self.assertIn("## 一、章一", out)
+        self.assertIn("## 二、章二", out)
+        self.assertIn("### 2.1 深层", out)
+
+    def test_renumber_keeps_titles_that_merely_start_with_a_number_word(self) -> None:
+        from backend.core.ai_summarizer import _renumber_chapter_headings
+
+        out = _renumber_chapter_headings("# 十亿美金的机会")
+        self.assertIn("## 一、十亿美金的机会", out)
+
+    def test_cn_number(self) -> None:
+        from backend.core.ai_summarizer import _cn_number
+
+        self.assertEqual(_cn_number(1), "一")
+        self.assertEqual(_cn_number(10), "十")
+        self.assertEqual(_cn_number(11), "十一")
+        self.assertEqual(_cn_number(23), "二十三")
+
+
+class TestJsonArrayResilience(unittest.TestCase):
+    # Guards chapter-coverage reliability: one malformed-JSON chunk from the
+    # model must not crash the whole note (2026-07-09). _chat_json_array retries,
+    # and the evidence path skips a still-bad chunk rather than aborting.
+    @patch("backend.core.ai_summarizer._chat")
+    def test_retries_then_succeeds_on_transient_bad_json(self, mock_chat) -> None:
+        from backend.core.ai_summarizer import _chat_json_array
+
+        mock_chat.side_effect = ["这不是 JSON", '[{"ok": 1}]']
+        out = _chat_json_array(object(), "m", "sys", "user", temperature=0.1)
+
+        self.assertEqual(out, [{"ok": 1}])
+        self.assertEqual(mock_chat.call_count, 2)
+
+    @patch("backend.core.ai_summarizer._chat")
+    def test_raises_after_exhausting_retries(self, mock_chat) -> None:
+        from backend.core.ai_summarizer import _chat_json_array
+
+        mock_chat.side_effect = ["坏的", "还是坏的"]
+        with self.assertRaises(ValueError):
+            _chat_json_array(object(), "m", "sys", "user", temperature=0.1)
 
 
 if __name__ == "__main__":

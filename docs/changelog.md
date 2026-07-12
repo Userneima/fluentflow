@@ -31,14 +31,83 @@
 
 后续尚未准备发布的变更继续记录在这里。只有已经落地、验证并准备对外说明的内容，才移动到具体版本段落。
 
+### 用户可见变化
+
+- 登录页新增 Google 登录入口：配置 Google OAuth 后，用户可以用 Google 账号进入 FluentFlow；同邮箱的既有账号会自动绑定，新账号创建仍受 `FLUENTFLOW_ALLOW_SIGNUPS` 或首个管理员 bootstrap 规则控制。
+- Word 笔记导出改为生成原生 `.docx` 文件，不再使用 HTML 伪装 `.doc` 的兼容方案；标题、段落、列表和表格会转成 Word 原生结构，并统一使用苹方字体。
+- Word 笔记导出会把正文里的截图 Markdown 引用嵌入为真实图片；截图 artifact 会沿用产品 API 的登录态和 client scope 获取，取图失败时保留可读 caption/link 降级，不会让整份文档导出失败。
+- PDF 笔记导出改为浏览器原生打印管线：系统会从当前 Markdown 笔记生成独立白底打印页并打开打印对话框，用户可在系统打印中另存为 PDF；不再使用 `html2pdf` / `html2canvas` 截图导出。
+- 修复本地转写模式下「多视频无法排队」的问题：以本地身份运行时，一次选择多个音视频会因认证校验被拒（`/queue/process` 返回登录要求）而排队失败，历史里也无法建出队列任务；现在多文件排队可正常提交并逐个处理。
+- 音视频上传改为统一走后台队列并串行处理：无论逐个上传还是一次多选，后台一次只处理一个任务，其余显示在「排队中」等待，避免多个大文件同时本地转写抢占资源导致机器卡顿。单文件上传的实时进度相应改到「处理记录」页查看，不再在上传页内联显示。
+- 修复删除处理记录后又重新出现的问题：删除任务时会同步清理本地缓存和最近活动，不再因为前端缓存与后端列表合并而把已删除的记录重新并回来。
+- 批量上传改用真实上传进度：进度条显示实际已上传百分比，不再固定停在 2%；上传卡住或连接中断时会在约 2 分钟无响应后自动中止并给出「上传失败或中断，请重新提交」提示，不再无限停在「上传中」界面。
+- 修复本机使用云端转录时提交任务被拒（记录一闪而过就消失）的问题：本机单用户模式现在对本地和云端转录都标记为本地执行，云端转录的上传不再因为缺少本地执行标记而被账号鉴权拦下（服务端仍校验请求确实来自本机，公网部署不受影响）。
+- 长稿笔记默认模式改为「章节覆盖」：转录超过约 2 万字时，自动模式从「高保真」切换为「章节覆盖」——它按章节组织、拆分更克制，在真实评测中重要要点覆盖更全、编造更少（见 `docs/note_pipeline_evaluation.md`）。「高保真」仍可在设置里手动选择；短稿仍走「直接」模式。
+- 长稿笔记生成明显更快：抽取证据/分章等相互独立的步骤改为并行执行，一段约 40 分钟的长稿高保真笔记实测从约 230 秒降到约 130 秒。
+- 修复「章节覆盖」笔记的两个格式问题：正文不再泄漏内部证据编号（如 `（E038）`），标题也统一为规整的 `一、二、三 + x.y` 层级编号。
+- 新增「给笔记自动配图」开关（设置页）：开启后，视频笔记会自动截取关键画面并由视觉 AI 选图插入正文。**默认关闭**；需配置通义千问（DashScope）视觉密钥，且会产生额外费用。纯口播视频通常无可配图。
+
 ### 维护者变化
 
-- 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。
-- 官网首页拆出 content、styles 和 HeroProofDemo 局部模块，让 landing route 只保留页面编排、语言/主题状态和 section 组合，便于后续商业官网扩展。
-- 官网首页右侧 hero proof demo 拆成独立的步骤控件、四个阶段组件和配置数组，后续调整输入、处理、学习复查与导出步骤时不再把状态机、动画和全部 JSX 混在一个组件里。
+- 移除 AI「笔记模式规划器」：自动模式不再额外调用一次模型来判断该用哪种笔记模式，改为按转录长度直接决定（短→直接，长→章节覆盖）。相关结果字段 `note_mode_plan_*` 不再产生，前端已做缺省降级。
+- 「章节覆盖」增强容错：某一段证据返回的 JSON 解析失败时会重试一次，仍失败则跳过该段并记录告警，不再让整篇笔记失败。
+- 修复笔记配图「选帧」步骤：原本误用纯文本 Qwen 默认模型，给它发图片必然失败、导致该功能实际从未产出图片；现改用视觉模型 `qwen-vl-plus`（可用 `QWEN_VISION_MODEL` 覆盖为 `qwen-vl-max`）。配图是否开启由前述设置开关控制，并透传到后台队列。
+
+### 维护者变化
+
+- 云工作区代理改为默认硬禁用：现在必须同时设置 `FLUENTFLOW_CLOUD_WORKSPACE_URL` 和显式开关 `FLUENTFLOW_ENABLE_CLOUD_WORKSPACE=1` 才会开启同源代理。只设地址不设开关时后端会忽略地址，并在启动日志里明确提示。此改动是为避免一个残留的 `FLUENTFLOW_CLOUD_WORKSPACE_URL` 环境变量把本地上传静默转发到云端、导致上传卡死。
+- 新增 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET`、`GOOGLE_OAUTH_REDIRECT_URI` 和可选 `FLUENTFLOW_GOOGLE_OAUTH_SCOPES` 配置；Google 登录只请求 `openid email profile`，不持久保存 Google access token。
+- 前端新增 `docx` 依赖用于浏览器端生成 WordprocessingML `.docx`，并移除首页对 `html2pdf` CDN 的依赖。
+- `docs/word_export_format_reference.md` 改为记录原生 `.docx` / 原生 PDF 打印导出的当前合同、截图嵌入规则和不可取图降级边界。
+- `LOCAL_EXECUTION_EXACT_PATHS`（`backend/core/request_scope.py`）补入 `/queue/process` 与 `/summarize-transcript-file`，使本地执行豁免覆盖队列提交路径，与 `/process` 一致；信任模型不变（仍要求 localhost + `X-FluentFlow-Execution-Target: local` 头）。前端 `frontend/src/routes/media-text.jsx` 将非游客音视频上传统一改走 `/queue/process`，交由单后台 worker 串行执行。
+- 四个最大文件按「基座优先、抽出后原文件 import 兜回」的安全方式做了内聚拆分，**行为零变化**（每刀都跑全量测试与前端构建）：`ai_summarizer.py` 1771→1527、`server_helpers.py` 3389→3001、`processing.py` 2762→1264（媒体流水线抽到 `backend/core/media_job.py`）、`editor.jsx` 2138→1825（抽出 `editor-helpers.js` 纯函数与 `editor-dialogs.jsx` 弹窗组件）。详见 `docs/architecture_optimization_plan.md` 的「De-Godification Progress」小节。
+- 移除 4 个文件里 `try: from backend.core.X / except ImportError: from core.X` 的死回退（只为「在 backend/ 目录下运行」保留，实际全项目都以 backend 为包根，该分支从不执行）。`server_helpers.py` 因此再降到 2917 行。
+- **彻底移除遗留 Azure Batch 转录路径**：Azure 从 UI 已不可达（「云端转录」按钮早已提交 `elevenlabs_scribe`）且被配置禁用。删除 `azure_stt.py`、流水线里的 azure 分发分支与上下文字段、`/config/azure-speech/smoke-test` 接口、azure 表单字段/敏感字段、以及 `stt_providers`/`task_detail`/`processing_plan`/`tool_trace`/`error_diagnostics` 里的 azure 归一化与专属错误诊断；前端同步去掉 azure 命名（`azureBatchAudioSizeMb`→`cloudAudioSizeMb`、`sttAzure*`/`azureUpload*` i18n 键改为 `cloud` 版、删除 `isAzure*` helper 与 azure 错误诊断）。云端转录改由 ElevenLabs 承担，行为不变；`AZURE_SPEECH_*` / `AZURE_BLOB_CONTAINER_SAS_URL` 配置项不再使用。顺带修复 `TaskProgressOverview` 里「非 azure 即本地」的历史误判（ElevenLabs 云端曾被错标为本地）。
+- `/tasks` 与 `/agent` 两个记录页原本各有一份几乎相同的 loadJobs + 稳定 ref 轮询（就是 2026-07-08 无限刷新 bug 的源头），抽到共享 `frontend/src/lib/useJobPolling.js`，以页面参数区分（live 判定、错误告警语义、刷新文案），行为不变。
+- 删除死文件 `backend/core/_pipeline.py`（924 行）：早期「从 server_helpers 搬出」的抽取草稿，被后来真正接线的模块取代后无人 import，其 STT provider helper 是不可达副本。
+- **彻底移除云工作区代理**：这是让本地后端把 账号/任务/上传 请求整体转发到远程部署的「二选一路由开关」，从 UI 不可达、从未真正投用，只当过 2026-07-08「本地上传被静默转发到云端」卡死的元凶。删除 `cloud_proxy.py`、`server_helpers.py` 里的 `_cloud_workspace_*` / `_should_proxy_cloud_workspace` / `_proxy_cloud_workspace_request` 等助手与中间件/启动钩子、以及 5 个代理测试；`FLUENTFLOW_CLOUD_WORKSPACE_URL` / `FLUENTFLOW_ENABLE_CLOUD_WORKSPACE` 不再被任何代码读取。未来多设备同步应作为独立的显式同步/迁移功能重做，而非复活这个转发开关。
+
+### 注意事项
+
+- 本次队列改动需重启后端并重新构建前端（`npm run build:frontend`）后生效。不改变数据结构，旧任务记录可正常读取。
+
+## v0.2.1｜2026-07-05｜Stability and export fixes
 
 ### 用户可见变化
 
+- Word 笔记导出新增专用版式规则：整篇文档优先使用苹方字体，统一中文、英文和数字的字体槽位，并修复列表重复圆点、空白行过多和表格左列被裁切的问题。
+- Agent 处理记录卡片在中等宽度下会继续把取消 / 查看结果等操作保持在右上角，不再因为断点过大而提前掉到标题下方。
+- 飞书导出改为按飞书官方 Markdown/HTML 转文档块流程优先创建文档；表格会走 Feishu Table / TableCell 块，官方转换不可用时才降级为标签化列表，避免直接显示 `|---|` 表格源码。
+- PDF 笔记导出改为独立白底打印版式，会从当前 Markdown 笔记正文重新渲染可读页面，不再直接捕获编辑器的暗色界面或屏幕布局。
+- 编辑器新增“关键画面复查”区域：会展示适合回看图表、代码、界面、公式或流程的关键画面候选，并可点击时间点辅助对照学习；正文仍只显示已插入笔记的高置信截图。
+- 编辑器重生笔记现在可以从已有转录结果恢复：当旧任务记录已被清理或不在当前账号作用域时，会创建新的重生任务，而不是直接返回 `Job not found`。
+- 编辑器从轻量缓存打开结果时，如果完整逐段转录加载失败，会明确提示“只拿到了缓存预览”，不再把截断文本当作完整可编辑转录展示。
+- 修复多文件/队列上传时本地转录设置没有随 `/queue/process` 请求一起进入本地执行通道的问题；后续选择“本地转录”的队列任务会正确走本地路线。
+- 处理记录页会即时合并最近活动里的轻量任务记录，刚提交或刚刷新的任务不再等 `/jobs` 后台刷新后才出现在列表里。
+- 处理记录页进行中任务的进度条会跨满整张记录卡片宽度，不再被右侧“取消”按钮挤短。
+- 从最近活动打开编辑器时，轻量缓存结果会先显示“正在加载逐段转录”，不再短暂误报“当前结果没有时间戳分段”后才恢复正常分段列表。
+- 最近活动卡片的状态标签会固定横向显示，避免窄卡片里“已完成”等状态被挤成竖排。
+- 编辑器会在音频结果中隐藏“视频复查”模式切换，避免音频笔记出现不可用的视频复查入口；视频结果仍保留文本校对 / 视频复查切换。
+- 编辑器的提示词模板弹窗改为左侧模板列表、右侧编辑器的工作面板布局，暗色模式表面、输入框和保存区更贴近当前产品界面；默认模板名称同步改为“通用学习笔记”。
+- 处理记录和处理详情的材料判断不再把结构化分享/讨论类长视频默认叫成“课程材料”；系统会优先使用笔记策略 Agent 的材料类型，并把普通长视频兜底显示为更中性的学习材料，笔记合成阶段也不再把所有材料预设为“同一门课程”。
+- 编辑器和处理详情页移除整段字幕自动纠错的提示、查看修正按钮和纠错详情模块；旧任务的底层纠错字段仍保留兼容，但不再作为主界面能力展示。
+- 字幕纠错层改为默认关闭：新任务默认不再额外调用模型做字幕纠错，也不会把自动纠错结果直接用于笔记生成；如需继续实验，可通过环境变量显式开启。
+- 课程笔记默认提示词不再强制套用固定五段模板；新生成/重生的笔记会先按材料本身的讲述结构组织章节，更适合课程、教程、访谈和长视频学习材料。
+- 修复设置选择“本地转写”后，显式云端转写 allowlist 会把本机任务重新规整到 ElevenLabs 云端路线的问题；本机/本地执行请求现在会保留 local 路线，公开云端仍保持云端转写策略。
+- 编辑器里的 AI 笔记失败提示不再原样展示上游 API JSON；百炼 / DashScope API Key 无效时会显示可理解的“更新 API Key 后重生笔记”提示，并保留“转录已保存”的语义。
+- 处理记录页定时刷新任务时，云工作区列表代理遇到一次性响应断流会自动重试；默认任务和本地任务只要有一路刷新成功，就不会反复弹出“任务刷新失败”。
+- 开始处理页和“视频转写与总结”的最近活动卡片不再先探测 `/jobs/{task_id}`；已缓存完成结果会直接打开编辑器，其他记录回到处理记录页，避免已删除或本地任务在控制台留下无意义的 404。
+- 处理记录页的本地音视频“重新提交”会先检查后端是否声明支持源文件重提接口；旧后端会走兼容入队路径，避免按钮卡住并在控制台留下 `/jobs/{task_id}/retry` 405。
+- 处理记录页的本地音视频“重新提交”改为服务器端复用已保存源文件直接创建新任务，不再先把大文件下载到浏览器再重新上传；按钮等待态也会显示“正在入队”。
+- 进入产品页时的初始加载态不再显示“正在检查访问权限”，改为中性的 FluentFlow 打开提示；只有确实需要登录或访问码时才展示认证界面。
+- “视频转写与总结”和开始处理页的最近活动卡片不再跳入旧的“处理详情”页面；完成记录会打开编辑器，未完成或失败记录会回到处理记录主页面。
+- 修复本地产品页控制台里的 `favicon.svg` 404，并让云工作区代理下的普通 JSON API 不再以 chunked streaming 方式返回，减少 `/jobs` 刷新时的 `ERR_INCOMPLETE_CHUNKED_ENCODING` 报错。
+- 处理记录页的“重新提交”不再只是跳到开始处理页：视频链接会直接按原链接创建新任务，本地音视频记录会在源文件仍可用时复用原文件重新入队；源文件已清理时会提示用户重新选择文件。
+- 处理记录页在同一次前端会话里会复用上一份任务列表即时渲染，切到别的页面再返回时不再像冷启动一样等待整页重新加载；后台仍会静默刷新真实任务状态。
+- 处理记录页会优先展示上传中、进行中和排队中的任务；多文件上传会尽快按每个文件显示独立进程卡，顶部批次提示只作为短暂辅助反馈。
+- 处理记录页的失败、已取消和已完成记录新增“删除记录”动作，用户可以清理无价值的终态记录；进行中任务仍使用“取消”。
+- 处理记录页精简失败/已取消等终态卡片，不再默认展开大块“当前阶段”详情面板；失败原因改为紧凑提示。
+- 开始处理页和任务进度概览的当前任务取消动作新增二次确认，并统一使用更明确的终止任务图标。
 - 修复处理记录页 `/agent` 和管理页 `/admin` 等前端页面强制刷新后被后端 API 路由吞掉、显示 `{"detail":"Not Found"}` 或登录墙的问题；这些页面现在会正确回到前端应用，`/agent/v1/...` 和 `/admin/...` API 仍保持受保护接口语义。
 - 修复账号切换后的处理记录缓存隔离：新账号、旧账号、访客和本机缓存不再互相污染，前端不会把旧账号记录写入新账号的任务缓存；已被旧版本误写入当前账号缓存的其他账号/访客记录也会在读取时按任务 `client_id` 丢弃。
 - 设置页新增飞书账号连接状态和连接/断开入口；飞书导出默认走用户 OAuth 连接，编辑器在未连接时会引导用户先连接自己的飞书账号，而不是把导出失败展示成普通系统错误。
@@ -130,6 +199,13 @@
 
 ### 维护者变化
 
+- 新增 Word 导出格式参考文档，记录当前 `.doc` HTML 兼容方案、字体槽位和表格布局约束，并标明后续商业版应升级到原生 `.docx` 生成。
+- 视频截图链路新增 `visual_key_moments` 结果层，用于保存适合学习复查但不应插入正文的关键画面；`visual_evidence` 继续只表示已进入正文的高置信视觉证据，`frame_artifacts` 保持诊断/原始候选语义。
+- 本地运行数据默认目录统一到系统应用数据目录，维护脚本、备份/恢复脚本、部署自检和 Codex 导出脚本改用同一套 runtime path；旧仓库内 `data/`、`backend/data/` 和视频缓存先通过迁移脚本复制，迁移验证后保留 14 天再清理。
+- 前端 `AppProvider`、`DropdownMenu` 和后端 `request_scope` / `cloud_proxy` 抽象已接入主入口，`shared.jsx` 和 `server_helpers.py` 只保留兼容转发层，减少半迁移状态带来的上下文噪音。
+- 飞书导出新增用户 OAuth 基础层：账号库会保存账号级 Feishu connection，后端可生成授权 URL、校验 callback state、刷新用户 token，并支持 `/export-lark` / Agent export 显式使用 `user_oauth` 路径以用户身份写入文档；旧维护者 OpenAPI 和本机 lark-cli 路径继续保留。
+- 官网首页拆出 content、styles 和 HeroProofDemo 局部模块，让 landing route 只保留页面编排、语言/主题状态和 section 组合，便于后续商业官网扩展。
+- 官网首页右侧 hero proof demo 拆成独立的步骤控件、四个阶段组件和配置数组，后续调整输入、处理、学习复查与导出步骤时不再把状态机、动画和全部 JSX 混在一个组件里。
 - 新增 `fluentflow-homepage-design` 项目 skill，用于官网首页审校和改版前判断，并将 Huashu Design 方向探索纳入流程，避免通用设计 skill 把首页带回深色工具页、泛 AI 模板或不适合中文学习产品的字体方向。
 - 部署自检中的视频截图插图检查改为要求百炼 / DashScope 视觉选择 Key，而不再强制主摘要服务商必须设置为 Qwen；DeepSeek/OpenAI 生成文本笔记时也可配合 Qwen 视觉模型完成局部截图选择。
 - 新增 `docs/git_checkpoint_workflow.md` 作为 Git checkpoint 单一操作手册；`AGENTS.md`、执行任务 brief 和 git workflow skill 只保留索引，避免多处规则互相冲突。
@@ -155,6 +231,11 @@
 ### 数据 / 口径变化
 
 - Result Payload v2 新增 `transcript_correction_status`、`transcript_correction`、`transcript_corrections`、`corrected_transcript_text`、`corrected_segments` 和 `note_generation_transcript_source`；原始 `transcript_text`、`raw_segments`、`display_segments` 不会被纠错层覆盖。
+
+### 注意事项
+
+- 升级需要重新构建前端并重启后端；浏览器如仍命中旧 bundle，需要强制刷新。
+- 如启用飞书用户 OAuth、百炼 / DashScope 视觉截图、DeepSeek 字幕纠错或迁移后的运行数据目录，需要确认服务器环境变量和迁移状态与运维文档一致。
 
 ## v0.2.0｜2026-06-29｜Agent 工作流与云端转录基础版
 

@@ -13,10 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-try:
-    from backend.core.local_config import get_sensitive_setting
-except ImportError:  # pragma: no cover - script execution fallback
-    from core.local_config import get_sensitive_setting
+from backend.core.local_config import get_sensitive_setting
 
 
 @dataclass(frozen=True)

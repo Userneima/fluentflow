@@ -31,6 +31,25 @@ const Section = ({id, title, description, children}) => (
     </section>
 );
 
+const SettingCheckbox = ({id, checked, disabled, onChange}) => (
+    <span className="flex justify-end pt-0.5">
+        <input
+            id={id}
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            onChange={onChange}
+            className="peer sr-only"
+        />
+        <span
+            aria-hidden="true"
+            className="flex size-5 items-center justify-center rounded-[6px] border border-outline-variant bg-surface-container-lowest text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary/30 peer-disabled:opacity-40 dark:border-white/30 dark:bg-white/[0.04] dark:peer-checked:border-primary dark:peer-checked:bg-primary"
+        >
+            <SvgIcon name="check" className="text-[15px]"/>
+        </span>
+    </span>
+);
+
 const Settings = () => {
     const {t, lang} = useI18n();
     const {loadSettings, saveSettings} = useSettings();
@@ -303,7 +322,28 @@ const Settings = () => {
                                         {lang === 'zh' ? '适合多人访谈或讲座。不可用时会保持关闭。' : 'Useful for interviews or lectures. It stays off when unavailable.'}
                                     </span>
                                 </span>
-                                <input id="settingsSpeakerDiarization" type="checkbox" checked={!!settings.speakerDiarization && speakerDiarizationAvailable} disabled={!speakerDiarizationAvailable} onChange={e=>updateSettingNow({speakerDiarization:e.target.checked})} className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary disabled:opacity-40"/>
+                                <SettingCheckbox
+                                    id="settingsSpeakerDiarization"
+                                    checked={!!settings.speakerDiarization && speakerDiarizationAvailable}
+                                    disabled={!speakerDiarizationAvailable}
+                                    onChange={e=>updateSettingNow({speakerDiarization:e.target.checked})}
+                                />
+                            </label>
+
+                            <label htmlFor="settingsAutoIllustrate" className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start cursor-pointer hover:bg-[#faf9f9] dark:hover:bg-white/[0.04]">
+                                <span>
+                                    <span className="block text-sm font-bold">{lang === 'zh' ? '给笔记自动配图' : 'Auto-illustrate notes'}</span>
+                                    <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
+                                        {lang === 'zh'
+                                            ? '视频笔记自动截取关键画面配图；需配置通义千问（DashScope）视觉密钥，会产生额外费用。纯口播视频通常无可配图。'
+                                            : 'Capture key frames into video notes. Needs a Qwen (DashScope) vision key and adds cost. Talking-head videos usually have nothing to illustrate.'}
+                                    </span>
+                                </span>
+                                <SettingCheckbox
+                                    id="settingsAutoIllustrate"
+                                    checked={!!settings.autoIllustrate}
+                                    onChange={e=>updateSettingNow({autoIllustrate:e.target.checked})}
+                                />
                             </label>
 
                             {sttProvider === 'local' && localRouteAvailable && (
@@ -341,7 +381,11 @@ const Settings = () => {
                                         {lang === 'zh' ? '处理完成后自动创建飞书文档。' : 'Create a Lark document automatically after processing.'}
                                     </span>
                                 </span>
-                                <input id="settingsExportToLark" type="checkbox" checked={settings.exportToLark || false} onChange={e=>updateSettingNow({exportToLark:e.target.checked})} className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"/>
+                                <SettingCheckbox
+                                    id="settingsExportToLark"
+                                    checked={settings.exportToLark || false}
+                                    onChange={e=>updateSettingNow({exportToLark:e.target.checked})}
+                                />
                             </label>
 
                             {showMaintainerSettings && (

@@ -6,352 +6,60 @@ import os
 import re
 import json
 import base64
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
-DEEPSEEK_BASE_URL: Final[str] = "https://api.deepseek.com"
-OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
-QWEN_BASE_URL: Final[str] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_DEEPSEEK_MODEL: Final[str] = "deepseek-reasoner"
-DEFAULT_OPENAI_MODEL: Final[str] = "gpt-5.4-mini"
-DEFAULT_QWEN_MODEL: Final[str] = "qwen3.7-plus"
-DEFAULT_MODEL: Final[str] = DEFAULT_DEEPSEEK_MODEL
-SUPPORTED_PROVIDERS: Final[set[str]] = {"deepseek", "openai", "qwen"}
-SUPPORTED_NOTE_MODES: Final[set[str]] = {"auto", "direct", "fast", "high_fidelity", "chapter_coverage"}
-CHAPTER_COVERAGE_VERSION: Final[str] = "1"
-DIRECT_MODE_MAX_CHARS: Final[int] = 20_000
-HIGH_FIDELITY_NOTICE_CHARS: Final[int] = 60_000
+logger = logging.getLogger(__name__)
+
+from backend.core.ai_config import (
+    DEEPSEEK_BASE_URL,
+    OPENAI_BASE_URL,
+    QWEN_BASE_URL,
+    DEFAULT_DEEPSEEK_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_QWEN_MODEL,
+    DEFAULT_QWEN_VISION_MODEL,
+    DEFAULT_MODEL,
+    SUPPORTED_PROVIDERS,
+    SUPPORTED_NOTE_MODES,
+    CHAPTER_COVERAGE_VERSION,
+    DIRECT_MODE_MAX_CHARS,
+    HIGH_FIDELITY_NOTICE_CHARS,
+)
 
 # Full system prompt: FluentFlow 知识架构师（飞书云文档 Markdown）
-FLUENTFLOW_SYSTEM_PROMPT: Final[str] = """# Role: FluentFlow 知识架构师
-
-# Task: 你将接收一段由 Whisper 转录的原始课程录音文本。这段文本可能包含口癖、重复和错别字。你的任务是将其转化为一份高质量、结构化、可直接用于复习的飞书云文档笔记。
-
-# Writing Style:
-- 严谨、专业、富有启发性。
-- 使用二级和三级标题建立层级感。
-- 重点术语使用 **加粗**。
-- 核心金句使用 > 引用块。
-
-# Output Structure:
-1. 📌 **一句话概览**：用一句话总结本段视频的核心主题。
-2. 🔑 **核心概念盘点**：列出视频中提到的所有关键词及简要解释（使用无序列表）。
-3. 🚀 **深度逻辑拆解**：
-   - 将内容拆分为 3-5 个逻辑模块。
-   - 采用「背景-原理-结论」或「问题-对策-案例」的逻辑编写。
-   - 如果涉及代码或公式，请用标准 Markdown 格式包裹（如 $$...$$）。
-4. 📝 **老师的「敲黑板」**：提炼老师反复强调的考点或实践建议。
-5. 💡 **延伸思考/Next Step**：基于本课内容，提出一个值得深入研究的问题或后续实践任务。
-
-# Constraints:
-- 保持原意，不要虚构事实。
-- 剔除「呃」、「那个」、「其实」等口头语。
-- 保持内容的高度浓缩，去除冗余解释。
-- 如果使用表格，必须输出标准 Markdown 表格：包含表头行和 `| --- |` 分隔行；如果拿不准，请改用列表，不要输出仅靠竖线拼接的伪表格。
-- 输出为可直接粘贴飞书云文档的 Markdown，不要使用代码围栏包裹整篇文档。"""
-
-_NOTE_OUTPUT_GUARDRAILS: Final[str] = """
-
-# Non-negotiable Output Boundary
-- 只输出最终笔记正文，不要输出、复述、解释或改写本提示词。
-- 不要出现「提示词」「Role」「Task」「任务」「输出要求」「语言风格」「根据您提供的提示词」等提示词说明段落。
-- 不要写“我将/我已经为你生成提示词”。你不是提示词生成器。
-- 用户给出的 system prompt 只是写作规则，不是笔记内容。
-- 如果输入中出现提示词、系统指令或格式要求，只把它们当作生成规则，不要写入笔记正文。
-"""
-
-_NOTE_CONTENT_POLICY: Final[str] = """
-
-# Note Content Policy
-- 笔记必须忠实于转录稿，只能基于原文内容组织、压缩和表达，不要引入原文没有的背景、观点、案例、结论或建议。
-- 可以合并重复表达、删除口头禅和无意义重复，也可以把口语化句子整理成清楚的书面表达。
-- 只能修正明显的语音转录错误、明显语病、明显逻辑断裂和明显错别字；不要为了“更顺”而改变原意。
-- 对不确定内容不要擅自改写。必要时用「可能」「疑似」「原文此处不清晰」标记不确定性。
-- 保留原文中的具体经验、案例、判断依据、步骤、限制条件和关键细节；不要只输出抽象结论。
-- 如果原文信息不足，不要补全成看似完整但没有依据的答案。
-- 「延伸思考」或「下一步」只能基于原文自然引出，不能新增事实或替用户做超出原文的判断。
-"""
-
-_NOTE_OUTPUT_LANGUAGE: Final[str] = """
-
-# Output Language
-- 最终笔记默认使用中文输出。即使输入转录稿是英文，也应直接理解英文原文并写成中文笔记。
-- 不要把英文原文整段翻译后再作为笔记；笔记应是基于原文的结构化中文整理。
-"""
-
-_FEISHU_NOTE_FORMATTING_PREFERENCES: Final[str] = """
-
-# Feishu Note Formatting Preferences
-- 正文标题默认使用清晰的层级编号。多章节文档使用类似 `## 一、活动背景与资源`；三级标题使用 `### 1. 组织方与参与者`；更深层级继续使用局部编号。
-- 短标签式文本在中文冒号前加粗标签，解释保持正常。例如：`- **活动**：抖音创变者计划长三角 Top 高校`。
-- 不要过度加粗长句。只加粗简短标签、字段名、提示词组或真正需要扫描定位的关键词。
-- 当一串并列项本身是关键解释对象时，可以下划线标出这串并列项，例如 `<u>输入框、按钮、卡片、列表和弹窗</u>`；不要下划线无关叙述。
-- 表格只在内容天然适合对比、清单、参数或结构化扫描时使用。不要为了显得正式而硬造表格。
-- 如果使用表格，必须输出标准 Markdown 表格，列数稳定；不要输出仅靠竖线拼接的伪表格。
-- 普通说明、流程、页面布局、URL 和纯文本列表不要使用代码块。代码块只用于真实代码、命令、配置、JSON/API 示例或必须保留等宽格式的数据。
-- `来源信息` 如需出现，放在文档末尾。读者优先看到学习内容，来源信息只用于追溯。
-- 长中文说明段落可以使用自然短段落提升可读性；不要用四个空格或制表符制造缩进，以免被 Markdown 识别为代码块。
-"""
-
-_SOURCE_FAITHFULNESS_RULES: Final[str] = """
-规则：
-- 只基于输入文本提取信息，不要补充外部知识。
-- 可以忽略口头禅、重复和无意义噪声。
-- 只能修正明显转录错误；不确定就标注「疑似」或「原文不清晰」。
-- 保留具体例子、数字、步骤、限制条件和判断依据。
-"""
-
-_MULTIMODAL_NOTE_SYSTEM: Final[str] = """# Role: FluentFlow 多模态知识架构师
-
-你将收到：
-1. 完整的视频转录稿（文本）
-2. 从视频中截取的若干画面（图片，每张带有时间戳和文件名标注）
-
-你的任务：
-- 仔细审阅所有截图，选出 0-8 张真正有信息量的画面；宁可不插图，也不要为了凑数插图。
-- 全局密度要克制：短笔记通常 1-2 张即可，长笔记也优先选择少量高价值截图；同一页 PPT 或近似画面只选第一次出现的位置。
-- 优先选择能解释核心知识点的画面：
-  - 一级 / 二级章节开头、核心定义、公式、流程图、代码片段、图表、数据表格、方法步骤、关键对比
-  - 关键演示画面、产品界面、重要实物展示
-- 不要选择低价值画面，即使字很多也不要选：
-  - 纯封面、纯目录、纯标题页、致谢页、结束页、过渡动画中间帧
-  - 模糊画面、黑屏/白屏、纯人物讲话、纯字幕条、与笔记段落无关的画面
-- 按照「知识架构师」的标准，生成一份结构化中文笔记
-- 在笔记最合适的位置，用 Markdown 图片语法插入选中的截图：
-  - 章节引导图放在相关标题后
-  - 具体知识点、公式、流程或案例截图放在对应段落后
-- 每张截图配一句简短中文图注
-
-截图引用格式（仅限文件名，不要写路径）：
-![图注](filename.jpg)
-
-只输出最终笔记正文，不要写任何解释说明。"""
-
-_MULTIMODAL_CONTENT_POLICY: Final[str] = """
-
-# Note Content Policy
-- 笔记必须忠实于转录稿，只能基于原文内容组织、压缩和表达。
-- 图片只用于辅助说明原文已有内容，不要在图片中阅读原文未提及的信息。
-- 不确定的画面直接跳过不要选。
-"""
-
-_VISUAL_REQUEST_PLANNER_SYSTEM: Final[str] = """# Role: FluentFlow 视觉证据规划器
-
-你会收到：
-1. 已生成的结构化笔记
-2. 带时间戳的转录片段
-
-你的任务不是选图，而是判断哪些笔记段落真的需要截图辅助理解，并给出最小时间窗。
-
-只在截图能明显帮助用户复习时提出请求，例如：流程图、架构图、公式、代码、表格、PPT 关键页、产品界面、演示步骤、数据图表、关键对比。
-不要为封面、目录、纯标题页、人物讲话、字幕条或普通口播段落提出请求。
-
-输出严格 JSON，不要写解释：
-{
-  "requests": [
-    {
-      "note_section": "笔记中的相关标题或段落名",
-      "start_seconds": 12.3,
-      "end_seconds": 28.0,
-      "reason": "为什么这里需要截图，面向用户",
-      "query": "给视觉模型看的画面筛选目标",
-      "priority": "high|medium|low",
-      "max_images": 1
-    }
-  ]
-}
-
-最多 8 个请求。宁可返回空数组，也不要凑数。"""
-
-_VISUAL_FRAME_SELECTOR_SYSTEM: Final[str] = """# Role: FluentFlow 局部截图选择器
-
-你会收到一个截图需求和该时间窗内的少量候选帧。请选择最能帮助用户理解笔记内容的 0-1 张。
-
-优先选择：流程图、架构图、公式、代码、表格、数据图、关键界面、演示步骤、清晰的 PPT 正文页。
-排除：封面、目录、纯标题页、过渡页、纯人物讲话、字幕条、模糊/黑屏/白屏、重复或与需求无关的画面。
-
-输出严格 JSON，不要写解释：
-{
-  "selected": [
-    {
-      "filename": "ts_0004_0.jpg",
-      "caption": "一句中文图注，说明这张图支持的知识点",
-      "reason": "为什么选它，面向用户",
-      "confidence": "high|medium|low"
-    }
-  ]
-}
-
-如果候选帧都不值得放入笔记，返回 {"selected": []}。"""
-
-# 分段提炼时使用（减轻最终合并输入长度）
-_INTERIM_SYSTEM: Final[str] = f"""你是 FluentFlow 的预处理助手。输入为 Whisper 转录的一小段原文。
-请用简洁的中文 Markdown 输出：
-- 本段关键事实、术语与数字
-- 本段讲解主线（短句列表即可）
-输出将用于后续合并，无需五大板块的完整成品格式。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_BATCH_CONDENSE_SYSTEM: Final[str] = f"""你是 FluentFlow 的编校助手。下面若干段是同一课程不同时间段的「分段要点草稿」。
-请合并去重，保留重要术语与逻辑顺序，输出一份连贯的「合并要点稿」（仍用 Markdown，可多级列表），不要套用五大板块终稿格式。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_EVIDENCE_SYSTEM: Final[str] = f"""你是 FluentFlow 的课程证据提取助手。输入是同一课程转录文本的一段。
-你的任务不是写最终笔记，而是尽量完整地提取可用于笔记的「证据清单」。
-
-请按以下 Markdown 结构输出，保留细节，不要过度概括：
-## 本段主题
-- ...
-
-## 概念与术语
-- 术语：解释
-
-## 关键观点
-- ...
-
-## 方法、步骤或框架
-- ...
-
-## 例子、案例、类比
-- ...
-
-## 数字、条件、限制
-- ...
-
-## 老师强调/容易漏掉的细节
-- ...
-
-规则：
-- 不要编造，不确定就标注「疑似」。
-- 如果某一栏没有内容，写「无」。
-- 目标是保留信息，而不是写得漂亮。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_EVIDENCE_CONDENSE_SYSTEM: Final[str] = f"""你是 FluentFlow 的证据合并助手。输入是同一课程多个片段的证据清单。
-请合并去重，但必须尽量保留概念、例子、数字、步骤和老师强调的细节。
-输出仍然是 Markdown 证据清单，不要写成最终笔记。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_CHAPTER_EVIDENCE_SYSTEM: Final[str] = f"""你是 FluentFlow 的长字幕证据抽取助手。
-输入是带有 segment_id 的转录片段 JSON 数组。请抽取可用于完整覆盖笔记的证据。
-
-输出严格 JSON 数组，不要输出 Markdown 或代码围栏。每项格式：
-{{
-  "evidence_id": "E001",
-  "source_segment_ids": ["S001"],
-  "type": "concept|argument|method|example|metric|action|detail",
-  "text": "证据内容，必须忠实于原文",
-  "importance": 1,
-  "keywords": ["关键词"],
-  "quote": "可选原文关键句"
-}}
-
-规则：
-- evidence_id 可以先用临时编号，程序会重排成稳定编号。
-- importance 使用 1-5；4-5 表示重要证据。
-- 保留具体例子、数字、限制条件和老师强调。
-- 不要为了整齐而编造分类或内容。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_CHAPTER_OUTLINE_SYSTEM: Final[str] = """你是 FluentFlow 的章节规划助手。
-输入是一组证据的压缩视图。请把证据分配到 3-8 个自然章节中。
-
-输出严格 JSON 数组，不要输出 Markdown 或代码围栏。每项格式：
-{
-  "chapter_id": "CH01",
-  "title": "章节标题",
-  "purpose": "这一章解决什么问题",
-  "used_evidence_ids": ["E001", "E002"]
-}
-
-规则：
-- 每条重要证据应尽量分配到某个章节。
-- 章节顺序应符合材料讲述顺序。
-- 不要新增输入中不存在的主题。"""
-
-_CHAPTER_NOTE_SYSTEM: Final[str] = f"""你是 FluentFlow 的章节笔记写作助手。
-输入是某一章的标题、目的和证据清单。请只写这一章的 Markdown 内容。
-
-要求：
-- 用 `##` 作为本章标题。
-- 必须吸收本章内的重要概念、案例、数字、步骤和限制条件。
-- 只基于证据写作，不要补充外部知识。
-- 不要写整篇总结，不要重复其他章节。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_CHAPTER_STYLE_SYSTEM: Final[str] = f"""你是 FluentFlow 的长文档编校助手。
-输入是按章节生成的 Markdown 草稿。请做轻量合并和统一风格，输出一份完整笔记。
-
-只能做：
-- 统一标题层级、编号和术语。
-- 去除明显重复。
-- 补自然过渡。
-
-不能做：
-- 大幅压缩章节。
-- 删除具体例子、数字、步骤和限制条件。
-- 新增原文没有的信息。
-{_SOURCE_FAITHFULNESS_RULES}"""
-
-_FINAL_WRAPPER: Final[str] = (
-    "以下内容来自**同一门课程**转录文本的分段提炼（按时间顺序）。"
-    "请**整理为一份完整**、可直接用于飞书云文档的 Markdown 笔记，"
-    "严格遵循系统说明中的角色、版式与五大板块结构，理顺逻辑并去重。\n\n---\n\n"
+from backend.core.ai_prompts import (
+    FLUENTFLOW_SYSTEM_PROMPT,
+    _NOTE_OUTPUT_GUARDRAILS,
+    _NOTE_CONTENT_POLICY,
+    _NOTE_OUTPUT_LANGUAGE,
+    _FEISHU_NOTE_FORMATTING_PREFERENCES,
+    _SOURCE_FAITHFULNESS_RULES,
+    _MULTIMODAL_NOTE_SYSTEM,
+    _MULTIMODAL_CONTENT_POLICY,
+    _VISUAL_REQUEST_PLANNER_SYSTEM,
+    _VISUAL_FRAME_SELECTOR_SYSTEM,
+    _INTERIM_SYSTEM,
+    _BATCH_CONDENSE_SYSTEM,
+    _EVIDENCE_SYSTEM,
+    _EVIDENCE_CONDENSE_SYSTEM,
+    _CHAPTER_EVIDENCE_SYSTEM,
+    _CHAPTER_OUTLINE_SYSTEM,
+    _CHAPTER_NOTE_SYSTEM,
+    _CHAPTER_STYLE_SYSTEM,
+    _FINAL_WRAPPER,
+    _HIGH_FIDELITY_FINAL_WRAPPER,
+    _COVERAGE_SYSTEM,
+    _SEGMENT_TRANSLATION_SYSTEM,
+    _BILINGUAL_SEGMENT_SYSTEM,
+    _REVISION_WRAPPER,
 )
-
-_HIGH_FIDELITY_FINAL_WRAPPER: Final[str] = (
-    "以下内容是从同一门课程转录文本中按时间顺序提取的「证据清单」。"
-    "请基于这些证据整理为一份完整、可复习、可直接放入飞书云文档的 Markdown 课程笔记。"
-    "不要只写抽象总结；必须吸收重要概念、例子、数字、方法步骤和老师强调。"
-    "严格遵循系统说明中的角色、版式与五大板块结构。\n\n---\n\n"
-)
-
-_COVERAGE_SYSTEM: Final[str] = """你是 FluentFlow 的笔记覆盖率审查助手。
-请对照「证据清单」和「已生成笔记」，检查笔记是否遗漏了重要概念、例子、数字、步骤、限制条件或老师强调。
-如果没有明显遗漏，只输出：COVERED
-如果有遗漏，请用 Markdown 列出「需要补入的遗漏点」，不要重写整篇笔记。"""
-
-_SEGMENT_TRANSLATION_SYSTEM: Final[str] = """你是 FluentFlow 的字幕翻译助手。
-请把输入 JSON 数组中的英文字幕逐条翻译为自然、准确、简洁的中文。
-
-要求：
-- 保留原意，不补充原文没有的信息。
-- 不解释、不总结、不合并字幕。
-- 输出严格 JSON 数组，每项格式为 {"index": 数字, "text_zh": "中文翻译"}。
-- index 必须和输入一致；不要输出 Markdown 或代码围栏。"""
-
-_BILINGUAL_SEGMENT_SYSTEM: Final[str] = """你是 FluentFlow 的英文字幕断句整理和中文对照助手。
-输入是 Whisper 按音频时间切出来的英文字幕片段。它们可能不是完整句子。
-
-请完成两件事：
-1. 只合并相邻片段，把英文整理成更自然、完整的阅读字幕。
-2. 为每条整理后的英文字幕生成自然、准确、简洁的中文翻译。
-
-要求：
-- 只能使用输入片段的原文信息，不要补充、总结或解释。
-- 可以轻微修正大小写、标点和明显口语断裂，但不要改写原意。
-- 每条输出必须覆盖连续的输入 index，不能跳跃、倒序或重叠。
-- 不要为了变短而删除关键信息。
-- 输出严格 JSON 数组，每项格式为：
-  {"start_index": 数字, "end_index": 数字, "text_en": "整理后的英文", "text_zh": "中文翻译"}
-- start_index 和 end_index 都是包含端点。
-- 不要输出 Markdown 或代码围栏。"""
-
-_REVISION_WRAPPER: Final[str] = """下面是已生成的课程笔记，以及覆盖率审查发现的遗漏点。
-请在不推翻原结构的前提下，把遗漏点自然补入笔记，输出完整修订版 Markdown。
-
---- 已生成笔记 ---
-
-{draft}
-
---- 需要补入的遗漏点 ---
-
-{coverage}
-"""
 
 _PROMPT_SECTION_HEADING_RE = re.compile(
     r"^\s{0,3}(?:#{1,6}\s*)?(?:\*\*)?(提示词|系统提示词|prompt|system prompt)(?:\*\*)?\s*[:：]?\s*$",
@@ -366,6 +74,28 @@ _PROMPT_META_LINE_RE = re.compile(
 _ASSISTANT_PREFACE_RE = re.compile(
     r"^\s*(好的，?)?根据.*?(提示词|字幕|转录|语音转文字).*?(生成|整理|产出).*?(笔记|提示词).*?$"
 )
+
+# Internal evidence IDs (E001, E003、E055 …) are a chapter-coverage pipeline
+# artifact and must never appear in the finished note. The model copies them
+# inline in several shapes — parenthesized, bracketed, or bare, sometimes as
+# 、/逗号 lists. IDs are always "E"+>=3 digits (see _normalize_evidence_items),
+# so matching that shape leaves ordinary text (e.g. "E5", "H100") untouched.
+_EVIDENCE_BRACKET_RE = re.compile(
+    r"[ \t]*[（(【\[]\s*E\d{3,}(?:\s*[、,，]\s*E?\d{2,})*\s*[)）】\]][ \t]*"
+)
+_EVIDENCE_BARE_RE = re.compile(
+    r"[ \t]*(?<![A-Za-z0-9])E\d{3,}(?:\s*[、,，]\s*E?\d{2,})*[ \t]*"
+)
+_EMPTY_BRACKETS_RE = re.compile(r"[（(【\[]\s*[)）】\]]")
+
+
+def _strip_evidence_ids(text: str) -> str:
+    text = _EVIDENCE_BRACKET_RE.sub("", text)
+    text = _EVIDENCE_BARE_RE.sub("", text)
+    text = _EMPTY_BRACKETS_RE.sub("", text)  # tidy any bracket left empty
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+([，。、；：！？）】\]])", r"\1", text)  # drop space before punctuation
+    return text
 
 
 @dataclass(frozen=True)
@@ -422,118 +152,18 @@ class BilingualSegmentResult:
     chunk_count: int
 
 
-def _normalize_provider(provider: str | None) -> str:
-    p = (provider or os.environ.get("AI_PROVIDER") or "deepseek").strip().lower()
-    if p not in SUPPORTED_PROVIDERS:
-        raise ValueError(f"Unsupported AI provider: {provider}")
-    return p
-
-
-def _provider_base_url(provider: str) -> str:
-    if provider == "openai":
-        return (os.environ.get("OPENAI_BASE_URL") or OPENAI_BASE_URL).rstrip("/")
-    if provider == "qwen":
-        return (os.environ.get("QWEN_BASE_URL") or QWEN_BASE_URL).rstrip("/")
-    return (os.environ.get("DEEPSEEK_BASE_URL") or DEEPSEEK_BASE_URL).rstrip("/")
-
-
-def _provider_default_model(provider: str) -> str:
-    if provider == "openai":
-        return (os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL).strip()
-    if provider == "qwen":
-        return _normalize_model(provider, os.environ.get("QWEN_MODEL") or DEFAULT_QWEN_MODEL)
-    return _normalize_model(provider, os.environ.get("DEEPSEEK_MODEL") or DEFAULT_DEEPSEEK_MODEL)
-
-
-def _normalize_model(provider: str, model: str | None) -> str:
-    value = (model or "").strip()
-    if provider == "deepseek" and (not value or value == "deepseek-chat"):
-        return DEFAULT_DEEPSEEK_MODEL
-    return value or _provider_default_model(provider)
-
-
-def _provider_api_key(provider: str, api_key: str | None = None) -> str:
-    load_dotenv()
-    if provider == "openai":
-        env_name = "OPENAI_API_KEY"
-        env_names = (env_name,)
-    elif provider == "qwen":
-        env_name = "DASHSCOPE_API_KEY"
-        env_names = ("DASHSCOPE_API_KEY", "QWEN_API_KEY")
-    else:
-        env_name = "DEEPSEEK_API_KEY"
-        env_names = (env_name,)
-    env_key = next(
-        ((os.environ.get(name) or "").strip() for name in env_names if (os.environ.get(name) or "").strip()),
-        "",
-    )
-    key = (api_key or env_key).strip()
-    if not key:
-        raise ValueError(f"{env_name} 未设置：请在 .env 中配置或在设置页填写 API Key。")
-    return key
-
-
-def _get_client(*, provider: str, api_key: str | None = None) -> OpenAI:
-    key = _provider_api_key(provider, api_key)
-    return OpenAI(api_key=key, base_url=_provider_base_url(provider))
-
-
-def _chat(
-    client: OpenAI,
-    model: str,
-    system: str,
-    user: str,
-    *,
-    temperature: float = 0.3,
-) -> str:
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=temperature,
-    )
-    msg = resp.choices[0].message
-    return (msg.content or "").strip()
-
-
-def _image_to_base64_data_url(image_path: str) -> str:
-    path = Path(image_path)
-    suffix = path.suffix.lower().lstrip(".")
-    mime = "jpeg" if suffix in {"jpg", "jpeg"} else suffix
-    if mime not in {"jpeg", "png", "webp"}:
-        mime = "jpeg"
-    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
-    return f"data:image/{mime};base64,{encoded}"
-
-
-def _vision_chat(
-    client: OpenAI,
-    model: str,
-    system: str,
-    user_text: str,
-    image_paths: list[str],
-    *,
-    temperature: float = 0.3,
-) -> str:
-    content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
-    for path in image_paths:
-        data_url = _image_to_base64_data_url(path)
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": data_url},
-        })
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": content},
-        ],
-        temperature=temperature,
-    )
-    msg = resp.choices[0].message
-    return (msg.content or "").strip()
+from backend.core.ai_client import (
+    _normalize_provider,
+    _provider_base_url,
+    _provider_default_model,
+    _normalize_model,
+    _provider_api_key,
+    _get_client,
+    _chat,
+    _image_to_base64_data_url,
+    _vision_chat,
+    can_use_multimodal,
+)
 
 
 def _compose_note_system_prompt(system_prompt: str | None) -> str:
@@ -611,7 +241,23 @@ def _strip_prompt_leakage(markdown: str) -> str:
         cleaned.append(line)
         i += 1
 
-    return "\n".join(cleaned).strip()
+    return _strip_evidence_ids("\n".join(cleaned)).strip()
+
+
+# Independent per-chunk / per-chapter model calls are I/O-bound and order-safe,
+# so they can run concurrently instead of one-after-another. Cap concurrency to
+# stay well under provider rate limits.
+_MAX_PARALLEL_CALLS: Final[int] = 6
+
+
+def _parallel_map(fn: Callable[[Any], Any], items: list[Any]) -> list[Any]:
+    """Run fn over items concurrently, preserving input order. Exceptions
+    propagate (first failure surfaces), matching the previous serial behavior."""
+    if len(items) <= 1:
+        return [fn(item) for item in items]
+    workers = min(_MAX_PARALLEL_CALLS, len(items))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(fn, items))
 
 
 def _chunk_text(text: str, max_chars: int, overlap: int) -> list[str]:
@@ -680,6 +326,29 @@ def _extract_json_array(text: str) -> list[Any]:
     return parsed
 
 
+def _chat_json_array(
+    client: OpenAI,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    temperature: float,
+    retries: int = 1,
+) -> list[Any]:
+    """_chat + parse a JSON array, retrying on malformed model output. Models
+    occasionally emit invalid JSON; a retry with slightly higher temperature
+    usually breaks out of the bad pattern. Raises ValueError if all attempts
+    fail so callers can decide whether to skip or abort."""
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        temp = temperature if attempt == 0 else min(0.6, temperature + 0.3)
+        try:
+            return _extract_json_array(_chat(client, model, system, user, temperature=temp))
+        except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
+            last_exc = exc
+    raise last_exc if last_exc else ValueError("empty JSON array response")
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     raw = (text or "").strip()
     if raw.startswith("```"):
@@ -705,8 +374,6 @@ def _normalize_note_mode(mode: str | None) -> str:
     return "direct" if value == "fast" else value
 
 
-def can_use_multimodal(provider: str | None) -> bool:
-    return (provider or "").strip().lower() == "qwen"
 
 
 def _seconds(value: Any, fallback: float = 0.0) -> float:
@@ -789,6 +456,9 @@ def _coerce_visual_requests(
         priority = str(item.get("priority") or "medium").strip().lower()
         if priority not in {"high", "medium", "low"}:
             priority = "medium"
+        purpose = str(item.get("purpose") or item.get("visual_purpose") or "").strip().lower()
+        if purpose not in {"inline_evidence", "key_moment"}:
+            purpose = "inline_evidence" if priority == "high" else "key_moment"
         try:
             max_images = min(max(int(item.get("max_images") or 1), 0), 2)
         except (TypeError, ValueError):
@@ -802,6 +472,7 @@ def _coerce_visual_requests(
             "end_seconds": round(end, 1),
             "reason": reason[:240],
             "query": query[:240],
+            "purpose": purpose,
             "priority": priority,
             "max_images": max_images,
         })
@@ -824,6 +495,7 @@ def visual_requests_to_frame_segments(requests: list[dict[str, Any]]) -> list[di
             "note_section": request.get("note_section"),
             "query": request.get("query"),
             "reason": request.get("reason"),
+            "purpose": request.get("purpose"),
         })
     return segments
 
@@ -913,6 +585,11 @@ def _coerce_visual_frame_selection(
             confidence = "medium"
         if confidence == "low":
             continue
+        purpose = str(item.get("purpose") or item.get("visual_purpose") or request.get("purpose") or "").strip().lower()
+        if purpose not in {"inline_evidence", "key_moment"}:
+            purpose = "inline_evidence" if confidence == "high" else "key_moment"
+        if purpose == "inline_evidence" and confidence != "high":
+            purpose = "key_moment"
         selections.append({
             "request_id": request.get("id"),
             "note_section": request.get("note_section") or "",
@@ -920,6 +597,7 @@ def _coerce_visual_frame_selection(
             "caption": caption[:140],
             "reason": str(item.get("reason") or request.get("reason") or caption).strip()[:240],
             "confidence": confidence,
+            "purpose": purpose,
             "timestamp_seconds": frame.get("timestamp_seconds"),
         })
         if len(selections) >= max_images:
@@ -941,7 +619,8 @@ def select_visual_evidence_frames(
     if not can_use_multimodal(provider_name):
         raise ValueError(f"Provider {provider_name} does not support multimodal")
     client = _get_client(provider=provider_name, api_key=api_key)
-    m = _normalize_model(provider_name, model)
+    # Default to a vision-capable model; the provider's plain default is text-only.
+    m = _normalize_model(provider_name, model or os.environ.get("QWEN_VISION_MODEL") or DEFAULT_QWEN_VISION_MODEL)
     selections: list[dict[str, Any]] = []
     for request in visual_requests:
         if len(selections) >= max_total_images:
@@ -976,7 +655,12 @@ def select_visual_evidence_frames(
 def _resolve_note_mode(mode: str, transcript_length: int) -> str:
     if mode != "auto":
         return mode
-    return "direct" if transcript_length <= DIRECT_MODE_MAX_CHARS else "high_fidelity"
+    # Long-note default is chapter_coverage: on real transcripts it gave the best
+    # important-point coverage with the fewest hallucinations, and after
+    # parallelization it is no slower than high_fidelity (2026-07-09 evaluation,
+    # see docs/note_pipeline_evaluation.md). high_fidelity stays available as an
+    # explicit choice.
+    return "direct" if transcript_length <= DIRECT_MODE_MAX_CHARS else "chapter_coverage"
 
 
 def _chapter_segments(text: str, max_chars: int) -> list[dict[str, Any]]:
@@ -1242,6 +926,70 @@ def _evidence_markdown(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+_CN_DIGITS: Final[str] = "零一二三四五六七八九"
+
+# Only strips a leading heading NUMBER prefix (一、/ 第一、/ 3. / 3.1), never a
+# title that merely starts with a number word like "十亿美金".
+_LEADING_HEADING_NUMBER_RE = re.compile(
+    r"^\s*(?:"
+    r"第?\s*[一二三四五六七八九十百零]+\s*[、.．)）]\s*"
+    r"|\d+(?:[.．]\d+)+\s*"
+    r"|\d+\s*[、.．)）]\s*"
+    r")"
+)
+
+
+def _cn_number(n: int) -> str:
+    if n <= 0:
+        return str(n)
+    if n < 10:
+        return _CN_DIGITS[n]
+    if n < 20:
+        return "十" + (_CN_DIGITS[n - 10] if n > 10 else "")
+    tens, ones = divmod(n, 10)
+    return _CN_DIGITS[tens] + "十" + (_CN_DIGITS[ones] if ones else "")
+
+
+def _renumber_chapter_headings(markdown: str) -> str:
+    """Give chapter-coverage notes one consistent numbered hierarchy: top-level
+    chapters become '## 一、…', their sub-sections '### x.y …'. The mode builds
+    chapters independently, so it otherwise loses unified numbering (uses bare
+    '#' per chapter with no numbers). Deterministic, so it never depends on the
+    model getting numbering right."""
+    lines = markdown.splitlines()
+    depths = [len(m.group(1)) for line in lines if (m := re.match(r"^(#{1,6})\s+\S", line))]
+    if not depths:
+        return markdown
+    top = min(depths)
+    # A single top-level heading above deeper ones is the document title, not a
+    # chapter — keep it as '#' and treat the next level as the chapters.
+    has_deeper = any(d > top for d in depths)
+    title_depth = top if (depths.count(top) == 1 and has_deeper) else None
+    section_depth = min((d for d in depths if d > top), default=top) if title_depth else top
+    sec = 0
+    sub = 0
+    out: list[str] = []
+    for line in lines:
+        m = re.match(r"^(#{1,6})\s+(.*\S)\s*$", line)
+        if not m:
+            out.append(line)
+            continue
+        depth = len(m.group(1))
+        title = _LEADING_HEADING_NUMBER_RE.sub("", m.group(2)).strip()
+        if title_depth is not None and depth == title_depth:
+            out.append(f"# {title}")
+        elif depth <= section_depth:
+            sec += 1
+            sub = 0
+            out.append(f"## {_cn_number(sec)}、{title}")
+        else:
+            if sec == 0:
+                sec = 1
+            sub += 1
+            out.append(f"### {sec}.{sub} {title}")
+    return "\n".join(out)
+
+
 def _run_chapter_coverage_mode(
     client: OpenAI,
     model: str,
@@ -1253,36 +1001,57 @@ def _run_chapter_coverage_mode(
 ) -> SummaryResult:
     segments = _chapter_segments(transcript_text, segment_chars)
     valid_segment_ids = {segment["segment_id"] for segment in segments}
-    evidence: list[dict[str, Any]] = []
-    for batch in segments:
+
+    def _extract_segment_evidence(batch: dict[str, Any]) -> list[Any]:
         payload = json.dumps([batch], ensure_ascii=False)
-        raw_items = _extract_json_array(_chat(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1))
+        try:
+            return _chat_json_array(client, model, _CHAPTER_EVIDENCE_SYSTEM, payload, temperature=0.1)
+        except ValueError:
+            # One malformed chunk must not sink the whole note — skip it and keep
+            # the rest. Logged (not silent) so lost coverage is visible.
+            logger.warning(
+                "Chapter-coverage evidence extraction returned unparseable JSON for "
+                "segment %s; skipping it.", batch.get("segment_id"),
+            )
+            return []
+
+    # Extract each segment's evidence concurrently, then assign stable sequential
+    # IDs in the original order so downstream references stay deterministic.
+    raw_batches = _parallel_map(_extract_segment_evidence, segments)
+    evidence: list[dict[str, Any]] = []
+    for raw_items in raw_batches:
         evidence.extend(_normalize_evidence_items(raw_items, valid_segment_ids, start_index=len(evidence)))
 
     if not evidence:
         raise ValueError("Chapter coverage evidence extraction returned no usable evidence")
 
     outline_payload = json.dumps(_compact_evidence_view(evidence), ensure_ascii=False)
-    raw_chapters = _extract_json_array(_chat(client, model, _CHAPTER_OUTLINE_SYSTEM, outline_payload, temperature=0.1))
+    raw_chapters = _chat_json_array(client, model, _CHAPTER_OUTLINE_SYSTEM, outline_payload, temperature=0.1)
     chapters = _normalize_chapters(raw_chapters, evidence)
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
 
-    chapter_notes: list[str] = []
-    covered_ids: set[str] = set()
-    for chapter in chapters:
-        chapter_evidence = [
+    def _chapter_evidence_for(chapter: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
             evidence_by_id[evidence_id]
             for evidence_id in chapter["used_evidence_ids"]
             if evidence_id in evidence_by_id
         ]
-        covered_ids.update(item["evidence_id"] for item in chapter_evidence)
+
+    covered_ids: set[str] = set()
+    for chapter in chapters:
+        covered_ids.update(item["evidence_id"] for item in _chapter_evidence_for(chapter))
+
+    def _write_chapter(chapter: dict[str, Any]) -> str:
         user = json.dumps({
             "chapter_id": chapter["chapter_id"],
             "title": chapter["title"],
             "purpose": chapter.get("purpose") or "",
-            "evidence": chapter_evidence,
+            "evidence": _chapter_evidence_for(chapter),
         }, ensure_ascii=False)
-        chapter_notes.append(_strip_prompt_leakage(_chat(client, model, _CHAPTER_NOTE_SYSTEM, user, temperature=0.2)))
+        return _strip_prompt_leakage(_chat(client, model, _CHAPTER_NOTE_SYSTEM, user, temperature=0.2))
+
+    # Each chapter is written independently from its own evidence; run concurrently, keep order.
+    chapter_notes: list[str] = _parallel_map(_write_chapter, chapters)
 
     draft = "\n\n".join(note for note in chapter_notes if note.strip())
     final_note = _strip_prompt_leakage(_chat(client, model, _CHAPTER_STYLE_SYSTEM, draft, temperature=0.2))
@@ -1319,6 +1088,10 @@ def _run_chapter_coverage_mode(
             )
             coverage_revision_used = True
             missing_count = max(missing_count, 1)
+
+    # Chapters are written independently, so normalize the assembled note into
+    # one consistent numbered hierarchy (## 一、 + ### x.y).
+    final_note = _renumber_chapter_headings(final_note)
 
     chapter_coverage = _build_chapter_coverage_table(
         segments=segments,
@@ -1464,11 +1237,15 @@ def summarize_transcript_with_metadata(
         )
 
     chunks = _chunk_text(transcript_text, evidence_chunk_chars, evidence_overlap)
-    evidence_items: list[str] = []
     total = len(chunks)
-    for idx, chunk in enumerate(chunks):
+
+    def _extract_evidence(indexed_chunk: tuple[int, str]) -> str:
+        idx, chunk = indexed_chunk
         user = f"这是整段转录的第 {idx + 1}/{total} 部分，请提取证据。\n\n{chunk}"
-        evidence_items.append(_chat(client, m, _EVIDENCE_SYSTEM, user, temperature=0.2))
+        return _chat(client, m, _EVIDENCE_SYSTEM, user, temperature=0.2)
+
+    # Each chunk's extraction is independent; run them concurrently but keep order.
+    evidence_items: list[str] = _parallel_map(_extract_evidence, list(enumerate(chunks)))
 
     evidence = "\n\n---\n\n".join(
         f"## 片段 {idx + 1}/{total}\n{item}" for idx, item in enumerate(evidence_items)
@@ -1526,7 +1303,8 @@ def summarize_transcript_with_frames(
     if not can_use_multimodal(provider_name):
         raise ValueError(f"Provider {provider_name} does not support multimodal")
     client = _get_client(provider=provider_name, api_key=api_key)
-    m = _normalize_model(provider_name, model)
+    # Default to a vision-capable model; the provider's plain default is text-only.
+    m = _normalize_model(provider_name, model or os.environ.get("QWEN_VISION_MODEL") or DEFAULT_QWEN_VISION_MODEL)
     prompt = _compose_multimodal_system_prompt(system_prompt)
     transcript_text = transcript.strip()
     if not transcript_text:

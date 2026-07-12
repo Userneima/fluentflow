@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 import hmac
 import os
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Body, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 
 import backend.core.server_helpers as H
 
@@ -21,6 +23,7 @@ def auth_status(request: Request) -> dict[str, Any]:
             "authenticated": bool(user),
             "allow_signups": H._account_registration_allowed(),
             "bootstrap_required": H.count_users() == 0,
+            "google_oauth_enabled": H.google_oauth_enabled(),
             "user": H._public_account_payload(user),
             "guest_trial": H._guest_trial_config(),
         }
@@ -119,6 +122,88 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
         response.delete_cookie(H.SESSION_COOKIE_NAME, samesite="lax")
     response.delete_cookie("fluentflow_access_token", samesite="lax")
     return {"ok": True}
+
+
+def _safe_next_url(value: str | None, fallback: str = "/app") -> str:
+    text = (value or "").strip()
+    if not text:
+        return fallback
+    parsed = urlparse(text)
+    if parsed.scheme or parsed.netloc:
+        return fallback
+    if not text.startswith("/") or text.startswith("//"):
+        return fallback
+    return text
+
+
+def _google_redirect_uri(request: Request, explicit: str | None = None) -> str:
+    configured = (explicit or os.environ.get("GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+    return str(request.url_for("google_oauth_callback"))
+
+
+@router.post("/auth/google/start")
+def start_google_oauth(
+    request: Request,
+    payload: Optional[dict[str, Any]] = Body(default=None),
+) -> dict[str, Any]:
+    if not H._account_auth_enabled():
+        raise HTTPException(status_code=404, detail="Account auth is not enabled")
+    body = payload or {}
+    try:
+        data = H.create_google_authorize_url(
+            redirect_uri=_google_redirect_uri(request, str(body.get("redirect_uri") or "")),
+            next_url=_safe_next_url(str(body.get("next_url") or ""), "/app"),
+        )
+    except H.GoogleOAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, **data}
+
+
+@router.get("/auth/google/callback", name="google_oauth_callback")
+def google_oauth_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+) -> RedirectResponse:
+    if not H._account_auth_enabled():
+        raise HTTPException(status_code=404, detail="Account auth is not enabled")
+    if error:
+        return RedirectResponse(f"/?auth_error={quote(error_description or error)}", status_code=303)
+    if not code or not state:
+        return RedirectResponse(
+            "/?auth_error=Google%20OAuth%20callback%20is%20missing%20code%20or%20state.",
+            status_code=303,
+        )
+    try:
+        data = H.complete_google_oauth_callback(
+            state=state,
+            code=code,
+            allow_create_user=H._account_registration_allowed(),
+        )
+    except H.GoogleOAuthError as exc:
+        return RedirectResponse(f"/?auth_error={quote(str(exc))}", status_code=303)
+
+    user = data.get("user") if isinstance(data, dict) else None
+    if not user or not user.get("id"):
+        return RedirectResponse(
+            "/?auth_error=Google%20login%20did%20not%20return%20a%20FluentFlow%20account.",
+            status_code=303,
+        )
+    token = H.create_session(
+        str(user["id"]),
+        days=H._session_days(),
+        user_agent=request.headers.get("user-agent"),
+        ip_address=H._request_ip_key(request),
+    )
+    response = RedirectResponse(_safe_next_url(str(data.get("next_url") or ""), "/app"), status_code=303)
+    H._set_session_cookie(response, token)
+    if data.get("created"):
+        H._grant_starter_balance_if_needed(user)
+    return response
 
 
 

@@ -134,6 +134,102 @@ def delete_job_detail_fallback(request: Request, task_id: str) -> dict[str, Any]
     return _delete_job_for_request(request, task_id)
 
 
+@router.post("/jobs/{task_id}/retry")
+def retry_job_from_stored_source(request: Request, task_id: str) -> dict[str, Any]:
+    client_id = H._request_client_scope(request)
+    job = H.get_job(task_id, client_id=client_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="Cancel the active job before retrying it")
+
+    source = H._find_source_file(task_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Original source file is no longer available")
+
+    H._enforce_submission_rate_limit(request, incoming=1)
+    H._enforce_active_job_limit(client_id, incoming=1)
+    H._enforce_global_active_job_limit(incoming=1)
+
+    filename = Path(job.get("source_filename") or source.name).name
+    suffix = source.suffix or Path(filename).suffix.lower() or ".mp4"
+    new_task_id = H._new_task_id()
+    target_path = H._copy_source_file(new_task_id, suffix, source)
+    source_file_size_mb = H._path_size_mb(target_path)
+    source_type = H._source_type_for_suffix(suffix)
+    source_fingerprint = H._source_fingerprint_for_path(target_path, filename)
+    duration_estimate_sec = H._media_duration_seconds(target_path)
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    options = H._queue_options_from_mapping(metadata.get("queue_options") if isinstance(metadata.get("queue_options"), dict) else metadata)
+    if filename and "title" not in options:
+        options["title"] = Path(filename).stem
+
+    H._enforce_daily_quota(client_id, incoming_jobs=1, incoming_upload_mb=source_file_size_mb)
+    H._enforce_global_daily_quota(client_id=client_id, incoming_jobs=1, incoming_upload_mb=source_file_size_mb)
+    quota_estimate = H._estimate_processing_units(
+        duration_seconds=duration_estimate_sec,
+        skip_summary=H._truthy_form(options.get("skip_summary")),
+        estimate_only=True,
+    )
+    quota_reservation = H._reserve_task_quota(
+        client_id=client_id,
+        task_id=new_task_id,
+        estimate=quota_estimate,
+        reason="Retried task processing reservation",
+    )
+
+    next_metadata = H._metadata(
+        route="/jobs/{task_id}/retry",
+        retry_source_task_id=task_id,
+        queue_options=options,
+        queue_position=1,
+        queue_total=1,
+        source_path=str(target_path),
+        source_fingerprint=source_fingerprint,
+        quota=quota_reservation,
+    )
+    H.log_event(
+        task_id=new_task_id,
+        event_name="task_retried",
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="queued",
+        success=True,
+        metadata=next_metadata,
+    )
+    H.upsert_job(
+        task_id=new_task_id,
+        status="queued",
+        client_id=client_id,
+        stage="queued",
+        progress=0,
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        metadata=next_metadata,
+    )
+    H._enqueue_transcription_job({
+        "task_id": new_task_id,
+        "source_path": str(target_path),
+        "filename": filename,
+        "options": options,
+        "base_url": H._queue_base_url_from_request(request),
+        "client_id": client_id,
+    })
+    queued_job = H.get_job(new_task_id, client_id=client_id) or {
+        "task_id": new_task_id,
+        "status": "queued",
+        "stage": "queued",
+        "progress": 0,
+        "source_type": source_type,
+        "source_filename": filename,
+        "source_file_size_mb": source_file_size_mb,
+        "metadata": next_metadata,
+    }
+    return {"ok": True, "source_task_id": task_id, "task_id": new_task_id, "job": {**queued_job, "task_snapshot": build_task_snapshot(queued_job)}}
+
+
 
 @router.patch("/jobs/{task_id}/transcript")
 def update_job_transcript(request: Request, task_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:

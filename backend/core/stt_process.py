@@ -22,10 +22,7 @@ def _transcribe_worker(
     audio_path: str,
     options: dict[str, Any],
 ) -> None:
-    try:
-        from backend.core.local_stt import DEFAULT_MODEL_SIZE, transcribe_audio, transcribe_audio_chunked
-    except ImportError:
-        from core.local_stt import DEFAULT_MODEL_SIZE, transcribe_audio, transcribe_audio_chunked
+    from backend.core.local_stt import DEFAULT_MODEL_SIZE, transcribe_audio, transcribe_audio_chunked
 
     def on_progress(value: float) -> None:
         _safe_put(out_queue, {"type": "progress", "value": float(value)})

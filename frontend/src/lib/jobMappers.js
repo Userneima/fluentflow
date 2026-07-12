@@ -5,6 +5,7 @@ import {
 } from './resultSchema.js';
 import {
     normalizeTaskState,
+    TASK_STATE_UPLOADING,
     TASK_STATE_COMPLETED,
     TASK_STATE_FAILED,
     TASK_STATE_QUEUED,
@@ -133,14 +134,58 @@ export const mergeCachedJobs = (...groups) => {
     return order.map((key) => byKey.get(key)).filter(Boolean);
 };
 
+export const taskKeyForJob = (job) => String(job?.task_id || job?.result?.task_id || '').trim();
+
+const toIdSet = (ids) => new Set(
+    (Array.isArray(ids) ? ids : Array.from(ids || []))
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+);
+
+// Single reconciliation path for the task list. Every source (backend /jobs,
+// the account cache, and optimistic uploading/queued records) flows through
+// here so that ordering, owner scoping, freshness, deletion, and locally-pinned
+// cancellation behave the same everywhere instead of being re-derived per page.
+// See docs/task_list_reconciliation_plan.md.
+export const reconcileTaskList = ({
+    fetched = [],
+    cached = [],
+    optimistic = [],
+    tombstones = [],
+    cancelled = [],
+    accountId = 'local',
+} = {}) => {
+    const dropped = toIdSet(tombstones);
+    const cancelledIds = toIdSet(cancelled);
+    // Optimistic records go first so a local record the backend has not
+    // persisted yet is retained at equal freshness; mergeCachedJobs still lets a
+    // fresher backend row (newer updated_at) win over a stale optimistic one.
+    const merged = mergeCachedJobs(optimistic, cached, fetched);
+    const owned = merged.filter((job) => jobBelongsToAccountCache(accountId, job));
+    const alive = owned.filter((job) => !dropped.has(taskKeyForJob(job)));
+    // A locally-cancelled task stays cancelled even if a slow backend poll still
+    // reports it as running, until the backend catches up (bridges the gap the
+    // per-page locallyCancelled set used to cover).
+    const pinned = cancelledIds.size
+        ? alive.map((job) => (cancelledIds.has(taskKeyForJob(job)) ? {
+            ...job,
+            status: TASK_STATE_CANCELLED,
+            task_state: TASK_STATE_CANCELLED,
+            error_reason: job.error_reason || 'user_cancelled',
+        } : job))
+        : alive;
+    return sortJobsForHistoryView(pinned);
+};
+
 export const sortJobsForHistoryView = (jobs=[]) => {
     const priority = {
-        [TASK_STATE_RUNNING]: 0,
-        [TASK_STATE_QUEUED]: 1,
-        [TASK_STATE_FAILED]: 2,
-        [TASK_STATE_CANCELLED]: 2,
-        [TASK_STATE_COMPLETED]: 3,
-        [TASK_STATE_CACHED_ONLY]: 3,
+        [TASK_STATE_UPLOADING]: 0,
+        [TASK_STATE_RUNNING]: 1,
+        [TASK_STATE_QUEUED]: 2,
+        [TASK_STATE_FAILED]: 3,
+        [TASK_STATE_CANCELLED]: 3,
+        [TASK_STATE_COMPLETED]: 4,
+        [TASK_STATE_CACHED_ONLY]: 4,
     };
     return (Array.isArray(jobs) ? jobs : [])
         .slice()
@@ -344,10 +389,38 @@ export const jobToCurrentJob = (sourceJob) => {
         durationSeconds: job.metadata?.duration_seconds,
         sttElapsedSeconds: job.metadata?.stt_elapsed_seconds,
         sttStatus: job.metadata?.stt_status,
-        azureBatchAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb ?? job.metadata?.azure_batch_audio_size_mb,
+        cloudAudioSizeMb: job.metadata?.elevenlabs_audio_size_mb,
         summaryError: job.result?.summary_error || snapshot.failure_reason || job.error_reason || null,
         errorReason: snapshot.failure_reason || job.error_reason || job.result?.error_reason || null,
         nextAction: snapshot.next_action || null,
+    };
+};
+
+// Inverse of jobToHistoryEntry: rebuild a canonical raw job from a history
+// entry so it can re-enter the single task list (see
+// docs/task_list_reconciliation_plan.md). Stamps client_id so account owner
+// filtering in reconcileTaskList keeps the record.
+export const entryToJob = (entry = {}, { clientId = null } = {}) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const taskId = entry.taskId || entry.task_id || null;
+    if (!taskId) return null;
+    const ms = typeof entry.timestamp === 'number'
+        ? entry.timestamp
+        : (Date.parse(entry.timestamp) || 0);
+    const iso = ms ? new Date(ms).toISOString() : null;
+    const status = String(entry.status || '').trim();
+    const taskState = String(entry.taskState || '').trim()
+        || (status === 'processing' ? TASK_STATE_RUNNING : status)
+        || null;
+    return {
+        task_id: taskId,
+        client_id: clientId,
+        status: status || null,
+        task_state: taskState,
+        source_type: entry.source || null,
+        created_at: iso,
+        updated_at: iso,
+        result: historyEntryToResult(entry),
     };
 };
 

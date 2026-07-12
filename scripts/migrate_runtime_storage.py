@@ -8,9 +8,11 @@ legacy data; cleanup can happen manually after verification.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,8 @@ from backend.core.runtime_paths import (  # noqa: E402
 
 
 SKIP_NAMES = {".DS_Store", ".gitkeep"}
+LEGACY_DATA_RETENTION_DAYS = 14
+MIGRATION_MANIFEST_NAME = "legacy_runtime_migration_manifest.json"
 LEGACY_REPO_DATA_ITEMS = [
     "fluentflow_config.json",
     "fluentflow_jobs.sqlite",
@@ -56,7 +60,38 @@ def _path_size(path: Path) -> int:
     return sum(item.stat().st_size for item in _iter_files(path))
 
 
-def _copy_path(src: Path, dst: Path, *, apply: bool) -> dict[str, Any]:
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    try:
+        if left.stat().st_size != right.stat().st_size:
+            return False
+        return _file_digest(left) == _file_digest(right)
+    except OSError:
+        return False
+
+
+def _copy_file_non_destructive(src: Path, dst: Path, *, conflict_dst: Path, apply: bool) -> str:
+    if not dst.exists():
+        if apply:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        return "copied"
+    if dst.is_file() and _same_file(src, dst):
+        return "skipped_same"
+    if apply:
+        conflict_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, conflict_dst)
+    return "conflict_preserved"
+
+
+def _copy_path(src: Path, dst: Path, *, conflict_root: Path, apply: bool) -> dict[str, Any]:
     files = _iter_files(src)
     report = {
         "source": str(src),
@@ -65,25 +100,41 @@ def _copy_path(src: Path, dst: Path, *, apply: bool) -> dict[str, Any]:
         "file_count": len(files),
         "size_bytes": _path_size(src),
         "applied": apply,
-        "copied": False,
+        "copied": 0,
+        "skipped_same": 0,
+        "conflicts_preserved": 0,
+        "conflict_target": str(conflict_root),
     }
     if not src.exists() or not apply:
+        if src.exists():
+            for item in files:
+                rel = item.relative_to(src) if src.is_dir() else Path(item.name)
+                target = dst / rel if src.is_dir() else dst
+                if not target.exists():
+                    report["copied"] += 1
+                elif target.is_file() and _same_file(item, target):
+                    report["skipped_same"] += 1
+                else:
+                    report["conflicts_preserved"] += 1
         return report
     if src.is_file():
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+        status = _copy_file_non_destructive(src, dst, conflict_dst=conflict_root / dst.name, apply=apply)
+        report["copied"] += int(status == "copied")
+        report["skipped_same"] += int(status == "skipped_same")
+        report["conflicts_preserved"] += int(status == "conflict_preserved")
     else:
         dst.mkdir(parents=True, exist_ok=True)
-        for item in src.iterdir():
-            if item.name in SKIP_NAMES:
-                continue
-            target = dst / item.name
-            if item.is_dir():
-                shutil.copytree(item, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*SKIP_NAMES))
-            elif item.is_file():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, target)
-    report["copied"] = True
+        for item in files:
+            rel = item.relative_to(src)
+            status = _copy_file_non_destructive(
+                item,
+                dst / rel,
+                conflict_dst=conflict_root / rel,
+                apply=apply,
+            )
+            report["copied"] += int(status == "copied")
+            report["skipped_same"] += int(status == "skipped_same")
+            report["conflicts_preserved"] += int(status == "conflict_preserved")
     return report
 
 
@@ -111,17 +162,32 @@ def build_migration_plan() -> list[tuple[str, Path, Path]]:
 
 
 def migrate_runtime_storage(*, apply: bool) -> dict[str, Any]:
+    applied_at = datetime.now(timezone.utc).astimezone()
+    cleanup_after = applied_at + timedelta(days=LEGACY_DATA_RETENTION_DAYS)
+    stamp = applied_at.strftime("%Y%m%d-%H%M%S")
+    conflict_base = app_data_root() / "legacy_migration" / stamp
     items = []
     for name, src, dst in build_migration_plan():
-        report = _copy_path(src, dst, apply=apply)
+        report = _copy_path(src, dst, conflict_root=conflict_base / name, apply=apply)
         report["name"] = name
         items.append(report)
-    return {
+    result = {
         "ok": True,
         "apply": apply,
         "target_root": str(app_data_root()),
+        "conflict_root": str(conflict_base),
+        "legacy_cleanup_after": cleanup_after.date().isoformat(),
+        "legacy_retention_days": LEGACY_DATA_RETENTION_DAYS,
+        "manifest": str(app_data_root() / MIGRATION_MANIFEST_NAME),
         "items": items,
     }
+    if apply:
+        app_data_root().mkdir(parents=True, exist_ok=True)
+        (app_data_root() / MIGRATION_MANIFEST_NAME).write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return result
 
 
 def main() -> int:

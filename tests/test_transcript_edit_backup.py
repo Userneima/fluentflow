@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -122,3 +123,63 @@ def test_update_summary_persists_latest_markdown(monkeypatch, tmp_path: Path) ->
     assert result["summary_error"] is None
     assert result["artifacts"]["summary_md"]["filename"].endswith("_summary.md")
     assert captured["result"]["summary_markdown"] == result["summary_markdown"]
+
+
+def test_regenerate_summary_recovers_when_cached_result_job_is_missing(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(_H, "get_job", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "_new_task_id", lambda: "regenerated-task")
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(
+        _H,
+        "_plan_note_mode_for_summary",
+        lambda kwargs, transcript, **meta: (kwargs, {"requested_note_mode": "auto"}),
+    )
+
+    def fake_upsert_job(**kwargs: object) -> None:
+        captured["upsert"] = kwargs
+
+    def fake_summarize(transcript: str, **_kwargs: object) -> SimpleNamespace:
+        captured["transcript"] = transcript
+        return SimpleNamespace(
+            markdown="# Regenerated note",
+            requested_mode="auto",
+            resolved_mode="direct",
+            chunk_count=1,
+            transcript_length=len(transcript),
+            segment_count=None,
+            evidence_count=None,
+            chapter_count=None,
+            important_evidence_count=None,
+            covered_important_evidence_count=None,
+            coverage_missing_count=None,
+            chapter_coverage=None,
+            coverage_checked=False,
+            coverage_revision_used=False,
+        )
+
+    monkeypatch.setattr(_H, "upsert_job", fake_upsert_job)
+    monkeypatch.setattr(_H, "summarize_transcript_with_metadata", fake_summarize)
+
+    response = TestClient(main.app).post(
+        "/regenerate-summary",
+        data={
+            "task_id": "missing-cached-job",
+            "transcript": "已有转录文本",
+            "source_type": "local_video",
+            "source_filename": "lesson.mp4",
+            "source_duration_seconds": "42",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["task_id"] == "regenerated-task"
+    assert data["regenerated_from_task_id"] == "missing-cached-job"
+    assert data["summary_markdown"] == "# Regenerated note"
+    assert captured["transcript"] == "已有转录文本"
+    upsert = captured["upsert"]
+    assert upsert["task_id"] == "regenerated-task"
+    assert upsert["source_filename"] == "lesson.mp4"
+    assert upsert["result"]["regenerated_from_task_id"] == "missing-cached-job"

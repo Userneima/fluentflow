@@ -1,9 +1,54 @@
 from __future__ import annotations
 
 import json
+import asyncio
 
 from backend.core import transcript_correction
-from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields
+from backend.core.transcript_correction import correct_transcript_segments, correction_result_fields, transcript_correction_enabled
+from backend.routers.processing import _run_transcript_correction_stage
+
+
+def test_transcript_correction_is_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_TRANSCRIPT_CORRECTION_ENABLED", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_TRANSCRIPT_CORRECTION", raising=False)
+
+    assert transcript_correction_enabled() is False
+
+
+def test_transcript_correction_can_be_enabled_explicitly(monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_CORRECTION_ENABLED", "1")
+
+    assert transcript_correction_enabled() is True
+
+
+def test_disabled_transcript_correction_stage_does_not_call_model(monkeypatch) -> None:
+    monkeypatch.delenv("FLUENTFLOW_TRANSCRIPT_CORRECTION_ENABLED", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_TRANSCRIPT_CORRECTION", raising=False)
+
+    def fail_chat(*_args, **_kwargs):
+        raise AssertionError("correction model should not be called when disabled")
+
+    monkeypatch.setattr(transcript_correction, "_chat", fail_chat)
+
+    async def run_stage():
+        return await _run_transcript_correction_stage(
+            loop=asyncio.get_running_loop(),
+            task_id="task-disabled",
+            route="/process",
+            source_type="video",
+            source_filename="lesson.mp4",
+            source_duration_seconds=10,
+            source_file_size_mb=1,
+            transcript_text="原始字幕",
+            segments=[{"start": 0, "end": 1, "text": "原始字幕"}],
+            deepseek_api_key="test-key",
+        )
+
+    fields, note_text, note_segments = asyncio.run(run_stage())
+
+    assert fields == {"note_generation_transcript_source": "transcript_text"}
+    assert note_text == "原始字幕"
+    assert note_segments == [{"start": 0, "end": 1, "text": "原始字幕"}]
 
 
 def test_high_confidence_correction_is_saved(monkeypatch) -> None:

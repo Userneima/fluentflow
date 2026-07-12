@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -85,6 +86,63 @@ def test_enqueue_transcription_job_writes_persistent_step(monkeypatch) -> None:
     assert signals == [{"wake": "transcription", "task_id": "task-persistent"}]
 
 
+def test_retry_job_from_stored_source_requeues_without_browser_upload(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "list_jobs", lambda *args, **kwargs: [])
+    monkeypatch.setattr(_H, "_media_duration_seconds", lambda path: 2106.0)
+
+    old_source = tmp_path / "sources" / "old-task" / "source.mp4"
+    old_source.parent.mkdir(parents=True)
+    old_source.write_bytes(b"stored video")
+    old_job = {
+        "task_id": "old-task",
+        "status": "cancelled",
+        "client_id": "anonymous",
+        "source_type": "video",
+        "source_filename": "lesson.mp4",
+        "source_file_size_mb": 97.3,
+        "metadata": {"queue_options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"}},
+    }
+    jobs: dict[str, dict] = {}
+    enqueued: list[dict] = []
+
+    def fake_get_job(task_id, client_id=None):
+        if task_id == "old-task":
+            return old_job
+        return jobs.get(task_id)
+
+    def fake_upsert_job(**kwargs):
+        jobs[kwargs["task_id"]] = kwargs
+
+    monkeypatch.setattr(_H, "get_job", fake_get_job)
+    monkeypatch.setattr(_H, "upsert_job", fake_upsert_job)
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+
+    with TestClient(main.app) as client:
+        response = client.post("/jobs/old-task/retry")
+
+    assert response.status_code == 200
+    payload = response.json()
+    new_task_id = payload["task_id"]
+    assert new_task_id != "old-task"
+    assert payload["job"]["status"] == "queued"
+    assert jobs[new_task_id]["metadata"]["retry_source_task_id"] == "old-task"
+    assert jobs[new_task_id]["metadata"]["queue_options"]["stt_provider"] == "elevenlabs_scribe"
+    assert jobs[new_task_id]["metadata"]["queue_options"]["skip_summary"] == "true"
+    assert enqueued == [{
+        "task_id": new_task_id,
+        "source_path": str(Path(enqueued[0]["source_path"])),
+        "filename": "lesson.mp4",
+        "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true", "title": "lesson"},
+        "base_url": "http://testserver",
+        "client_id": "anonymous",
+    }]
+    assert Path(enqueued[0]["source_path"]).read_bytes() == b"stored video"
+    assert Path(enqueued[0]["source_path"]).parent.name == new_task_id
+
+
 def test_main_processing_route_does_not_accept_or_forward_hotwords() -> None:
     assert "hotwords" not in inspect.signature(start_transcription_process).parameters
     assert "hotwords" not in _H._queue_options_from_mapping({"hotwords": "legacy term"})
@@ -105,9 +163,6 @@ def test_main_processing_route_does_not_accept_or_forward_hotwords() -> None:
         stt_language=None,
         stt_provider=None,
         elevenlabs_api_key=None,
-        azure_speech_key=None,
-        azure_speech_endpoint=None,
-        azure_blob_container_sas_url=None,
         speaker_diarization=None,
         lark_app_id=None,
         lark_app_secret=None,

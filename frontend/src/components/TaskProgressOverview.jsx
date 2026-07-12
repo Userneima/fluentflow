@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Link} from 'react-router-dom';
-import {ListPlus, X} from 'lucide-react';
+import {ListPlus, XCircle} from 'lucide-react';
 import {
     fmtBytes,
     fmtElapsed,
@@ -124,7 +124,7 @@ const routeLabel = (route, isZh) => {
 
 const currentJobRouteLabel = (job, isZh) => {
     if (!job || job.sourceType === 'transcript_file') return isZh ? '导入字幕整理' : 'subtitle import';
-    const local = String(job.sttProvider || '').toLowerCase() !== 'azure_batch';
+    const local = String(job.sttProvider || '').toLowerCase() === 'local';
     const route = local ? (isZh ? '本地转写' : 'local transcription') : (isZh ? '云端转写' : 'cloud transcription');
     const model = job.sttModel ? `${job.sttModel}${isZh ? ' 模型' : ' model'}` : '';
     return [route, model, job.sttSpeed].filter(Boolean).join(' / ');
@@ -207,6 +207,10 @@ const TaskProgressOverview = ({pageData, materialJudgment = ''}) => {
         : (activeCurrentJob?.stage === 'stt' ? sttStatusLabel(activeCurrentJob.sttStatus, t) : '');
     const handleCancel = async () => {
         if (!activeCurrentJob?.taskId || cancelBusy) return;
+        const confirmText = isZh
+            ? '取消当前正在处理的任务？任务会中止，完整结果不会生成；可到处理记录查看已取消记录。这不是删除历史记录。'
+            : 'Cancel the active task? The task will stop and a complete result will not be created. You can check the cancelled record in Processing records. This does not delete history.';
+        if (!window.confirm(confirmText)) return;
         setCancelBusy(true);
         setCancelError('');
         try {
@@ -297,7 +301,7 @@ const TaskProgressOverview = ({pageData, materialJudgment = ''}) => {
                             disabled={cancelBusy}
                             className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-red-200 bg-red-50 px-3 text-[12px] font-extrabold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20"
                         >
-                            <X className="size-4" strokeWidth={2.2}/>
+                            <XCircle className="size-4" strokeWidth={2.15}/>
                             {cancelBusy ? (isZh ? '取消中...' : 'Cancelling...') : (isZh ? '取消任务' : 'Cancel task')}
                         </button>
                     </div>
