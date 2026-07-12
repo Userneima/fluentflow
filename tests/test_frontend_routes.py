@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import backend.main as main
@@ -45,7 +46,9 @@ def test_api_like_unknown_routes_still_return_404() -> None:
 
 def test_frontend_asset_route_serves_javascript_not_spa_html() -> None:
     assets_dir = Path("frontend/dist/assets")
-    asset = next(assets_dir.glob("index-*.js"))
+    asset = next(assets_dir.glob("index-*.js"), None)
+    if asset is None:
+        pytest.skip("frontend not built (no frontend/dist/assets/index-*.js); asset route test needs a build")
     response = TestClient(app).get(f"/assets/{asset.name}")
 
     assert response.status_code == 200
