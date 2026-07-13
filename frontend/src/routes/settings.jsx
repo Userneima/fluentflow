@@ -387,11 +387,25 @@ const Settings = () => {
                                         <option value="safari">Safari</option>
                                         <option value="brave">Brave</option>
                                     </select>
-                                    <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
-                                        {lang === 'zh'
-                                            ? '下载视频链接时，从所选浏览器读取你的登录 cookie。B 站用于解锁高清（1080p+ 需登录）；YouTube 用于下载年龄限制／会员／私享视频，或绕过「请确认你不是机器人」验证。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
-                                            : 'When downloading video links, read your login cookies from the chosen browser. For Bilibili it unlocks higher quality (1080p+ needs login); for YouTube it downloads age-restricted / members / private videos or bypasses the "confirm you\'re not a bot" check. Read locally only, never uploaded; log in to the site in that browser first.'}
-                                    </span>
+                                    <div className="mt-2 space-y-2 text-xs leading-relaxed text-on-surface-variant">
+                                        <p>{lang === 'zh'
+                                            ? '从所选浏览器复用你的登录 cookie，下载需要登录才能看的视频。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
+                                            : 'Reuse your login cookies from the chosen browser to download videos that require sign-in. Read locally only, never uploaded; log into the site in that browser first.'}</p>
+                                        <ul className="space-y-1">
+                                            <li>
+                                                <span className="font-semibold text-[#111111] dark:text-white/85">{lang === 'zh' ? 'B 站' : 'Bilibili'}</span>
+                                                {lang === 'zh' ? ' — 解锁高清（未登录最高 480p，1080p+ 需登录）' : ' — unlocks HD (anonymous caps at 480p; 1080p+ needs login)'}
+                                            </li>
+                                            <li>
+                                                <span className="font-semibold text-[#111111] dark:text-white/85">YouTube</span>
+                                                {lang === 'zh' ? ' — 下载年龄限制／会员／私享视频，或绕过「请确认你不是机器人」验证（高清本就无需登录）' : ' — age-restricted / members / private videos, or bypass the "confirm you\'re not a bot" check (HD needs no login)'}
+                                            </li>
+                                            <li>
+                                                <span className="font-semibold text-[#111111] dark:text-white/85">{lang === 'zh' ? '腾讯会议等网页播放器录制' : 'Tencent Meeting & web-player recordings'}</span>
+                                                {lang === 'zh' ? ' — 不支持，请先在原平台下载录制，再上传本地文件' : ' — not supported; download the recording on the original platform first, then upload the local file'}
+                                            </li>
+                                        </ul>
+                                    </div>
                                     {settings.videoCookiesBrowser && (
                                         <div className="mt-3 flex flex-wrap items-center gap-3">
                                             <button
