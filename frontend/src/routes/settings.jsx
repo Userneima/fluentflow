@@ -389,8 +389,8 @@ const Settings = () => {
                                     </select>
                                     <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
                                         {lang === 'zh'
-                                            ? '下载 B 站等链接时，从所选浏览器读取你的登录 cookie，以获取高清（1080p+ 需登录）。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
-                                            : 'When downloading Bilibili and similar links, read your login cookies from the chosen browser to fetch higher quality (1080p+ needs login). Read locally only, never uploaded; log in to the site in that browser first.'}
+                                            ? '下载视频链接时，从所选浏览器读取你的登录 cookie。B 站用于解锁高清（1080p+ 需登录）；YouTube 用于下载年龄限制／会员／私享视频，或绕过「请确认你不是机器人」验证。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
+                                            : 'When downloading video links, read your login cookies from the chosen browser. For Bilibili it unlocks higher quality (1080p+ needs login); for YouTube it downloads age-restricted / members / private videos or bypasses the "confirm you\'re not a bot" check. Read locally only, never uploaded; log in to the site in that browser first.'}
                                     </span>
                                     {settings.videoCookiesBrowser && (
                                         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -412,7 +412,7 @@ const Settings = () => {
                                                     {cookieCheck.ok
                                                         ? (cookieCheck.bilibili_logged_in
                                                             ? (lang === 'zh' ? '已读取到登录态，且已登录 B 站，可下高清。' : 'Cookies read; logged into Bilibili — HD available.')
-                                                            : (lang === 'zh' ? '已读取到浏览器 cookie，但未检测到 B 站登录（最高约 480p）。请先在该浏览器登录 B 站。' : 'Cookies read, but not logged into Bilibili (max ~480p). Log in first.'))
+                                                            : (lang === 'zh' ? '已读取到浏览器 cookie，但未检测到 B 站登录（B 站最高约 480p）。B 站高清请先在该浏览器登录；YouTube 受限视频不受影响。' : 'Cookies read, but not logged into Bilibili (Bilibili max ~480p). Log into Bilibili for HD; YouTube restricted videos still work.'))
                                                         : cookieCheck.message}
                                                 </span>
                                             )}

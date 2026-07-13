@@ -285,15 +285,27 @@ export const diagnoseTaskError = (message, lang='zh') => {
             }),
         ],
         [
+            lower.includes("confirm you're not a bot") || lower.includes('confirm your age') || lower.includes('sign in to confirm') || lower.includes('inappropriate for some users'),
+            taskErrorDiagnosis({
+                code: 'youtube_login_required',
+                titleZh: 'YouTube 需要登录',
+                titleEn: 'YouTube requires sign-in',
+                detailZh: 'YouTube 要求登录后才能下载：可能是年龄限制／会员／私享视频，或触发了「请确认你不是机器人」验证。请到设置 →「视频链接下载登录态」选择你已登录 YouTube 的浏览器后重试。',
+                detailEn: 'YouTube requires sign-in for this video: it may be age-restricted / members-only / private, or it triggered the "confirm you\'re not a bot" check. In Settings → "Video link login", pick a browser where you are signed into YouTube, then retry.',
+                nextZh: '到设置开启「视频链接下载登录态」（选已登录 YouTube 的浏览器）后重试。',
+                nextEn: 'Enable "Video link login" in Settings (pick a browser signed into YouTube) and retry.',
+            }),
+        ],
+        [
             lower.includes('http error 403') || raw.includes('视频下载失败：403') || lower.includes('forbidden'),
             taskErrorDiagnosis({
                 code: 'platform_forbidden',
                 titleZh: '平台拒绝下载',
                 titleEn: 'Platform refused download',
-                detailZh: '平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、配置浏览器 cookies，或上传本地视频。',
-                detailEn: 'The platform refused this video download. FluentFlow will prefer captions when possible; retry later, configure browser cookies, or upload the local video.',
-                nextZh: '稍后重试、配置浏览器 cookies，或上传本地视频。',
-                nextEn: 'Retry later, configure browser cookies, or upload the local video.',
+                detailZh: '平台拒绝下载当前视频。已尽量优先使用字幕；如果仍失败，请稍后重试、到设置开启「视频链接下载登录态」，或上传本地视频。',
+                detailEn: 'The platform refused this video download. FluentFlow will prefer captions when possible; retry later, enable "Video link login" in Settings, or upload the local video.',
+                nextZh: '稍后重试、到设置开启「视频链接下载登录态」，或上传本地视频。',
+                nextEn: 'Retry later, enable "Video link login" in Settings, or upload the local video.',
             }),
         ],
         [
