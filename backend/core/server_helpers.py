@@ -325,7 +325,7 @@ from backend.core.quota_store import (
     reserve_units,
 )
 from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
+from backend.core.video_source import SavedVideoSource, VideoSourceProgress, check_browser_cookies, download_video_source, video_source_failure_reason
 
 
 from backend.core.account_config import (
@@ -2386,6 +2386,16 @@ def _video_source_progress_value(progress: VideoSourceProgress) -> float:
     return 0
 
 
+_ALLOWED_COOKIE_BROWSERS = {"chrome", "edge", "firefox", "safari", "brave", "chromium", "opera", "vivaldi"}
+
+
+def _video_cookies_browser(options: dict[str, Any]) -> str | None:
+    """Validate the user's chosen browser for yt-dlp --cookies-from-browser.
+    Only a known browser name is passed through; anything else is ignored."""
+    value = str((options or {}).get("cookies_from_browser") or "").strip().lower()
+    return value if value in _ALLOWED_COOKIE_BROWSERS else None
+
+
 def _run_video_source_job(item: dict[str, Any]) -> None:
     task_id = str(item.get("task_id") or "")
     input_text = str(item.get("input") or "")
@@ -2432,6 +2442,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
             title=title,
             video_dir=_video_source_storage_dir(),
             on_progress=on_progress,
+            cookies_from_browser=_video_cookies_browser(options),
         )
         saved_size_mb = _file_size_mb(saved.size_bytes)
         max_upload_mb = _max_upload_mb()

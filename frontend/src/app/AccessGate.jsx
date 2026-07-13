@@ -136,8 +136,8 @@ const AccessGate = ({children}) => {
         setError('');
         setSubmitting(true);
         try {
-            const current = `${window.location.pathname || '/app'}${window.location.search || ''}`;
-            const nextUrl = current === '/' ? '/app' : current;
+            const current = `${window.location.pathname || '/media-text'}${window.location.search || ''}`;
+            const nextUrl = current === '/' ? '/media-text' : current;
             const r = await apiFetch(`${API_BASE}/auth/google/start`, {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},

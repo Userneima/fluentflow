@@ -245,12 +245,12 @@ def resolve_direct_video(url: str) -> ResolvedVideo | None:
     )
 
 
-def run_yt_dlp(url: str) -> dict[str, Any]:
+def run_yt_dlp(url: str, cookies_from_browser: str | None = None) -> dict[str, Any]:
     args = [sys.executable, "-m", "yt_dlp", "--dump-single-json", "--skip-download", "--no-playlist", url]
-    cookies_from_browser = os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "").strip()
-    if cookies_from_browser:
+    cookies = (cookies_from_browser or os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "")).strip()
+    if cookies:
         args.insert(3, "--cookies-from-browser")
-        args.insert(4, cookies_from_browser)
+        args.insert(4, cookies)
     try:
         if is_youtube_url(url):
             url_arg = args.pop()
@@ -343,9 +343,9 @@ def estimate_yt_dlp_size_bytes(info: dict[str, Any]) -> int | None:
     return max(sizes) if sizes else None
 
 
-def resolve_with_yt_dlp(url: str) -> ResolvedVideo | None:
+def resolve_with_yt_dlp(url: str, cookies_from_browser: str | None = None) -> ResolvedVideo | None:
     try:
-        info = run_yt_dlp(url)
+        info = run_yt_dlp(url, cookies_from_browser)
         download_url, audio_url = choose_yt_dlp_media(info)
         if not download_url:
             return None
@@ -393,17 +393,16 @@ def resolve_with_miuistore(input_text: str) -> ResolvedVideo | None:
         return None
 
 
-def resolve_video(input_text: str) -> ResolvedVideo:
+def resolve_video(input_text: str, cookies_from_browser: str | None = None) -> ResolvedVideo:
     source_url = extract_first_url(input_text)
     if not source_url:
         raise ValueError("没有识别到视频链接")
     parse_http_url(source_url)
-    for resolver in (resolve_direct_video, resolve_with_yt_dlp):
-        resolved = resolver(source_url)
-        if resolved:
-            return resolved
+    resolved = resolve_direct_video(source_url) or resolve_with_yt_dlp(source_url, cookies_from_browser)
+    if resolved:
+        return resolved
     if is_bilibili_url(source_url):
-        raise RuntimeError("B 站链接暂时只能通过 yt-dlp 解析。请上传本地视频，或配置 YT_DLP_COOKIES_FROM_BROWSER 后重试。")
+        raise RuntimeError("这个 B 站链接需要登录后才能下载。请在设置里选择“用浏览器登录态下载高清”，或改为上传本地视频。")
     resolved = resolve_with_miuistore(input_text)
     if resolved:
         return resolved
@@ -516,9 +515,35 @@ def merge_media_parts(video_url: str, audio_url: str, file_path: Path, *, refere
     return file_path.stat().st_size
 
 
-def _yt_dlp_cookies_args() -> list[str]:
-    cookies_from_browser = os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "").strip()
-    return ["--cookies-from-browser", cookies_from_browser] if cookies_from_browser else []
+def _yt_dlp_cookies_args(cookies_from_browser: str | None = None) -> list[str]:
+    value = (cookies_from_browser or os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "")).strip()
+    return ["--cookies-from-browser", value] if value else []
+
+
+def check_browser_cookies(browser: str) -> dict[str, Any]:
+    """Read cookies from the given local browser and report whether the login
+    state is usable. No network request — it only opens the browser's cookie DB.
+    A live download can still fail later (expired cookie, anti-crawl), so this is
+    a best-effort check, not a guarantee."""
+    browser = (browser or "").strip().lower()
+    try:
+        from yt_dlp.cookies import extract_cookies_from_browser
+    except Exception as exc:  # pragma: no cover - yt-dlp always installed in prod
+        return {"ok": False, "code": "yt_dlp_missing", "message": f"无法加载 yt-dlp 的 cookie 读取模块：{exc}"}
+    try:
+        jar = extract_cookies_from_browser(browser)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "code": "read_failed",
+            "message": f"读不到 {browser} 的登录态：{exc}。请确认已安装该浏览器；若仍失败，试试完全关闭该浏览器后重试。",
+        }
+    cookies = list(jar)
+    bilibili_login = any(
+        getattr(c, "name", "") == "SESSDATA" and "bilibili" in (getattr(c, "domain", "") or "")
+        for c in cookies
+    )
+    return {"ok": True, "cookie_count": len(cookies), "bilibili_logged_in": bilibili_login}
 
 
 def youtube_caption_languages() -> str:
@@ -577,6 +602,8 @@ def download_youtube_captions(
     url: str,
     file_path: Path,
     on_progress: ProgressCallback | None = None,
+    *,
+    cookies_from_browser: str | None = None,
 ) -> int:
     parse_http_url(url)
     if not is_youtube_url(url):
@@ -609,7 +636,7 @@ def download_youtube_captions(
                 output_template,
                 "--extractor-args",
                 "youtube:player_client=android",
-                *_yt_dlp_cookies_args(),
+                *_yt_dlp_cookies_args(cookies_from_browser),
                 url,
             ]
             result = subprocess.run(args, capture_output=True, text=True, timeout=120)
@@ -639,6 +666,7 @@ def download_yt_dlp_media(
     *,
     duration_seconds: float | None = None,
     estimated_size_bytes: int | None = None,
+    cookies_from_browser: str | None = None,
 ) -> int:
     parse_http_url(url)
     on_progress and on_progress(VideoSourceProgress(
@@ -663,7 +691,7 @@ def download_yt_dlp_media(
         "best[ext=mp4]/best",
         "-o",
         str(file_path),
-        *_yt_dlp_cookies_args(),
+        *_yt_dlp_cookies_args(cookies_from_browser),
     ]
     try:
         if is_youtube_url(url):
@@ -774,6 +802,7 @@ def download_video_source(
     title: str | None = None,
     video_dir: Path,
     on_progress: ProgressCallback | None = None,
+    cookies_from_browser: str | None = None,
 ) -> SavedVideoSource:
     normalized = (input_text or "").strip()
     if not normalized:
@@ -783,7 +812,7 @@ def download_video_source(
 
     video_dir.mkdir(parents=True, exist_ok=True)
     on_progress and on_progress(VideoSourceProgress(stage="resolving", message="正在解析分享链接", percent=8))
-    resolved = resolve_video(normalized)
+    resolved = resolve_video(normalized, cookies_from_browser)
     media_type = "transcript" if resolved.provider == "yt-dlp" and is_youtube_url(resolved.source_url) else "video"
     extension = ".srt" if media_type == "transcript" else ".mp4"
     video_id, raw_title, display_title, filename = resolve_filename(resolved, title, extension=extension)
@@ -822,7 +851,7 @@ def download_video_source(
         else:
             if media_type == "transcript":
                 try:
-                    size_bytes = download_youtube_captions(resolved.source_url, file_path, on_progress)
+                    size_bytes = download_youtube_captions(resolved.source_url, file_path, on_progress, cookies_from_browser=cookies_from_browser)
                 except Exception as exc:
                     caption_failure_reason = video_source_failure_reason(exc)
                     media_type = "video"
@@ -835,6 +864,7 @@ def download_video_source(
                             on_progress,
                             duration_seconds=resolved.duration_seconds,
                             estimated_size_bytes=resolved.estimated_size_bytes,
+                            cookies_from_browser=cookies_from_browser,
                         )
                     except Exception as media_exc:
                         raise RuntimeError(
@@ -847,6 +877,7 @@ def download_video_source(
                     on_progress,
                     duration_seconds=resolved.duration_seconds,
                     estimated_size_bytes=resolved.estimated_size_bytes,
+                    cookies_from_browser=cookies_from_browser,
                 )
             elif resolved.referer:
                 size_bytes = download_file(resolved.download_url, file_path, on_progress, referer=resolved.referer)

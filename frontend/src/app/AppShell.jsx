@@ -42,7 +42,7 @@ const AppShell = () => {
                         <Route path="/workspace/api" element={<WorkspaceApi/>}/>
                         <Route path="/about" element={<About/>}/>
                         <Route path="/about/:page" element={<About/>}/>
-                        <Route path="*" element={<Navigate to="/app" replace/>}/>
+                        <Route path="*" element={<Navigate to="/media-text" replace/>}/>
                     </Routes>
                 </Suspense>
             </div>

@@ -79,6 +79,7 @@ const Dashboard = () => {
     const [videoLinkInput, setVideoLinkInput] = useState('');
     const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
     const [queueSubmitting, setQueueSubmitting] = useState(false);
+    const [dragActive, setDragActive] = useState(false);
 
     useEffect(() => { checkHealth(); }, []);
     useEffect(() => {
@@ -129,6 +130,7 @@ const Dashboard = () => {
         speakerDiarization: !!settings.speakerDiarization,
         generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
+        cookiesFromBrowser: settings.videoCookiesBrowser || '',
     });
 
     const openHistoryEntry = async (h) => {
@@ -784,6 +786,7 @@ const Dashboard = () => {
 
             const handleDrop = (e) => {
                 e.preventDefault();
+                setDragActive(false);
                 const files = Array.from(e.dataTransfer.files || []);
                 if(files.length === 0) return;
                 const file = files[0];
@@ -875,45 +878,35 @@ const Dashboard = () => {
                         </h1>
                     </header>
 
-                    <div className="grid gap-5 sm:grid-cols-2">
+                    <div className="grid gap-5">
                         <Link
                             to="/media-text?mode=media"
-                            className="group relative min-h-[17.25rem] overflow-hidden rounded-[0.5rem] border border-white/40 p-6 text-white shadow-[0_26px_80px_rgba(15,23,42,0.12)] transition hover:-translate-y-1 dark:border-white/10 dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)]"
-                            style={{backgroundImage:'radial-gradient(circle at 72% 34%, rgba(120,255,217,.28), transparent 10%), radial-gradient(circle at 50% 42%, rgba(45,212,191,.18), transparent 24%), linear-gradient(180deg, rgba(2,6,23,0.12), rgba(6,78,59,0.82)), linear-gradient(145deg,#05131a,#0a2c36 52%,#134e4a 100%)'}}
+                            onDrop={handleDrop}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+                            onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+                            className={`group relative block min-h-[19rem] overflow-hidden rounded-[24px] border bg-white p-7 text-[#111111] shadow-[0_26px_70px_-46px_rgba(17,17,17,.5)] transition hover:-translate-y-0.5 dark:bg-[#1d1f22] dark:text-white dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)] ${dragActive ? 'border-[#00aeec] ring-2 ring-[#00aeec]/45' : 'border-[#dedada] dark:border-white/[0.12]'}`}
                         >
-                            <div className="relative flex h-full flex-col justify-between">
-                                <div>
-                                    <span className="inline-flex rounded-[0.3rem] bg-emerald-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-emerald-950">MEDIA</span>
-                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '音视频转写' : 'Media transcription'}</h3>
-                                    <p className="mt-2 max-w-[16rem] text-[0.88rem] leading-5 text-white/72">
-                                        {lang === 'zh' ? '上传媒体文件或粘贴平台链接，自动生成转录文本与 AI 总结。' : 'Upload media or paste a platform link to get transcripts and AI summaries.'}
-                                    </p>
+                            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_14%,rgba(0,174,236,.14),transparent_32%),radial-gradient(circle_at_82%_10%,rgba(255,0,51,.08),transparent_28%),radial-gradient(circle_at_44%_105%,rgba(151,231,211,.12),transparent_34%)] dark:bg-[radial-gradient(circle_at_18%_14%,rgba(0,174,236,.18),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(255,0,51,.12),transparent_30%),radial-gradient(circle_at_42%_108%,rgba(151,231,211,.12),transparent_36%)]"/>
+                            <div className="pointer-events-none absolute inset-0 bg-white/72 dark:bg-[#1d1f22]/78"/>
+                            <div className="relative flex h-full flex-col gap-6 md:flex-row md:items-stretch md:justify-between">
+                                <div className="flex min-w-0 flex-1 flex-col justify-between">
+                                    <div>
+                                        <span className="inline-flex rounded-[0.3rem] bg-[#eef1f5] px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-[#39424f] dark:bg-white/[0.12] dark:text-white/90">MEDIA</span>
+                                        <h3 className="mt-3 text-[1.7rem] font-semibold leading-[1.05] tracking-[-0.01em]">{lang === 'zh' ? '音视频转写' : 'Media transcription'}</h3>
+                                        <p className="mt-2.5 max-w-[26rem] text-[0.9rem] leading-6 text-[#666] dark:text-white/85">
+                                            {lang === 'zh' ? '把视频拖到这里直接转写，或点击上传文件、粘贴平台链接，自动生成转录与 AI 笔记。' : 'Drop a video here to transcribe it, or click to upload a file or paste a platform link — transcripts and AI notes, automatically.'}
+                                        </p>
+                                    </div>
+                                    <div className="mt-5 flex flex-wrap gap-1.5">
+                                        {linkPlatforms.slice(0, 4).map((platform) => (
+                                            <span key={platform} className="rounded-[0.3rem] border border-[#dedada] bg-[#f4f3f3] px-2.5 py-1 text-[0.74rem] font-medium text-[#555] dark:border-white/[0.18] dark:bg-white/[0.08] dark:text-white/85">{platform}</span>
+                                        ))}
+                                    </div>
                                 </div>
-                                <div className="mt-4 flex flex-wrap gap-1.5">
-                                    {linkPlatforms.slice(0, 4).map((platform) => (
-                                        <span key={platform} className="rounded-[0.3rem] border border-white/18 bg-white/8 px-2.5 py-1 text-[0.74rem] font-medium text-white/78 backdrop-blur">{platform}</span>
-                                    ))}
-                                </div>
-                            </div>
-                        </Link>
-
-                        <Link
-                            to="/agent"
-                            className="group relative min-h-[17.25rem] overflow-hidden rounded-[0.5rem] border border-white/40 p-6 text-white shadow-[0_26px_80px_rgba(15,23,42,0.12)] transition hover:-translate-y-1 dark:border-white/10 dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)]"
-                            style={{backgroundImage:'radial-gradient(circle at 62% 34%, rgba(167,139,250,.28), transparent 10%), radial-gradient(circle at 50% 42%, rgba(99,102,241,.18), transparent 24%), linear-gradient(180deg, rgba(2,6,23,0.12), rgba(49,46,129,0.82)), linear-gradient(145deg,#101827,#182f69 52%,#17214d 100%)'}}
-                        >
-                            <div className="relative flex h-full flex-col justify-between">
-                                <div>
-                                    <span className="inline-flex rounded-[0.3rem] bg-violet-200 px-2.5 py-1 text-[0.74rem] font-bold tracking-wide text-violet-950">RECORDS</span>
-                                    <h3 className="mt-2.5 text-[1.5rem] font-medium leading-[1.02]">{lang === 'zh' ? '处理记录' : 'Processing records'}</h3>
-                                    <p className="mt-2 max-w-[16rem] text-[0.88rem] leading-5 text-white/72">
-                                        {lang === 'zh' ? '查看处理进度、失败原因、历史结果和下载产物。' : 'Review progress, failures, past results, and downloads.'}
-                                    </p>
-                                </div>
-                                <div className="mt-4 flex flex-wrap gap-1.5">
-                                    {(lang === 'zh' ? ['处理中', '失败原因', '产物下载'] : ['Active runs', 'Failure reasons', 'Downloads']).map((item) => (
-                                        <span key={item} className="rounded-[0.3rem] border border-white/18 bg-white/8 px-2.5 py-1 text-[0.74rem] font-medium text-white/78 backdrop-blur">{item}</span>
-                                    ))}
+                                <div className="flex shrink-0 flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-[#cfcaca] bg-white/50 px-10 py-9 text-center md:w-[320px] dark:border-white/[0.18] dark:bg-white/[0.04]">
+                                    <svg viewBox="0 0 24 24" className="h-10 w-10 text-[#333] dark:text-white/90" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 15V4M12 4l-4 4M12 4l4 4"/><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+                                    <span className="text-[0.9rem] font-bold text-[#333] dark:text-white/90">{dragActive ? (lang === 'zh' ? '松手开始转写' : 'Drop to transcribe') : (lang === 'zh' ? '拖入视频 / 点击选择' : 'Drop a video / click to pick')}</span>
                                 </div>
                             </div>
                         </Link>

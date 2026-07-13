@@ -6,7 +6,6 @@ import {
     Hand,
     History,
     Languages,
-    LayoutGrid,
     LogIn,
     LogOut,
     ChevronRight,
@@ -106,7 +105,6 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     }, [agentAccessOpen]);
 
     const fullItems = [
-        {path:'/app', icon:LayoutGrid, k:'nav.dashboard'},
         {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
         {path:'/agent', icon:SlidersHorizontal, k:'nav.processing'},
         {path:'/editor', icon:FilePenLine, k:'nav.editor'},
@@ -142,7 +140,7 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
             <div className={`flex h-full min-h-0 flex-col ${collapsed ? 'px-2.5 py-5' : 'px-4 py-5'}`}>
                 <div className={`flex h-16 items-center ${collapsed ? 'mb-3 flex-col justify-center gap-1' : 'mb-3 justify-between gap-2'}`}>
                     <Link
-                        to="/app"
+                        to="/media-text"
                         className={`flex min-w-0 items-center rounded-[14px] transition hover:bg-surface-container-low focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${collapsed ? 'h-8 w-10 justify-center p-0' : 'gap-2.5 w-full px-2.5 py-2'}`}
                         aria-label="FluentFlow"
                         title={collapsed ? 'FluentFlow' : undefined}

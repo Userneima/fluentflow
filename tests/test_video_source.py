@@ -251,10 +251,10 @@ def test_resolve_video_stops_bilibili_after_yt_dlp_failure(monkeypatch) -> None:
     def fail_if_called(url: str, timeout: float = 45) -> str:
         raise AssertionError(f"miuistore should not be called for Bilibili: {url}")
 
-    monkeypatch.setattr(video_source, "resolve_with_yt_dlp", lambda url: None)
+    monkeypatch.setattr(video_source, "resolve_with_yt_dlp", lambda url, cookies_from_browser=None: None)
     monkeypatch.setattr(video_source, "fetch_text", fail_if_called)
 
-    with pytest.raises(RuntimeError, match="B 站链接暂时只能通过 yt-dlp 解析"):
+    with pytest.raises(RuntimeError, match="需要登录后才能下载"):
         video_source.resolve_video("https://www.bilibili.com/video/BVdemo/?p=2")
 
 
@@ -306,7 +306,7 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
         video_id="demo123",
         title="测试视频",
     )
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
 
     def fake_download(url: str, file_path: Path, on_progress=None) -> int:
         file_path.write_bytes(b"video")
@@ -333,7 +333,7 @@ def test_download_video_source_uses_yt_dlp_for_yt_dlp_provider(tmp_path, monkeyp
         video_id="demo123",
         title="Video Demo",
     )
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
     monkeypatch.setattr(video_source, "download_file", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("download_file should not be used")))
 
     def fake_download_yt_dlp_media(url, file_path, on_progress=None, **kwargs):
@@ -358,10 +358,10 @@ def test_download_video_source_prefers_youtube_captions(tmp_path, monkeypatch) -
         video_id="demo123",
         title="YouTube Demo",
     )
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
     monkeypatch.setattr(video_source, "download_yt_dlp_media", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("media download should not be used")))
 
-    def fake_download_captions(url, file_path, on_progress=None):
+    def fake_download_captions(url, file_path, on_progress=None, **kwargs):
         assert url == "https://www.youtube.com/watch?v=demo123"
         file_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
         return file_path.stat().st_size
@@ -388,7 +388,7 @@ def test_download_video_source_falls_back_when_youtube_captions_missing(tmp_path
         video_id="demo123",
         title="YouTube Demo",
     )
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
     monkeypatch.setattr(video_source, "download_youtube_captions", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("no captions")))
 
     def fake_download_yt_dlp_media(url, file_path, on_progress=None, **kwargs):
@@ -415,7 +415,7 @@ def test_download_video_source_explains_youtube_caption_and_media_failure(tmp_pa
         video_id="demo123",
         title="YouTube Demo",
     )
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
     monkeypatch.setattr(video_source, "download_youtube_captions", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("no captions")))
     monkeypatch.setattr(video_source, "download_yt_dlp_media", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("missing a GVS PO Token")))
 
@@ -438,7 +438,7 @@ def test_download_video_source_merges_split_bilibili_streams(tmp_path, monkeypat
         title="B 站视频",
     )
     merged = {}
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
 
     def fake_merge(video_url: str, audio_url: str, file_path: Path, *, referer=None) -> int:
         merged["video_url"] = video_url
@@ -469,7 +469,7 @@ def test_download_video_source_splits_raw_and_display_title(tmp_path, monkeypatc
         video_id="7651613998131006774",
         title="7651613998131006774-四大核心Skill架构与配置指南详解",
     )
-    monkeypatch.setattr(video_source, "resolve_video", lambda input_text: resolved)
+    monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
     monkeypatch.setattr(video_source, "download_file", lambda url, file_path, on_progress=None: file_path.write_bytes(b"video") or 5)
 
     saved = video_source.download_video_source("https://v.douyin.com/demo/", video_dir=tmp_path)

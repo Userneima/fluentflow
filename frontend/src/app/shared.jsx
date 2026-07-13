@@ -402,11 +402,22 @@ export const useApi = () => {
         if(options.sttSpeed) payloadOptions.stt_speed = options.sttSpeed;
         if(options.sttLanguage) payloadOptions.stt_language = options.sttLanguage;
         if(options.speakerDiarization) payloadOptions.speaker_diarization = "true";
+        if(options.cookiesFromBrowser) payloadOptions.cookies_from_browser = options.cookiesFromBrowser;
         const r = await apiFetch(`${API_BASE}/video-sources/jobs`, {
             method:"POST",
             headers: {"Content-Type":"application/json", ...localExecutionHeaders(options)},
             body: JSON.stringify({input, options: payloadOptions}),
             signal,
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const checkVideoCookies = async (browser) => {
+        const r = await apiFetch(`${API_BASE}/video-sources/cookie-check`, {
+            method:"POST",
+            headers: {"Content-Type":"application/json", ...localExecutionHeaders({})},
+            body: JSON.stringify({browser}),
         });
         const data = await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
@@ -631,7 +642,7 @@ export const useApi = () => {
         return data.connection || {connected: false};
     };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, retryJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, checkVideoCookies, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, retryJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkHealth};
 };
 
 export const useSettings = () => {
