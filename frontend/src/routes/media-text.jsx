@@ -102,6 +102,7 @@ const MediaText = () => {
         speakerDiarization: !!settings.speakerDiarization,
         generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
+        cookiesFromBrowser: settings.videoCookiesBrowser || '',
     });
 
     const ensureCloudReady = async (sttProvider) => {

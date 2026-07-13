@@ -369,6 +369,29 @@ const Settings = () => {
                                     </div>
                                 </details>
                             )}
+
+                            {localRouteAvailable && (
+                                <div className="px-5 py-4">
+                                    <label className={fieldLabelClass}>{lang === 'zh' ? '视频链接下载登录态' : 'Video link login'}</label>
+                                    <select
+                                        className={inputClass}
+                                        value={settings.videoCookiesBrowser || ''}
+                                        onChange={e=>updateSettingNow({videoCookiesBrowser:e.target.value})}
+                                    >
+                                        <option value="">{lang === 'zh' ? '关闭（不读取浏览器登录态）' : 'Off (no browser login)'}</option>
+                                        <option value="chrome">Chrome</option>
+                                        <option value="edge">Edge</option>
+                                        <option value="firefox">Firefox</option>
+                                        <option value="safari">Safari</option>
+                                        <option value="brave">Brave</option>
+                                    </select>
+                                    <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
+                                        {lang === 'zh'
+                                            ? '下载 B 站等链接时，从所选浏览器读取你的登录 cookie，以获取高清（1080p+ 需登录）。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
+                                            : 'When downloading Bilibili and similar links, read your login cookies from the chosen browser to fetch higher quality (1080p+ needs login). Read locally only, never uploaded; log in to the site in that browser first.'}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </Section>
 

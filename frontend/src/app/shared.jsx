@@ -402,6 +402,7 @@ export const useApi = () => {
         if(options.sttSpeed) payloadOptions.stt_speed = options.sttSpeed;
         if(options.sttLanguage) payloadOptions.stt_language = options.sttLanguage;
         if(options.speakerDiarization) payloadOptions.speaker_diarization = "true";
+        if(options.cookiesFromBrowser) payloadOptions.cookies_from_browser = options.cookiesFromBrowser;
         const r = await apiFetch(`${API_BASE}/video-sources/jobs`, {
             method:"POST",
             headers: {"Content-Type":"application/json", ...localExecutionHeaders(options)},

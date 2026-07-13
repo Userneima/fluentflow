@@ -77,6 +77,7 @@ def _queue_options_from_mapping(payload: dict[str, Any] | None) -> dict[str, str
         "prompt_preset",
         "prompt_preset_label",
         "duration_limit_seconds",
+        "cookies_from_browser",
     }
     result: dict[str, str] = {}
     for key, value in (payload or {}).items():

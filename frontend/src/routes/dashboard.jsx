@@ -130,6 +130,7 @@ const Dashboard = () => {
         speakerDiarization: !!settings.speakerDiarization,
         generateVisuals: !!settings.autoIllustrate,
         sttProvider: effectiveSttProvider(settings, runtimeConfig),
+        cookiesFromBrowser: settings.videoCookiesBrowser || '',
     });
 
     const openHistoryEntry = async (h) => {
