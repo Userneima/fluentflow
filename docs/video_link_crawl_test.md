@@ -84,10 +84,19 @@ export FLUENTFLOW_BILI_DOWNLOAD_SMOKE_URL='https://www.bilibili.com/video/BVxxxx
 - 文件是否超过 `VIDEO_SOURCE_MAX_BYTES`。
 - 是否触发 Bilibili 风控。
 
-如果需要登录态，当前只通过 `yt-dlp` 的通用配置接入：
+Bilibili 不再使用 miuistore 第三方兜底。`yt-dlp` 解析失败时，产品应提示用户上传本地视频，或在设置里开启浏览器登录态后重试。
 
-```bash
-export YT_DLP_COOKIES_FROM_BROWSER=chrome
-```
+## 浏览器登录态（B 站高清）
 
-Bilibili 不再使用 miuistore 第三方兜底。`yt-dlp` 解析失败时，产品应提示用户上传本地视频，或配置 `YT_DLP_COOKIES_FROM_BROWSER` 后重试。
+登录态用于解锁 B 站高清：**未登录最高 480p，1080p+ 需登录**。FluentFlow 本地运行，因此复用用户本机浏览器的登录 cookie（yt-dlp `--cookies-from-browser`），无需自研解析器或浏览器插件。
+
+- 用户侧：设置 →「视频链接下载登录态」下拉选择浏览器（Chrome/Edge/Firefox/Safari/Brave，**默认关闭，仅本机模式显示**），可点「检测登录态」确认。
+- 传导：设置 → 视频任务 `queue_options.cookies_from_browser`（经浏览器白名单校验）→ `resolve_video` / `download_*`；优先设置，回退环境变量 `YT_DLP_COOKIES_FROM_BROWSER`。
+- 检测端点：`POST /video-sources/cookie-check` 只读浏览器 cookie 库（不发网络请求），返回：读不到 / 已读到但未登录 B 站(~480p) / 已登录(高清)。best-effort——真实下载仍可能因 cookie 过期或风控失败，由下载报错兜底。
+
+**实测验证（2026-07-13）**：链接 `https://www.bilibili.com/video/BV1efV26xEhf/`
+- 无登录态解析：最高 **480p**。
+- 带浏览器登录态（该机 Edge 已登录 B 站）解析：最高 **1080p**。
+- 检测端点：未登录浏览器返回 `bilibili_logged_in=false`，已登录返回 `true`。
+
+结论：**登录态把这条视频从 480p 解锁到 1080p，功能按设计生效。**
