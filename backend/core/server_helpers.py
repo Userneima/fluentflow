@@ -325,7 +325,7 @@ from backend.core.quota_store import (
     reserve_units,
 )
 from backend.core.speaker_diarization import assign_speakers_to_segments, diarization_status, diarize_audio
-from backend.core.video_source import SavedVideoSource, VideoSourceProgress, download_video_source, video_source_failure_reason
+from backend.core.video_source import SavedVideoSource, VideoSourceProgress, check_browser_cookies, download_video_source, video_source_failure_reason
 
 
 from backend.core.account_config import (

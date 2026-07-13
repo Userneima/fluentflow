@@ -413,6 +413,16 @@ export const useApi = () => {
         if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
         return data;
     };
+    const checkVideoCookies = async (browser) => {
+        const r = await apiFetch(`${API_BASE}/video-sources/cookie-check`, {
+            method:"POST",
+            headers: {"Content-Type":"application/json", ...localExecutionHeaders({})},
+            body: JSON.stringify({browser}),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
     const subscribeJobEvents = async (taskId, onProgress, signal, options={}) => {
         const r = await apiFetch(`${API_BASE}/jobs/${encodeURIComponent(taskId)}/events`, {headers: localExecutionHeaders(options), signal});
         if(!r.ok){
@@ -632,7 +642,7 @@ export const useApi = () => {
         return data.connection || {connected: false};
     };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, retryJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, checkVideoCookies, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, retryJob, getJobs, getAccountQuota, getAdminUsers, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkHealth};
 };
 
 export const useSettings = () => {

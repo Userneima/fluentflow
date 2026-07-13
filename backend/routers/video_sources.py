@@ -16,6 +16,14 @@ import backend.core.server_helpers as H
 router = APIRouter()
 
 
+@router.post("/video-sources/cookie-check")
+async def video_source_cookie_check(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    browser = str(payload.get("browser") or "").strip().lower()
+    if browser not in H._ALLOWED_COOKIE_BROWSERS:
+        raise HTTPException(status_code=400, detail="不支持的浏览器")
+    return H.check_browser_cookies(browser)
+
+
 @router.post("/video-sources/jobs")
 async def create_video_source_job(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     input_text = str(payload.get("input") or "").strip()

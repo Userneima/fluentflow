@@ -520,6 +520,32 @@ def _yt_dlp_cookies_args(cookies_from_browser: str | None = None) -> list[str]:
     return ["--cookies-from-browser", value] if value else []
 
 
+def check_browser_cookies(browser: str) -> dict[str, Any]:
+    """Read cookies from the given local browser and report whether the login
+    state is usable. No network request — it only opens the browser's cookie DB.
+    A live download can still fail later (expired cookie, anti-crawl), so this is
+    a best-effort check, not a guarantee."""
+    browser = (browser or "").strip().lower()
+    try:
+        from yt_dlp.cookies import extract_cookies_from_browser
+    except Exception as exc:  # pragma: no cover - yt-dlp always installed in prod
+        return {"ok": False, "code": "yt_dlp_missing", "message": f"无法加载 yt-dlp 的 cookie 读取模块：{exc}"}
+    try:
+        jar = extract_cookies_from_browser(browser)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "code": "read_failed",
+            "message": f"读不到 {browser} 的登录态：{exc}。请确认已安装该浏览器；若仍失败，试试完全关闭该浏览器后重试。",
+        }
+    cookies = list(jar)
+    bilibili_login = any(
+        getattr(c, "name", "") == "SESSDATA" and "bilibili" in (getattr(c, "domain", "") or "")
+        for c in cookies
+    )
+    return {"ok": True, "cookie_count": len(cookies), "bilibili_logged_in": bilibili_login}
+
+
 def youtube_caption_languages() -> str:
     return (os.environ.get("FLUENTFLOW_YOUTUBE_SUB_LANGS") or "en,zh-Hans,zh-Hant,zh").strip()
 

@@ -54,12 +54,14 @@ const Settings = () => {
     const {t, lang} = useI18n();
     const {loadSettings, saveSettings} = useSettings();
     const {clearHistory, history, larkExports, runtimeConfig} = useApp();
-    const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu} = useApi();
+    const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkVideoCookies} = useApi();
     const [settings, setSettings] = useState(() => loadSettings());
     const [cleared, setCleared] = useState(false);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
     const [credentialStatus, setCredentialStatus] = useState(null);
     const [diarizationStatus, setDiarizationStatus] = useState(null);
+    const [cookieCheck, setCookieCheck] = useState(null);
+    const [cookieChecking, setCookieChecking] = useState(false);
     const [secretDraft, setSecretDraft] = useState({});
     const [pyannoteTokenEditing, setPyannoteTokenEditing] = useState(false);
     const [secretSaving, setSecretSaving] = useState(false);
@@ -376,7 +378,7 @@ const Settings = () => {
                                     <select
                                         className={inputClass}
                                         value={settings.videoCookiesBrowser || ''}
-                                        onChange={e=>updateSettingNow({videoCookiesBrowser:e.target.value})}
+                                        onChange={e=>{ updateSettingNow({videoCookiesBrowser:e.target.value}); setCookieCheck(null); }}
                                     >
                                         <option value="">{lang === 'zh' ? '关闭（不读取浏览器登录态）' : 'Off (no browser login)'}</option>
                                         <option value="chrome">Chrome</option>
@@ -390,6 +392,32 @@ const Settings = () => {
                                             ? '下载 B 站等链接时，从所选浏览器读取你的登录 cookie，以获取高清（1080p+ 需登录）。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
                                             : 'When downloading Bilibili and similar links, read your login cookies from the chosen browser to fetch higher quality (1080p+ needs login). Read locally only, never uploaded; log in to the site in that browser first.'}
                                     </span>
+                                    {settings.videoCookiesBrowser && (
+                                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                                            <button
+                                                type="button"
+                                                disabled={cookieChecking}
+                                                onClick={async () => {
+                                                    setCookieChecking(true); setCookieCheck(null);
+                                                    try { setCookieCheck(await checkVideoCookies(settings.videoCookiesBrowser)); }
+                                                    catch (err) { setCookieCheck({ok:false, message: err.message || String(err)}); }
+                                                    finally { setCookieChecking(false); }
+                                                }}
+                                                className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-xs font-bold text-[#111111] transition hover:bg-[#f4f3f3] disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]"
+                                            >
+                                                {cookieChecking ? (lang === 'zh' ? '检测中…' : 'Checking…') : (lang === 'zh' ? '检测登录态' : 'Check login')}
+                                            </button>
+                                            {cookieCheck && (
+                                                <span className={`text-xs font-semibold ${cookieCheck.ok ? (cookieCheck.bilibili_logged_in ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300') : 'text-red-600 dark:text-red-300'}`}>
+                                                    {cookieCheck.ok
+                                                        ? (cookieCheck.bilibili_logged_in
+                                                            ? (lang === 'zh' ? '已读取到登录态，且已登录 B 站，可下高清。' : 'Cookies read; logged into Bilibili — HD available.')
+                                                            : (lang === 'zh' ? '已读取到浏览器 cookie，但未检测到 B 站登录（最高约 480p）。请先在该浏览器登录 B 站。' : 'Cookies read, but not logged into Bilibili (max ~480p). Log in first.'))
+                                                        : cookieCheck.message}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
