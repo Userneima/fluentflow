@@ -186,7 +186,7 @@ def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     assert "setInterval(() => loadTaskDetail(staleRef, {silent: true}), 3000)" in agent_trace
 
 
-def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
+def test_public_landing_owns_root_and_media_text_is_default_entry() -> None:
     app_entry = Path("frontend/src/app.jsx").read_text(encoding="utf-8")
     app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
     side_nav = Path("frontend/src/components/SideNav.jsx").read_text(encoding="utf-8")
@@ -201,10 +201,13 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "const Landing = lazy(() => import('./routes/landing.jsx'))" in app_entry
     assert '<Route path="/" element={<Landing/>}/>' in app_entry
     assert '<Route path="/*" element={' in app_entry
+    # Dashboard route is kept as the guest-mode fallback, but it is no longer the
+    # default landing or a sidebar entry — /media-text is the single primary entry.
     assert 'path="/app" element={<Dashboard/>}' in app_shell
-    assert 'path="*" element={<Navigate to="/app" replace/>}' in app_shell
-    assert "{path:'/app', icon:LayoutGrid, k:'nav.dashboard'}" in side_nav
-    assert 'to="/app"' in side_nav
+    assert 'path="*" element={<Navigate to="/media-text" replace/>}' in app_shell
+    assert "{path:'/media-text', icon:Video" in side_nav
+    assert "{path:'/app', icon:LayoutGrid" not in side_nav
+    assert 'to="/media-text"' in side_nav
     for expected_copy in [
         "Turn long videos into study-ready notes first.",
         "Upload a course, lecture, recording, or video link. FluentFlow prepares the note, transcript, and key moments before you study.",
@@ -348,7 +351,7 @@ def test_public_landing_page_owns_root_and_app_keeps_dashboard_entry() -> None:
     assert "–" not in landing_surface
     assert "to=\"/agent\"" in editor
     assert "edit.chooseRecord" in editor
-    assert "to=\"/app\"" in about
+    assert "to=\"/media-text\"" in about
 
 
 def test_recent_activity_cards_open_editor_or_processing_records_not_task_detail() -> None:

@@ -320,7 +320,7 @@ const About = () => {
                             {zh ? `最后更新：${headerUpdatedAt}` : `Last updated: ${headerUpdatedAt}`}
                         </p>
                     </div>
-                    <Link to="/app" className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-sm font-extrabold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
+                    <Link to="/media-text" className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-sm font-extrabold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]">
                         <SvgIcon name="arrow_back" className="text-[18px]"/>
                         {zh ? '返回开始处理' : 'Back to start'}
                     </Link>
