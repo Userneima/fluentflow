@@ -140,6 +140,6 @@ export const cloudSttMissingMessage = (lang) => (
         : 'Cloud transcription is unavailable. Ask the product maintainer to check backend configuration.'
 );
 
-export const normalizeSttModel = (model) => (
+export const normalizeSttModel = (_model) => (
     DEFAULT_STT_MODEL
 );

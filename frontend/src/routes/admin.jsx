@@ -3,7 +3,7 @@ import {fmtDateTime, useApi, useAuth, useI18n} from '../app/shared.jsx';
 import SvgIcon from '../components/SvgIcon.jsx';
 
 const Admin = () => {
-    const {t, lang} = useI18n();
+    const {lang} = useI18n();
     const {user} = useAuth();
     const {getAdminUsers, getAdminCloudTranscriptionUsage, adjustUserBalance} = useApi();
     const [users, setUsers] = useState([]);
