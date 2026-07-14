@@ -71,7 +71,17 @@ npm run build:frontend
 
 构建产物会输出到 `frontend/dist/`。不要手动编辑 `frontend/dist/`。
 
-### 4. 启动后端
+### 4. 配置环境变量（.env）
+
+```bash
+cp .env.example .env
+```
+
+打开 `.env`，按注释取消对应行、填入你要用的服务的 key。**最小可跑**：填一个 AI key（如 `DEEPSEEK_API_KEY`）就能上传本地音视频出笔记；云端转录、飞书导出等按需再加。完整的“必填 / 可选”清单见 [`.env.example`](.env.example) 顶部说明。
+
+`.env` 含密钥，已被 `.gitignore` 忽略，**不要提交**。每个协作者用自己的 key，或由维护者私下安全分发。
+
+### 5. 启动后端
 
 ```bash
 ./venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
@@ -83,7 +93,7 @@ npm run build:frontend
 http://127.0.0.1:8000
 ```
 
-### 5. 前端开发模式
+### 6. 前端开发模式
 
 如果只调前端，可以同时运行：
 
