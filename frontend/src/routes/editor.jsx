@@ -1,9 +1,7 @@
 import {useState,useEffect,useRef,useCallback,useMemo} from 'react';
-import {Link,useNavigate} from 'react-router-dom';
+import {Link} from 'react-router-dom';
 import {
-    BUILTIN_EXTRA_PROMPT_KEYS,
     DEFAULT_PROMPT_PRESET,
-    allPresetSelectKeys,
     getBuiltinExtraPromptBody,
     getDefaultPromptBody,
     isBuiltinPromptPresetHidden,
@@ -29,7 +27,6 @@ import {
     dlTranscriptSrt,
     dlTranscriptTxt,
     dlTranscriptVtt,
-    fmtFileSize,
     fmtTime,
     apiFetch,
     DropdownMenu,
@@ -41,22 +38,16 @@ import {
     isLocalHistoryResult,
     isLocalLarkExportRoute,
     isUserOAuthLarkExportRoute,
-    isSttProgressUnmeasured,
-    jobToCurrentJob,
-    jobToHistoryEntry,
     larkExportRouteFromSettings,
     localExecutionHeaders,
     pickDisplayTranscriptSegments,
     normalizeSttModel,
-    normalizeSttProvider,
-    noteGenerationDiagnosis,
     pickTranscriptBaselineSegments,
     pickTranscriptSegments,
     resultToHistoryEntry,
     resultDisplayTitle,
     shouldUseLocalSingleUserClientId,
     simpleMd,
-    timeAgo,
     useApi,
     useApp,
     useAuth,
@@ -132,7 +123,7 @@ const Editor = () => {
         return '';
     });
     const [presetNameInput, setPresetNameInput] = useState('');
-    const [presetListTick, setPresetListTick] = useState(0);
+    const [, setPresetListTick] = useState(0);
     const [promptOpen, setPromptOpen] = useState(false);
 
     useEffect(() => {
@@ -678,12 +669,6 @@ const Editor = () => {
         if (!media) return;
         if (media.paused) media.play().catch((err) => setMediaError(err.message || 'Playback failed'));
         else media.pause();
-    };
-
-    const handleVideoSegmentStep = (offset) => {
-        if (activeSegmentIndex < 0 || visibleTranscriptSegments.length === 0) return;
-        const nextIndex = Math.min(visibleTranscriptSegments.length - 1, Math.max(0, activeSegmentIndex + offset));
-        seekToSegment(visibleTranscriptSegments[nextIndex]);
     };
 
     const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null), 3000); };
