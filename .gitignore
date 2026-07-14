@@ -47,3 +47,7 @@ backend/data/*
 !backend/data/.gitkeep
 视频文件/
 backend/视频文件/
+
+# Local scratch / personal notes (never committed)
+.tmp/
+飞书速切.txt
