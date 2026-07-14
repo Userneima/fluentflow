@@ -247,18 +247,24 @@ def start_feishu_oauth(
 
 
 @router.get("/account/feishu/oauth/callback", name="feishu_oauth_callback")
-def feishu_oauth_callback(request: Request, code: str = "", state: str = "") -> dict[str, Any]:
+def feishu_oauth_callback(request: Request, code: str = "", state: str = "") -> RedirectResponse:
     user = H._require_account_user(request)
     if not code or not state:
-        raise HTTPException(status_code=400, detail="Feishu OAuth callback is missing code or state.")
+        return RedirectResponse(
+            "/settings?feishu_error=" + quote("Feishu OAuth callback is missing code or state."),
+            status_code=303,
+        )
     try:
-        return H.complete_feishu_oauth_callback(
+        data = H.complete_feishu_oauth_callback(
             user_id=str(user["id"]),
             code=code,
             state=state,
         )
     except H.FeishuOAuthError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse("/settings?feishu_error=" + quote(str(exc)), status_code=303)
+    next_url = _safe_next_url(str(data.get("next_url") or ""), "/settings")
+    sep = "&" if "?" in next_url else "?"
+    return RedirectResponse(f"{next_url}{sep}feishu_connected=1", status_code=303)
 
 
 @router.post("/account/feishu/disconnect")
