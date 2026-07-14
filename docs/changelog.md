@@ -31,6 +31,8 @@
 
 后续尚未准备发布的变更继续记录在这里。只有已经落地、验证并准备对外说明的内容，才移动到具体版本段落。
 
+## v0.3.0｜2026-07-15｜笔记、导出与设置体验升级
+
 ### 用户可见变化
 
 - 修复「连接飞书账号」授权成功后停在一片 JSON、不跳回设置页的问题：飞书 OAuth 回调改为像 Google 登录一样重定向回来（成功回 `next_url`，失败或 state 非法回设置页并带错误提示），登录态照常保存。
@@ -54,8 +56,6 @@
 - 移除 AI「笔记模式规划器」：自动模式不再额外调用一次模型来判断该用哪种笔记模式，改为按转录长度直接决定（短→直接，长→章节覆盖）。相关结果字段 `note_mode_plan_*` 不再产生，前端已做缺省降级。
 - 「章节覆盖」增强容错：某一段证据返回的 JSON 解析失败时会重试一次，仍失败则跳过该段并记录告警，不再让整篇笔记失败。
 - 修复笔记配图「选帧」步骤：原本误用纯文本 Qwen 默认模型，给它发图片必然失败、导致该功能实际从未产出图片；现改用视觉模型 `qwen-vl-plus`（可用 `QWEN_VISION_MODEL` 覆盖为 `qwen-vl-max`）。配图是否开启由前述设置开关控制，并透传到后台队列。
-
-### 维护者变化
 
 - 云工作区代理改为默认硬禁用：现在必须同时设置 `FLUENTFLOW_CLOUD_WORKSPACE_URL` 和显式开关 `FLUENTFLOW_ENABLE_CLOUD_WORKSPACE=1` 才会开启同源代理。只设地址不设开关时后端会忽略地址，并在启动日志里明确提示。此改动是为避免一个残留的 `FLUENTFLOW_CLOUD_WORKSPACE_URL` 环境变量把本地上传静默转发到云端、导致上传卡死。
 - 新增 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET`、`GOOGLE_OAUTH_REDIRECT_URI` 和可选 `FLUENTFLOW_GOOGLE_OAUTH_SCOPES` 配置；Google 登录只请求 `openid email profile`，不持久保存 Google access token。
