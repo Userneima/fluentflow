@@ -105,13 +105,13 @@ const SideNav = ({collapsed = false, onToggle = () => {}}) => {
     }, [agentAccessOpen]);
 
     const fullItems = [
-        {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes'},
+        {path:'/media-text', icon:Video, label: lang === 'zh' ? '视频转写与总结' : 'Media notes', guest:true},
         {path:'/agent', icon:SlidersHorizontal, k:'nav.processing'},
-        {path:'/editor', icon:FilePenLine, k:'nav.editor'},
+        {path:'/editor', icon:FilePenLine, k:'nav.editor', guest:true},
         ...(user?.role === 'admin' ? [{path:'/admin', icon:ShieldCheck, k:'nav.admin'}] : []),
         {path:'/settings', icon:Settings, k:'nav.settings'},
     ];
-    const items = guestMode ? fullItems.filter((item) => ['/', '/editor'].includes(item.path)) : fullItems;
+    const items = guestMode ? fullItems.filter((item) => item.guest) : fullItems;
     const quotaExempt = user?.role === 'admin' || quota?.unlimited || quota?.quota_exempt;
     const displayName = user?.name || user?.email?.split('@')[0] || (lang === 'zh' ? '访客' : 'Guest');
     const displayInitial = (displayName || 'F').trim().slice(0, 1).toUpperCase();
