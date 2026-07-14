@@ -219,6 +219,11 @@ const Settings = () => {
     const inputClass = 'w-full rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 text-sm font-semibold text-[#111111] outline-none transition placeholder:text-[#aaa] focus:border-[#111111] focus:bg-white dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/30 dark:focus:border-white/40';
     const fieldLabelClass = 'text-[11px] font-extrabold uppercase tracking-wider text-[#676970] dark:text-white/50';
     const saveButtonClass = 'rounded-[14px] bg-[#111111] px-4 py-3 text-sm font-extrabold text-white transition hover:bg-[#2a2a2a] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/[0.88]';
+    const cellBase = 'rounded-[14px] border border-[#ece8e8] bg-[#fbfbfb] px-4 py-3.5 dark:border-white/[0.1] dark:bg-white/[0.02]';
+    const radioClass = (active) => [
+        'mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-2 transition',
+        active ? 'border-primary' : 'border-[#c9c9c9] dark:border-white/30',
+    ].join(' ');
     const aiProvider = settings.aiProvider || 'deepseek';
     const aiModel = normalizeAiModel(aiProvider, settings.aiModel);
     const aiProviderDefaults = {
@@ -247,7 +252,7 @@ const Settings = () => {
     const showMaintainerSettings = runtimeConfig.showMaintainerSettings;
 
     const routeButtonClass = (active, disabled) => [
-        'flex min-h-[74px] flex-1 items-start justify-between gap-3 rounded-[14px] border px-4 py-3 text-left transition',
+        'flex min-h-[74px] flex-1 items-start gap-3 rounded-[14px] border px-4 py-3 text-left transition',
         active
             ? 'border-primary bg-primary/10 text-[#111111] dark:text-white'
             : 'border-[#dedada] bg-[#f8f7f7] text-[#555] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.1]',
@@ -256,7 +261,7 @@ const Settings = () => {
 
     return (
         <div className="ml-[var(--sidebar-offset)] min-h-screen bg-[#f8f7fb] pb-8 text-[#111111] transition-[margin] duration-200 ease-out dark:bg-[#101010] dark:text-white/[0.92]">
-            <main className="mx-auto h-dvh max-w-[820px] overflow-y-auto px-8 py-7 hide-scrollbar">
+            <main className="mx-auto h-dvh max-w-[1040px] overflow-y-auto px-8 py-7 hide-scrollbar">
                 <header className="mb-6">
                     <h1 className="font-headline text-2xl font-extrabold tracking-tight text-[#111111] dark:text-white">{t('set.title')}</h1>
                     <p className="mt-2 max-w-[62ch] text-sm font-semibold leading-relaxed text-[#676970] dark:text-white/58">
@@ -268,33 +273,30 @@ const Settings = () => {
 
                 <div className="space-y-5">
                     <Section
-                        id="processing"
-                        title={lang === 'zh' ? '处理偏好' : 'Processing preferences'}
-                        description={lang === 'zh' ? '这里只保留会影响后续任务的长期偏好。' : 'Only long-term preferences that affect future tasks stay here.'}
+                        id="transcription"
+                        title={lang === 'zh' ? '转录' : 'Transcription'}
+                        description={lang === 'zh'
+                            ? (pureCloudServer ? '把音视频变成文字的方式。当前是线上云端环境，本地转录不可用。' : '把音视频变成文字的方式。云端与本地转录二选一。')
+                            : (pureCloudServer ? 'How media becomes text. This cloud deployment cannot run local transcription.' : 'How media becomes text. Choose cloud or local transcription.')}
                     >
-                        <div className="divide-y divide-[#ece8e8] dark:divide-white/[0.1]">
-                            <div className="px-5 py-4">
-                                <div className="mb-3">
-                                    <h3 className="text-sm font-bold">{lang === 'zh' ? '转录路线' : 'Transcription route'}</h3>
-                                    <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
-                                        {pureCloudServer
-                                            ? (lang === 'zh' ? '当前是线上云端环境，本地转录不可用。' : 'This cloud deployment cannot run local transcription.')
-                                            : (lang === 'zh' ? '本机打开时可以选择本地或云端；线上纯云端环境会锁定云端。' : 'Local desktop can choose local or cloud. Cloud-only deployments stay locked to cloud.')}
-                                    </p>
-                                </div>
+                        <div className="grid gap-3 p-5 md:grid-cols-2">
+                            <div className="md:col-span-2">
+                                <label className={`${fieldLabelClass} mb-2.5 block`}>{lang === 'zh' ? '转录路线' : 'Transcription route'}</label>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <button
                                         type="button"
                                         className={routeButtonClass(isCloudSttProvider(sttProvider), false)}
                                         onClick={() => updateSettingNow({sttProvider: 'elevenlabs_scribe'})}
                                     >
+                                        <span className={radioClass(isCloudSttProvider(sttProvider))} aria-hidden="true">
+                                            {isCloudSttProvider(sttProvider) && <span className="size-2.5 rounded-full bg-primary"/>}
+                                        </span>
                                         <span>
                                             <span className="block text-sm font-bold">{cloudProviderLabel}</span>
                                             <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
                                                 {lang === 'zh' ? '适合线上任务和长时间后台处理。' : 'Best for cloud jobs and long background runs.'}
                                             </span>
                                         </span>
-                                        {isCloudSttProvider(sttProvider) && <SvgIcon name="check" className="mt-0.5 text-base text-primary"/>}
                                     </button>
                                     <button
                                         type="button"
@@ -304,6 +306,9 @@ const Settings = () => {
                                             if (localRouteAvailable) updateSettingNow({sttProvider: 'local'});
                                         }}
                                     >
+                                        <span className={radioClass(sttProvider === 'local')} aria-hidden="true">
+                                            {sttProvider === 'local' && <span className="size-2.5 rounded-full bg-primary"/>}
+                                        </span>
                                         <span>
                                             <span className="block text-sm font-bold">{localProviderLabel}</span>
                                             <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
@@ -312,12 +317,11 @@ const Settings = () => {
                                                     : (lang === 'zh' ? '当前环境不可用。' : 'Unavailable in this environment.')}
                                             </span>
                                         </span>
-                                        {sttProvider === 'local' && <SvgIcon name="check" className="mt-0.5 text-base text-primary"/>}
                                     </button>
                                 </div>
                             </div>
 
-                            <label htmlFor="settingsSpeakerDiarization" className={`grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start ${speakerDiarizationAvailable ? 'cursor-pointer hover:bg-[#faf9f9] dark:hover:bg-white/[0.04]' : 'cursor-not-allowed opacity-60'}`}>
+                            <label htmlFor="settingsSpeakerDiarization" className={`flex items-start justify-between gap-3 ${cellBase} ${speakerDiarizationAvailable ? 'cursor-pointer hover:bg-[#f4f3f3] dark:hover:bg-white/[0.04]' : 'cursor-not-allowed opacity-60'}`}>
                                 <span>
                                     <span className="block text-sm font-bold">{lang === 'zh' ? '区分不同讲话人' : 'Speaker diarization'}</span>
                                     <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
@@ -332,7 +336,75 @@ const Settings = () => {
                                 />
                             </label>
 
-                            <label htmlFor="settingsAutoIllustrate" className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start cursor-pointer hover:bg-[#faf9f9] dark:hover:bg-white/[0.04]">
+                            {sttProvider === 'local' && localRouteAvailable && (
+                                <div className={`flex items-center justify-between gap-3 ${cellBase}`}>
+                                    <span className="text-sm font-bold">{t('set.sttSpeed')}</span>
+                                    <select className="h-10 shrink-0 rounded-[12px] border border-[#dedada] bg-[#fbfbfb] px-3 text-sm font-bold text-[#111111] outline-none transition focus:border-[#111111] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white" value={settings.sttSpeed || 'balanced'} onChange={e=>updateSettingNow({sttSpeed:e.target.value})}>
+                                        <option value="fast">{t('set.speedFast')}</option>
+                                        <option value="balanced">{t('set.speedBalanced')}</option>
+                                        <option value="accurate">{t('set.speedAccurate')}</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {localRouteAvailable && (
+                                <div className={`md:col-span-2 ${cellBase}`}>
+                                    <label className="block text-sm font-bold">{lang === 'zh' ? '视频链接下载登录态' : 'Video link login'}</label>
+                                    <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
+                                        <select
+                                            className="h-10 w-[220px] rounded-[12px] border border-[#dedada] bg-[#fbfbfb] px-3 text-sm font-bold text-[#111111] outline-none transition focus:border-[#111111] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white"
+                                            value={settings.videoCookiesBrowser || ''}
+                                            onChange={e=>{ updateSettingNow({videoCookiesBrowser:e.target.value}); setCookieCheck(null); }}
+                                        >
+                                            <option value="">{lang === 'zh' ? '关闭（不读取浏览器登录态）' : 'Off (no browser login)'}</option>
+                                            <option value="chrome">Chrome</option>
+                                            <option value="edge">Edge</option>
+                                            <option value="firefox">Firefox</option>
+                                            <option value="safari">Safari</option>
+                                            <option value="brave">Brave</option>
+                                        </select>
+                                        {settings.videoCookiesBrowser && (
+                                            <button
+                                                type="button"
+                                                disabled={cookieChecking}
+                                                onClick={async () => {
+                                                    setCookieChecking(true); setCookieCheck(null);
+                                                    try { setCookieCheck(await checkVideoCookies(settings.videoCookiesBrowser)); }
+                                                    catch (err) { setCookieCheck({ok:false, message: err.message || String(err)}); }
+                                                    finally { setCookieChecking(false); }
+                                                }}
+                                                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-xs font-bold text-[#111111] transition hover:bg-[#f4f3f3] disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]"
+                                            >
+                                                {cookieChecking ? (lang === 'zh' ? '检测中…' : 'Checking…') : (lang === 'zh' ? '检测登录态' : 'Check login')}
+                                            </button>
+                                        )}
+                                        {cookieCheck && (
+                                            <span className={`text-xs font-semibold ${cookieCheck.ok ? (cookieCheck.bilibili_logged_in ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300') : 'text-red-600 dark:text-red-300'}`}>
+                                                {cookieCheck.ok
+                                                    ? (cookieCheck.bilibili_logged_in
+                                                        ? (lang === 'zh' ? '已读取到登录态，且已登录 B 站，可下高清。' : 'Cookies read; logged into Bilibili — HD available.')
+                                                        : (lang === 'zh' ? '已读取到浏览器 cookie，但未检测到 B 站登录（B 站最高约 480p）。B 站高清请先在该浏览器登录；YouTube 受限视频不受影响。' : 'Cookies read, but not logged into Bilibili (Bilibili max ~480p). Log into Bilibili for HD; YouTube restricted videos still work.'))
+                                                    : cookieCheck.message}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="mt-2.5 text-xs leading-relaxed text-on-surface-variant">
+                                        {lang === 'zh'
+                                            ? '从所选浏览器复用你的登录 cookie，下载需要登录才能看的视频。仅在本机读取、不会上传；B 站高清和 YouTube 受限视频需要它。'
+                                            : 'Reuse your login cookies from the chosen browser to download videos that need sign-in. Read locally only, never uploaded; needed for Bilibili HD and restricted YouTube videos.'}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </Section>
+
+                    <Section
+                        id="notes"
+                        title={lang === 'zh' ? '笔记' : 'Notes'}
+                        description={lang === 'zh' ? 'AI 生成笔记时的偏好。' : 'Preferences for AI-generated notes.'}
+                    >
+                        <div className="p-5">
+                            <label htmlFor="settingsAutoIllustrate" className={`flex items-start justify-between gap-3 ${cellBase} cursor-pointer hover:bg-[#f4f3f3] dark:hover:bg-white/[0.04]`}>
                                 <span>
                                     <span className="block text-sm font-bold">{lang === 'zh' ? '给笔记自动配图' : 'Auto-illustrate notes'}</span>
                                     <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
@@ -347,85 +419,12 @@ const Settings = () => {
                                     onChange={e=>updateSettingNow({autoIllustrate:e.target.checked})}
                                 />
                             </label>
-
-                            {sttProvider === 'local' && localRouteAvailable && (
-                                <details className="group px-5 py-4">
-                                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">
-                                        <span>{lang === 'zh' ? '本机转录高级选项' : 'Local transcription options'}</span>
-                                        <SvgIcon name="expand_less" className="text-sm text-on-surface-variant transition group-open:rotate-180"/>
-                                    </summary>
-                                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                                        <div className="rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 text-sm font-semibold text-[#57585d] dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-white/70">
-                                            {lang === 'zh'
-                                                ? '本地转录固定使用 faster-whisper medium 模型。'
-                                                : 'Local transcription always uses the faster-whisper medium model.'}
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className={fieldLabelClass}>{t('set.sttSpeed')}</label>
-                                            <select className={inputClass} value={settings.sttSpeed || 'balanced'} onChange={e=>updateSettingNow({sttSpeed:e.target.value})}>
-                                                <option value="fast">{t('set.speedFast')}</option>
-                                                <option value="balanced">{t('set.speedBalanced')}</option>
-                                                <option value="accurate">{t('set.speedAccurate')}</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </details>
-                            )}
-
-                            {localRouteAvailable && (
-                                <div className="px-5 py-4">
-                                    <label className={fieldLabelClass}>{lang === 'zh' ? '视频链接下载登录态' : 'Video link login'}</label>
-                                    <select
-                                        className={inputClass}
-                                        value={settings.videoCookiesBrowser || ''}
-                                        onChange={e=>{ updateSettingNow({videoCookiesBrowser:e.target.value}); setCookieCheck(null); }}
-                                    >
-                                        <option value="">{lang === 'zh' ? '关闭（不读取浏览器登录态）' : 'Off (no browser login)'}</option>
-                                        <option value="chrome">Chrome</option>
-                                        <option value="edge">Edge</option>
-                                        <option value="firefox">Firefox</option>
-                                        <option value="safari">Safari</option>
-                                        <option value="brave">Brave</option>
-                                    </select>
-                                    <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
-                                        {lang === 'zh'
-                                            ? '下载 B 站等链接时，从所选浏览器读取你的登录 cookie，以获取高清（1080p+ 需登录）。仅在本机读取、不会上传；需先在该浏览器登录对应网站。'
-                                            : 'When downloading Bilibili and similar links, read your login cookies from the chosen browser to fetch higher quality (1080p+ needs login). Read locally only, never uploaded; log in to the site in that browser first.'}
-                                    </span>
-                                    {settings.videoCookiesBrowser && (
-                                        <div className="mt-3 flex flex-wrap items-center gap-3">
-                                            <button
-                                                type="button"
-                                                disabled={cookieChecking}
-                                                onClick={async () => {
-                                                    setCookieChecking(true); setCookieCheck(null);
-                                                    try { setCookieCheck(await checkVideoCookies(settings.videoCookiesBrowser)); }
-                                                    catch (err) { setCookieCheck({ok:false, message: err.message || String(err)}); }
-                                                    finally { setCookieChecking(false); }
-                                                }}
-                                                className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[#dedada] bg-white px-4 text-xs font-bold text-[#111111] transition hover:bg-[#f4f3f3] disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.10]"
-                                            >
-                                                {cookieChecking ? (lang === 'zh' ? '检测中…' : 'Checking…') : (lang === 'zh' ? '检测登录态' : 'Check login')}
-                                            </button>
-                                            {cookieCheck && (
-                                                <span className={`text-xs font-semibold ${cookieCheck.ok ? (cookieCheck.bilibili_logged_in ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300') : 'text-red-600 dark:text-red-300'}`}>
-                                                    {cookieCheck.ok
-                                                        ? (cookieCheck.bilibili_logged_in
-                                                            ? (lang === 'zh' ? '已读取到登录态，且已登录 B 站，可下高清。' : 'Cookies read; logged into Bilibili — HD available.')
-                                                            : (lang === 'zh' ? '已读取到浏览器 cookie，但未检测到 B 站登录（最高约 480p）。请先在该浏览器登录 B 站。' : 'Cookies read, but not logged into Bilibili (max ~480p). Log in first.'))
-                                                        : cookieCheck.message}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                         </div>
                     </Section>
 
-                    <Section id="export" title={lang === 'zh' ? '导出与集成' : 'Export and integrations'}>
-                        <div className="divide-y divide-[#ece8e8] dark:divide-white/[0.1]">
-                            <label htmlFor="settingsExportToLark" className="grid cursor-pointer gap-4 px-5 py-4 hover:bg-[#faf9f9] dark:hover:bg-white/[0.04] md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                    <Section id="export" title={lang === 'zh' ? '导出' : 'Export'} description={lang === 'zh' ? '把笔记同步到飞书云文档。' : 'Sync notes to Feishu cloud docs.'}>
+                        <div className="grid gap-3 p-5 md:grid-cols-2">
+                            <label htmlFor="settingsExportToLark" className={`flex items-start justify-between gap-3 ${cellBase} cursor-pointer hover:bg-[#f4f3f3] dark:hover:bg-white/[0.04]`}>
                                 <span>
                                     <span className="block text-sm font-bold">{t('set.autoExport')}</span>
                                     <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">
@@ -440,15 +439,13 @@ const Settings = () => {
                             </label>
 
                             {showMaintainerSettings && (
-                                <div className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] md:items-start">
-                                    <div>
-                                        <h3 className="text-sm font-bold">{t('set.larkExportRoute')}</h3>
-                                        <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
-                                            {larkRouteHint}
-                                        </p>
-                                    </div>
+                                <div className={`flex items-start justify-between gap-3 ${cellBase}`}>
+                                    <span className="min-w-0">
+                                        <span className="block text-sm font-bold">{t('set.larkExportRoute')}</span>
+                                        <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant">{larkRouteHint}</span>
+                                    </span>
                                     <select
-                                        className={inputClass}
+                                        className="h-10 w-[168px] shrink-0 rounded-[12px] border border-[#dedada] bg-[#fbfbfb] px-3 text-sm font-bold text-[#111111] outline-none transition focus:border-[#111111] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white"
                                         value={larkExportRoute}
                                         onChange={e=>{
                                             const route = e.target.value;
@@ -465,7 +462,7 @@ const Settings = () => {
                                 </div>
                             )}
 
-                            <div className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                            <div className={`md:col-span-2 grid gap-4 ${cellBase} md:grid-cols-[minmax(0,1fr)_auto] md:items-start`}>
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <h3 className="text-sm font-bold">{lang === 'zh' ? '连接飞书账号' : 'Connect Feishu account'}</h3>
@@ -530,7 +527,7 @@ const Settings = () => {
                             </div>
 
                             {larkExports.length > 0 && (
-                                <div className="px-5 py-4">
+                                <div className={`md:col-span-2 ${cellBase}`}>
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <h3 className="text-sm font-bold">{t('set.larkHistory')}</h3>
                                         <span className="text-xs font-semibold text-on-surface-variant">{larkExports.length} {t('dash.docUnit')}</span>
@@ -552,8 +549,8 @@ const Settings = () => {
                         </div>
                     </Section>
 
-                    <Section id="data" title={lang === 'zh' ? '数据与隐私' : 'Data and privacy'}>
-                        <div className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                    <Section id="data" title={lang === 'zh' ? '数据' : 'Data'} description={lang === 'zh' ? '本机保存的记录。' : 'Records stored on this device.'}>
+                        <div className={`m-5 grid gap-4 ${cellBase} md:grid-cols-[minmax(0,1fr)_auto] md:items-center`}>
                             <div>
                                 <h3 className="text-sm font-bold">{lang === 'zh' ? '本地历史记录' : 'Local browser history'}</h3>
                                 <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
@@ -568,12 +565,17 @@ const Settings = () => {
                     </Section>
 
                     {showMaintainerSettings && (
-                        <Section
-                            id="maintenance"
-                            title={lang === 'zh' ? '系统维护' : 'System maintenance'}
-                            description={lang === 'zh' ? '服务商、密钥和底层能力配置。普通用户不需要理解这里。' : 'Providers, secrets, and low-level capabilities. Regular users do not need this section.'}
-                        >
-                            <div className="divide-y divide-[#ece8e8] dark:divide-white/[0.1]">
+                        <details id="advanced" className="group scroll-mt-7 rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.06]">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
+                                <div>
+                                    <h2 className="font-headline text-base font-extrabold">{lang === 'zh' ? '高级 · 模型密钥' : 'Advanced · Model keys'}</h2>
+                                    <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
+                                        {lang === 'zh' ? '服务商、模型和 API 密钥，进阶才需要展开。普通用户可忽略。' : 'Providers, models, and API keys. Open only if you know you need it.'}
+                                    </p>
+                                </div>
+                                <SvgIcon name="expand_less" className="shrink-0 text-lg text-on-surface-variant transition group-open:rotate-180"/>
+                            </summary>
+                            <div className="divide-y divide-[#ece8e8] border-t border-[#ece8e8] dark:divide-white/[0.1] dark:border-white/[0.1]">
                                 <div className="grid gap-4 px-5 py-4 md:grid-cols-2">
                                     <div className="space-y-2">
                                         <label className={fieldLabelClass}>{t('set.provider')}</label>
@@ -681,7 +683,7 @@ const Settings = () => {
                                     </div>
                                 )}
                             </div>
-                        </Section>
+                        </details>
                     )}
                 </div>
             </main>

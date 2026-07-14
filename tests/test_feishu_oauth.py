@@ -80,6 +80,7 @@ def test_feishu_oauth_start_and_callback_store_connection(monkeypatch, tmp_path)
         callback = client.get(
             "/account/feishu/oauth/callback",
             params={"code": "auth-code", "state": params["state"][0]},
+            follow_redirects=False,
         )
         status = client.get("/account/feishu/connection")
 
@@ -87,10 +88,13 @@ def test_feishu_oauth_start_and_callback_store_connection(monkeypatch, tmp_path)
     assert "/open-apis/authen/v1/index" in start.json()["authorize_url"]
     assert params["app_id"] == ["cli_test"]
     assert params["scope"] == ["offline_access"]
-    assert callback.status_code == 200
-    assert callback.json()["connection"]["connected"] is True
-    assert callback.json()["connection"]["tenant_key"] == "tenant_demo"
-    assert "refresh-token" not in str(callback.json())
+    # The callback redirects the browser back to the app instead of dumping JSON.
+    assert callback.status_code == 303
+    assert "/settings" in callback.headers["location"]
+    assert "feishu_connected=1" in callback.headers["location"]
+    assert status.json()["connection"]["connected"] is True
+    assert status.json()["connection"]["tenant_key"] == "tenant_demo"
+    assert "refresh-token" not in str(status.json())
     assert status.json()["connection"]["feishu_union_id"] == "on_demo"
 
 
@@ -102,10 +106,14 @@ def test_feishu_oauth_callback_rejects_invalid_state(monkeypatch, tmp_path) -> N
         response = client.get(
             "/account/feishu/oauth/callback",
             params={"code": "auth-code", "state": "wrong-state"},
+            follow_redirects=False,
         )
 
-    assert response.status_code == 400
-    assert "state" in response.json()["detail"].lower()
+    # Invalid state is rejected (no connection created) and the user is sent
+    # back to settings with an error instead of a raw 400 page.
+    assert response.status_code == 303
+    assert "feishu_error=" in response.headers["location"]
+    assert "/settings" in response.headers["location"]
 
 
 def test_export_lark_user_oauth_requires_connection(monkeypatch, tmp_path) -> None:

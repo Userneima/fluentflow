@@ -1692,10 +1692,18 @@ def test_sidebar_agent_access_stays_in_low_frequency_menu() -> None:
 def test_settings_page_stays_focused_on_real_settings() -> None:
     source = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
 
-    assert "处理偏好" in source
-    assert "导出与集成" in source
-    assert "数据与隐私" in source
-    assert "系统维护" in source
+    # Settings are grouped by user goal: 转录 / 笔记 / 导出 / 数据, with model
+    # keys tucked into a collapsible 高级 fold.
+    assert 'id="transcription"' in source
+    assert 'id="notes"' in source
+    assert 'id="export"' in source
+    assert 'id="data"' in source
+    assert 'id="advanced"' in source
+    assert "高级 · 模型密钥" in source
+    # The one-item "本机转录高级选项" fold and the model blurb were removed;
+    # transcription speed now sits inline and must not regress back into a fold.
+    assert "本机转录高级选项" not in source
+    assert "faster-whisper medium" not in source
     assert "账号与额度" not in source
     assert "笔记模板" not in source
     assert "外观" not in source
@@ -1703,7 +1711,7 @@ def test_settings_page_stays_focused_on_real_settings() -> None:
     assert "长期偏好、凭证和模板维护" not in source
     assert "清除当前浏览器保存的本地历史记录，不会删除服务器任务" in source
     assert "当前是线上云端环境，本地转录不可用" in source
-    assert "本机打开时可以选择本地或云端" in source
+    assert "云端与本地转录二选一" in source
     assert "Agent 会根据内容自动选用最匹配的" not in source
     assert "Agent auto-selects the best match" not in source
 
