@@ -10,6 +10,17 @@ from fastapi.testclient import TestClient
 import backend.main as main
 from backend.core import job_store
 import backend.core.server_helpers as _H
+import backend.routers.guest_trial as guest_trial_router
+from backend.core.media_preflight import MediaPreflightError, MediaPreflightResult
+
+
+def _passing_media_preflight() -> MediaPreflightResult:
+    return MediaPreflightResult(
+        format_name="mov,mp4,m4a,3gp,3g2,mj2",
+        audio_stream_count=1,
+        duration_seconds=120.0,
+        enabled_guards=("empty_file", "container", "audio_stream", "audio_decode"),
+    )
 
 
 def _patch_job_store(monkeypatch, db_path: Path) -> None:
@@ -60,6 +71,7 @@ def test_guest_trial_process_creates_private_queued_job(monkeypatch, tmp_path: P
     monkeypatch.setenv("FLUENTFLOW_GUEST_DURATION_LIMIT_SECONDS", "900")
     _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
     monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(guest_trial_router, "preflight_media_file", lambda path: _passing_media_preflight())
     enqueued: list[dict[str, Any]] = []
     monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
 
@@ -93,6 +105,33 @@ def test_guest_trial_process_creates_private_queued_job(monkeypatch, tmp_path: P
     assert (tmp_path / "sources" / task_id / "source.mp4").is_file()
     assert private_job.status_code == 200
     assert blocked_job.status_code == 401
+
+
+def test_guest_trial_rejects_invalid_media_before_queueing(monkeypatch, tmp_path: Path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_GUEST_TRIAL_ENABLED", "1")
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    _patch_job_store(monkeypatch, tmp_path / "jobs.sqlite")
+    events: list[dict] = []
+    enqueued: list[dict] = []
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: events.append(kwargs))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+
+    def reject(path):
+        raise MediaPreflightError("media_file_empty", "媒体文件为空，请重新选择文件后提交。")
+
+    monkeypatch.setattr(guest_trial_router, "preflight_media_file", reject)
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/guest-trial/process",
+            files={"file": ("empty.mp4", b"", "video/mp4")},
+        )
+
+    assert response.status_code == 422
+    assert events[0]["event_name"] == "media_preflight_rejected"
+    assert enqueued == []
+    assert not list((tmp_path / "sources").rglob("source.*"))
 
 
 def test_guest_trial_queue_capacity_rejects_before_upload(monkeypatch, tmp_path: Path) -> None:

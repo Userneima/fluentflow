@@ -27,9 +27,38 @@ from backend.core.media_job import (
     _stream_media_job,
     execute_media_job,
 )
+from backend.core.media_preflight import MediaPreflightError, preflight_media_file
 
 
 router = APIRouter()
+
+
+def _preflight_rejection(
+    *,
+    task_id: str,
+    source_path: Path,
+    route: str,
+    source_type: str,
+    source_filename: str,
+    source_file_size_mb: float | None,
+    error: MediaPreflightError,
+) -> HTTPException:
+    H.log_event(
+        task_id=task_id,
+        event_name="media_preflight_rejected",
+        source_type=source_type,
+        source_filename=source_filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="import",
+        success=False,
+        error_reason=str(error),
+        metadata=H._metadata(
+            route=route,
+            media_preflight={"status": "rejected", "code": error.code, **error.metadata},
+        ),
+    )
+    H._remove_tree(source_path.parent)
+    return HTTPException(status_code=422, detail=str(error))
 
 
 @router.post("/queue/process")
@@ -123,22 +152,67 @@ async def queue_process(
         prompt_preset_label=prompt_preset_label,
     )
     base_url = H._queue_base_url_from_request(request)
-    queued: list[dict[str, Any]] = []
+    prepared_sources: list[dict[str, Any]] = []
     total = len(files)
-    for index, upload in enumerate(files, start=1):
-        filename = upload.filename or f"source-{index}"
-        suffix = Path(filename).suffix.lower() or ".mp4"
-        content = await upload.read()
-        source_file_size_mb = H._file_size_mb(len(content))
-        if source_file_size_mb is not None and source_file_size_mb > max_upload_mb:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File is too large: {source_file_size_mb} MB. Limit is {max_upload_mb:g} MB.",
+    try:
+        for index, upload in enumerate(files, start=1):
+            filename = upload.filename or f"source-{index}"
+            suffix = Path(filename).suffix.lower() or ".mp4"
+            content = await upload.read()
+            source_file_size_mb = H._file_size_mb(len(content))
+            if source_file_size_mb is not None and source_file_size_mb > max_upload_mb:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File is too large: {source_file_size_mb} MB. Limit is {max_upload_mb:g} MB.",
+                )
+            task_id_value = H._new_task_id()
+            source_type = H._source_type_for_suffix(suffix)
+            source_fingerprint = H._source_fingerprint(content, filename)
+            source_path = H._persist_source_file(task_id_value, suffix, content)
+            prepared = {
+                "task_id": task_id_value,
+                "filename": filename,
+                "source_type": source_type,
+                "source_file_size_mb": source_file_size_mb,
+                "source_fingerprint": source_fingerprint,
+                "source_path": source_path,
+                "index": index,
+            }
+            prepared_sources.append(prepared)
+            preflight = preflight_media_file(source_path)
+            prepared["media_preflight"] = preflight.as_metadata()
+    except (MediaPreflightError, HTTPException) as exc:
+        for prepared in prepared_sources:
+            H._remove_tree(Path(prepared["source_path"]).parent)
+        if isinstance(exc, MediaPreflightError) and prepared_sources:
+            rejected = prepared_sources[-1]
+            H.log_event(
+                task_id=str(rejected["task_id"]),
+                event_name="media_preflight_rejected",
+                source_type=str(rejected["source_type"]),
+                source_filename=str(rejected["filename"]),
+                source_file_size_mb=rejected["source_file_size_mb"],
+                stage="import",
+                success=False,
+                error_reason=str(exc),
+                metadata=H._metadata(
+                    route="/queue/process",
+                    media_preflight={"status": "rejected", "code": exc.code, **exc.metadata},
+                ),
             )
-        task_id_value = H._new_task_id()
-        source_type = H._source_type_for_suffix(suffix)
-        source_fingerprint = H._source_fingerprint(content, filename)
-        source_path = H._persist_source_file(task_id_value, suffix, content)
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    queued: list[dict[str, Any]] = []
+    for prepared in prepared_sources:
+        task_id_value = str(prepared["task_id"])
+        filename = str(prepared["filename"])
+        source_type = str(prepared["source_type"])
+        source_file_size_mb = prepared["source_file_size_mb"]
+        source_fingerprint = str(prepared["source_fingerprint"])
+        source_path = Path(prepared["source_path"])
+        index = int(prepared["index"])
         metadata = H._metadata(
             route="/queue/process",
             queue_options=base_options,
@@ -146,8 +220,9 @@ async def queue_process(
             queue_total=total,
             source_path=str(source_path),
             source_fingerprint=source_fingerprint,
+            media_preflight={"status": "passed", **prepared["media_preflight"]},
         )
-        duration_estimate_sec = H._media_duration_seconds(source_path)
+        duration_estimate_sec = prepared["media_preflight"].get("duration_seconds") or H._media_duration_seconds(source_path)
         quota_estimate = H._estimate_processing_units(
             duration_seconds=duration_estimate_sec,
             skip_summary=H._truthy_form(base_options.get("skip_summary")),
@@ -281,7 +356,21 @@ async def process_video(
     )
     source_fingerprint = H._source_fingerprint(content, source_filename)
     in_path = H._persist_source_file(task_id_value, suffix, content)
-    duration_preflight_sec = H._media_duration_seconds(in_path)
+    try:
+        media_preflight = preflight_media_file(in_path)
+    except MediaPreflightError as exc:
+        rejection = _preflight_rejection(
+            task_id=task_id_value,
+            source_path=in_path,
+            route="/process",
+            source_type=source_type,
+            source_filename=source_filename,
+            source_file_size_mb=source_file_size_mb,
+            error=exc,
+        )
+        shutil.rmtree(td, ignore_errors=True)
+        raise rejection from exc
+    duration_preflight_sec = media_preflight.duration_seconds or H._media_duration_seconds(in_path)
     quota_estimate = H._estimate_processing_units(
         duration_seconds=duration_preflight_sec,
         skip_summary=summary_disabled,
@@ -315,6 +404,7 @@ async def process_video(
             display_title=display_title_value,
             source_fingerprint=source_fingerprint,
             source_last_modified_ms=source_last_modified_ms,
+            media_preflight={"status": "passed", **media_preflight.as_metadata()},
             quota=quota_reservation,
             quota_estimate=quota_estimate,
         ),
@@ -336,6 +426,7 @@ async def process_video(
             display_title=display_title_value,
             source_fingerprint=source_fingerprint,
             source_last_modified_ms=source_last_modified_ms,
+            media_preflight={"status": "passed", **media_preflight.as_metadata()},
             quota=quota_reservation,
             quota_estimate=quota_estimate,
         ),

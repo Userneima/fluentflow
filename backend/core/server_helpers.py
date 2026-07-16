@@ -247,6 +247,7 @@ async def beta_access_middleware(request: Request, call_next):
 
 from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
 from backend.core.frame_extractor import extract_candidate_frames
+from backend.core.media_preflight import preflight_media_file
 from backend.core.keyframe_provider import extract_keyframes
 from backend.core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
 from backend.core.local_stt import transcribe_audio, get_or_load_model
@@ -2180,6 +2181,8 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
     if not source_path.is_file():
         raise RuntimeError("Queued source file is missing")
 
+    media_preflight = preflight_media_file(source_path)
+
     job = get_job(task_id)
     if job and job.get("status") in {"completed", "failed", "cancelled"}:
         return
@@ -2234,6 +2237,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
             raw_title=raw_title_value,
             display_title=display_title_value,
             source_fingerprint=source_fingerprint,
+            media_preflight={"status": "passed", **media_preflight.as_metadata()},
         ),
     )
     upsert_job(
@@ -2252,6 +2256,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
             raw_title=raw_title_value,
             display_title=display_title_value,
             source_fingerprint=source_fingerprint,
+            media_preflight={"status": "passed", **media_preflight.as_metadata()},
         ),
     )
 
@@ -2270,7 +2275,7 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
         source_fingerprint=source_fingerprint,
         source_file_size_mb=source_file_size_mb,
         max_upload_mb=None,
-        duration_preflight_sec=_media_duration_seconds(source_path),
+        duration_preflight_sec=media_preflight.duration_seconds or _media_duration_seconds(source_path),
         quota_estimate=None,
         quota_reservation=None,
         task_started_at=time.perf_counter(),

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.media_preflight import MediaPreflightError, preflight_media_file
 from backend.core.task_detail import build_task_detail, build_task_snapshot
 
 router = APIRouter()
@@ -158,7 +159,27 @@ def retry_job_from_stored_source(request: Request, task_id: str) -> dict[str, An
     source_file_size_mb = H._path_size_mb(target_path)
     source_type = H._source_type_for_suffix(suffix)
     source_fingerprint = H._source_fingerprint_for_path(target_path, filename)
-    duration_estimate_sec = H._media_duration_seconds(target_path)
+    try:
+        media_preflight = preflight_media_file(target_path)
+    except MediaPreflightError as exc:
+        H.log_event(
+            task_id=new_task_id,
+            event_name="media_preflight_rejected",
+            source_type=source_type,
+            source_filename=filename,
+            source_file_size_mb=source_file_size_mb,
+            stage="import",
+            success=False,
+            error_reason=str(exc),
+            metadata=H._metadata(
+                route="/jobs/{task_id}/retry",
+                retry_source_task_id=task_id,
+                media_preflight={"status": "rejected", "code": exc.code, **exc.metadata},
+            ),
+        )
+        H._remove_tree(target_path.parent)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    duration_estimate_sec = media_preflight.duration_seconds or H._media_duration_seconds(target_path)
     metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
     options = H._queue_options_from_mapping(metadata.get("queue_options") if isinstance(metadata.get("queue_options"), dict) else metadata)
     if filename and "title" not in options:
@@ -186,6 +207,7 @@ def retry_job_from_stored_source(request: Request, task_id: str) -> dict[str, An
         queue_total=1,
         source_path=str(target_path),
         source_fingerprint=source_fingerprint,
+        media_preflight={"status": "passed", **media_preflight.as_metadata()},
         quota=quota_reservation,
     )
     H.log_event(

@@ -210,6 +210,45 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             detail="没有收到上传文件。请重新选择文件后再试。",
             next_action="重新选择文件后提交。",
         )
+    if "媒体文件为空" in raw:
+        return _diag(
+            code="media_file_empty",
+            title="媒体文件为空",
+            detail="上传的文件没有实际内容，未进入处理队列。",
+            next_action="重新选择原始媒体文件后提交。",
+            retryable=False,
+        )
+    if "媒体内容与文件扩展名不一致" in raw:
+        return _diag(
+            code="media_extension_mismatch",
+            title="媒体格式与扩展名不一致",
+            detail="文件的实际媒体格式与名称扩展名不一致，未进入处理队列。",
+            next_action="使用原始文件或正确的扩展名后重新提交。",
+            retryable=False,
+        )
+    if "没有可转录的音轨" in raw:
+        return _diag(
+            code="media_audio_stream_missing",
+            title="没有可转录的音轨",
+            detail="该媒体没有可用于转录的音频流，未进入处理队列。",
+            next_action="上传包含系统声音或麦克风声音的音视频文件。",
+            retryable=False,
+        )
+    if "媒体文件无法读取" in raw or "媒体中的音频无法读取" in raw:
+        return _diag(
+            code="media_unreadable",
+            title="媒体文件无法读取",
+            detail="文件可能已损坏，或内容与扩展名不匹配，未进入转录服务。",
+            next_action="重新导出或更换媒体文件后提交。",
+            retryable=False,
+        )
+    if "媒体预检暂不可用" in raw:
+        return _diag(
+            code="media_preflight_unavailable",
+            title="媒体预检暂不可用",
+            detail="服务暂时无法安全检查媒体文件，任务没有提交给转录服务。",
+            next_action="稍后重试；如果持续出现，请联系维护者检查 FFmpeg 环境。",
+        )
     if "queued source file is missing" in lowered or "原始文件已不存在" in raw:
         return _diag(
             code="source_file_missing",
