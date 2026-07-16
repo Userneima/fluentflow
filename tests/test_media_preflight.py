@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 from backend.core import media_preflight
 
 
@@ -67,6 +69,24 @@ def test_preflight_rejects_mismatched_media_extension(monkeypatch, tmp_path) -> 
         assert exc.metadata == {"suffix": ".mp4", "format_name": "mp3"}
     else:
         raise AssertionError("Expected a mismatched extension to be rejected")
+
+
+def test_audio_decode_guard_rejects_empty_pcm_output(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "truncated.m4a"
+    source.write_bytes(b"partial media")
+    monkeypatch.setattr(media_preflight, "_require_binary", lambda _name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        media_preflight.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"partial file"),
+    )
+
+    try:
+        media_preflight._verify_first_audio_segment(source)
+    except media_preflight.MediaPreflightError as exc:
+        assert exc.code == "media_audio_unreadable"
+    else:
+        raise AssertionError("Expected empty decoded PCM to be rejected")
 
 
 def test_master_preflight_switch_disables_individual_media_guards(monkeypatch, tmp_path) -> None:

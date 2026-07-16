@@ -146,7 +146,7 @@ def _matches_file_extension(path: Path, format_name: str | None) -> bool:
 def _verify_first_audio_segment(path: Path) -> None:
     ffmpeg = _require_binary("ffmpeg")
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [
                 ffmpeg,
                 "-hide_banner",
@@ -159,15 +159,21 @@ def _verify_first_audio_segment(path: Path) -> None:
                 str(path),
                 "-map",
                 "0:a:0",
+                "-ac",
+                "1",
                 "-f",
-                "null",
+                "s16le",
                 "-",
             ],
             check=True,
             capture_output=True,
-            text=True,
             timeout=20,
         )
+        if not completed.stdout:
+            raise MediaPreflightError(
+                "media_audio_unreadable",
+                "媒体中的音频无法读取，可能已损坏。请重新导出或更换文件后提交。",
+            )
     except subprocess.SubprocessError as exc:
         raise MediaPreflightError(
             "media_audio_unreadable",
