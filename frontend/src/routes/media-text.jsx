@@ -18,7 +18,6 @@ import {
     isCloudSttConfigured,
     isCloudSttProvider,
     jobToCurrentJob,
-    jobToHistoryEntry,
     larkExportRouteFromSettings,
     normalizeSttModel,
     resultToHistoryEntry,
@@ -31,7 +30,6 @@ import {
     useAuth,
     useI18n,
     useSettings,
-    videoLinkDisplayTitle,
 } from '../app/shared.jsx';
 import {
     queueUploadItemsFromFiles,
@@ -134,37 +132,6 @@ const MediaText = () => {
             setLastResult(ev.result);
             setProcessingResult(ev.result);
         }
-    };
-
-    const persistFailedVideoLinkJob = (job, rawMessage, input) => {
-        const taskId = job?.task_id;
-        const errorText = friendlyTaskError(rawMessage || job?.error_reason || 'Video link task failed.', lang);
-        if (!taskId) return errorText;
-        const now = new Date().toISOString();
-        const displayTitle = job?.metadata?.display_title || job?.source_filename || videoLinkDisplayTitle(input, lang);
-        const failedJob = {
-            ...job,
-            task_id: taskId,
-            status: 'failed',
-            task_state: 'failed',
-            stage: 'failed',
-            progress: 100,
-            source_type: job?.source_type || 'video_link',
-            source_filename: job?.source_filename || displayTitle || input.slice(0, 80),
-            error_reason: errorText,
-            metadata: {
-                ...(job?.metadata || {}),
-                display_title: displayTitle,
-                raw_input: input,
-            },
-            created_at: job?.created_at || now,
-            updated_at: now,
-        };
-        // AppProvider.addToHistory upserts into the single task list and its
-        // projection effect persists the cache (see task_list_reconciliation_plan).
-        addToHistory(jobToHistoryEntry(failedJob));
-        setCurrentJob((prev) => prev?.taskId === taskId ? null : prev);
-        return errorText;
     };
 
     const settleResult = (result, {taskId, fileName, source = 'media'} = {}) => {

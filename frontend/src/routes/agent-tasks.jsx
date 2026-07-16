@@ -425,7 +425,6 @@ const AgentTaskCard = ({job, lang, cancellingTaskId, deletingTaskId, openingTask
     const current = jobToCurrentJob(job);
     const progressUnknown = isSttProgressUnmeasured(current);
     const displayTitle = jobDisplayTitle(job, lang);
-    const updatedAt = Date.parse(job?.updated_at || job?.created_at || '') || 0;
     const detail = failed
         ? friendlyTaskError(job?.error_reason || job?.result?.summary_error || '', lang)
         : completed

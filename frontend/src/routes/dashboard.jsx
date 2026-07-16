@@ -1,20 +1,13 @@
-import {useState,useEffect,useRef,useCallback,useMemo} from 'react';
+import {useState,useEffect,useRef} from 'react';
 import {Link,useNavigate} from 'react-router-dom';
 import {
-    BUILTIN_EXTRA_PROMPT_KEYS,
     DEFAULT_PROMPT_PRESET,
-    allPresetSelectKeys,
-    getBuiltinExtraPromptBody,
-    getDefaultPromptBody,
-    isBuiltinPromptPresetHidden,
-    normalizeUserPresets,
     presetDisplayLabel,
     resolveSystemPromptFromSettings,
 } from '../lib/promptPresets.js';
 import {
     cloudSttMissingMessage,
     clearGuestTrialSession,
-    compactDisplayFilename,
     createTaskId,
     DEFAULT_STT_MODEL,
     effectiveSttProvider,
@@ -28,17 +21,13 @@ import {
     hasTranscriptResult,
     isCloudSttConfigured,
     isCloudSttProvider,
-    isLocalHistoryResult,
     isSttProgressUnmeasured,
     historyEntryToResult,
-    jobDisplayTitle,
     jobToCurrentJob,
     jobToHistoryEntry,
     larkExportRouteFromSettings,
     noteModeLabel,
     normalizeSttModel,
-    normalizeSttProvider,
-    pickTranscriptSegments,
     jobProgressLabel,
     resultToHistoryEntry,
     resultDisplayTitle,
@@ -53,7 +42,6 @@ import {
     useAuth,
     useI18n,
     useSettings,
-    videoLinkDisplayTitle,
 } from '../app/shared.jsx';
 import {
     queueUploadItemsFromFiles,
@@ -64,20 +52,18 @@ import SvgIcon from '../components/SvgIcon.jsx';
 const Dashboard = () => {
     const {t, lang} = useI18n();
     const {guestMode, guestTrial} = useAuth();
-    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, stats, addLarkExport, runtimeConfig} = useApp();
+    const {history, addToHistory, currentJob, setCurrentJob, setLastResult, setLastSourceFile, addLarkExport, runtimeConfig} = useApp();
             const [uploadError, setUploadError] = useState(null);
             const [processingResult, setProcessingResult] = useState(null);
             const fileInputRef = useRef(null);
             const subtitleInputRef = useRef(null);
-    const {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, createVideoSourceJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, cancelJob, getCredentialsStatus} = useApi();
+    const {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, subscribeJobEvents, summarizeTranscriptFile, recordEvent, checkHealth, getJob, cancelJob, getCredentialsStatus} = useApi();
     const {loadSettings} = useSettings();
             const navigate = useNavigate();
     const abortRef = useRef(null);
     const currentTaskRef = useRef(null);
     const settledJobRef = useRef(new Set());
     const [now, setNow] = useState(Date.now());
-    const [videoLinkInput, setVideoLinkInput] = useState('');
-    const [videoLinkSubmitting, setVideoLinkSubmitting] = useState(false);
     const [queueSubmitting, setQueueSubmitting] = useState(false);
     const [dragActive, setDragActive] = useState(false);
 
@@ -641,83 +627,6 @@ const Dashboard = () => {
                 }
             };
 
-            const handleVideoLinkSubmit = async () => {
-                if(guestMode) {
-                    setUploadError(lang === 'zh' ? '访客试用暂不支持链接抓取，请直接上传一个音视频文件。' : 'Guest trial does not support link fetching. Upload one audio/video file instead.');
-                    return;
-                }
-                const input = videoLinkInput.trim();
-                if(!input){
-                    setUploadError(t('dash.linkEmpty'));
-                    return;
-                }
-                setUploadError(null);
-                setProcessingResult(null);
-                setLastResult(null);
-                setLastSourceFile(null);
-                const settings = loadSettings();
-                const sttModel = normalizeSttModel(settings.sttModel);
-                const sttProvider = effectiveSttProvider(settings, runtimeConfig);
-                if (!(await ensureCloudReady(sttProvider))) return;
-                setVideoLinkSubmitting(true);
-                try {
-                    const pendingTitle = videoLinkDisplayTitle(input, lang);
-                    const data = await createVideoSourceJob(input, {
-                        exportToLark: settings.exportToLark||false,
-                        larkExportRoute: larkExportRouteFromSettings(settings),
-                        larkViaCli: !!settings.larkViaCli,
-                        ...buildAiOptions(settings),
-                        skipSummary: !!settings.skipAiSummary,
-                        sttProvider,
-                        sttModel,
-                        sttSpeed: settings.sttSpeed||'balanced',
-                        sttLanguage: 'auto',
-                    });
-                    const job = data?.job || {};
-                    if(job.task_id) {
-                        const pendingJob = {
-                            ...job,
-                            source_filename: job.source_filename || pendingTitle,
-                            metadata: {
-                                ...(job.metadata || {}),
-                                raw_title: job.metadata?.raw_title || pendingTitle,
-                                display_title: job.metadata?.display_title || pendingTitle,
-                            },
-                        };
-                        const current = jobToCurrentJob({
-                            ...pendingJob,
-                            progress: job.progress ?? 2,
-                            created_at: job.created_at || new Date().toISOString(),
-                        });
-                        currentTaskRef.current = {
-                            taskId: job.task_id,
-                            fileName: current.fileName || pendingTitle,
-                            sourceType: 'video_link',
-                            fileSizeMb: null,
-                        };
-                        setCurrentJob({
-                            ...current,
-                            fileName: current.fileName || pendingTitle,
-                            sourceType: 'video_link',
-                            resume: true,
-                            skipSummary: !!settings.skipAiSummary,
-                            exportToLark: !!settings.exportToLark,
-                            noteMode: settings.noteMode||'auto',
-                            sttProvider,
-                            sttModel,
-                            sttSpeed: settings.sttSpeed||'balanced',
-                            sttLanguage: 'auto',
-                        });
-                        navigate('/agent', {state: {job: pendingJob}});
-                    }
-                    setVideoLinkInput('');
-                } catch(err) {
-                    setUploadError(err.message || "Video link fetch failed.");
-                } finally {
-                    setVideoLinkSubmitting(false);
-                }
-            };
-
             const handleFileSelect = async (e) => {
                 const files = Array.from(e.target.files || []);
                 if(fileInputRef.current) fileInputRef.current.value = '';
@@ -807,22 +716,6 @@ const Dashboard = () => {
     const elapsedSec = uploading ? Math.max(0, Math.floor((now - (currentJob.startedAt||now)) / 1000)) : 0;
     const activeProgress = Math.max(0, Math.min(100, Number(currentJob?.progress)||0));
     const activeStageLabel = currentJob ? (t(`status.${currentJob.stage}`)||t('dash.uploading')) : '';
-    const jobStages = currentJob?.sourceType === 'transcript_file'
-        ? [{key:'summary', label:'proc.aiSumm'}, {key:'export', label:'proc.larkExport'}]
-        : currentJob?.sourceType === 'video_link'
-            ? [
-                {key:'resolving', label:'status.resolving'},
-                {key:'downloading', label:'status.downloading'},
-                {key:'saving', label:'status.saving'},
-                {key:'queued', label:'status.queued'},
-                {key:'audio', label:'proc.audioExtract'},
-                {key:'stt', label:'proc.transcription'},
-                {key:'summary', label:'proc.aiSumm'},
-                {key:'export', label:'proc.larkExport'},
-            ]
-            : [{key:'audio', label:'proc.audioExtract'}, {key:'stt', label:'proc.transcription'}, {key:'summary', label:'proc.aiSumm'}, {key:'export', label:'proc.larkExport'}];
-    const stageRank = {upload:0, resolving:1, downloading:2, saving:3, queued:4, audio:5, stt:6, transcript_ready:7, summary:7, export:8, done:9};
-    const currentRank = stageRank[currentJob?.stage] ?? 0;
     const sttProfile = currentJob?.sourceType === 'transcript_file'
         ? '-'
         : [
@@ -836,7 +729,6 @@ const Dashboard = () => {
     const hasSttTiming = currentJob?.stage === 'stt' && currentJob?.durationSeconds > 0 && !sttProgressUnknown;
     const sttElapsedForHint = Math.max(elapsedSec, Number(currentJob?.sttElapsedSeconds) || 0);
     const sttWaitedLong = sttProgressUnknown && !isCloudSttProvider(currentJob?.sttProvider) && sttElapsedForHint >= 60;
-    const selectedSttProvider = currentJob?.sttProvider || effectiveSttProvider(loadSettings(), runtimeConfig);
     const linkPlatforms = [
         '抖音',
         'Bilibili',

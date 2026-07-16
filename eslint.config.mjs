@@ -35,7 +35,7 @@ export default [
             },
         },
         rules: {
-            'no-unused-vars': ['warn', { vars: 'all', args: 'after-used', ignoreRestSiblings: true, varsIgnorePattern: '^_' }],
+            'no-unused-vars': ['warn', { vars: 'all', args: 'after-used', ignoreRestSiblings: true, varsIgnorePattern: '^_', argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
             'no-undef': 'error',
             'no-const-assign': 'error',
             'no-duplicate-imports': 'warn',
