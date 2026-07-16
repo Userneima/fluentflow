@@ -237,6 +237,7 @@ def test_local_queued_transcription_runs_in_process_without_http(tmp_path, monke
     context that carries the requested local STT provider.
     """
     import backend.routers.processing as P
+    from backend.core.media_preflight import MediaPreflightResult
 
     source_file = tmp_path / "source.mp4"
     source_file.write_bytes(b"video")
@@ -246,6 +247,16 @@ def test_local_queued_transcription_runs_in_process_without_http(tmp_path, monke
         captured["ctx"] = ctx
 
     monkeypatch.setattr(P, "execute_media_job", fake_execute)
+    monkeypatch.setattr(
+        _H,
+        "preflight_media_file",
+        lambda *_args, **_kwargs: MediaPreflightResult(
+            format_name="mp4",
+            audio_stream_count=1,
+            duration_seconds=60.0,
+            enabled_guards=("empty_file", "container", "audio_stream", "audio_decode"),
+        ),
+    )
 
     class FakeLoop:
         def is_closed(self):

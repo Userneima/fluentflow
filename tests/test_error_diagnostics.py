@@ -16,6 +16,7 @@ def test_error_diagnostics_classifies_common_failures() -> None:
         ("这个 YouTube 视频没有可用字幕", "youtube_no_captions", "上传本地视频"),
         ("YouTube 字幕不可用，且原视频下载失败：missing a GVS PO Token", "youtube_media_restricted", "高级本地模式"),
         ("Queued source file is missing", "source_file_missing", "重新上传"),
+        ("媒体中没有可转录的音轨，请上传包含系统声音或麦克风声音的音视频文件。", "media_audio_stream_missing", "上传包含系统声音"),
         ("Unsupported note generation mode: chapter_coverage", "unsupported_note_mode", "自动"),
         ("AI summarization returned empty result", "empty_ai_note", "重生笔记"),
         ("Error code: 401 - {'error': {'message': 'Incorrect API key provided.', 'code': 'invalid_api_key'}}", "invalid_api_key", "设置页"),

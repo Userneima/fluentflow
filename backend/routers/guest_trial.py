@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.media_preflight import MediaPreflightError, preflight_media_file
 
 router = APIRouter()
 
@@ -82,6 +83,25 @@ async def guest_trial_process(
     source_type = H._source_type_for_suffix(suffix)
     source_fingerprint = H._source_fingerprint(content, file.filename)
     source_path = H._persist_source_file(task_id_value, suffix, content)
+    try:
+        media_preflight = preflight_media_file(source_path)
+    except MediaPreflightError as exc:
+        H.log_event(
+            task_id=task_id_value,
+            event_name="media_preflight_rejected",
+            source_type=source_type,
+            source_filename=file.filename,
+            source_file_size_mb=source_file_size_mb,
+            stage="import",
+            success=False,
+            error_reason=str(exc),
+            metadata=H._metadata(
+                route="/guest-trial/process",
+                media_preflight={"status": "rejected", "code": exc.code, **exc.metadata},
+            ),
+        )
+        H._remove_tree(source_path.parent)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     expires_at = (
         datetime.now(timezone.utc).astimezone() + H.timedelta(hours=H._guest_result_retention_hours())
     ).isoformat(timespec="seconds")
@@ -103,6 +123,7 @@ async def guest_trial_process(
         queue_options=options,
         source_path=str(source_path),
         source_fingerprint=source_fingerprint,
+        media_preflight={"status": "passed", **media_preflight.as_metadata()},
         guest_trial={
             "token": token,
             "ip_key": H._request_ip_key(request),

@@ -412,11 +412,24 @@ def test_admin_cloud_transcription_usage_keeps_provider_credits_unambiguous(monk
 
 
 def test_account_user_without_balance_cannot_start_processing(monkeypatch, tmp_path) -> None:
+    import backend.routers.processing as processing_router
+    from backend.core.media_preflight import MediaPreflightResult
+
     _enable_account_auth(monkeypatch, tmp_path)
     monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")
     monkeypatch.setenv("FLUENTFLOW_STARTER_BALANCE_UNITS", "0")
     monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
     monkeypatch.setattr(_H, "_media_duration_seconds", lambda *_args, **_kwargs: 600.0)
+    monkeypatch.setattr(
+        processing_router,
+        "preflight_media_file",
+        lambda *_args, **_kwargs: MediaPreflightResult(
+            format_name="mp3",
+            audio_stream_count=1,
+            duration_seconds=600.0,
+            enabled_guards=("empty_file", "container", "audio_stream", "audio_decode"),
+        ),
+    )
 
     with TestClient(main.app) as client:
         client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})

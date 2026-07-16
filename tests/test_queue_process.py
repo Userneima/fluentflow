@@ -3,17 +3,31 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import backend.main as main
 import backend.core.server_helpers as _H
+import backend.routers.jobs as jobs_router
+import backend.routers.processing as processing_router
+from backend.core.media_preflight import MediaPreflightError, MediaPreflightResult
 from backend.core.stt_process import start_transcription_process
+
+
+def _passing_media_preflight() -> MediaPreflightResult:
+    return MediaPreflightResult(
+        format_name="mov,mp4,m4a,3gp,3g2,mj2",
+        audio_stream_count=1,
+        duration_seconds=120.0,
+        enabled_guards=("empty_file", "container", "audio_stream", "audio_decode"),
+    )
 
 
 def test_queue_process_persists_multiple_files_without_running_stt(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
     monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
     monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(processing_router, "preflight_media_file", lambda path: _passing_media_preflight())
 
     jobs: list[dict] = []
     enqueued: list[dict] = []
@@ -64,6 +78,78 @@ def test_queue_process_persists_multiple_files_without_running_stt(tmp_path, mon
     for item in enqueued:
         assert item["base_url"].startswith("http://testserver")
         assert (tmp_path / "sources" / item["task_id"]).is_dir()
+
+
+def test_queue_process_rejects_invalid_media_before_creating_jobs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    events: list[dict] = []
+    jobs: list[dict] = []
+    enqueued: list[dict] = []
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: events.append(kwargs))
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+
+    def reject(path):
+        raise MediaPreflightError("media_audio_stream_missing", "媒体中没有可转录的音轨，请上传包含系统声音或麦克风声音的音视频文件。")
+
+    monkeypatch.setattr(processing_router, "preflight_media_file", reject)
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/queue/process",
+            files={"files": ("screen-recording.mp4", b"video-only", "video/mp4")},
+        )
+
+    assert response.status_code == 422
+    assert "没有可转录的音轨" in response.json()["detail"]
+    assert jobs == []
+    assert enqueued == []
+    assert events[0]["event_name"] == "media_preflight_rejected"
+    assert not list((tmp_path / "sources").rglob("source.*"))
+
+
+def test_direct_process_rejects_invalid_media_before_creating_job(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    events: list[dict] = []
+    jobs: list[dict] = []
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: events.append(kwargs))
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+
+    def reject(path):
+        raise MediaPreflightError("media_container_unreadable", "媒体文件无法读取，可能已损坏或文件内容与扩展名不匹配。")
+
+    monkeypatch.setattr(processing_router, "preflight_media_file", reject)
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/process",
+            files={"file": ("broken.mp4", b"not-media", "video/mp4")},
+            data={"stt_provider": "elevenlabs_scribe"},
+        )
+
+    assert response.status_code == 422
+    assert jobs == []
+    assert events[0]["event_name"] == "media_preflight_rejected"
+    assert not list((tmp_path / "sources").rglob("source.*"))
+
+
+def test_queue_runner_rechecks_media_before_starting_pipeline(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"not-media")
+
+    def reject(path):
+        raise MediaPreflightError("media_container_unreadable", "媒体文件无法读取，可能已损坏或文件内容与扩展名不匹配。")
+
+    monkeypatch.setattr(_H, "preflight_media_file", reject)
+
+    with pytest.raises(MediaPreflightError, match="媒体文件无法读取"):
+        _H._run_queued_transcription({
+            "task_id": "legacy-task",
+            "source_path": str(source),
+            "filename": "source.mp4",
+        })
 
 
 def test_enqueue_transcription_job_writes_persistent_step(monkeypatch) -> None:
@@ -119,6 +205,7 @@ def test_retry_job_from_stored_source_requeues_without_browser_upload(tmp_path, 
     monkeypatch.setattr(_H, "get_job", fake_get_job)
     monkeypatch.setattr(_H, "upsert_job", fake_upsert_job)
     monkeypatch.setattr(_H, "_enqueue_transcription_job", lambda item: enqueued.append(item))
+    monkeypatch.setattr(jobs_router, "preflight_media_file", lambda path: _passing_media_preflight())
 
     with TestClient(main.app) as client:
         response = client.post("/jobs/old-task/retry")

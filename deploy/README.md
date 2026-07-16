@@ -113,6 +113,22 @@ FLUENTFLOW_QUEUE_PROCESS_TIMEOUT_SECONDS=86400
 FLUENTFLOW_STALE_JOB_SECONDS=90000
 ```
 
+### 媒体准入防线与紧急回滚
+
+公开上传会在文件完整保存后、进入队列和调用转录服务前检查：空文件、容器可读性、实际格式与扩展名、可用音轨和首段音频解码；转录前仍会检查提取出的音频是否为数字静音。默认全部开启：
+
+```bash
+FLUENTFLOW_MEDIA_PREFLIGHT_ENABLED=1
+FLUENTFLOW_MEDIA_GUARD_EMPTY_FILE_ENABLED=1
+FLUENTFLOW_MEDIA_GUARD_CONTAINER_ENABLED=1
+FLUENTFLOW_MEDIA_GUARD_EXTENSION_ENABLED=1
+FLUENTFLOW_MEDIA_GUARD_AUDIO_STREAM_ENABLED=1
+FLUENTFLOW_MEDIA_GUARD_AUDIO_DECODE_ENABLED=1
+FLUENTFLOW_MEDIA_GUARD_SILENCE_ENABLED=1
+```
+
+如果某条防线误判正常媒体，只关闭对应的单条开关并重启服务；不要长期关闭总开关。被拒绝的请求会记录安全的失败分类，不记录媒体内容。上传网络流量已经发生，预检的边界是阻止无效媒体进入队列和消耗转录服务。
+
 如果启用视频截图/关键帧能力，单台 ECS 或 Docker 部署先使用本机 FFmpeg：
 
 ```bash
