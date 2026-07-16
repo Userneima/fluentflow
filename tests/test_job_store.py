@@ -11,7 +11,9 @@ from backend.core.job_store import (
     delete_jobs,
     enqueue_job_step,
     ensure_job_db,
+    fail_job_step,
     get_job,
+    heartbeat_job_step,
     list_job_steps,
     list_jobs,
     list_jobs_for_retention,
@@ -193,7 +195,9 @@ def test_job_steps_are_persistent_claimable_and_completable(tmp_path: Path) -> N
     assert claimed["attempt_count"] == 1
     assert claimed["input"]["source_path"] == "/tmp/source.mp4"
 
-    completed = complete_job_step(claimed["id"], result={"ok": True}, db_path=db)
+    completed = complete_job_step(
+        claimed["id"], lock_id=claimed["lock_id"], result={"ok": True}, db_path=db
+    )
 
     assert completed is not None
     assert completed["status"] == "completed"
@@ -232,8 +236,12 @@ def test_queued_steps_are_handed_out_one_at_a_time_in_order(tmp_path: Path) -> N
     assert acquire_next_job_step(db_path=db) is None
 
     # Both finish independently; the queue drains completely.
-    assert complete_job_step(claimed_a["id"], result={"ok": True}, db_path=db) is not None
-    assert complete_job_step(claimed_b["id"], result={"ok": True}, db_path=db) is not None
+    assert complete_job_step(
+        claimed_a["id"], lock_id=claimed_a["lock_id"], result={"ok": True}, db_path=db
+    ) is not None
+    assert complete_job_step(
+        claimed_b["id"], lock_id=claimed_b["lock_id"], result={"ok": True}, db_path=db
+    ) is not None
     assert acquire_next_job_step(db_path=db) is None
 
 
@@ -247,6 +255,54 @@ def test_running_job_steps_requeue_and_cancel_by_task(tmp_path: Path) -> None:
     assert list_job_steps(task_id="task-recover", statuses=["queued"], db_path=db)
     assert cancel_job_steps("task-recover", db_path=db) == 1
     assert list_job_steps(task_id="task-recover", statuses=["cancelled"], db_path=db)
+
+
+def test_step_lease_heartbeat_and_owner_token_prevent_stale_worker_writes(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+    enqueue_job_step(task_id="task-lease", step_type="transcription", input={}, db_path=db)
+    first_claim = acquire_next_job_step(db_path=db)
+
+    assert first_claim is not None
+    assert heartbeat_job_step(first_claim["id"], lock_id=first_claim["lock_id"], db_path=db) is True
+
+    # Simulate a worker that stopped heartbeating. A new claimant may recover the
+    # expired lease, but the old owner must not be able to complete it afterwards.
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE job_steps SET locked_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:00+00:00", first_claim["id"]),
+        )
+    recovered_claim = acquire_next_job_step(lock_timeout_seconds=60, db_path=db)
+
+    assert recovered_claim is not None
+    assert recovered_claim["id"] == first_claim["id"]
+    assert recovered_claim["lock_id"] != first_claim["lock_id"]
+    assert complete_job_step(
+        first_claim["id"], lock_id=first_claim["lock_id"], result={"old": True}, db_path=db
+    ) is None
+    assert fail_job_step(
+        first_claim["id"], lock_id=first_claim["lock_id"], error_reason="old worker", db_path=db
+    ) is None
+
+    completed = complete_job_step(
+        recovered_claim["id"], lock_id=recovered_claim["lock_id"], result={"recovered": True}, db_path=db
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["result"] == {"recovered": True}
+
+
+def test_reenqueue_does_not_clear_an_active_step_lease(tmp_path: Path) -> None:
+    db = tmp_path / "jobs.sqlite"
+    enqueue_job_step(task_id="task-active", step_type="transcription", input={"version": 1}, db_path=db)
+    claimed = acquire_next_job_step(db_path=db)
+
+    assert claimed is not None
+    enqueue_job_step(task_id="task-active", step_type="transcription", input={"version": 2}, db_path=db)
+    active = list_job_steps(task_id="task-active", statuses=["running"], db_path=db)
+
+    assert active[0]["lock_id"] == claimed["lock_id"]
+    assert active[0]["input"] == {"version": 1}
 
 
 def test_migrate_job_display_titles_backfills_legacy_video_jobs(tmp_path: Path) -> None:

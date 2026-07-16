@@ -290,6 +290,7 @@ from backend.core.job_store import (
     enqueue_job_step,
     fail_job_step,
     get_job,
+    heartbeat_job_step,
     list_job_steps,
     list_job_summaries,
     list_jobs,
@@ -2021,6 +2022,25 @@ def _queue_timeout_seconds() -> float:
         return 3600.0
 
 
+def _queue_step_lease_seconds() -> float:
+    try:
+        return max(float(os.environ.get("FLUENTFLOW_QUEUE_STEP_LEASE_SECONDS", "900")), 60.0)
+    except ValueError:
+        return 900.0
+
+
+def _queue_heartbeat_seconds() -> float:
+    try:
+        configured = max(float(os.environ.get("FLUENTFLOW_QUEUE_HEARTBEAT_SECONDS", "60")), 1.0)
+    except ValueError:
+        configured = 60.0
+    return min(configured, max(_queue_step_lease_seconds() / 2, 1.0))
+
+
+def _queue_poll_seconds() -> float:
+    return min(30.0, _queue_heartbeat_seconds())
+
+
 def _stale_job_seconds() -> float:
     try:
         return max(float(os.environ.get("FLUENTFLOW_STALE_JOB_SECONDS", "7200")), 60.0)
@@ -2102,33 +2122,77 @@ def _ensure_queue_worker_started_locked() -> None:
 
 def _queue_worker_loop() -> None:
     while True:
-        signal = _TRANSCRIPTION_QUEUE.get()
-        task_id = ""
+        received_signal = False
+        try:
+            signal = _TRANSCRIPTION_QUEUE.get(timeout=_queue_poll_seconds())
+            received_signal = True
+        except thread_queue.Empty:
+            signal = {"wake": "lease_recovery"}
         try:
             while True:
                 step = acquire_next_job_step(
                     step_types=("video_source", "transcription"),
-                    lock_timeout_seconds=_queue_timeout_seconds(),
+                    lock_timeout_seconds=_queue_step_lease_seconds(),
                 )
                 if not step:
                     break
-                task_id = str(step.get("task_id") or "")
-                step_id = int(step.get("id") or 0)
-                try:
-                    _run_job_step(step)
-                    if step_id:
-                        complete_job_step(step_id)
-                except Exception as exc:
-                    logger.exception("Background step failed for %s/%s", task_id, step.get("step_type"))
-                    if step_id:
-                        fail_job_step(step_id, error_reason=_friendly_error_message(exc))
-                    _handle_step_failure(step, exc)
+                _run_claimed_job_step(step)
         except Exception as exc:
             logger.exception("Background worker failed after signal %s", signal)
         finally:
             with _QUEUE_LOCK:
                 _QUEUED_TASK_IDS.clear()
-            _TRANSCRIPTION_QUEUE.task_done()
+            if received_signal:
+                _TRANSCRIPTION_QUEUE.task_done()
+
+
+def _start_job_step_heartbeat(step: dict[str, Any]) -> tuple[threading.Event, threading.Thread | None]:
+    stop_event = threading.Event()
+    step_id = int(step.get("id") or 0)
+    lock_id = str(step.get("lock_id") or "")
+    if not step_id or not lock_id:
+        return stop_event, None
+
+    def _heartbeat() -> None:
+        while not stop_event.wait(_queue_heartbeat_seconds()):
+            if heartbeat_job_step(step_id, lock_id=lock_id):
+                continue
+            logger.warning("Queue step lease was lost for %s", step.get("task_id"))
+            return
+
+    thread = threading.Thread(
+        target=_heartbeat,
+        name=f"fluentflow-step-heartbeat-{step_id}",
+        daemon=True,
+    )
+    thread.start()
+    return stop_event, thread
+
+
+def _run_claimed_job_step(step: dict[str, Any]) -> None:
+    task_id = str(step.get("task_id") or "")
+    step_id = int(step.get("id") or 0)
+    lock_id = str(step.get("lock_id") or "")
+    stop_event, heartbeat_thread = _start_job_step_heartbeat(step)
+    try:
+        _run_job_step(step)
+        if step_id and lock_id and not complete_job_step(step_id, lock_id=lock_id):
+            logger.warning("Queue step completion ignored after lease loss for %s", task_id)
+    except Exception as exc:
+        logger.exception("Background step failed for %s/%s", task_id, step.get("step_type"))
+        failed_step = (
+            fail_job_step(step_id, lock_id=lock_id, error_reason=_friendly_error_message(exc))
+            if step_id and lock_id
+            else None
+        )
+        if failed_step:
+            _handle_step_failure(step, exc)
+        else:
+            logger.warning("Queue step failure ignored after lease loss for %s", task_id)
+    finally:
+        stop_event.set()
+        if heartbeat_thread:
+            heartbeat_thread.join(timeout=1)
 
 
 def _run_job_step(step: dict[str, Any]) -> None:

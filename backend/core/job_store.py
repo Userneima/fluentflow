@@ -333,8 +333,14 @@ def enqueue_job_step(
                     WHEN job_steps.status IN ('queued', 'failed', 'cancelled') THEN excluded.run_after_at
                     ELSE job_steps.run_after_at
                 END,
-                lock_id=NULL,
-                locked_at=NULL,
+                lock_id=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN NULL
+                    ELSE job_steps.lock_id
+                END,
+                locked_at=CASE
+                    WHEN job_steps.status IN ('failed', 'cancelled') THEN NULL
+                    ELSE job_steps.locked_at
+                END,
                 attempt_count=CASE
                     WHEN job_steps.status IN ('failed', 'cancelled') THEN 0
                     ELSE job_steps.attempt_count
@@ -392,7 +398,7 @@ def acquire_next_job_step(
             SELECT * FROM job_steps
             WHERE (
                 status = 'queued'
-                OR (status = 'running' AND locked_at IS NOT NULL AND locked_at < ?)
+                OR (status = 'running' AND (locked_at IS NULL OR locked_at < ?))
             )
             AND (run_after_at IS NULL OR run_after_at <= ?)
             {type_clause}
@@ -426,15 +432,47 @@ def acquire_next_job_step(
 def complete_job_step(
     step_id: int,
     *,
+    lock_id: str,
     result: dict[str, Any] | None = None,
     db_path: Path | str = DEFAULT_DB_PATH,
 ) -> dict[str, Any] | None:
-    return _finish_job_step(step_id, status="completed", result=result, error_reason=None, db_path=db_path)
+    return _finish_job_step(
+        step_id,
+        lock_id=lock_id,
+        status="completed",
+        result=result,
+        error_reason=None,
+        db_path=db_path,
+    )
+
+
+def heartbeat_job_step(
+    step_id: int,
+    *,
+    lock_id: str,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> bool:
+    """Extend a running step lease only while this worker still owns it."""
+    if not step_id or not str(lock_id or "").strip():
+        return False
+    ensure_job_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(Path(db_path)) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE job_steps
+            SET locked_at=?, updated_at=?
+            WHERE id=? AND status='running' AND lock_id=?
+            """,
+            (now, now, step_id, lock_id),
+        )
+        return bool(cursor.rowcount)
 
 
 def fail_job_step(
     step_id: int,
     *,
+    lock_id: str,
     error_reason: str,
     result: dict[str, Any] | None = None,
     retry: bool = False,
@@ -445,17 +483,20 @@ def fail_job_step(
         now = _now_iso()
         with sqlite3.connect(Path(db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            row = conn.execute("SELECT * FROM job_steps WHERE id = ?", (step_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM job_steps WHERE id = ? AND status = 'running' AND lock_id = ?",
+                (step_id, lock_id),
+            ).fetchone()
             if row is None:
                 return None
             can_retry = int(row["attempt_count"] or 0) < int(row["max_attempts"] or 1)
             status = "queued" if can_retry else "failed"
-            conn.execute(
+            cursor = conn.execute(
                 """
                 UPDATE job_steps
                 SET status=?, updated_at=?, finished_at=?,
                     locked_at=NULL, lock_id=NULL, error_reason=?, result_json=?
-                WHERE id=?
+                WHERE id=? AND status='running' AND lock_id=?
                 """,
                 (
                     status,
@@ -464,11 +505,24 @@ def fail_job_step(
                     error_reason,
                     _json_dumps(result),
                     step_id,
+                    lock_id,
                 ),
             )
-            updated = conn.execute("SELECT * FROM job_steps WHERE id = ?", (step_id,)).fetchone()
+            if not cursor.rowcount:
+                return None
+            updated = conn.execute(
+                "SELECT * FROM job_steps WHERE id = ?",
+                (step_id,),
+            ).fetchone()
         return _step_row_to_dict(updated) if updated else None
-    return _finish_job_step(step_id, status="failed", result=result, error_reason=error_reason, db_path=db_path)
+    return _finish_job_step(
+        step_id,
+        lock_id=lock_id,
+        status="failed",
+        result=result,
+        error_reason=error_reason,
+        db_path=db_path,
+    )
 
 
 def cancel_job_steps(
@@ -543,6 +597,7 @@ def requeue_running_job_steps(
 def _finish_job_step(
     step_id: int,
     *,
+    lock_id: str,
     status: str,
     result: dict[str, Any] | None,
     error_reason: str | None,
@@ -552,15 +607,17 @@ def _finish_job_step(
     now = _now_iso()
     with sqlite3.connect(Path(db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        conn.execute(
+        cursor = conn.execute(
             """
             UPDATE job_steps
             SET status=?, updated_at=?, finished_at=?, locked_at=NULL, lock_id=NULL,
                 result_json=?, error_reason=?
-            WHERE id=?
+            WHERE id=? AND status='running' AND lock_id=?
             """,
-            (status, now, now, _json_dumps(result), error_reason, step_id),
+            (status, now, now, _json_dumps(result), error_reason, step_id, lock_id),
         )
+        if not cursor.rowcount:
+            return None
         row = conn.execute("SELECT * FROM job_steps WHERE id = ?", (step_id,)).fetchone()
     return _step_row_to_dict(row) if row else None
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -170,6 +171,21 @@ def test_enqueue_transcription_job_writes_persistent_step(monkeypatch) -> None:
     assert steps[0]["step_type"] == "transcription"
     assert steps[0]["step_key"] == "task-persistent:transcription"
     assert signals == [{"wake": "transcription", "task_id": "task-persistent"}]
+
+
+def test_claimed_queue_step_finishes_with_its_lease_owner(monkeypatch) -> None:
+    completed: list[dict] = []
+    monkeypatch.setattr(_H, "_run_job_step", lambda step: None)
+    monkeypatch.setattr(_H, "_start_job_step_heartbeat", lambda step: (threading.Event(), None))
+    monkeypatch.setattr(
+        _H,
+        "complete_job_step",
+        lambda step_id, *, lock_id: completed.append({"step_id": step_id, "lock_id": lock_id}) or {"id": step_id},
+    )
+
+    _H._run_claimed_job_step({"id": 9, "task_id": "task-owned", "lock_id": "lease-owner", "step_type": "transcription"})
+
+    assert completed == [{"step_id": 9, "lock_id": "lease-owner"}]
 
 
 def test_retry_job_from_stored_source_requeues_without_browser_upload(tmp_path, monkeypatch) -> None:
