@@ -92,6 +92,8 @@ def parse_scribe_transcription_result(payload: dict[str, Any]) -> TranscriptionR
 
     if not text:
         text = " ".join(segment.text for segment in segments).strip()
+    if not text:
+        raise RuntimeError("ElevenLabs transcription returned no usable speech")
     if text and not segments:
         segments = (TranscriptSegment(start=0.0, end=0.0, text=text),)
 
