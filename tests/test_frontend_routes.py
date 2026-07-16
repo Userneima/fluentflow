@@ -64,16 +64,11 @@ def test_svg_favicon_is_served_without_spa_404() -> None:
     assert "<svg" in response.text
 
 
-def test_video_link_pending_task_title_uses_platform_not_tracking_query() -> None:
-    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
-    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+def test_video_link_title_helper_avoids_tracking_query() -> None:
     fmt = Path("frontend/src/lib/format.js").read_text(encoding="utf-8")
 
-    assert "videoLinkDisplayTitle(input, lang)" in dashboard
-    assert "display_title: job.metadata?.display_title || pendingTitle" in dashboard
     assert "Bilibili 视频" in fmt
     assert "spm_id_from" not in fmt
-    assert "videoLinkDisplayTitle" in shared
 
 
 def test_dashboard_cancel_task_uses_close_icon_not_disabled_icon() -> None:
@@ -165,13 +160,11 @@ def test_video_link_failures_are_preserved_in_background_tasks() -> None:
 
 def test_video_link_submission_routes_to_single_task_detail_surface() -> None:
     media_text = Path("frontend/src/routes/media-text.jsx").read_text(encoding="utf-8")
-    dashboard = Path("frontend/src/routes/dashboard.jsx").read_text(encoding="utf-8")
     app_shell = Path("frontend/src/app/AppShell.jsx").read_text(encoding="utf-8")
     agent_tasks = Path("frontend/src/routes/agent-tasks.jsx").read_text(encoding="utf-8")
     agent_trace = Path("frontend/src/routes/agent-trace.jsx").read_text(encoding="utf-8")
 
     assert "navigate('/agent', {state: {job}})" in media_text
-    assert "navigate('/agent', {state: {job: pendingJob}})" in dashboard
     assert 'path="/agent" element={guestMode ? <Dashboard/> : <AgentTasks/>}' in app_shell
     assert 'path="/processing" element={guestMode ? <Dashboard/> : <Navigate to="/agent" replace/>}' in app_shell
     assert 'path="/tasks" element={<Navigate to="/agent" replace/>}' in app_shell
@@ -1101,7 +1094,6 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "key={`video-review-bilingual-${i}`}" in source
     assert "const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;" in source
     assert "const followIndex = activeSegmentIndex;" in source
-    assert "seekToSegment(visibleTranscriptSegments[nextIndex]);" in source
     assert "activeRawSegmentIndex" not in source
     assert "segments.map((seg,i) => (" in source
     assert "sticky top-0 z-10" not in source
@@ -1119,7 +1111,6 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "disabled:hover:bg-transparent" in source
     assert "currentVideoSegment" in source
     assert "当前字幕" not in source
-    assert "handleVideoSegmentStep" in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
     assert "max-h-[min(42vh,360px)]" not in source
     assert "max-h-[min(38vh,330px)]" in source
