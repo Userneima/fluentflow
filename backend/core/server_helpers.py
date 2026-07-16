@@ -60,6 +60,7 @@ from backend.core.result_schema import (
 )
 from backend.core.title_display import display_title_for_user
 from backend.core.versioning import get_app_version
+from backend.core.elevenlabs_usage import get_workspace_transcription_usage as get_elevenlabs_workspace_usage
 from backend.core.runtime_paths import (
     default_artifact_dir,
     default_edited_transcript_dir,

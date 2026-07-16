@@ -5,7 +5,7 @@ import SvgIcon from '../components/SvgIcon.jsx';
 const Admin = () => {
     const {t, lang} = useI18n();
     const {user} = useAuth();
-    const {getAdminUsers, adjustUserBalance} = useApi();
+    const {getAdminUsers, getAdminCloudTranscriptionUsage, adjustUserBalance} = useApi();
     const [users, setUsers] = useState([]);
     const [selectedId, setSelectedId] = useState('');
     const [query, setQuery] = useState('');
@@ -16,6 +16,10 @@ const Admin = () => {
     const [reason, setReason] = useState('');
     const [providerReference, setProviderReference] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [usageHours, setUsageHours] = useState(168);
+    const [cloudUsage, setCloudUsage] = useState(null);
+    const [cloudLoading, setCloudLoading] = useState(false);
+    const [cloudError, setCloudError] = useState('');
 
     const isAdmin = user?.role === 'admin';
     const loadUsers = async (preferredId='') => {
@@ -35,9 +39,25 @@ const Admin = () => {
         }
     };
 
+    const loadCloudUsage = async () => {
+        if (!isAdmin) return;
+        setCloudLoading(true);
+        setCloudError('');
+        try {
+            setCloudUsage(await getAdminCloudTranscriptionUsage(usageHours, 100));
+        } catch(err) {
+            setCloudError(err.message || (lang === 'zh' ? '无法读取云端转录用量。' : 'Could not load cloud transcription usage.'));
+        } finally {
+            setCloudLoading(false);
+        }
+    };
+
     useEffect(() => {
-        if (isAdmin) loadUsers();
-    }, [isAdmin]);
+        if (isAdmin) {
+            loadUsers();
+            loadCloudUsage();
+        }
+    }, [isAdmin, usageHours]);
 
     const filteredUsers = users.filter((item) => {
         const q = query.trim().toLowerCase();
@@ -48,6 +68,11 @@ const Admin = () => {
     const transactions = selectedUser?.quota?.recent_transactions || [];
     const selectedBalance = selectedUser?.quota?.balance_units ?? 0;
     const selectedQuotaExempt = selectedUser?.role === 'admin' || selectedUser?.quota?.unlimited || selectedUser?.quota?.quota_exempt;
+    const cloudTasks = Array.isArray(cloudUsage?.tasks) ? cloudUsage.tasks : [];
+    const workspaceUsage = cloudUsage?.workspace_usage || {};
+    const formatMetric = (value, maximumFractionDigits=0) => Number.isFinite(Number(value))
+        ? new Intl.NumberFormat(lang === 'zh' ? 'zh-CN' : 'en-US', {maximumFractionDigits}).format(Number(value))
+        : '-';
 
     const submitAdjustment = async (e) => {
         e.preventDefault();
@@ -126,11 +151,14 @@ const Admin = () => {
                     </div>
                     <button
                         type="button"
-                        onClick={()=>loadUsers(selectedUser?.id || '')}
-                        disabled={loading}
+                        onClick={()=>{
+                            loadUsers(selectedUser?.id || '');
+                            loadCloudUsage();
+                        }}
+                        disabled={loading || cloudLoading}
                         className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] border border-[#dedada] bg-white px-4 text-sm font-bold text-[#111111] shadow-[0_14px_34px_-30px_rgba(17,17,17,.45)] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.09] dark:shadow-none disabled:opacity-50"
                     >
-                        <SvgIcon name="refresh" className={`text-base ${loading ? 'animate-spin' : ''}`}/>
+                        <SvgIcon name="refresh" className={`text-base ${loading || cloudLoading ? 'animate-spin' : ''}`}/>
                         {lang === 'zh' ? '刷新' : 'Refresh'}
                     </button>
                 </header>
@@ -140,6 +168,79 @@ const Admin = () => {
                         {error || notice}
                     </div>
                 )}
+
+                <section className="mb-5 min-w-0 overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                    <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#e4e0e0] px-5 py-4 dark:border-white/[0.12]">
+                        <div>
+                            <h2 className="text-sm font-extrabold text-[#111111] dark:text-white font-headline">
+                                {lang === 'zh' ? '云端转录账单与诊断' : 'Cloud transcription billing and diagnostics'}
+                            </h2>
+                            <p className="mt-1 text-xs font-medium text-[#777] dark:text-white/55">
+                                {lang === 'zh' ? 'ElevenLabs 工作区已扣 credits；任务级 credits 仅在请求可唯一匹配时显示。' : 'ElevenLabs workspace billed credits; task credits appear only when a request is uniquely matched.'}
+                            </p>
+                        </div>
+                        <label className="flex items-center gap-2 text-xs font-bold text-[#777] dark:text-white/55">
+                            <span>{lang === 'zh' ? '查看范围' : 'Range'}</span>
+                            <select
+                                value={usageHours}
+                                onChange={(event)=>setUsageHours(Number(event.target.value))}
+                                className="h-9 rounded-[10px] border border-[#dedada] bg-[#f4f3f3] px-2.5 text-xs font-bold text-[#111111] outline-none focus:border-primary/60 dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white"
+                            >
+                                <option value={24}>{lang === 'zh' ? '最近 24 小时' : 'Last 24 hours'}</option>
+                                <option value={168}>{lang === 'zh' ? '最近 7 天' : 'Last 7 days'}</option>
+                                <option value={720}>{lang === 'zh' ? '最近 30 天' : 'Last 30 days'}</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div className="grid gap-px bg-[#e4e0e0] dark:bg-white/[0.12] sm:grid-cols-4">
+                        {[
+                            [lang === 'zh' ? '账单 credits' : 'Billed credits', formatMetric(workspaceUsage.credits_used, 3)],
+                            [lang === 'zh' ? '云端请求' : 'Cloud requests', formatMetric(workspaceUsage.provider_request_count)],
+                            [lang === 'zh' ? 'FluentFlow 任务' : 'FluentFlow tasks', formatMetric(cloudUsage?.task_count)],
+                            [lang === 'zh' ? '已唯一归因' : 'Uniquely attributed', formatMetric(cloudUsage?.attributed_task_count)],
+                        ].map(([label, value]) => (
+                            <div key={label} className="bg-white px-5 py-4 dark:bg-white/[0.06]">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#8a8a8a] dark:text-white/40">{label}</p>
+                                <p className="mt-1 text-xl font-extrabold tabular-nums text-[#111111] dark:text-white">{value}</p>
+                            </div>
+                        ))}
+                    </div>
+                    {cloudError || workspaceUsage.reason || workspaceUsage.request_telemetry_reason ? (
+                        <p className="border-t border-[#e4e0e0] px-5 py-3 text-xs font-semibold text-red-600 dark:border-white/[0.12] dark:text-red-300">{cloudError || workspaceUsage.reason || workspaceUsage.request_telemetry_reason}</p>
+                    ) : cloudLoading && !cloudUsage ? (
+                        <p className="px-5 py-4 text-sm font-semibold text-[#777] dark:text-white/55">{lang === 'zh' ? '正在读取工作区账单…' : 'Loading workspace billing…'}</p>
+                    ) : cloudTasks.length === 0 ? (
+                        <p className="px-5 py-4 text-sm font-semibold text-[#777] dark:text-white/55">{lang === 'zh' ? '这个时间范围内没有已记录的云端转录任务。' : 'No recorded cloud transcription tasks in this range.'}</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[900px] text-left text-xs">
+                                <thead className="border-t border-[#e4e0e0] text-[10px] font-bold uppercase tracking-wider text-[#8a8a8a] dark:border-white/[0.12] dark:text-white/40">
+                                    <tr>
+                                        <th className="px-5 py-3">{lang === 'zh' ? '任务' : 'Task'}</th>
+                                        <th className="px-5 py-3">{lang === 'zh' ? '请求时间' : 'Request time'}</th>
+                                        <th className="px-5 py-3">{lang === 'zh' ? '请求 ID' : 'Request ID'}</th>
+                                        <th className="px-5 py-3">HTTP</th>
+                                        <th className="px-5 py-3">{lang === 'zh' ? '结果' : 'Outcome'}</th>
+                                        <th className="px-5 py-3 text-right">{lang === 'zh' ? '任务 credits' : 'Task credits'}</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[#e4e0e0] dark:divide-white/[0.12]">
+                                    {cloudTasks.map((task) => {
+                                        const attribution = task.credit_attribution || {};
+                                        return <tr key={task.task_id} className="hover:bg-[#f4f3f3] dark:hover:bg-white/[0.04]">
+                                            <td className="max-w-[280px] px-5 py-3 font-semibold text-[#111111] dark:text-white"><span className="block truncate" title={task.title || task.task_id}>{task.title || task.task_id}</span></td>
+                                            <td className="whitespace-nowrap px-5 py-3 font-semibold text-[#777] dark:text-white/55">{fmtDateTime(task.elevenlabs_response_received_at || task.updated_at, lang)}</td>
+                                            <td className="max-w-[180px] px-5 py-3 font-mono text-[11px] text-[#777] dark:text-white/55"><span className="block truncate" title={task.elevenlabs_request_id || ''}>{task.elevenlabs_request_id || '-'}</span></td>
+                                            <td className="px-5 py-3 font-bold tabular-nums text-[#111111] dark:text-white">{task.elevenlabs_http_status || '-'}</td>
+                                            <td className="px-5 py-3 font-semibold text-[#777] dark:text-white/55">{task.elevenlabs_outcome || task.status || '-'}</td>
+                                            <td className="px-5 py-3 text-right font-extrabold tabular-nums text-[#111111] dark:text-white">{attribution.status === 'attributed' ? formatMetric(attribution.credits_used, 3) : '-'}</td>
+                                        </tr>;
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
 
                 <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
                     {/* ── User list ── */}
