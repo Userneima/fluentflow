@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.core.local_config import credential_status, load_project_env  # noqa: E402
+from backend.core.oss_config import oss_direct_upload_config  # noqa: E402
 from backend.core.runtime_paths import (  # noqa: E402
     default_account_db_path,
     default_artifact_dir,
@@ -200,6 +201,19 @@ def run_checks(
             "运行数据路径已显式配置。"
             if runtime_storage_configured
             else "云端部署必须设置 FLUENTFLOW_DATA_DIR，或同时设置 FLUENTFLOW_JOB_DB_PATH 和 FLUENTFLOW_EVENT_DB_PATH，避免任务记录落到服务账号的 home 目录。"
+        ),
+    ))
+
+    oss_direct_upload = oss_direct_upload_config()
+    checks.append(CheckResult(
+        "oss_direct_upload",
+        "pass" if not oss_direct_upload.enabled or oss_direct_upload.ready else "fail",
+        (
+            "OSS direct multipart upload is disabled; existing application-server uploads remain active."
+            if not oss_direct_upload.enabled
+            else "OSS direct multipart upload configuration is complete."
+            if oss_direct_upload.ready
+            else "OSS direct multipart upload is enabled but invalid: " + "; ".join(oss_direct_upload.errors)
         ),
     ))
 

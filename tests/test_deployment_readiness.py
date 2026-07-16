@@ -36,6 +36,13 @@ SECRET_ENV_KEYS = (
     "FLUENTFLOW_EDITED_TRANSCRIPT_DIR",
     "FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR",
     "FLUENTFLOW_VIDEO_SOURCE_DIR",
+    "FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED",
+    "FLUENTFLOW_OSS_REGION",
+    "FLUENTFLOW_OSS_ENDPOINT",
+    "FLUENTFLOW_OSS_BUCKET",
+    "FLUENTFLOW_OSS_SOURCE_PREFIX",
+    "FLUENTFLOW_OSS_MULTIPART_PART_SIZE_MB",
+    "FLUENTFLOW_OSS_PRESIGN_TTL_SECONDS",
 )
 
 
@@ -105,6 +112,7 @@ def test_deployment_readiness_passes_core_cloud_configuration(monkeypatch, tmp_p
     assert _status_by_name(payload, "job_store") == "pass"
     assert _status_by_name(payload, "stt_provider_policy") == "pass"
     assert _status_by_name(payload, "elevenlabs_credentials") == "pass"
+    assert _status_by_name(payload, "oss_direct_upload") == "pass"
     assert "elevenlabs-key" not in str(payload)
     assert "deepseek-key" not in str(payload)
 
@@ -127,6 +135,24 @@ def test_deployment_readiness_rejects_implicit_cloud_job_and_event_storage(monke
 
     assert payload["status"] == "fail"
     assert _status_by_name(payload, "runtime_storage_configuration") == "fail"
+
+
+def test_deployment_readiness_rejects_incomplete_enabled_oss_direct_upload(monkeypatch, tmp_path: Path) -> None:
+    _clear_env(monkeypatch)
+    _isolate_machine_state(monkeypatch, tmp_path)
+    _set_storage_dirs(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.setenv("FLUENTFLOW_ACCESS_TOKEN", "beta-code")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "elevenlabs_scribe")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "elevenlabs-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED", "1")
+
+    payload = run_checks()
+
+    assert payload["status"] == "fail"
+    assert _status_by_name(payload, "oss_direct_upload") == "fail"
 
 
 def test_deployment_readiness_passes_visual_note_screenshots_with_dashscope(monkeypatch, tmp_path: Path) -> None:
