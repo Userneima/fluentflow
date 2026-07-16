@@ -25,6 +25,7 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
             "metadata": {
                 "raw_title": "1234567890123-Demo title",
                 "display_title": "Demo title",
+                "stt_provider": "elevenlabs_scribe",
                 "video_source": {
                     "provider": "youtube-yt-dlp",
                     "url": "https://example.com/video",
@@ -64,6 +65,13 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
                 "translated_segments_zh": [{"start": 0, "end": 1, "text": "你好世界"}],
                 "summary_markdown": "# Summary",
                 "summary_status": "completed",
+                "stt_provider": "elevenlabs_scribe",
+                "cloud_transcription": {
+                    "provider": "elevenlabs_scribe",
+                    "elevenlabs_request_id": "req-demo",
+                    "elevenlabs_http_status": 200,
+                    "elevenlabs_outcome": "completed",
+                },
                 "chapter_coverage": {
                     "chapter_coverage_version": "1",
                     "summary": {"evidence_count": 1, "chapter_count": 1},
@@ -169,6 +177,8 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["note"]["markdown"] == "# Summary"
     assert package["note"]["diagnosis"]["code"] == "note_completed"
     assert package["note"]["chapter_coverage"]["evidence"][0]["evidence_id"] == "E001"
+    assert package["usage"]["cloud_transcription"]["elevenlabs_request_id"] == "req-demo"
+    assert package["usage"]["cloud_transcription"]["elevenlabs_outcome"] == "completed"
     assert package["processing_plan"]["processing_plan_version"] == "1"
     assert package["processing_plan"]["material"]["source_type"] == "video_link"
     assert package["decision_log"]["decision_log_version"] == "1"

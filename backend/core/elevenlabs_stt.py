@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -57,7 +58,12 @@ def transcribe_audio_scribe(
     if language_code:
         data["language_code"] = language_code
 
-    notify("elevenlabs_uploading", elevenlabs_audio_size_mb=_file_size_mb(path))
+    notify(
+        "elevenlabs_uploading",
+        elevenlabs_audio_size_mb=_file_size_mb(path),
+        elevenlabs_request_started_at=_utc_now_iso(),
+        elevenlabs_model=ELEVENLABS_MODEL_ID,
+    )
     try:
         with path.open("rb") as handle:
             files = {"file": (path.name, handle, _content_type(path))}
@@ -68,12 +74,15 @@ def transcribe_audio_scribe(
                     data=data,
                     files=files,
                 )
-        notify("elevenlabs_processing")
+        response_metadata = _response_metadata(response)
+        notify("elevenlabs_processing", **response_metadata)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        notify("elevenlabs_failed", **_response_metadata(exc.response), elevenlabs_outcome="http_error")
         detail = exc.response.text[:800]
         raise RuntimeError(f"ElevenLabs transcription failed: HTTP {exc.response.status_code} {detail}") from exc
     except httpx.RequestError as exc:
+        notify("elevenlabs_failed", elevenlabs_outcome="request_error")
         raise RuntimeError(f"ElevenLabs transcription request failed: {exc}") from exc
 
     try:
@@ -81,8 +90,15 @@ def transcribe_audio_scribe(
     except ValueError as exc:
         raise RuntimeError("ElevenLabs transcription returned invalid JSON") from exc
 
-    notify("elevenlabs_normalizing")
-    return parse_scribe_transcription_result(payload)
+    diagnostics = _payload_diagnostics(payload)
+    notify("elevenlabs_normalizing", **diagnostics)
+    try:
+        result = parse_scribe_transcription_result(payload)
+    except RuntimeError:
+        notify("elevenlabs_failed", **diagnostics, elevenlabs_outcome="empty_or_unusable_transcript")
+        raise
+    notify("elevenlabs_completed", **diagnostics, elevenlabs_outcome="completed")
+    return result
 
 
 def parse_scribe_transcription_result(payload: dict[str, Any]) -> TranscriptionResult:
@@ -246,6 +262,35 @@ def _file_size_mb(path: Path) -> float | None:
         return round(path.stat().st_size / (1024 * 1024), 3)
     except OSError:
         return None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _response_metadata(response: httpx.Response) -> dict[str, Any]:
+    request_id = ""
+    for header in ("x-request-id", "request-id", "x-amzn-requestid", "x-correlation-id"):
+        request_id = str(response.headers.get(header) or "").strip()
+        if request_id:
+            break
+    metadata: dict[str, Any] = {
+        "elevenlabs_response_received_at": _utc_now_iso(),
+        "elevenlabs_http_status": response.status_code,
+    }
+    if request_id:
+        metadata["elevenlabs_request_id"] = request_id
+    return metadata
+
+
+def _payload_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_text = payload.get("text")
+    raw_words = payload.get("words")
+    return {
+        "elevenlabs_response_valid_json": True,
+        "elevenlabs_response_text_chars": len(str(raw_text or "").strip()),
+        "elevenlabs_response_word_count": len(raw_words) if isinstance(raw_words, list) else 0,
+    }
 
 
 def _content_type(path: Path) -> str:

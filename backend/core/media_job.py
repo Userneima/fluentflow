@@ -50,6 +50,27 @@ def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _cloud_stt_diagnostics(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Keep only non-content provider diagnostics in completed task results."""
+    fields = (
+        "elevenlabs_audio_size_mb",
+        "elevenlabs_duration_seconds",
+        "elevenlabs_model",
+        "elevenlabs_request_started_at",
+        "elevenlabs_response_received_at",
+        "elevenlabs_request_id",
+        "elevenlabs_http_status",
+        "elevenlabs_response_valid_json",
+        "elevenlabs_response_text_chars",
+        "elevenlabs_response_word_count",
+        "elevenlabs_outcome",
+    )
+    return {
+        "provider": "elevenlabs_scribe",
+        **{field: metadata[field] for field in fields if metadata.get(field) is not None},
+    }
+
+
 async def _run_transcript_correction_stage(
     *,
     loop: asyncio.AbstractEventLoop,
@@ -227,6 +248,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
     stt_process = None
     stt_queue = None
     playback_audio_path: Path | None = None
+    cloud_stt_metadata: dict[str, Any] = {}
     try:
         if elevenlabs_cloud_provider and not elevenlabs_key_value:
             raise RuntimeError(
@@ -311,7 +333,6 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             "stt_status": "starting",
         }
 
-        cloud_stt_metadata: dict[str, Any] = {}
         stt_started_at = time.perf_counter()
         stt_timeout = H._stale_job_seconds()
         if stt_provider_value == "elevenlabs_scribe":
@@ -539,6 +560,8 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             "display_title": display_title_value,
             "source_file_available": True,
         }
+        if stt_provider_value == "elevenlabs_scribe":
+            base_result["cloud_transcription"] = _cloud_stt_diagnostics(cloud_stt_metadata)
         cleanup_started_at = time.perf_counter()
         cleanup_result = H.clean_repeated_transcript(tr.segments)
         if cleanup_result.applied_count > 0:
@@ -1382,7 +1405,12 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             stage=current_stage,
             success=False,
             error_reason=friendly_error,
-            metadata=H._metadata(route="/process", stt_provider=stt_provider_value, raw_error=str(exc)),
+            metadata=H._metadata(
+                route="/process",
+                stt_provider=stt_provider_value,
+                **cloud_stt_metadata,
+                raw_error=str(exc),
+            ),
         )
         H._log_task_completed(
             task_id=task_id_value,
@@ -1410,6 +1438,10 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             source_file_size_mb=source_file_size_mb,
             summary_status=summary_status,
             error_reason=friendly_error,
+            metadata={
+                "stt_provider": stt_provider_value,
+                **cloud_stt_metadata,
+            },
         )
         yield H._sse({"stage": "error", "progress": 0, "error": friendly_error})
     finally:

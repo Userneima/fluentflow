@@ -15,9 +15,33 @@ from backend.core.error_diagnostics import diagnose_error
 
 AGENT_TASK_PACKAGE_VERSION = "1"
 
+_CLOUD_STT_DIAGNOSTIC_FIELDS = (
+    "provider",
+    "elevenlabs_audio_size_mb",
+    "elevenlabs_duration_seconds",
+    "elevenlabs_model",
+    "elevenlabs_request_started_at",
+    "elevenlabs_response_received_at",
+    "elevenlabs_request_id",
+    "elevenlabs_http_status",
+    "elevenlabs_response_valid_json",
+    "elevenlabs_response_text_chars",
+    "elevenlabs_response_word_count",
+    "elevenlabs_outcome",
+)
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _cloud_transcription_diagnostics(result: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any] | None:
+    source = result.get("cloud_transcription") if isinstance(result.get("cloud_transcription"), dict) else metadata
+    provider = _text(result.get("stt_provider") or metadata.get("stt_provider") or source.get("provider"))
+    if provider != "elevenlabs_scribe":
+        return None
+    diagnostics = {field: source[field] for field in _CLOUD_STT_DIAGNOSTIC_FIELDS if source.get(field) is not None}
+    return diagnostics or {"provider": "elevenlabs_scribe"}
 
 
 def note_generation_diagnosis(job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +334,7 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
     visual_frame_selections = _agent_visual_frame_selections(result)
     visual_key_moments = _agent_visual_key_moments(result)
     note_status = diagnosis["status"]
+    cloud_transcription = _cloud_transcription_diagnostics(result, metadata)
     if result.get("summary_skipped"):
         note_status = "skipped"
     elif _text(result.get("summary_markdown")):
@@ -394,6 +419,7 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
         "usage": {
             "estimated_processing_units": job.get("estimated_processing_units") or result.get("estimated_processing_units"),
             "billable_processing_units": job.get("billable_processing_units") or result.get("billable_processing_units"),
+            "cloud_transcription": cloud_transcription,
         },
     }
     package["processing_plan"] = result.get("processing_plan") or build_processing_plan(result, job=job, metadata=metadata)

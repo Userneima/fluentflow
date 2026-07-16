@@ -358,6 +358,59 @@ def test_account_quota_endpoint_and_admin_adjustment(monkeypatch, tmp_path) -> N
     assert adjustment.json()["transaction"]["provider_reference"] == "test-ref"
 
 
+def test_admin_cloud_transcription_usage_keeps_provider_credits_unambiguous(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")
+    monkeypatch.setattr(
+        _H,
+        "list_jobs",
+        lambda limit=50, client_id=None: [{
+            "task_id": "cloud-task",
+            "status": "completed",
+            "updated_at": "2026-07-16T08:00:10+00:00",
+            "source_filename": "lesson.mp3",
+            "metadata": {"stt_provider": "elevenlabs_scribe"},
+            "result": {
+                "stt_provider": "elevenlabs_scribe",
+                "audio_duration_seconds": 120,
+                "cloud_transcription": {
+                    "provider": "elevenlabs_scribe",
+                    "elevenlabs_request_id": "req-1",
+                    "elevenlabs_response_received_at": "2026-07-16T08:00:10+00:00",
+                    "elevenlabs_http_status": 200,
+                    "elevenlabs_outcome": "completed",
+                },
+            },
+        }],
+    )
+    monkeypatch.setattr(
+        _H,
+        "get_elevenlabs_workspace_usage",
+        lambda **_kwargs: {
+            "available": True,
+            "window": {"start_at": "2026-07-16T08:00:00+00:00", "end_at": "2026-07-16T09:00:00+00:00"},
+            "credits_used": 12.5,
+            "requests": [{"request_id": "req-1", "timestamp": "2026-07-16T08:00:10Z", "endpoint": "/v1/speech-to-text", "success": True}],
+            "usage_buckets": [{"timestamp": "2026-07-16T08:00:00Z", "credits_used": 12.5}],
+        },
+    )
+
+    with TestClient(main.app) as client:
+        client.post("/auth/register", json={"email": "owner@example.com", "password": "secure-pass"})
+        response = client.get("/admin/cloud-transcription-usage?hours=720")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_usage"]["credits_used"] == 12.5
+    assert payload["workspace_usage"]["currency"] == "credits"
+    assert payload["tasks"][0]["elevenlabs_request_id"] == "req-1"
+    assert payload["tasks"][0]["credit_attribution"] == {
+        "status": "attributed",
+        "credits_used": 12.5,
+        "provider_timestamp": "2026-07-16T08:00:10Z",
+    }
+
+
 def test_account_user_without_balance_cannot_start_processing(monkeypatch, tmp_path) -> None:
     _enable_account_auth(monkeypatch, tmp_path)
     monkeypatch.setenv("FLUENTFLOW_ALLOW_SIGNUPS", "1")

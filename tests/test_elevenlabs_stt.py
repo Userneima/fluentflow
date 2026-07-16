@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.core.elevenlabs_stt import parse_scribe_transcription_result
+from backend.core.elevenlabs_stt import _payload_diagnostics, parse_scribe_transcription_result
 
 
 def test_parse_scribe_result_builds_segments_with_speakers() -> None:
@@ -33,3 +33,13 @@ def test_parse_scribe_result_builds_segments_with_speakers() -> None:
 def test_parse_scribe_result_rejects_empty_provider_response() -> None:
     with pytest.raises(RuntimeError, match="returned no usable speech"):
         parse_scribe_transcription_result({"text": "", "words": []})
+
+
+def test_provider_payload_diagnostics_do_not_store_transcript_content() -> None:
+    diagnostics = _payload_diagnostics({"text": "secret transcript", "words": [{"text": "secret"}]})
+
+    assert diagnostics == {
+        "elevenlabs_response_valid_json": True,
+        "elevenlabs_response_text_chars": 17,
+        "elevenlabs_response_word_count": 1,
+    }
