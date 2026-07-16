@@ -23,6 +23,7 @@ import time
 from fastapi import Request
 
 import backend.core.server_helpers as H
+from backend.core.audio_handler import require_audible_audio
 from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
 
 
@@ -252,6 +253,7 @@ async def _stream_media_job(ctx: MediaJobContext) -> AsyncGenerator[str, None]:
             playback_audio_path = await loop.run_in_executor(
                 None, lambda: H.extract_compressed_mp3(in_path, output_path=Path(td) / "playback.mp3")
             )
+        await loop.run_in_executor(None, lambda: require_audible_audio(out_audio))
         audio_elapsed_sec = time.perf_counter() - audio_started_at
         H.log_event(
             task_id=task_id_value,

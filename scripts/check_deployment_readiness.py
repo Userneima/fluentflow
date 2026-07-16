@@ -27,6 +27,7 @@ from backend.core.runtime_paths import (  # noqa: E402
     default_account_db_path,
     default_artifact_dir,
     default_edited_transcript_dir,
+    default_event_db_path,
     default_job_db_path,
     default_source_dir,
     default_transcript_edit_records_dir,
@@ -188,12 +189,34 @@ def run_checks(
         ),
     ))
 
+    runtime_data_root = (os.environ.get("FLUENTFLOW_DATA_DIR") or "").strip()
+    job_db_override = (os.environ.get("FLUENTFLOW_JOB_DB_PATH") or "").strip()
+    event_db_override = (os.environ.get("FLUENTFLOW_EVENT_DB_PATH") or "").strip()
+    runtime_storage_configured = bool(runtime_data_root or (job_db_override and event_db_override))
+    checks.append(CheckResult(
+        "runtime_storage_configuration",
+        "pass" if runtime_storage_configured else ("fail" if public_mode else "warn"),
+        (
+            "运行数据路径已显式配置。"
+            if runtime_storage_configured
+            else "云端部署必须设置 FLUENTFLOW_DATA_DIR，或同时设置 FLUENTFLOW_JOB_DB_PATH 和 FLUENTFLOW_EVENT_DB_PATH，避免任务记录落到服务账号的 home 目录。"
+        ),
+    ))
+
     job_db_path = _path_from_env("FLUENTFLOW_JOB_DB_PATH", default_job_db_path())
     job_db_parent_ok, job_db_parent_detail = _check_writable_dir(job_db_path.parent)
     checks.append(CheckResult(
         "job_store",
         "pass" if job_db_parent_ok else "fail",
         f"任务数据库目录可写：{job_db_path.parent}" if job_db_parent_ok else f"任务数据库目录不可写：{job_db_parent_detail}",
+    ))
+
+    event_db_path = _path_from_env("FLUENTFLOW_EVENT_DB_PATH", default_event_db_path())
+    event_db_parent_ok, event_db_parent_detail = _check_writable_dir(event_db_path.parent)
+    checks.append(CheckResult(
+        "event_store",
+        "pass" if event_db_parent_ok else "fail",
+        f"事件数据库目录可写：{event_db_path.parent}" if event_db_parent_ok else f"事件数据库目录不可写：{event_db_parent_detail}",
     ))
 
     checks.append(CheckResult(
