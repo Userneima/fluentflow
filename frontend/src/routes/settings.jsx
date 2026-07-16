@@ -54,7 +54,7 @@ const Settings = () => {
     const {t, lang} = useI18n();
     const {loadSettings, saveSettings} = useSettings();
     const {clearHistory, history, larkExports, runtimeConfig} = useApp();
-    const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkVideoCookies} = useApi();
+    const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkVideoCookies} = useApi();
     const [settings, setSettings] = useState(() => loadSettings());
     const [cleared, setCleared] = useState(false);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -66,10 +66,6 @@ const Settings = () => {
     const [pyannoteTokenEditing, setPyannoteTokenEditing] = useState(false);
     const [secretSaving, setSecretSaving] = useState(false);
     const [secretFeedback, setSecretFeedback] = useState(null);
-    const [feishuConnection, setFeishuConnection] = useState(null);
-    const [feishuConnectionStatus, setFeishuConnectionStatus] = useState('loading');
-    const [feishuConnectionFeedback, setFeishuConnectionFeedback] = useState('');
-    const [feishuConnectionBusy, setFeishuConnectionBusy] = useState(false);
 
     const credentialConfigured = (status, key) => {
         if (key === 'dashscope_api_key' || key === 'qwen_api_key') {
@@ -93,21 +89,7 @@ const Settings = () => {
         }
         getCredentialsStatus().then(setCredentialStatus).catch(() => {});
         getSpeakerDiarizationStatus().then(setDiarizationStatus).catch(() => {});
-        refreshFeishuConnection();
     }, []);
-
-    const refreshFeishuConnection = async () => {
-        setFeishuConnectionStatus('loading');
-        setFeishuConnectionFeedback('');
-        try {
-            const connection = await getFeishuConnection();
-            setFeishuConnection(connection);
-            setFeishuConnectionStatus(connection?.connected ? 'connected' : 'disconnected');
-        } catch (err) {
-            setFeishuConnectionStatus('failed');
-            setFeishuConnectionFeedback(err.message || String(err));
-        }
-    };
 
     const updateSettingNow = (patch) => {
         setSettings((s) => {
@@ -186,35 +168,6 @@ const Settings = () => {
         setTimeout(() => setCleared(false), 2000);
     };
 
-    const connectFeishu = async () => {
-        setFeishuConnectionBusy(true);
-        setFeishuConnectionFeedback('');
-        try {
-            const nextUrl = `${window.location.pathname || '/settings'}${window.location.search || ''}`;
-            const data = await startFeishuOAuth(nextUrl);
-            window.location.assign(data.authorize_url);
-        } catch (err) {
-            setFeishuConnectionFeedback(err.message || String(err));
-            setFeishuConnectionStatus('failed');
-        } finally {
-            setFeishuConnectionBusy(false);
-        }
-    };
-
-    const disconnectFeishuAccount = async () => {
-        setFeishuConnectionBusy(true);
-        setFeishuConnectionFeedback('');
-        try {
-            const connection = await disconnectFeishu();
-            setFeishuConnection(connection);
-            setFeishuConnectionStatus('disconnected');
-        } catch (err) {
-            setFeishuConnectionFeedback(err.message || String(err));
-            setFeishuConnectionStatus('failed');
-        } finally {
-            setFeishuConnectionBusy(false);
-        }
-    };
 
     const inputClass = 'w-full rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 text-sm font-semibold text-[#111111] outline-none transition placeholder:text-[#aaa] focus:border-[#111111] focus:bg-white dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/30 dark:focus:border-white/40';
     const fieldLabelClass = 'text-[11px] font-extrabold uppercase tracking-wider text-[#676970] dark:text-white/50';
@@ -238,7 +191,6 @@ const Settings = () => {
     const sttProvider = effectiveSttProvider(settings, runtimeConfig);
     const larkExportRoute = larkExportRouteFromSettings(settings);
     const feishuUserOAuthSelected = isUserOAuthLarkExportRoute(larkExportRoute);
-    const feishuConnected = feishuConnectionStatus === 'connected';
     const larkRouteHint = feishuUserOAuthSelected
         ? (lang === 'zh' ? '导出会写入你连接的飞书账号空间，不需要在这里输入 App Secret。' : 'Exports go to the connected Feishu account. No app secret is entered here.')
         : (isLocalLarkExportRoute(larkExportRoute) ? t('set.larkRouteLocalCliHint') : t('set.larkRouteOpenapiHint'));
@@ -461,70 +413,6 @@ const Settings = () => {
                                     </select>
                                 </div>
                             )}
-
-                            <div className={`md:col-span-2 grid gap-4 ${cellBase} md:grid-cols-[minmax(0,1fr)_auto] md:items-start`}>
-                                <div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <h3 className="text-sm font-bold">{lang === 'zh' ? '连接飞书账号' : 'Connect Feishu account'}</h3>
-                                        <span className={[
-                                            'inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-bold',
-                                            feishuConnectionStatus === 'connected'
-                                                ? 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-200'
-                                                : feishuConnectionStatus === 'failed'
-                                                    ? 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-200'
-                                                    : 'bg-[#f1eeee] text-[#62646a] dark:bg-white/[0.08] dark:text-white/60',
-                                        ].join(' ')}>
-                                            {feishuConnectionStatus === 'loading'
-                                                ? (lang === 'zh' ? '检查中' : 'Checking')
-                                                : feishuConnectionStatus === 'connected'
-                                                    ? (lang === 'zh' ? '已连接' : 'Connected')
-                                                    : feishuConnectionStatus === 'failed'
-                                                        ? (lang === 'zh' ? '检查失败' : 'Check failed')
-                                                        : (lang === 'zh' ? '未连接' : 'Not connected')}
-                                        </span>
-                                    </div>
-                                    <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
-                                        {feishuConnected
-                                            ? (lang === 'zh' ? '飞书导出会写入你自己的飞书空间。FluentFlow 不会在前端显示或返回 token。' : 'Feishu exports write into your own Feishu space. FluentFlow never shows or returns tokens in the frontend.')
-                                            : (lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间，而不是维护者空间。' : 'Connect your Feishu account first so exports go to your own space, not a maintainer workspace.')}
-                                    </p>
-                                    {feishuConnection?.connected_at && (
-                                        <p className="mt-2 text-[11px] font-semibold text-on-surface-variant">
-                                            {lang === 'zh' ? '连接时间：' : 'Connected: '}{feishuConnection.connected_at}
-                                        </p>
-                                    )}
-                                    {feishuConnectionFeedback && (
-                                        <p className="mt-2 text-[11px] font-semibold text-red-600 dark:text-red-300">
-                                            {feishuConnectionFeedback}
-                                        </p>
-                                    )}
-                                </div>
-                                <div className="flex flex-wrap gap-2 md:justify-end">
-                                    {feishuConnected ? (
-                                        <>
-                                            <button type="button" onClick={refreshFeishuConnection} disabled={feishuConnectionBusy} className="inline-flex h-10 items-center gap-1.5 rounded-[12px] border border-[#dedada] px-3 text-xs font-bold text-[#555] transition hover:bg-[#efeeee] disabled:opacity-40 dark:border-white/[0.12] dark:text-white/70 dark:hover:bg-white/[0.1]">
-                                                <SvgIcon name="refresh" className="text-sm"/>
-                                                {lang === 'zh' ? '刷新状态' : 'Refresh'}
-                                            </button>
-                                            <button type="button" onClick={disconnectFeishuAccount} disabled={feishuConnectionBusy} className="inline-flex h-10 items-center gap-1.5 rounded-[12px] border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:opacity-40 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20">
-                                                <SvgIcon name="close" className="text-sm"/>
-                                                {lang === 'zh' ? '断开连接' : 'Disconnect'}
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <button type="button" onClick={refreshFeishuConnection} disabled={feishuConnectionBusy || feishuConnectionStatus === 'loading'} className="inline-flex h-10 items-center gap-1.5 rounded-[12px] border border-[#dedada] px-3 text-xs font-bold text-[#555] transition hover:bg-[#efeeee] disabled:opacity-40 dark:border-white/[0.12] dark:text-white/70 dark:hover:bg-white/[0.1]">
-                                                <SvgIcon name="refresh" className="text-sm"/>
-                                                {lang === 'zh' ? '重新检查' : 'Recheck'}
-                                            </button>
-                                            <button type="button" onClick={connectFeishu} disabled={feishuConnectionBusy} className="inline-flex h-10 items-center gap-1.5 rounded-[12px] bg-[#111111] px-4 text-xs font-bold text-white transition hover:bg-[#2a2a2a] disabled:opacity-40 dark:bg-white dark:text-[#111111] dark:hover:bg-white/85">
-                                                <SvgIcon name={feishuConnectionBusy ? 'sync' : 'cloud_done'} className={`text-sm ${feishuConnectionBusy ? 'animate-spin' : ''}`}/>
-                                                {lang === 'zh' ? '连接飞书账号' : 'Connect Feishu'}
-                                            </button>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
 
                             {larkExports.length > 0 && (
                                 <div className={`md:col-span-2 ${cellBase}`}>

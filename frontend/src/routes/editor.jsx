@@ -858,8 +858,10 @@ const Editor = () => {
             const nextUrl = `${window.location.pathname || '/editor'}${window.location.search || ''}`;
             const data = await startFeishuOAuth(nextUrl);
             window.location.assign(data.authorize_url);
-        } catch (err) {
-            showToast(`${lang === 'zh' ? '连接飞书失败' : 'Feishu connection failed'}: ${err.message || String(err)}`, false);
+        } catch {
+            showToast(lang === 'zh'
+                ? '飞书连接暂不可用，请下载 Markdown，或稍后再试。'
+                : 'Feishu connection is unavailable. Download Markdown or try again later.', false);
             setFeishuExportConnecting(false);
         }
     };

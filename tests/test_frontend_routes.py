@@ -839,13 +839,15 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     assert "getFeishuConnection" in shared
     assert "startFeishuOAuth" in shared
     assert "disconnectFeishu" in shared
-    assert "连接飞书账号" in settings
-    assert "Feishu exports write into your own Feishu space" in settings
+    assert "连接飞书账号" not in settings
+    assert "getFeishuConnection" not in settings
     assert "larkExportRoute === LARK_EXPORT_ROUTE_OPENAPI" in settings
     assert "isUserOAuthLarkExportRoute(larkExportRoute)" in editor
     assert "setFeishuExportPromptOpen(true)" in editor
+    assert "飞书连接暂不可用" in editor
     assert "err?.status === 409" in editor
     assert "当前导出路线会写入你自己的飞书空间" in editor_dialogs
+    assert 'to="/settings#export"' not in editor_dialogs
 
 
 def test_task_record_pages_isolate_account_cache_state() -> None:

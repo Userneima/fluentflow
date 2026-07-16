@@ -1,7 +1,6 @@
 // Presentational dialog/modal components extracted from editor.jsx.
 // Each component renders the modal body only; the caller keeps the open-state
 // toggle ({flag && <Dialog .../>}) so state stays in the Editor component.
-import {Link} from 'react-router-dom';
 import SvgIcon from '../components/SvgIcon.jsx';
 import {fmtTime, useI18n} from '../app/shared.jsx';
 
@@ -38,14 +37,6 @@ export const FeishuExportPrompt = ({onCancel, onConnect, connecting}) => {
                     >
                         {t('edit.cancel')}
                     </button>
-                    <Link
-                        to="/settings#export"
-                        onClick={onCancel}
-                        className="inline-flex items-center justify-center gap-2 rounded-[13px] border border-[#dedada] px-4 py-2 text-sm font-bold text-[#111111] transition hover:bg-[#efeeee] dark:border-white/[0.12] dark:text-white dark:hover:bg-white/[0.10]"
-                    >
-                        <SvgIcon name="settings" className="text-base"/>
-                        {lang === 'zh' ? '去设置页' : 'Open Settings'}
-                    </Link>
                     <button
                         type="button"
                         onClick={onConnect}
