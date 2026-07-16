@@ -76,8 +76,10 @@ LARK_OPEN_BASE_URL=https://open.feishu.cn
 
 ```bash
 FLUENTFLOW_AUTH_MODE=accounts
+FLUENTFLOW_DATA_DIR=/var/lib/fluentflow
 FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
 FLUENTFLOW_JOB_DB_PATH=/var/lib/fluentflow/fluentflow_jobs.sqlite
+FLUENTFLOW_EVENT_DB_PATH=/var/lib/fluentflow/fluentflow_events.sqlite
 FLUENTFLOW_SESSION_DAYS=30
 ```
 

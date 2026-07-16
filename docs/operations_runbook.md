@@ -105,7 +105,10 @@ FLUENTFLOW_AUTH_MODE=accounts
 PORT=8000
 FLUENTFLOW_PUBLIC_MODE=1
 FLUENTFLOW_AUTH_MODE=accounts
+FLUENTFLOW_DATA_DIR=/var/lib/fluentflow
 FLUENTFLOW_ACCOUNT_DB_PATH=/var/lib/fluentflow/fluentflow_accounts.sqlite
+FLUENTFLOW_JOB_DB_PATH=/var/lib/fluentflow/fluentflow_jobs.sqlite
+FLUENTFLOW_EVENT_DB_PATH=/var/lib/fluentflow/fluentflow_events.sqlite
 ```
 
 ### ElevenLabs Scribe

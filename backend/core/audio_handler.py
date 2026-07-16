@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 AUDIO_SUFFIXES = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus", ".webm"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".ts", ".m4v"}
+SILENCE_PEAK_THRESHOLD_DB = -80.0
 
 
 def _is_audio_file(path: Path) -> bool:
@@ -19,6 +21,29 @@ def _require_ffmpeg() -> str:
     if not ffmpeg:
         raise RuntimeError("ffmpeg not found on PATH; it is required for audio processing")
     return ffmpeg
+
+
+def require_audible_audio(audio_path: str | Path) -> float:
+    """Return the audio peak level or reject a digitally silent STT input."""
+    path = Path(audio_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+
+    ffmpeg = _require_ffmpeg()
+    completed = subprocess.run(
+        [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    match = re.search(r"max_volume:\s*(-?(?:\d+(?:\.\d+)?|inf))\s*dB", completed.stderr)
+    if not match:
+        raise RuntimeError("无法检测音频响度，请重新提交媒体文件。")
+
+    peak_db = float(match.group(1))
+    if peak_db <= SILENCE_PEAK_THRESHOLD_DB:
+        raise RuntimeError("音频中没有检测到可转录的声音，请确认录制时包含系统声音或麦克风声音后重新提交。")
+    return peak_db
 
 
 def extract_compressed_mp3(

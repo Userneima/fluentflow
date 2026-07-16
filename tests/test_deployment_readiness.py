@@ -12,8 +12,10 @@ SECRET_ENV_KEYS = (
     "FLUENTFLOW_AUTH_MODE",
     "FLUENTFLOW_ACCOUNT_AUTH",
     "FLUENTFLOW_ALLOW_SIGNUPS",
+    "FLUENTFLOW_DATA_DIR",
     "FLUENTFLOW_ACCOUNT_DB_PATH",
     "FLUENTFLOW_JOB_DB_PATH",
+    "FLUENTFLOW_EVENT_DB_PATH",
     "FLUENTFLOW_ACCESS_TOKEN",
     "FLUENTFLOW_ACCESS_TOKENS",
     "FLUENTFLOW_ALLOWED_STT_PROVIDERS",
@@ -55,12 +57,14 @@ def _isolate_machine_state(monkeypatch, tmp_path: Path) -> None:
 
 
 def _set_storage_dirs(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("FLUENTFLOW_DATA_DIR", str(tmp_path / "runtime"))
     monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
     monkeypatch.setenv("FLUENTFLOW_ARTIFACT_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("FLUENTFLOW_EDITED_TRANSCRIPT_DIR", str(tmp_path / "edited"))
     monkeypatch.setenv("FLUENTFLOW_TRANSCRIPT_EDIT_RECORDS_DIR", str(tmp_path / "edit-records"))
     monkeypatch.setenv("FLUENTFLOW_VIDEO_SOURCE_DIR", str(tmp_path / "video-sources"))
     monkeypatch.setenv("FLUENTFLOW_JOB_DB_PATH", str(tmp_path / "jobs" / "fluentflow_jobs.sqlite"))
+    monkeypatch.setenv("FLUENTFLOW_EVENT_DB_PATH", str(tmp_path / "events" / "fluentflow_events.sqlite"))
 
 
 def _status_by_name(payload: dict, name: str) -> str:
@@ -103,6 +107,26 @@ def test_deployment_readiness_passes_core_cloud_configuration(monkeypatch, tmp_p
     assert _status_by_name(payload, "elevenlabs_credentials") == "pass"
     assert "elevenlabs-key" not in str(payload)
     assert "deepseek-key" not in str(payload)
+
+
+def test_deployment_readiness_rejects_implicit_cloud_job_and_event_storage(monkeypatch, tmp_path: Path) -> None:
+    _clear_env(monkeypatch)
+    _isolate_machine_state(monkeypatch, tmp_path)
+    _set_storage_dirs(monkeypatch, tmp_path)
+    monkeypatch.delenv("FLUENTFLOW_DATA_DIR")
+    monkeypatch.delenv("FLUENTFLOW_JOB_DB_PATH")
+    monkeypatch.delenv("FLUENTFLOW_EVENT_DB_PATH")
+    monkeypatch.setenv("FLUENTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.setenv("FLUENTFLOW_ACCESS_TOKEN", "beta-code")
+    monkeypatch.setenv("FLUENTFLOW_ALLOWED_STT_PROVIDERS", "elevenlabs_scribe")
+    monkeypatch.setenv("FLUENTFLOW_DEFAULT_STT_PROVIDER", "elevenlabs_scribe")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "elevenlabs-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+
+    payload = run_checks()
+
+    assert payload["status"] == "fail"
+    assert _status_by_name(payload, "runtime_storage_configuration") == "fail"
 
 
 def test_deployment_readiness_passes_visual_note_screenshots_with_dashscope(monkeypatch, tmp_path: Path) -> None:
