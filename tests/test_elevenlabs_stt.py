@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from backend.core.elevenlabs_stt import parse_scribe_transcription_result
 
 
@@ -26,3 +28,8 @@ def test_parse_scribe_result_builds_segments_with_speakers() -> None:
     assert result.segments[0].text == "你好世界。"
     assert result.segments[0].speaker == "SPEAKER_0"
     assert result.segments[1].speaker == "SPEAKER_1"
+
+
+def test_parse_scribe_result_rejects_empty_provider_response() -> None:
+    with pytest.raises(RuntimeError, match="returned no usable speech"):
+        parse_scribe_transcription_result({"text": "", "words": []})
