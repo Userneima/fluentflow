@@ -78,6 +78,7 @@ def _public_session(session: dict[str, Any]) -> dict[str, Any]:
         "part_size_bytes": session["part_size_bytes"],
         "expected_parts": math.ceil(session["content_length"] / session["part_size_bytes"]),
         "expires_at": session["expires_at"],
+        "task_id": session.get("task_id"),
     }
 
 
@@ -223,7 +224,8 @@ async def sign_oss_upload_parts(
 @router.post("/oss-upload-sessions/{session_id}/complete")
 async def complete_oss_upload_session(request: Request, session_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     config = _ready_config()
-    session = _active_session_or_error(get_oss_upload_session(session_id, owner_scope=_account_owner_scope(request)))
+    owner_scope = _account_owner_scope(request)
+    session = _active_session_or_error(get_oss_upload_session(session_id, owner_scope=owner_scope))
     expected_parts = math.ceil(session["content_length"] / session["part_size_bytes"])
     parts = _completed_parts(payload, expected_parts)
     gateway: Any | None = None
@@ -249,7 +251,77 @@ async def complete_oss_upload_session(request: Request, session_id: str, payload
     if actual_length != session["content_length"]:
         await _fail_completed_upload(gateway, session, reason="oss_completed_size_mismatch")
         raise HTTPException(status_code=422, detail="Uploaded object size could not be verified")
-    completed = mark_oss_upload_session_completed(session_id)
+    raw_options = payload.get("options")
+    if raw_options is not None and not isinstance(raw_options, dict):
+        await _fail_completed_upload(gateway, session, reason="invalid_queue_options")
+        raise HTTPException(status_code=400, detail="options must be an object")
+    options = H._queue_options_from_mapping(raw_options)
+    source_file_size_mb = H._file_size_mb(session["content_length"])
+    task_id = H._new_task_id()
+    source_type = H._source_type_for_suffix(Path(session["source_filename"]).suffix.lower())
+    try:
+        H._enforce_active_job_limit(owner_scope, incoming=1)
+        H._enforce_global_active_job_limit(incoming=1)
+        H._enforce_daily_quota(owner_scope, incoming_jobs=1, incoming_upload_mb=source_file_size_mb)
+        H._enforce_global_daily_quota(
+            client_id=owner_scope,
+            incoming_jobs=1,
+            incoming_upload_mb=source_file_size_mb,
+        )
+        metadata = H._metadata(
+            route="/oss-upload-sessions",
+            source_storage="oss",
+            oss_upload_session_id=session_id,
+            queue_options=options,
+        )
+        H.log_event(
+            task_id=task_id,
+            event_name="source_uploaded",
+            source_type=source_type,
+            source_filename=session["source_filename"],
+            source_file_size_mb=source_file_size_mb,
+            stage="source_download",
+            success=True,
+            metadata=metadata,
+        )
+        H.upsert_job(
+            task_id=task_id,
+            status="queued",
+            client_id=owner_scope,
+            stage="source_download",
+            progress=0,
+            source_type=source_type,
+            source_filename=session["source_filename"],
+            source_file_size_mb=source_file_size_mb,
+            metadata=metadata,
+        )
+        H._enqueue_oss_source_download({
+            "task_id": task_id,
+            "object_key": session["object_key"],
+            "expected_size_bytes": session["content_length"],
+            "filename": session["source_filename"],
+            "options": options,
+            "base_url": H._queue_base_url_from_request(request),
+            "client_id": owner_scope,
+            "oss_upload_session_id": session_id,
+            "route": "/oss-upload-sessions",
+        })
+    except HTTPException:
+        await _fail_completed_upload(gateway, session, reason="oss_post_upload_guard_rejected")
+        raise
+    except Exception as exc:
+        if task_id:
+            H.upsert_job(
+                task_id=task_id,
+                status="failed",
+                client_id=owner_scope,
+                stage="source_download",
+                progress=0,
+                error_reason="上传已验证，但无法加入处理队列。请重新提交。",
+            )
+        await _fail_completed_upload(gateway, session, reason="oss_queue_setup_failed")
+        raise _oss_failure("queue", session_id, exc) from exc
+    completed = mark_oss_upload_session_completed(session_id, task_id=task_id)
     return {"ok": True, "session": _public_session(completed or session)}
 
 

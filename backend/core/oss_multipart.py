@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Iterable, Protocol
 
 from backend.core.oss_config import OssDirectUploadConfig
@@ -32,6 +33,8 @@ class OssMultipartGateway(Protocol):
     def abort(self, *, object_key: str, upload_id: str) -> None: ...
 
     def delete(self, *, object_key: str) -> None: ...
+
+    def download_to_file(self, *, object_key: str, target_path: Path) -> int: ...
 
 
 class AlibabaOssMultipartGateway:
@@ -116,6 +119,17 @@ class AlibabaOssMultipartGateway:
 
     def delete(self, *, object_key: str) -> None:
         self._client.delete_object(self._oss.DeleteObjectRequest(bucket=self._bucket, key=object_key))
+
+    def download_to_file(self, *, object_key: str, target_path: Path) -> int:
+        """Write the response body incrementally so large media never enters RAM."""
+
+        result = self._client.get_object(self._oss.GetObjectRequest(bucket=self._bucket, key=object_key))
+        total = 0
+        with result.body as body_stream, target_path.open("wb") as target:
+            while chunk := body_stream.read(1024 * 1024):
+                target.write(chunk)
+                total += len(chunk)
+        return total
 
 
 def build_oss_multipart_gateway(config: OssDirectUploadConfig) -> OssMultipartGateway:

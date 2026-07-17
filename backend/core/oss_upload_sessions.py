@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS oss_upload_sessions (
     content_length INTEGER NOT NULL,
     part_size_bytes INTEGER NOT NULL,
     upload_id TEXT,
+    task_id TEXT,
     status TEXT NOT NULL,
     error_reason TEXT,
     created_at REAL NOT NULL,
@@ -57,6 +58,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "content_length": int(row["content_length"]),
         "part_size_bytes": int(row["part_size_bytes"]),
         "upload_id": row["upload_id"],
+        "task_id": row["task_id"],
         "status": row["status"],
         "error_reason": row["error_reason"],
         "created_at": _timestamp_to_iso(row["created_at"]),
@@ -73,6 +75,9 @@ def ensure_oss_upload_session_db(db_path: Path | str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA_SQL)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(oss_upload_sessions)").fetchall()}
+        if "task_id" not in columns:
+            conn.execute("ALTER TABLE oss_upload_sessions ADD COLUMN task_id TEXT")
 
 
 def _expire_open_sessions(conn: sqlite3.Connection, now: float) -> None:
@@ -178,8 +183,19 @@ def fail_oss_upload_session(
     return _update_oss_upload_session(session_id, status="failed", error_reason=reason, db_path=db_path)
 
 
-def complete_oss_upload_session(session_id: str, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
-    return _update_oss_upload_session(session_id, status="completed", completed_at=time.time(), db_path=db_path)
+def complete_oss_upload_session(
+    session_id: str,
+    *,
+    task_id: str,
+    db_path: Path | str | None = None,
+) -> dict[str, Any] | None:
+    return _update_oss_upload_session(
+        session_id,
+        status="completed",
+        task_id=task_id,
+        completed_at=time.time(),
+        db_path=db_path,
+    )
 
 
 def abort_oss_upload_session(session_id: str, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
@@ -191,6 +207,7 @@ def _update_oss_upload_session(
     *,
     status: str,
     upload_id: str | None = None,
+    task_id: str | None = None,
     error_reason: str | None = None,
     completed_at: float | None = None,
     aborted_at: float | None = None,
@@ -204,11 +221,12 @@ def _update_oss_upload_session(
         conn.execute(
             """
             UPDATE oss_upload_sessions
-            SET status = ?, upload_id = COALESCE(?, upload_id), error_reason = COALESCE(?, error_reason),
+            SET status = ?, upload_id = COALESCE(?, upload_id), task_id = COALESCE(?, task_id),
+                error_reason = COALESCE(?, error_reason),
                 completed_at = COALESCE(?, completed_at), aborted_at = COALESCE(?, aborted_at), updated_at = ?
             WHERE session_id = ?
             """,
-            (status, upload_id, error_reason, completed_at, aborted_at, now, session_id),
+            (status, upload_id, task_id, error_reason, completed_at, aborted_at, now, session_id),
         )
         row = conn.execute("SELECT * FROM oss_upload_sessions WHERE session_id = ?", (session_id,)).fetchone()
     return _row_to_dict(row) if row else None

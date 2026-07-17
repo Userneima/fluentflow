@@ -47,6 +47,10 @@ class FakeOssGateway:
     def delete(self, *, object_key: str) -> None:
         self.deleted.append(object_key)
 
+    def download_to_file(self, *, object_key, target_path) -> int:
+        target_path.write_bytes(b"x" * self.object_size)
+        return self.object_size
+
 
 def _enable_direct_upload(monkeypatch, tmp_path, gateway: FakeOssGateway) -> None:
     monkeypatch.setenv("FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED", "1")
@@ -55,9 +59,16 @@ def _enable_direct_upload(monkeypatch, tmp_path, gateway: FakeOssGateway) -> Non
     monkeypatch.setenv("FLUENTFLOW_OSS_BUCKET", "fluentflow-media-test")
     monkeypatch.setenv("FLUENTFLOW_OSS_ECS_RAM_ROLE", "FluentFlowOssUploadRole")
     monkeypatch.setenv("FLUENTFLOW_OSS_UPLOAD_SESSION_DB_PATH", str(tmp_path / "oss-sessions.sqlite"))
+    monkeypatch.setenv("FLUENTFLOW_JOB_DB_PATH", str(tmp_path / "jobs.sqlite"))
+    monkeypatch.setenv("FLUENTFLOW_EVENT_DB_PATH", str(tmp_path / "events.sqlite"))
     monkeypatch.setenv("FLUENTFLOW_MAX_UPLOAD_MB", "128")
     monkeypatch.setattr(helpers, "_require_account_user", lambda request: {"id": "account-a"})
     monkeypatch.setattr(oss_uploads, "build_oss_multipart_gateway", lambda config: gateway)
+    monkeypatch.setattr(helpers, "_enqueue_oss_source_download", lambda item: None)
+    monkeypatch.setattr(helpers, "_enforce_active_job_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(helpers, "_enforce_global_active_job_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(helpers, "_enforce_daily_quota", lambda *args, **kwargs: None)
+    monkeypatch.setattr(helpers, "_enforce_global_daily_quota", lambda *args, **kwargs: None)
     helpers._SUBMISSION_RATE_EVENTS.clear()
 
 
@@ -155,8 +166,102 @@ def test_multipart_session_signs_parts_and_verifies_completed_object(tmp_path, m
 
     assert completed.status_code == 200
     assert completed.json()["session"]["status"] == "completed"
+    assert completed.json()["session"]["task_id"]
     assert gateway.signed == [2, 1]
     assert gateway.completed == [[(1, "etag-one"), (2, "etag-two")]]
+
+
+def test_completed_upload_creates_an_account_scoped_download_job(tmp_path, monkeypatch) -> None:
+    file_size = 32 * 1024 * 1024
+    gateway = FakeOssGateway(object_size=file_size)
+    _enable_direct_upload(monkeypatch, tmp_path, gateway)
+    jobs: list[dict] = []
+    events: list[dict] = []
+    enqueued: list[dict] = []
+    monkeypatch.setattr(helpers, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(helpers, "log_event", lambda **kwargs: events.append(kwargs))
+    monkeypatch.setattr(helpers, "_enqueue_oss_source_download", lambda item: enqueued.append(item))
+
+    with TestClient(main.app) as client:
+        created = client.post(
+            "/oss-upload-sessions",
+            json={"filename": "lesson.mp4", "content_length": file_size, "content_type": "video/mp4"},
+        )
+        session_id = created.json()["session"]["session_id"]
+        completed = client.post(
+            f"/oss-upload-sessions/{session_id}/complete",
+            json={
+                "parts": [{"part_number": 1, "etag": "etag-one"}],
+                "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
+            },
+        )
+        stored = client.get(f"/oss-upload-sessions/{session_id}")
+
+    assert completed.status_code == 200
+    task_id = completed.json()["session"]["task_id"]
+    assert task_id
+    assert stored.json()["session"]["task_id"] == task_id
+    queued_job = next(job for job in jobs if job["task_id"] == task_id)
+    assert queued_job == {
+        "task_id": task_id,
+        "status": "queued",
+        "client_id": "user:account-a",
+        "stage": "source_download",
+        "progress": 0,
+        "source_type": "video",
+        "source_filename": "lesson.mp4",
+        "source_file_size_mb": 32.0,
+        "metadata": {
+            "event_schema_version": helpers.EVENT_SCHEMA_VERSION,
+            "app_version": helpers.APP_VERSION,
+            "route": "/oss-upload-sessions",
+            "source_storage": "oss",
+            "oss_upload_session_id": session_id,
+            "queue_options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
+        },
+    }
+    assert any(event["event_name"] == "source_uploaded" and event["task_id"] == task_id for event in events)
+    assert enqueued == [
+        {
+            "task_id": task_id,
+            "object_key": gateway.initiated[0][0],
+            "expected_size_bytes": file_size,
+            "filename": "lesson.mp4",
+            "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
+            "base_url": "http://testserver",
+            "client_id": "user:account-a",
+            "oss_upload_session_id": session_id,
+            "route": "/oss-upload-sessions",
+        }
+    ]
+
+
+def test_post_upload_admission_rejection_cleans_up_completed_object(tmp_path, monkeypatch) -> None:
+    file_size = 32 * 1024 * 1024
+    gateway = FakeOssGateway(object_size=file_size)
+    _enable_direct_upload(monkeypatch, tmp_path, gateway)
+
+    def reject(*args, **kwargs):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=429, detail="queue full")
+
+    monkeypatch.setattr(helpers, "_enforce_active_job_limit", reject)
+    with TestClient(main.app) as client:
+        created = client.post(
+            "/oss-upload-sessions",
+            json={"filename": "lesson.mp4", "content_length": file_size, "content_type": "video/mp4"},
+        )
+        session_id = created.json()["session"]["session_id"]
+        response = client.post(
+            f"/oss-upload-sessions/{session_id}/complete",
+            json={"parts": [{"part_number": 1, "etag": "etag-one"}]},
+        )
+        stored = client.get(f"/oss-upload-sessions/{session_id}")
+
+    assert response.status_code == 429
+    assert gateway.deleted
+    assert stored.json()["session"]["status"] == "failed"
 
 
 def test_completed_size_mismatch_deletes_object_and_marks_session_failed(tmp_path, monkeypatch) -> None:

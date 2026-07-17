@@ -248,6 +248,9 @@ async def beta_access_middleware(request: Request, call_next):
 from backend.core.audio_handler import extract_compressed_mp3, extract_stt_wav
 from backend.core.frame_extractor import extract_candidate_frames
 from backend.core.media_preflight import preflight_media_file
+from backend.core.oss_config import oss_direct_upload_config
+from backend.core.oss_multipart import build_oss_multipart_gateway
+from backend.core.oss_source_materializer import materialize_oss_source
 from backend.core.keyframe_provider import extract_keyframes
 from backend.core.visual_evidence import build_visual_evidence_from_note_images, build_visual_key_moments, inject_visual_evidence_references, rewrite_note_image_references
 from backend.core.local_stt import transcribe_audio, get_or_load_model
@@ -2085,6 +2088,24 @@ def _enqueue_transcription_job(item: dict[str, Any]) -> None:
         _ensure_queue_worker_started_locked()
 
 
+def _enqueue_oss_source_download(item: dict[str, Any]) -> None:
+    task_id = str(item.get("task_id") or "")
+    if not task_id:
+        return
+    enqueue_job_step(
+        task_id=task_id,
+        step_type="oss_source_download",
+        input=dict(item),
+        step_key=f"{task_id}:oss_source_download",
+        priority=90,
+        max_attempts=1,
+    )
+    with _QUEUE_LOCK:
+        _QUEUED_TASK_IDS.add(task_id)
+        _TRANSCRIPTION_QUEUE.put({"wake": "oss_source_download", "task_id": task_id})
+        _ensure_queue_worker_started_locked()
+
+
 def _queue_status_snapshot() -> dict[str, Any]:
     with _QUEUE_LOCK:
         queued_task_ids = sorted(_QUEUED_TASK_IDS)
@@ -2131,7 +2152,7 @@ def _queue_worker_loop() -> None:
         try:
             while True:
                 step = acquire_next_job_step(
-                    step_types=("video_source", "transcription"),
+                    step_types=("video_source", "oss_source_download", "transcription"),
                     lock_timeout_seconds=_queue_step_lease_seconds(),
                 )
                 if not step:
@@ -2204,6 +2225,9 @@ def _run_job_step(step: dict[str, Any]) -> None:
     if step_type == "video_source":
         _run_video_source_job(item)
         return
+    if step_type == "oss_source_download":
+        _run_oss_source_download(item)
+        return
     raise RuntimeError(f"Unsupported background step type: {step_type}")
 
 
@@ -2213,12 +2237,16 @@ def _handle_step_failure(step: dict[str, Any], exc: Exception) -> None:
     if not task_id:
         return
     friendly_error = _friendly_error_message(exc)
-    if str(step.get("step_type") or "") == "transcription":
+    if str(step.get("step_type") or "") in {"oss_source_download", "transcription"}:
         _release_task_quota(
             client_id=_normalize_client_scope(str(item.get("client_id") or "")),
             task_id=task_id,
             reason="Queued processing failed before completion",
-            metadata={"route": "/queue/process", "stage": "queued", "raw_error": str(exc)},
+            metadata={
+                "route": str(item.get("route") or "/queue/process"),
+                "stage": str(step.get("step_type") or "queued"),
+                "raw_error": str(exc),
+            },
         )
     upsert_job(
         task_id=task_id,
@@ -2232,6 +2260,119 @@ def _handle_step_failure(step: dict[str, Any], exc: Exception) -> None:
         task_id,
         {"stage": "error", "progress": 0, "error": friendly_error},
     )
+
+
+def _run_oss_source_download(item: dict[str, Any]) -> None:
+    """Fetch a verified direct-upload source to disk, then use the normal queue."""
+
+    task_id = str(item.get("task_id") or "")
+    object_key = str(item.get("object_key") or "")
+    filename = str(item.get("filename") or "")
+    client_id = _normalize_client_scope(str(item.get("client_id") or ""))
+    options = dict(item.get("options") or {})
+    try:
+        expected_size_bytes = int(item.get("expected_size_bytes") or 0)
+    except (TypeError, ValueError):
+        expected_size_bytes = 0
+    if not task_id or not object_key or not filename or expected_size_bytes <= 0:
+        raise RuntimeError("OSS queued task is missing source metadata")
+
+    job = get_job(task_id)
+    if job and job.get("status") in {"completed", "failed", "cancelled"}:
+        return
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES or suffix in TRANSCRIPT_SUFFIXES:
+        raise RuntimeError("OSS queued task has an unsupported source type")
+    config = oss_direct_upload_config()
+    if not config.ready:
+        raise RuntimeError("OSS direct upload configuration is unavailable")
+
+    source_type = _source_type_for_suffix(suffix)
+    source_file_size_mb = _file_size_mb(expected_size_bytes)
+    upsert_job(
+        task_id=task_id,
+        status="running",
+        client_id=client_id,
+        stage="source_download",
+        progress=0,
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+    )
+    _publish_job_event_from_thread(task_id, {"stage": "source_download", "progress": 0})
+
+    gateway = build_oss_multipart_gateway(config)
+    source_path = materialize_oss_source(
+        gateway,
+        task_id=task_id,
+        object_key=object_key,
+        suffix=suffix,
+        expected_size_bytes=expected_size_bytes,
+    )
+    try:
+        media_preflight = preflight_media_file(source_path)
+    except Exception:
+        _remove_tree(source_path.parent)
+        raise
+
+    quota_estimate = _estimate_processing_units(
+        duration_seconds=media_preflight.duration_seconds or _media_duration_seconds(source_path),
+        skip_summary=_truthy_form(options.get("skip_summary")),
+        estimate_only=True,
+    )
+    try:
+        quota_reservation = _reserve_task_quota(
+            client_id=client_id,
+            task_id=task_id,
+            estimate=quota_estimate,
+            reason="OSS direct-upload processing reservation",
+        )
+    except Exception:
+        _remove_tree(source_path.parent)
+        raise
+    metadata = _job_metadata_for_update(
+        task_id,
+        client_id,
+        route="/oss-upload-sessions",
+        source_storage="oss",
+        oss_upload_session_id=item.get("oss_upload_session_id"),
+        queue_options=options,
+        source_path=str(source_path),
+        media_preflight={"status": "passed", **media_preflight.as_metadata()},
+        quota=quota_reservation,
+        quota_estimate=quota_estimate,
+    )
+    log_event(
+        task_id=task_id,
+        event_name="source_queued",
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="queued",
+        success=True,
+        metadata=metadata,
+    )
+    upsert_job(
+        task_id=task_id,
+        status="queued",
+        client_id=client_id,
+        stage="queued",
+        progress=0,
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        metadata=metadata,
+    )
+    _enqueue_transcription_job({
+        "task_id": task_id,
+        "source_path": str(source_path),
+        "filename": filename,
+        "options": options,
+        "base_url": str(item.get("base_url") or _queue_base_url_from_request()),
+        "client_id": client_id,
+        "route": "/oss-upload-sessions",
+    })
 
 
 def _run_queued_transcription(item: dict[str, Any]) -> None:

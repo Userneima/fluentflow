@@ -160,9 +160,9 @@ ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插
 
 ### 预留：OSS 直传配置
 
-当前版本仍由 Nginx / FastAPI 接收上传；`FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED` 默认是 `0`，只加入了部署自检，不会改变现有链路。后续上线浏览器分片直传时，才同时设置私有 Bucket 的地域、Endpoint、Bucket 名称、对象前缀和该开关，并确认 ECS 已绑定最小权限的 RAM 角色。
+当前版本仍由 Nginx / FastAPI 接收上传；`FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED` 默认是 `0`，不会改变现有链路。服务端已具备上传会话、对象大小复核和从 OSS 分块落盘后接入现有队列的控制面；它始终使用 ECS RAM 临时凭证，不保留长期 AccessKey。
 
-不要在 RAM 角色、上传会话 API、浏览器端分片上传和 OSS CORS 均未完成前把开关设为 `1`。Bucket 中 `uploads/source/` 应配置为最后修改后 7 天删除，未完成分片 1 天清理；这属于 OSS 配置，不写入仓库环境模板。
+不要在 RAM 角色、浏览器端分片上传、精确 OSS CORS 规则和端到端验收均完成前把开关设为 `1`。Bucket 中 `uploads/source/` 应配置为最后修改后 7 天删除，未完成分片 1 天清理；这属于 OSS 配置，不写入仓库环境模板。上传会话目前不是 Agent API / MCP 工作流，也不应在未完成前端接入前向用户暴露。
 
 ## 4. 备份与恢复
 
