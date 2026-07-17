@@ -15,6 +15,7 @@ def test_default_runtime_paths_use_system_app_data(monkeypatch, tmp_path: Path) 
 
     assert runtime_paths.app_data_root() == root
     assert runtime_paths.default_job_db_path() == root / "fluentflow_jobs.sqlite"
+    assert runtime_paths.default_oss_upload_session_db_path() == root / "fluentflow_oss_upload_sessions.sqlite"
     assert runtime_paths.default_artifact_dir() == root / "artifacts"
 
 
@@ -26,6 +27,7 @@ def test_runtime_paths_use_data_dir_override(monkeypatch, tmp_path: Path) -> Non
     assert runtime_paths.app_data_root() == tmp_path / "fluentflow-data"
     assert runtime_paths.default_source_dir() == tmp_path / "fluentflow-data" / "sources"
     assert runtime_paths.default_job_db_path() == tmp_path / "fluentflow-data" / "fluentflow_jobs.sqlite"
+    assert runtime_paths.default_oss_upload_session_db_path() == tmp_path / "fluentflow-data" / "fluentflow_oss_upload_sessions.sqlite"
 
 
 def test_specific_runtime_path_env_override_wins(monkeypatch, tmp_path: Path) -> None:

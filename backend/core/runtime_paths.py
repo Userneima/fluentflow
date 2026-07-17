@@ -47,6 +47,10 @@ def default_job_db_path() -> Path:
     return runtime_path("FLUENTFLOW_JOB_DB_PATH", "fluentflow_jobs.sqlite")
 
 
+def default_oss_upload_session_db_path() -> Path:
+    return runtime_path("FLUENTFLOW_OSS_UPLOAD_SESSION_DB_PATH", "fluentflow_oss_upload_sessions.sqlite")
+
+
 def default_account_db_path() -> Path:
     return runtime_path("FLUENTFLOW_ACCOUNT_DB_PATH", "fluentflow_accounts.sqlite")
 

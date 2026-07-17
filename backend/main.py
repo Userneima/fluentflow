@@ -43,6 +43,7 @@ from backend.routers.guest_trial import router as guest_trial_router
 from backend.routers.jobs import router as jobs_router
 from backend.routers.video_sources import router as video_sources_router
 from backend.routers.processing import router as processing_router
+from backend.routers.oss_uploads import router as oss_uploads_router
 from backend.routers.config import router as config_router
 from backend.routers.events import router as events_router
 from backend.routers.agent import router as agent_router
@@ -56,6 +57,7 @@ app.include_router(guest_trial_router)
 app.include_router(jobs_router)
 app.include_router(video_sources_router)
 app.include_router(processing_router)
+app.include_router(oss_uploads_router)
 app.include_router(config_router)
 app.include_router(events_router)
 app.include_router(agent_router)
