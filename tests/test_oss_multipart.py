@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from io import BytesIO
 from types import SimpleNamespace
 
 from backend.core.oss_multipart import AlibabaOssMultipartGateway
@@ -18,10 +17,28 @@ class _FakeOss:
     GetObjectRequest = _Request
 
 
+class _StreamingBody:
+    def __init__(self, content: bytes):
+        self.content = content
+        self.block_sizes: list[int] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def iter_bytes(self, *, block_size: int):
+        self.block_sizes.append(block_size)
+        for offset in range(0, len(self.content), block_size):
+            yield self.content[offset:offset + block_size]
+
+
 class _FakeClient:
     def __init__(self, name: str):
         self.name = name
         self.calls: list[str] = []
+        self.body = _StreamingBody(b"oss")
 
     def initiate_multipart_upload(self, request):
         self.calls.append("initiate")
@@ -41,7 +58,7 @@ class _FakeClient:
 
     def get_object(self, request):
         self.calls.append("get")
-        return SimpleNamespace(body=BytesIO(b"oss"))
+        return SimpleNamespace(body=self.body)
 
 
 def _gateway_with_split_clients() -> tuple[AlibabaOssMultipartGateway, _FakeClient, _FakeClient]:
@@ -73,3 +90,4 @@ def test_browser_part_signing_uses_public_client_and_server_download_uses_intern
     assert target_path.read_bytes() == b"oss"
     assert public_client.calls == ["presign"]
     assert internal_client.calls == ["initiate", "head", "get"]
+    assert internal_client.body.block_sizes == [1024 * 1024]

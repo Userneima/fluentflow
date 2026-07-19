@@ -130,7 +130,7 @@ class AlibabaOssMultipartGateway:
         result = self._internal_client.get_object(self._oss.GetObjectRequest(bucket=self._bucket, key=object_key))
         total = 0
         with result.body as body_stream, target_path.open("wb") as target:
-            while chunk := body_stream.read(1024 * 1024):
+            for chunk in body_stream.iter_bytes(block_size=1024 * 1024):
                 target.write(chunk)
                 total += len(chunk)
         return total
