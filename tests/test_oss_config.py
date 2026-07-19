@@ -105,3 +105,17 @@ def test_oss_direct_upload_accepts_explicit_endpoint_pair_and_rejects_public_int
 
     assert invalid_config.ready is False
     assert "FLUENTFLOW_OSS_INTERNAL_ENDPOINT must differ from the browser public endpoint" in invalid_config.errors
+
+
+def test_oss_direct_upload_requires_an_explicit_enable_flag(monkeypatch) -> None:
+    _clear_oss_env(monkeypatch)
+    monkeypatch.setenv("FLUENTFLOW_OSS_REGION", "cn-hongkong")
+    monkeypatch.setenv("FLUENTFLOW_OSS_PUBLIC_ENDPOINT", "oss-cn-hongkong.aliyuncs.com")
+    monkeypatch.setenv("FLUENTFLOW_OSS_INTERNAL_ENDPOINT", "oss-cn-hongkong-internal.aliyuncs.com")
+    monkeypatch.setenv("FLUENTFLOW_OSS_BUCKET", "fluentflow-media-test")
+    monkeypatch.setenv("FLUENTFLOW_OSS_ECS_RAM_ROLE", "FluentFlowOssUploadRole")
+
+    config = oss_direct_upload_config()
+
+    assert config.enabled is False
+    assert config.ready is False

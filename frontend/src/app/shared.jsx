@@ -6,6 +6,7 @@ import {
     sanitizeSettings,
 } from '../lib/settingsModel.js';
 import { _dl } from '../lib/download.js';
+import { queueOptionsForOssUpload, uploadFilesToOssAndQueue } from '../lib/ossDirectUpload.js';
 
 /** API 根路径：线上与后端同域时用相对路径；本地前端单独跑在其它端口时指向本机 8000。 */
 export const API_BASE = (() => {
@@ -215,6 +216,11 @@ export const useApi = () => {
         if(options.sttLanguage) fd.append("stt_language", options.sttLanguage);
         if(options.speakerDiarization) fd.append("speaker_diarization", "true");
     };
+    const ossQueueOptions = (options={}) => queueOptionsForOssUpload(
+        options,
+        normalizeLarkExportRoute,
+        isLocalLarkExportRoute,
+    );
     const readSseResult = async (r, onProgress) => {
         const reader = r.body.getReader();
         const decoder = new TextDecoder();
@@ -261,7 +267,19 @@ export const useApi = () => {
     // and, critically, fail fast on a stalled connection instead of hanging the
     // UI forever. A watchdog aborts the request if no bytes move (and no server
     // response arrives) for `stallMs`.
-    const enqueueProcessFiles = (files, options={}, {onProgress, signal, stallMs=120000}={}) => new Promise((resolve, reject) => {
+    const enqueueProcessFiles = (files, options={}, {onProgress, signal, stallMs=120000}={}) => {
+        if (options.directOssUpload) {
+            return uploadFilesToOssAndQueue({
+                files,
+                options: ossQueueOptions(options),
+                apiBase: API_BASE,
+                fetcher: apiFetch,
+                onProgress,
+                signal,
+                stallMs,
+            });
+        }
+        return new Promise((resolve, reject) => {
         const fd = new FormData();
         Array.from(files || []).forEach((file) => fd.append("files", file));
         appendProcessOptions(fd, options);
@@ -299,8 +317,9 @@ export const useApi = () => {
         xhr.onerror = () => finish(() => reject(new Error("Upload failed. Please check the connection and try again.")));
         xhr.onabort = () => finish(() => reject(Object.assign(new Error("Upload cancelled."), {aborted: true})));
         if (signal) signal.addEventListener("abort", () => { try { xhr.abort(); } catch(_) {} });
-        xhr.send(fd);
-    });
+            xhr.send(fd);
+        });
+    };
     const guestHeaders = (token) => token ? {'X-FluentFlow-Guest-Token': token} : {};
     const getGuestTrialStatus = async (taskId=null, token=getGuestTrialToken()) => {
         const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : '';

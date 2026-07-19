@@ -60,6 +60,8 @@ const MediaText = () => {
         setLastSourceFile,
         addLarkExport,
         runtimeConfig,
+        setPendingUploadAbort,
+        abortPendingUpload,
     } = useApp();
     const {
         enqueueProcessFiles,
@@ -179,6 +181,9 @@ const MediaText = () => {
             const queueLabel = selectedFiles.length === 1
                 ? selectedFiles[0].name
                 : (lang === 'zh' ? `${selectedFiles.length} 个文件` : `${selectedFiles.length} files`);
+            const uploadController = new AbortController();
+            abortRef.current = uploadController;
+            setPendingUploadAbort(uploadController);
             setSubmitting(true);
             setLastSourceFile(null);
             const provisionalQueueItems = queueUploadItemsFromFiles(selectedFiles);
@@ -206,12 +211,14 @@ const MediaText = () => {
                     sttModel,
                     sttSpeed: settings.sttSpeed || 'balanced',
                     sttLanguage: 'auto',
+                    directOssUpload: runtimeConfig.directOssUpload,
                 }, {
                     onProgress: (pct) => setCurrentJob((prev) => (
                         prev && prev.queueUpload && !prev.queueSubmitted
                             ? {...prev, progress: Math.max(2, Math.min(99, pct))}
                             : prev
                     )),
+                    signal: uploadController.signal,
                 });
                 const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
                 setCurrentJob({
@@ -244,6 +251,10 @@ const MediaText = () => {
                     state: {queueSubmitError: submitError},
                 });
             } finally {
+                if (abortRef.current === uploadController) {
+                    abortRef.current = null;
+                    setPendingUploadAbort(null);
+                }
                 setSubmitting(false);
             }
             return;
@@ -447,10 +458,8 @@ const MediaText = () => {
             ? '取消当前正在上传或处理的任务？任务会中止，完整结果不会生成；如果任务已经进入队列，可到处理记录查看已取消记录。这不是删除历史记录。'
             : 'Cancel the current upload or processing task? The task will stop and a complete result will not be created. If it already entered the queue, you can check the cancelled record in Processing records. This does not delete history.';
         if (!window.confirm(confirmText)) return;
-        if (abortRef.current) {
-            abortRef.current.abort();
-            abortRef.current = null;
-        }
+        abortPendingUpload();
+        abortRef.current = null;
         if (currentJob?.guestTrial && currentJob.taskId) {
             try { await cancelGuestTrialJob(currentJob.taskId, currentJob.guestToken); } catch (err) { setUploadError(friendlyTaskError(err.message || String(err), lang)); }
         }

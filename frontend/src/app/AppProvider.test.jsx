@@ -86,4 +86,14 @@ describe('AppProvider task list wiring', () => {
         });
         expect(ctx.history.find((h) => h.taskId === 'b').status).toBe('processing');
     });
+
+    it('keeps an upload abort controller available across route changes', async () => {
+        await mount();
+        const controller = {abort: vi.fn()};
+        await act(async () => { ctx.setPendingUploadAbort(controller); });
+
+        expect(ctx.abortPendingUpload()).toBe(true);
+        expect(controller.abort).toHaveBeenCalledOnce();
+        expect(ctx.abortPendingUpload()).toBe(false);
+    });
 });

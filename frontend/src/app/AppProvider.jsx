@@ -45,9 +45,20 @@ export const AppProvider = ({children}) => {
     const accountCacheIdRef = useRef('local');
     const hydratedRef = useRef(false);
     const tombstonesRef = useRef(new Set());
+    const uploadAbortRef = useRef(null);
     // Ids the user cancelled locally; reconcile pins them to cancelled until the
     // backend poll agrees (replaces the per-page locallyCancelled set).
     const cancelledRef = useRef(new Set());
+    const setPendingUploadAbort = (controller) => {
+        uploadAbortRef.current = controller || null;
+    };
+    const abortPendingUpload = () => {
+        const controller = uploadAbortRef.current;
+        uploadAbortRef.current = null;
+        if (!controller) return false;
+        controller.abort();
+        return true;
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -77,6 +88,7 @@ export const AppProvider = ({children}) => {
         hydratedRef.current = false;
         tombstonesRef.current = new Set();
         cancelledRef.current = new Set();
+        abortPendingUpload();
         setCurrentJob(null);
         setLastResult(null);
         if (guestMode || !accountReady) {
@@ -210,6 +222,6 @@ export const AppProvider = ({children}) => {
         notesGenerated: history.filter(h => h.status==='completed').length,
     };
 
-    return <AppCtx.Provider value={{tasks,history,ingestJobs,markCancelled,revertCancelled,restoreTask,addToHistory,removeFromHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig}}>{children}</AppCtx.Provider>;
+    return <AppCtx.Provider value={{tasks,history,ingestJobs,markCancelled,revertCancelled,restoreTask,addToHistory,removeFromHistory,clearHistory,currentJob,setCurrentJob,lastResult,setLastResult,lastSourceFile,setLastSourceFile,stats,larkExports,addLarkExport,runtimeConfig,setPendingUploadAbort,abortPendingUpload}}>{children}</AppCtx.Provider>;
 };
 export const useApp = () => useContext(AppCtx);

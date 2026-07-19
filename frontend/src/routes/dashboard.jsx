@@ -483,6 +483,7 @@ const Dashboard = () => {
                     sttModel,
                     sttSpeed: settings.sttSpeed||'balanced',
                     sttLanguage: 'auto',
+                    directOssUpload: runtimeConfig.directOssUpload,
                 });
                 navigate('/agent', {state:{queueSubmittedAt: Date.now()}});
             } catch(err) {
@@ -524,6 +525,7 @@ const Dashboard = () => {
                     sttModel,
                     sttSpeed: settings.sttSpeed||'balanced',
                     sttLanguage: 'auto',
+                    directOssUpload: runtimeConfig.directOssUpload,
                 });
                 const queueItems = queueUploadItemsFromQueuedResponse(data?.queued, provisionalQueueItems);
                 setCurrentJob({

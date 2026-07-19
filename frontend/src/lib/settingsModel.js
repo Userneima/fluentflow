@@ -105,6 +105,7 @@ export const DEFAULT_RUNTIME_CONFIG = {
     showMaintainerSettings: true,
     guestTrial: {enabled: false},
     jobRetryFromStoredSource: false,
+    directOssUpload: false,
 };
 
 export const normalizeRuntimeConfig = (config={}) => {
@@ -126,6 +127,7 @@ export const normalizeRuntimeConfig = (config={}) => {
         limits: config.limits || {},
         guestTrial: config.guest_trial || config.limits?.guest_trial || DEFAULT_RUNTIME_CONFIG.guestTrial,
         jobRetryFromStoredSource: config.features?.job_retry_from_stored_source === true,
+        directOssUpload: config.features?.direct_oss_upload === true,
     };
 };
 

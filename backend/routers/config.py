@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
+from backend.core.oss_config import oss_direct_upload_config
 
 router = APIRouter()
 
@@ -26,6 +27,7 @@ def get_credentials_status() -> dict[str, Any]:
 @router.get("/runtime-config")
 def runtime_config(request: Request) -> dict[str, Any]:
     allowed = list(H._allowed_stt_providers(request))
+    oss_direct_upload = oss_direct_upload_config()
     return {
         "public_mode": H._public_mode_enabled(),
         "auth_mode": "accounts" if H._account_auth_enabled() else ("access_code" if H._access_control_enabled() else "open"),
@@ -36,6 +38,7 @@ def runtime_config(request: Request) -> dict[str, Any]:
         "guest_trial": H._guest_trial_config(),
         "features": {
             "job_retry_from_stored_source": True,
+            "direct_oss_upload": oss_direct_upload.ready and H._account_auth_enabled(),
         },
     }
 

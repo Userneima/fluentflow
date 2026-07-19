@@ -371,7 +371,7 @@ const statePillClass = (state) => {
     return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200';
 };
 
-const QueueUploadBanner = ({upload, lang}) => {
+const QueueUploadBanner = ({upload, lang, onCancel}) => {
     if (!upload?.queueUpload || upload?.queueSubmitted) return null;
     const count = Number(upload.queueTotal || 0) || 1;
     const progress = Math.max(0, Math.min(100, Number(upload.progress) || 2));
@@ -402,6 +402,10 @@ const QueueUploadBanner = ({upload, lang}) => {
                     <span className="rounded-full border border-blue-200 bg-white/70 px-3 py-1 text-[12px] font-extrabold tabular-nums text-blue-700 dark:border-blue-400/20 dark:bg-white/[0.08] dark:text-blue-100">
                         {progress}%
                     </span>
+                    <button type="button" onClick={onCancel} className="inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-red-200 bg-white/70 px-2.5 text-[12px] font-extrabold text-red-700 transition hover:bg-red-50 dark:border-red-400/30 dark:bg-white/[0.08] dark:text-red-200 dark:hover:bg-red-400/10">
+                        <XCircle className="size-3.5" strokeWidth={2.15}/>
+                        {lang === 'zh' ? '取消上传' : 'Cancel upload'}
+                    </button>
                 </div>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-white/[0.12]">
@@ -537,7 +541,7 @@ const AgentTasks = () => {
     // Read the shared task list + mutations from AppProvider; this page no
     // longer keeps a private jobs state, warm cache, or writes the cache
     // (plan Stage 3b).
-    const {currentJob, setCurrentJob, setLastResult, addToHistory, removeFromHistory, runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp();
+    const {currentJob, setCurrentJob, setLastResult, addToHistory, removeFromHistory, runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask, abortPendingUpload} = useApp();
     const {getJob, cancelJob, deleteJob, retryJob, createVideoSourceJob, fetchJobSourceFile, enqueueProcessFiles} = useApi();
     const location = useLocation();
     const navigate = useNavigate();
@@ -581,6 +585,14 @@ const AgentTasks = () => {
             navigate('/agent', {replace: true, state: {}});
         }
     }, [location.state?.queueSubmitError, location.state?.queueSubmittedAt, navigate]);
+
+    const cancelPendingUpload = () => {
+        const confirmText = lang === 'zh'
+            ? '取消当前上传？尚未完成上传的文件不会进入处理队列；已进入队列的文件可在下方单独取消。'
+            : 'Cancel the current upload? Files not yet uploaded will not enter the queue. Already queued files can be cancelled below.';
+        if (!window.confirm(confirmText)) return;
+        abortPendingUpload();
+    };
 
 
     const cancelLiveJob = async (job) => {
@@ -755,7 +767,7 @@ const AgentTasks = () => {
                     </div>
                 )}
 
-                {queueUploadJob ? <QueueUploadBanner upload={queueUploadJob} lang={lang}/> : null}
+                {queueUploadJob ? <QueueUploadBanner upload={queueUploadJob} lang={lang} onCancel={cancelPendingUpload}/> : null}
 
                 <section className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-[18px] border border-[#dedada] bg-white p-4 dark:border-white/[0.10] dark:bg-white/[0.055]">

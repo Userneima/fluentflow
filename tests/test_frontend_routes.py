@@ -1344,7 +1344,9 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     # Records now come from the single shared AppProvider list, not a per-page
     # account-cache read.
     assert "tasks: jobs, ingestJobs" in source
-    assert "runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask} = useApp()" in source
+    assert "runtimeConfig, tasks: jobs, ingestJobs, markCancelled, revertCancelled, restoreTask, abortPendingUpload} = useApp()" in source
+    assert "const cancelPendingUpload = () => {" in source
+    assert "abortPendingUpload();" in source
     assert "getJobs(100)," in polling
     assert "getJobs(100, {sttProvider: 'local'})," in polling
     assert "displayJobs" in source
@@ -1360,7 +1362,8 @@ def test_agent_workflow_surface_lists_expanded_processing_records() -> None:
     assert "const [loading, setLoading] = useState(() => canUseTaskCache && jobs.length === 0)" in polling
     assert "const jobsFromCurrentJob = (currentJob) => {" in source
     assert "mergeJobs(currentJobRecords, jobs)" in source
-    assert "const QueueUploadBanner = ({upload, lang}) => {" in source
+    assert "const QueueUploadBanner = ({upload, lang, onCancel}) => {" in source
+    assert "取消上传" in source
     assert "每个文件的进程卡已显示在下方" in source
     assert "const queueUploadJob = currentJob?.queueUpload ? currentJob : null" in source
     # The 5s/30s poll cadence lives in the shared hook; /agent feeds it its own

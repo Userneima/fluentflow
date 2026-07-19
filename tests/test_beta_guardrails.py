@@ -463,7 +463,26 @@ def test_runtime_config_exposes_public_mode_without_secrets(monkeypatch) -> None
     assert payload["allowed_stt_providers"] == ["elevenlabs_scribe"]
     assert payload["show_maintainer_settings"] is False
     assert payload["features"]["job_retry_from_stored_source"] is True
+    assert payload["features"]["direct_oss_upload"] is False
     assert "key" not in str(payload).lower()
+
+
+def test_runtime_config_exposes_direct_oss_only_for_account_mode_with_ready_config(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("FLUENTFLOW_AUTH_MODE", "account")
+    monkeypatch.setenv("FLUENTFLOW_ACCOUNT_DB_PATH", str(tmp_path / "accounts.sqlite"))
+    monkeypatch.setenv("FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("FLUENTFLOW_OSS_REGION", "cn-hongkong")
+    monkeypatch.setenv("FLUENTFLOW_OSS_PUBLIC_ENDPOINT", "oss-cn-hongkong.aliyuncs.com")
+    monkeypatch.setenv("FLUENTFLOW_OSS_INTERNAL_ENDPOINT", "oss-cn-hongkong-internal.aliyuncs.com")
+    monkeypatch.setenv("FLUENTFLOW_OSS_BUCKET", "fluentflow-media-test")
+    monkeypatch.setenv("FLUENTFLOW_OSS_ECS_RAM_ROLE", "FluentFlowOssUploadRole")
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+
+    with TestClient(main.app) as client:
+        response = client.get("/runtime-config")
+
+    assert response.status_code == 200
+    assert response.json()["features"]["direct_oss_upload"] is True
 
 
 def test_startup_recovery_requeues_restorable_jobs_and_fails_missing_sources(tmp_path, monkeypatch) -> None:

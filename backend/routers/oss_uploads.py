@@ -69,6 +69,21 @@ def _source_metadata(payload: dict[str, Any], config: OssDirectUploadConfig) -> 
     return filename, content_type, raw_length, suffix, expected_parts
 
 
+def _enforce_upload_admission_before_transfer(request: Request, owner_scope: str, content_length: int) -> None:
+    """Reject known quota and queue-limit violations before a browser uploads bytes."""
+
+    source_file_size_mb = H._file_size_mb(content_length)
+    H._enforce_submission_rate_limit(request, incoming=1)
+    H._enforce_active_job_limit(owner_scope, incoming=1)
+    H._enforce_global_active_job_limit(incoming=1)
+    H._enforce_daily_quota(owner_scope, incoming_jobs=1, incoming_upload_mb=source_file_size_mb)
+    H._enforce_global_daily_quota(
+        client_id=owner_scope,
+        incoming_jobs=1,
+        incoming_upload_mb=source_file_size_mb,
+    )
+
+
 def _public_session(session: dict[str, Any]) -> dict[str, Any]:
     return {
         "session_id": session["session_id"],
@@ -148,7 +163,7 @@ async def create_oss_upload_session(request: Request, payload: dict[str, Any] = 
     config = _ready_config()
     owner_scope = _account_owner_scope(request)
     filename, content_type, content_length, suffix, _expected_parts = _source_metadata(payload, config)
-    H._enforce_submission_rate_limit(request, incoming=1)
+    _enforce_upload_admission_before_transfer(request, owner_scope, content_length)
     session_id = uuid.uuid4().hex
     object_key = f"{config.source_prefix}{session_id}/source{suffix}"
     try:

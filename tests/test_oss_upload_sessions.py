@@ -142,6 +142,26 @@ def test_disabled_direct_upload_does_not_expose_session_api(monkeypatch) -> None
     assert response.status_code == 404
 
 
+def test_direct_upload_rejects_over_quota_before_creating_an_oss_session(tmp_path, monkeypatch) -> None:
+    gateway = FakeOssGateway(object_size=32 * 1024 * 1024)
+    _enable_direct_upload(monkeypatch, tmp_path, gateway)
+
+    def reject(*args, **kwargs):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=429, detail="daily upload limit reached")
+
+    monkeypatch.setattr(helpers, "_enforce_daily_quota", reject)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/oss-upload-sessions",
+            json={"filename": "recording.mp4", "content_length": 32 * 1024 * 1024, "content_type": "video/mp4"},
+        )
+
+    assert response.status_code == 429
+    assert gateway.initiated == []
+
+
 def test_direct_upload_uses_its_own_four_gigabyte_limit(tmp_path, monkeypatch) -> None:
     file_size = 4 * 1024 * 1024 * 1024
     gateway = FakeOssGateway(object_size=file_size)
@@ -279,13 +299,13 @@ def test_post_upload_admission_rejection_cleans_up_completed_object(tmp_path, mo
 
         raise HTTPException(status_code=429, detail="queue full")
 
-    monkeypatch.setattr(helpers, "_enforce_active_job_limit", reject)
     with TestClient(main.app) as client:
         created = client.post(
             "/oss-upload-sessions",
             json={"filename": "lesson.mp4", "content_length": file_size, "content_type": "video/mp4"},
         )
         session_id = created.json()["session"]["session_id"]
+        monkeypatch.setattr(helpers, "_enforce_active_job_limit", reject)
         response = client.post(
             f"/oss-upload-sessions/{session_id}/complete",
             json={"parts": [{"part_number": 1, "etag": "etag-one"}]},
