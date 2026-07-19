@@ -60,16 +60,20 @@ class AlibabaOssMultipartGateway:
                 security_token=credential.security_token,
             )
 
-        sdk_config = oss.config.load_default()
-        sdk_config.credentials_provider = oss.credentials.CredentialsProviderFunc(func=credentials_provider)
-        sdk_config.region = config.region
-        sdk_config.endpoint = config.endpoint
+        def build_client(endpoint: str):
+            sdk_config = oss.config.load_default()
+            sdk_config.credentials_provider = oss.credentials.CredentialsProviderFunc(func=credentials_provider)
+            sdk_config.region = config.region
+            sdk_config.endpoint = endpoint
+            return oss.Client(sdk_config)
+
         self._oss = oss
         self._bucket = config.bucket
-        self._client = oss.Client(sdk_config)
+        self._public_client = build_client(config.public_endpoint)
+        self._internal_client = build_client(config.internal_endpoint)
 
     def initiate(self, *, object_key: str, content_type: str | None) -> str:
-        result = self._client.initiate_multipart_upload(
+        result = self._internal_client.initiate_multipart_upload(
             self._oss.InitiateMultipartUploadRequest(
                 bucket=self._bucket,
                 key=object_key,
@@ -82,7 +86,7 @@ class AlibabaOssMultipartGateway:
         return upload_id
 
     def presign_part(self, *, object_key: str, upload_id: str, part_number: int, expires_seconds: int) -> OssPartSignature:
-        result = self._client.presign(
+        result = self._public_client.presign(
             self._oss.UploadPartRequest(
                 bucket=self._bucket,
                 key=object_key,
@@ -99,7 +103,7 @@ class AlibabaOssMultipartGateway:
 
     def complete(self, *, object_key: str, upload_id: str, parts: Iterable[tuple[int, str]]) -> None:
         upload_parts = [self._oss.UploadPart(part_number=number, etag=etag) for number, etag in parts]
-        self._client.complete_multipart_upload(
+        self._internal_client.complete_multipart_upload(
             self._oss.CompleteMultipartUploadRequest(
                 bucket=self._bucket,
                 key=object_key,
@@ -109,21 +113,21 @@ class AlibabaOssMultipartGateway:
         )
 
     def head_size(self, *, object_key: str) -> int:
-        result = self._client.head_object(self._oss.HeadObjectRequest(bucket=self._bucket, key=object_key))
+        result = self._internal_client.head_object(self._oss.HeadObjectRequest(bucket=self._bucket, key=object_key))
         return int(getattr(result, "content_length", -1) or -1)
 
     def abort(self, *, object_key: str, upload_id: str) -> None:
-        self._client.abort_multipart_upload(
+        self._internal_client.abort_multipart_upload(
             self._oss.AbortMultipartUploadRequest(bucket=self._bucket, key=object_key, upload_id=upload_id)
         )
 
     def delete(self, *, object_key: str) -> None:
-        self._client.delete_object(self._oss.DeleteObjectRequest(bucket=self._bucket, key=object_key))
+        self._internal_client.delete_object(self._oss.DeleteObjectRequest(bucket=self._bucket, key=object_key))
 
     def download_to_file(self, *, object_key: str, target_path: Path) -> int:
         """Write the response body incrementally so large media never enters RAM."""
 
-        result = self._client.get_object(self._oss.GetObjectRequest(bucket=self._bucket, key=object_key))
+        result = self._internal_client.get_object(self._oss.GetObjectRequest(bucket=self._bucket, key=object_key))
         total = 0
         with result.body as body_stream, target_path.open("wb") as target:
             while chunk := body_stream.read(1024 * 1024):

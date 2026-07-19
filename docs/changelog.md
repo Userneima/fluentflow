@@ -42,6 +42,7 @@
 - 后台队列 step 改为租约 owner 写入：worker 会续租，过期 lease 可被安全回收；旧 worker、取消任务或重启恢复之间不会再互相覆盖 step 的完成/失败状态。新增 `FLUENTFLOW_QUEUE_STEP_LEASE_SECONDS` 与 `FLUENTFLOW_QUEUE_HEARTBEAT_SECONDS`，默认 15 分钟 / 60 秒。
 - 新增默认关闭的 OSS 分片直传配置契约与部署自检。它只校验地域、Endpoint、Bucket、对象前缀、分片大小和签名时效，不接管任何现有上传端点；启用前仍需部署 RAM 角色、上传会话 API、OSS CORS 与浏览器端分片流程。
 - 默认关闭的 OSS 分片上传会话 API 现会在对象大小验证通过后创建普通处理任务：后台从私有 OSS 分块落盘、重跑媒体准入检查并复用现有转录队列，不会把完整媒体读入内存。浏览器端还未接入，OSS CORS 也尚未配置，因此它仍不会接管当前上传；该隐藏控制面暂不属于 Agent API / MCP 合约。
+- OSS 直传配置现明确拆分浏览器公网 Endpoint 和同地域 ECS 内网 Endpoint：浏览器的分片签名继续指向公网地址，服务端创建、校验、清理和下载对象走内网地址，避免大文件处理时走 OSS 外网流量。直传默认上限为 4 GB，且不改变原有 Nginx / FastAPI 上传限制。
 
 ## v0.3.2｜2026-07-16｜云端转录可观测性
 

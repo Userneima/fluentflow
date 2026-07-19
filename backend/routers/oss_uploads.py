@@ -56,9 +56,9 @@ def _source_metadata(payload: dict[str, Any], config: OssDirectUploadConfig) -> 
     raw_length = payload.get("content_length")
     if isinstance(raw_length, bool) or not isinstance(raw_length, int) or raw_length <= 0:
         raise HTTPException(status_code=400, detail="content_length must be a positive integer")
-    max_bytes = int(H._max_upload_mb() * 1024 * 1024)
+    max_bytes = int(config.max_source_size_mb * 1024 * 1024)
     if raw_length > max_bytes:
-        raise HTTPException(status_code=413, detail=f"File is too large. Limit is {H._max_upload_mb():g} MB.")
+        raise HTTPException(status_code=413, detail=f"File is too large. Limit is {config.max_source_size_mb:g} MB.")
     content_type = str(payload.get("content_type") or "").strip().lower() or None
     if content_type and (len(content_type) > 255 or not (content_type.startswith("audio/") or content_type.startswith("video/"))):
         raise HTTPException(status_code=400, detail="Invalid media content type")

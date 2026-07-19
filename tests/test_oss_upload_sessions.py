@@ -55,9 +55,11 @@ class FakeOssGateway:
 def _enable_direct_upload(monkeypatch, tmp_path, gateway: FakeOssGateway) -> None:
     monkeypatch.setenv("FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED", "1")
     monkeypatch.setenv("FLUENTFLOW_OSS_REGION", "cn-hongkong")
-    monkeypatch.setenv("FLUENTFLOW_OSS_ENDPOINT", "oss-cn-hongkong.aliyuncs.com")
+    monkeypatch.setenv("FLUENTFLOW_OSS_PUBLIC_ENDPOINT", "oss-cn-hongkong.aliyuncs.com")
+    monkeypatch.setenv("FLUENTFLOW_OSS_INTERNAL_ENDPOINT", "oss-cn-hongkong-internal.aliyuncs.com")
     monkeypatch.setenv("FLUENTFLOW_OSS_BUCKET", "fluentflow-media-test")
     monkeypatch.setenv("FLUENTFLOW_OSS_ECS_RAM_ROLE", "FluentFlowOssUploadRole")
+    monkeypatch.setenv("FLUENTFLOW_OSS_MAX_SOURCE_MB", "4096")
     monkeypatch.setenv("FLUENTFLOW_OSS_UPLOAD_SESSION_DB_PATH", str(tmp_path / "oss-sessions.sqlite"))
     monkeypatch.setenv("FLUENTFLOW_JOB_DB_PATH", str(tmp_path / "jobs.sqlite"))
     monkeypatch.setenv("FLUENTFLOW_EVENT_DB_PATH", str(tmp_path / "events.sqlite"))
@@ -138,6 +140,37 @@ def test_disabled_direct_upload_does_not_expose_session_api(monkeypatch) -> None
     with TestClient(main.app) as client:
         response = client.post("/oss-upload-sessions", json={})
     assert response.status_code == 404
+
+
+def test_direct_upload_uses_its_own_four_gigabyte_limit(tmp_path, monkeypatch) -> None:
+    file_size = 4 * 1024 * 1024 * 1024
+    gateway = FakeOssGateway(object_size=file_size)
+    _enable_direct_upload(monkeypatch, tmp_path, gateway)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/oss-upload-sessions",
+            json={"filename": "recording.mp4", "content_length": file_size, "content_type": "video/mp4"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["session"]["expected_parts"] == 128
+
+
+def test_direct_upload_rejects_files_above_its_own_four_gigabyte_limit(tmp_path, monkeypatch) -> None:
+    gateway = FakeOssGateway(object_size=1)
+    _enable_direct_upload(monkeypatch, tmp_path, gateway)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/oss-upload-sessions",
+            json={
+                "filename": "recording.mp4",
+                "content_length": 4 * 1024 * 1024 * 1024 + 1,
+                "content_type": "video/mp4",
+            },
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "File is too large. Limit is 4096 MB."
 
 
 def test_multipart_session_signs_parts_and_verifies_completed_object(tmp_path, monkeypatch) -> None:

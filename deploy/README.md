@@ -162,6 +162,8 @@ ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插
 
 当前版本仍由 Nginx / FastAPI 接收上传；`FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED` 默认是 `0`，不会改变现有链路。服务端已具备上传会话、对象大小复核和从 OSS 分块落盘后接入现有队列的控制面；它始终使用 ECS RAM 临时凭证，不保留长期 AccessKey。
 
+启用时必须区分两个地址：`FLUENTFLOW_OSS_PUBLIC_ENDPOINT` 用于生成浏览器直传分片的签名 URL，例如 `oss-cn-hongkong.aliyuncs.com`；`FLUENTFLOW_OSS_INTERNAL_ENDPOINT` 仅供同地域 ECS 发起创建、完成、校验、删除和下载，例如 `oss-cn-hongkong-internal.aliyuncs.com`。不要把内网地址提供给浏览器，也不要把公网地址复用为内网地址。旧的 `FLUENTFLOW_OSS_ENDPOINT` 只作为公网地址的兼容别名。直传源文件上限独立由 `FLUENTFLOW_OSS_MAX_SOURCE_MB` 控制，默认 4096 MB；它不会提高既有 Nginx / FastAPI 上传上限。
+
 不要在 RAM 角色、浏览器端分片上传、精确 OSS CORS 规则和端到端验收均完成前把开关设为 `1`。Bucket 中 `uploads/source/` 应配置为最后修改后 7 天删除，未完成分片 1 天清理；这属于 OSS 配置，不写入仓库环境模板。上传会话目前不是 Agent API / MCP 工作流，也不应在未完成前端接入前向用户暴露。
 
 ## 4. 备份与恢复
