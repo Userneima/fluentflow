@@ -200,6 +200,8 @@ def _is_public_request(request: Request) -> bool:
         "/auth/logout",
         "/auth/google/start",
         "/auth/google/callback",
+        "/account/deletion",
+        "/account/deletion/cancel",
         "/runtime-config",
     }:
         return True
@@ -317,12 +319,15 @@ from backend.core.account_store import (
     authenticate_user,
     count_users,
     create_session,
+    get_account_deletion_request,
     create_user,
     get_user_by_id,
     get_user_by_session_token,
     list_users,
     revoke_session,
     save_feishu_connection,
+    SESSION_PURPOSE_DELETION_RECOVERY,
+    SESSION_PURPOSE_FULL,
 )
 from backend.core.api_key_store import (
     authenticate_api_key,
@@ -555,6 +560,14 @@ def _request_account_user(request: Request) -> dict[str, Any] | None:
     if user:
         request.state.account_user = user
     return user
+
+
+def _request_account_deletion_recovery_user(request: Request) -> dict[str, Any] | None:
+    """Identify the short-lived session created after Google reauth during deletion grace."""
+    return get_user_by_session_token(
+        _request_account_session_token(request),
+        allow_deletion_recovery=True,
+    )
 
 
 def _require_account_user(request: Request) -> dict[str, Any]:
@@ -2897,6 +2910,60 @@ async def _startup_resume_queue() -> None:
     if migrated:
         logger.info("Backfilled display titles for %s existing jobs", migrated)
     _resume_queued_transcription_jobs()
+
+
+def _cancel_account_jobs_for_deletion(user_id: str) -> int:
+    """Stop queued work immediately when an account enters deletion grace."""
+    client_id = f"user:{str(user_id or '').strip()}"
+    if client_id == "user:":
+        return 0
+    cancelled = 0
+    for job in list_jobs_for_retention(client_id=client_id):
+        if job.get("status") not in {"queued", "running"}:
+            continue
+        task_id = str(job.get("task_id") or "")
+        if not task_id:
+            continue
+        cancel_job_steps(task_id)
+        with _QUEUE_LOCK:
+            _QUEUED_TASK_IDS.discard(task_id)
+        _release_task_quota(
+            client_id=client_id,
+            task_id=task_id,
+            reason="Account deletion requested",
+            metadata={"account_deletion": True},
+        )
+        upsert_job(
+            task_id=task_id,
+            status="cancelled",
+            client_id=client_id,
+            stage=job.get("stage") or "cancelled",
+            progress=job.get("progress") or 0,
+            source_type=job.get("source_type"),
+            source_filename=job.get("source_filename"),
+            source_file_size_mb=job.get("source_file_size_mb"),
+            summary_status=job.get("summary_status"),
+            error_reason="account_deletion_requested",
+            metadata=job.get("metadata"),
+        )
+        cancelled += 1
+    return cancelled
+
+
+def _run_account_retention_maintenance() -> dict[str, Any]:
+    """Expire synced results and permanently remove accounts past their grace window."""
+    from backend.core.account_lifecycle import purge_due_deletions
+    from backend.core.desktop_sync_store import purge_expired_desktop_sync_tasks
+    from backend.core.event_logger import delete_events_for_tasks
+
+    expired = purge_expired_desktop_sync_tasks()
+    if expired:
+        delete_events_for_tasks([str(task["task_id"]) for task in expired])
+    deleted_accounts = purge_due_deletions(cleanup_task_files=_cleanup_task_all_files)
+    return {
+        "expired_desktop_sync_results": len(expired),
+        "deleted_accounts": len(deleted_accounts),
+    }
 
 
 def _directory_usage(path: Path) -> dict[str, Any]:

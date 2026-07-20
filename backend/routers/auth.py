@@ -22,14 +22,18 @@ router = APIRouter()
 def auth_status(request: Request) -> dict[str, Any]:
     if H._account_auth_enabled():
         user = H._request_account_user(request)
+        deletion_recovery_user = None if user else H._request_account_deletion_recovery_user(request)
+        deletion = H.get_account_deletion_request(str(deletion_recovery_user["id"])) if deletion_recovery_user else None
         return {
             "auth_mode": "accounts",
             "account_required": True,
             "authenticated": bool(user),
+            "account_deletion_recovery": bool(deletion_recovery_user and deletion),
+            "account_deletion": deletion,
             "allow_signups": H._account_registration_allowed(),
             "bootstrap_required": H.count_users() == 0,
             "google_oauth_enabled": H.google_oauth_enabled(),
-            "user": H._public_account_payload(user),
+            "user": H._public_account_payload(user or deletion_recovery_user),
             "guest_trial": H._guest_trial_config(),
         }
     return {
@@ -198,17 +202,67 @@ def google_oauth_callback(
             "/?auth_error=Google%20login%20did%20not%20return%20a%20FluentFlow%20account.",
             status_code=303,
         )
+    session_purpose = H.SESSION_PURPOSE_FULL
+    redirect_url = _safe_next_url(str(data.get("next_url") or ""), "/app")
+    if user.get("status") == "deletion_pending":
+        session_purpose = H.SESSION_PURPOSE_DELETION_RECOVERY
+        redirect_url = "/?account_deletion=recover"
+    token = H.create_session(
+        str(user["id"]),
+        days=H._session_days(),
+        user_agent=request.headers.get("user-agent"),
+        ip_address=H._request_ip_key(request),
+        purpose=session_purpose,
+    )
+    response = RedirectResponse(redirect_url, status_code=303)
+    H._set_session_cookie(response, token)
+    if data.get("created"):
+        H._grant_starter_balance_if_needed(user)
+    return response
+
+
+@router.get("/account/deletion")
+def account_deletion_status(request: Request) -> dict[str, Any]:
+    user = H._request_account_user(request) or H._request_account_deletion_recovery_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="FluentFlow account login is required.")
+    return {
+        "ok": True,
+        "deletion": H.get_account_deletion_request(str(user["id"])),
+    }
+
+
+@router.post("/account/deletion")
+def request_account_deletion(request: Request, response: Response) -> dict[str, Any]:
+    user = H._require_account_user(request)
+    from backend.core.account_lifecycle import request_deletion
+
+    deletion = request_deletion(str(user["id"]))
+    cancelled_tasks = H._cancel_account_jobs_for_deletion(str(user["id"]))
+    response.delete_cookie(H.SESSION_COOKIE_NAME, samesite="lax")
+    return {
+        "ok": True,
+        "deletion": deletion,
+        "cancelled_tasks": cancelled_tasks,
+    }
+
+
+@router.post("/account/deletion/cancel")
+def cancel_requested_account_deletion(request: Request, response: Response) -> dict[str, Any]:
+    user = H._request_account_deletion_recovery_user(request)
+    if not user or user.get("status") != "deletion_pending":
+        raise HTTPException(status_code=401, detail="Google reauthentication is required to cancel account deletion.")
+    from backend.core.account_lifecycle import cancel_deletion
+
+    deletion = cancel_deletion(str(user["id"]))
     token = H.create_session(
         str(user["id"]),
         days=H._session_days(),
         user_agent=request.headers.get("user-agent"),
         ip_address=H._request_ip_key(request),
     )
-    response = RedirectResponse(_safe_next_url(str(data.get("next_url") or ""), "/app"), status_code=303)
     H._set_session_cookie(response, token)
-    if data.get("created"):
-        H._grant_starter_balance_if_needed(user)
-    return response
+    return {"ok": True, "deletion": deletion, "user": H._public_account_payload(H.get_user_by_id(str(user["id"]))) }
 
 
 

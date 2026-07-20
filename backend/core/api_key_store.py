@@ -148,6 +148,30 @@ def revoke_api_key(
     return get_api_key(key_id, owner_scope=scope, db_path=db_path)
 
 
+def revoke_api_keys_for_user(user_id: str, db_path: Path | str | None = None) -> int:
+    account_id = (user_id or "").strip()
+    if not account_id:
+        return 0
+    _ensure_api_key_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        cursor = conn.execute(
+            "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ? AND revoked_at IS NULL",
+            (now, account_id),
+        )
+    return int(cursor.rowcount or 0)
+
+
+def purge_api_keys_for_user(user_id: str, db_path: Path | str | None = None) -> int:
+    account_id = (user_id or "").strip()
+    if not account_id:
+        return 0
+    _ensure_api_key_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        cursor = conn.execute("DELETE FROM api_keys WHERE user_id = ?", (account_id,))
+    return int(cursor.rowcount or 0)
+
+
 def authenticate_api_key(api_key: str | None, db_path: Path | str | None = None) -> dict[str, Any] | None:
     text = (api_key or "").strip()
     if not text.startswith(API_KEY_PREFIX):

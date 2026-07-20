@@ -1761,6 +1761,18 @@ def test_settings_clear_history_requires_confirmation_dialog() -> None:
     assert "edit.clearConfirmAgain" not in source
 
 
+def test_account_deletion_is_explicit_and_recovery_isolated_from_the_app() -> None:
+    settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
+    access_gate = Path("frontend/src/app/AccessGate.jsx").read_text(encoding="utf-8")
+
+    assert "/account/deletion" in settings
+    assert "确认申请删除账号？" in settings
+    assert "同一 Google 账号重新登录可取消删除" in settings
+    assert "accountDeletionRecovery" in access_gate
+    assert "/account/deletion/cancel" in access_gate
+    assert "取消删除，恢复账号" in access_gate
+
+
 def test_tasks_route_diagnostics_to_agent_workflow() -> None:
     source = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
 

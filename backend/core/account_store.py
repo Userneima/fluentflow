@@ -18,6 +18,8 @@ from backend.core.runtime_paths import default_account_db_path
 DEFAULT_DB_PATH = default_account_db_path()
 PASSWORD_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 210_000
+SESSION_PURPOSE_FULL = "full"
+SESSION_PURPOSE_DELETION_RECOVERY = "deletion_recovery"
 
 
 def _db_path(db_path: Path | str | None = None) -> Path:
@@ -72,6 +74,7 @@ def ensure_account_db(db_path: Path | str | None = None) -> None:
             CREATE TABLE IF NOT EXISTS sessions (
                 token_hash TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
+                purpose TEXT NOT NULL DEFAULT 'full',
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 user_agent TEXT,
@@ -142,8 +145,22 @@ def ensure_account_db(db_path: Path | str | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_oauth_login_states_provider ON oauth_login_states(provider);
             CREATE INDEX IF NOT EXISTS idx_oauth_login_states_expires_at ON oauth_login_states(expires_at);
+
+            CREATE TABLE IF NOT EXISTS account_deletion_requests (
+                user_id TEXT PRIMARY KEY,
+                requested_at TEXT NOT NULL,
+                purge_after_at TEXT NOT NULL,
+                cancelled_at TEXT,
+                completed_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_account_deletion_requests_due
+                ON account_deletion_requests(purge_after_at);
             """
         )
+        session_columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "purpose" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'full'")
 
 
 def hash_password(password: str) -> str:
@@ -327,8 +344,12 @@ def create_session(
     days: int = 30,
     user_agent: str | None = None,
     ip_address: str | None = None,
+    purpose: str = SESSION_PURPOSE_FULL,
     db_path: Path | str | None = None,
 ) -> str:
+    session_purpose = (purpose or "").strip().lower()
+    if session_purpose not in {SESSION_PURPOSE_FULL, SESSION_PURPOSE_DELETION_RECOVERY}:
+        raise ValueError("unsupported session purpose")
     ensure_account_db(db_path)
     token = secrets.token_urlsafe(48)
     now = _now()
@@ -336,12 +357,13 @@ def create_session(
     with sqlite3.connect(_db_path(db_path)) as conn:
         conn.execute(
             """
-            INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent, ip_address)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO sessions (token_hash, user_id, purpose, created_at, expires_at, user_agent, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _session_token_hash(token),
                 user_id,
+                session_purpose,
                 now.isoformat(timespec="seconds"),
                 expires.isoformat(timespec="seconds"),
                 (user_agent or "")[:240],
@@ -351,7 +373,12 @@ def create_session(
     return token
 
 
-def get_user_by_session_token(token: str | None, db_path: Path | str | None = None) -> dict[str, Any] | None:
+def get_user_by_session_token(
+    token: str | None,
+    db_path: Path | str | None = None,
+    *,
+    allow_deletion_recovery: bool = False,
+) -> dict[str, Any] | None:
     token_text = (token or "").strip()
     if not token_text:
         return None
@@ -361,7 +388,7 @@ def get_user_by_session_token(token: str | None, db_path: Path | str | None = No
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             """
-            SELECT users.*
+            SELECT users.*, sessions.purpose AS session_purpose
             FROM sessions
             JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ?
@@ -376,7 +403,12 @@ def get_user_by_session_token(token: str | None, db_path: Path | str | None = No
                 return None
     user = _row_to_user(row)
     if user and user.get("status") != "active":
-        return None
+        if not (
+            allow_deletion_recovery
+            and user.get("status") == "deletion_pending"
+            and row["session_purpose"] == SESSION_PURPOSE_DELETION_RECOVERY
+        ):
+            return None
     return user
 
 
@@ -387,6 +419,143 @@ def revoke_session(token: str | None, db_path: Path | str | None = None) -> None
     ensure_account_db(db_path)
     with sqlite3.connect(_db_path(db_path)) as conn:
         conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_session_token_hash(token_text),))
+
+
+def get_account_deletion_request(
+    user_id: str,
+    db_path: Path | str | None = None,
+) -> dict[str, Any] | None:
+    if not user_id:
+        return None
+    ensure_account_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM account_deletion_requests WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def request_account_deletion(
+    user_id: str,
+    *,
+    grace_days: int = 7,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Freeze an account and start its server-timed deletion grace window."""
+    account_id = (user_id or "").strip()
+    if not account_id:
+        raise ValueError("user_id is required")
+    safe_days = max(1, min(int(grace_days or 7), 30))
+    ensure_account_db(db_path)
+    now = _now()
+    now_text = now.isoformat(timespec="seconds")
+    purge_after = (now + timedelta(days=safe_days)).isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        user = conn.execute("SELECT status FROM users WHERE id = ?", (account_id,)).fetchone()
+        if user is None:
+            raise ValueError("account not found")
+        existing = conn.execute(
+            "SELECT * FROM account_deletion_requests WHERE user_id = ?",
+            (account_id,),
+        ).fetchone()
+        if existing and not existing["cancelled_at"] and not existing["completed_at"]:
+            return dict(existing)
+        conn.execute(
+            "UPDATE users SET status = 'deletion_pending', updated_at = ? WHERE id = ?",
+            (now_text, account_id),
+        )
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (account_id,))
+        conn.execute(
+            """
+            UPDATE feishu_connections
+            SET access_token = '', refresh_token = '', revoked_at = ?, updated_at = ?
+            WHERE user_id = ?
+            """,
+            (now_text, now_text, account_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO account_deletion_requests (user_id, requested_at, purge_after_at, cancelled_at, completed_at)
+            VALUES (?, ?, ?, NULL, NULL)
+            ON CONFLICT(user_id) DO UPDATE SET
+                requested_at = excluded.requested_at,
+                purge_after_at = excluded.purge_after_at,
+                cancelled_at = NULL,
+                completed_at = NULL
+            """,
+            (account_id, now_text, purge_after),
+        )
+    request = get_account_deletion_request(account_id, db_path=db_path)
+    if not request:
+        raise RuntimeError("account deletion request is missing")
+    return request
+
+
+def cancel_account_deletion(user_id: str, db_path: Path | str | None = None) -> dict[str, Any]:
+    account_id = (user_id or "").strip()
+    if not account_id:
+        raise ValueError("user_id is required")
+    ensure_account_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        request = conn.execute(
+            "SELECT * FROM account_deletion_requests WHERE user_id = ?",
+            (account_id,),
+        ).fetchone()
+        if request is None or request["cancelled_at"] or request["completed_at"]:
+            raise ValueError("no active account deletion request")
+        conn.execute(
+            "UPDATE users SET status = 'active', updated_at = ? WHERE id = ?",
+            (now, account_id),
+        )
+        conn.execute(
+            "UPDATE account_deletion_requests SET cancelled_at = ? WHERE user_id = ?",
+            (now, account_id),
+        )
+    request = get_account_deletion_request(account_id, db_path=db_path)
+    if not request:
+        raise RuntimeError("account deletion request is missing")
+    return request
+
+
+def list_due_account_deletions(
+    *,
+    now: datetime | None = None,
+    db_path: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    ensure_account_db(db_path)
+    cutoff = (now or _now()).isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT * FROM account_deletion_requests
+            WHERE cancelled_at IS NULL AND completed_at IS NULL AND purge_after_at <= ?
+            ORDER BY purge_after_at ASC
+            """,
+            (cutoff,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def purge_account_identity(user_id: str, db_path: Path | str | None = None) -> bool:
+    """Remove account-auth records after associated product data is purged."""
+    account_id = (user_id or "").strip()
+    if not account_id:
+        return False
+    ensure_account_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (account_id,))
+        conn.execute("DELETE FROM feishu_oauth_states WHERE user_id = ?", (account_id,))
+        conn.execute("DELETE FROM feishu_connections WHERE user_id = ?", (account_id,))
+        conn.execute("DELETE FROM oauth_identities WHERE user_id = ?", (account_id,))
+        conn.execute("DELETE FROM account_deletion_requests WHERE user_id = ?", (account_id,))
+        deleted = conn.execute("DELETE FROM users WHERE id = ?", (account_id,))
+    return bool(deleted.rowcount)
 
 
 def _state_hash(state: str) -> str:

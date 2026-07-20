@@ -1,6 +1,8 @@
 import {useEffect, useState} from 'react';
 import SvgIcon from '../components/SvgIcon.jsx';
 import {
+    API_BASE,
+    apiFetch,
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_OPENAI_MODEL,
     DEFAULT_QWEN_MODEL,
@@ -17,6 +19,7 @@ import {
     timeAgo,
     useApi,
     useApp,
+    useAuth,
     useI18n,
     useSettings,
 } from '../app/shared.jsx';
@@ -54,6 +57,7 @@ const Settings = () => {
     const {t, lang} = useI18n();
     const {loadSettings, saveSettings} = useSettings();
     const {clearHistory, history, larkExports, runtimeConfig} = useApp();
+    const {authMode, user, guestMode} = useAuth();
     const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkVideoCookies, getDesktopSyncStatus, startDesktopPairing, flushDesktopSync} = useApi();
     const [settings, setSettings] = useState(() => loadSettings());
     const [cleared, setCleared] = useState(false);
@@ -70,6 +74,9 @@ const Settings = () => {
     const [desktopSyncCloudUrl, setDesktopSyncCloudUrl] = useState('');
     const [desktopSyncBusy, setDesktopSyncBusy] = useState(false);
     const [desktopSyncFeedback, setDesktopSyncFeedback] = useState(null);
+    const [accountDeletionConfirmOpen, setAccountDeletionConfirmOpen] = useState(false);
+    const [accountDeletionBusy, setAccountDeletionBusy] = useState(false);
+    const [accountDeletionError, setAccountDeletionError] = useState('');
 
     const refreshDesktopSync = async () => {
         try {
@@ -189,6 +196,22 @@ const Settings = () => {
         clearHistory();
         setCleared(true);
         setTimeout(() => setCleared(false), 2000);
+    };
+
+    const requestAccountDeletion = async () => {
+        setAccountDeletionBusy(true);
+        setAccountDeletionError('');
+        try {
+            const response = await apiFetch(`${API_BASE}/account/deletion`, {method: 'POST'});
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || (lang === 'zh' ? '无法提交删除请求' : 'Unable to request account deletion'));
+            window.location.assign('/?account_deletion=requested');
+        } catch (err) {
+            setAccountDeletionError(err.message || String(err));
+            setAccountDeletionConfirmOpen(false);
+        } finally {
+            setAccountDeletionBusy(false);
+        }
     };
 
     const connectDesktopSync = async () => {
@@ -558,6 +581,27 @@ const Settings = () => {
                         </div>
                     </Section>
 
+                    {authMode === 'accounts' && user && !guestMode && (
+                        <Section id="account" title={lang === 'zh' ? '账号' : 'Account'} description={lang === 'zh' ? '跨设备登录和云端数据的管理。' : 'Manage cross-device access and cloud data.'}>
+                            <div className="p-5">
+                                <div className={`flex flex-col gap-4 ${cellBase} sm:flex-row sm:items-center sm:justify-between`}>
+                                    <div className="min-w-0">
+                                        <h3 className="text-sm font-bold text-red-700 dark:text-red-300">{lang === 'zh' ? '删除账号' : 'Delete account'}</h3>
+                                        <p className="mt-1 max-w-[62ch] text-xs leading-relaxed text-on-surface-variant">
+                                            {lang === 'zh'
+                                                ? '申请后会立即停止任务、退出所有设备并撤销桌面同步和 API 凭证。云端字幕、笔记和任务数据保留 7 天；在期限内用同一 Google 账号重新登录可取消删除。'
+                                                : 'This immediately stops jobs, signs out devices, and revokes desktop sync and API credentials. Cloud transcripts, notes, and jobs are retained for 7 days; sign in again with the same Google account during that period to cancel.'}
+                                        </p>
+                                        {accountDeletionError && <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-300">{accountDeletionError}</p>}
+                                    </div>
+                                    <button type="button" onClick={()=>setAccountDeletionConfirmOpen(true)} className="h-10 shrink-0 rounded-[12px] border border-red-300 px-4 text-xs font-bold text-red-700 transition hover:bg-red-50 dark:border-red-400/40 dark:text-red-300 dark:hover:bg-red-500/10">
+                                        {lang === 'zh' ? '申请删除' : 'Request deletion'}
+                                    </button>
+                                </div>
+                            </div>
+                        </Section>
+                    )}
+
                     {showMaintainerSettings && (
                         <details id="advanced" className="group scroll-mt-7 rounded-[18px] border border-[#e4e0e0] bg-white dark:border-white/[0.12] dark:bg-white/[0.06]">
                             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
@@ -707,6 +751,20 @@ const Settings = () => {
                             <button type="button" onClick={confirmClearHistory} className="inline-flex h-10 items-center rounded-[12px] bg-red-600 px-4 text-xs font-bold text-white hover:bg-red-700">
                                 {lang === 'zh' ? '确认清除' : 'Clear history'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {accountDeletionConfirmOpen && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="accountDeletionTitle">
+                    <div className="w-full max-w-[440px] rounded-[22px] border border-[#dedada] bg-white p-5 shadow-[0_28px_90px_-52px_rgba(17,17,17,.72)] dark:border-white/[0.12] dark:bg-[#151515]">
+                        <h2 id="accountDeletionTitle" className="text-base font-extrabold">{lang === 'zh' ? '确认申请删除账号？' : 'Request account deletion?'}</h2>
+                        <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
+                            {lang === 'zh' ? '你的任务会立刻停止，所有设备会退出登录。7 天内使用同一 Google 账号登录可以取消；到期后云端数据将无法恢复。' : 'Jobs stop immediately and every device is signed out. You can cancel by signing in with the same Google account within 7 days; cloud data cannot be restored after that.'}
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button type="button" onClick={()=>setAccountDeletionConfirmOpen(false)} disabled={accountDeletionBusy} className="inline-flex h-10 items-center rounded-[12px] border border-[#dedada] px-4 text-xs font-bold hover:bg-[#efeeee] disabled:opacity-50 dark:border-white/[0.12] dark:hover:bg-white/[0.12]">{t('edit.cancel')}</button>
+                            <button type="button" onClick={requestAccountDeletion} disabled={accountDeletionBusy} className="inline-flex h-10 items-center rounded-[12px] bg-red-600 px-4 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50">{accountDeletionBusy ? (lang === 'zh' ? '处理中' : 'Working') : (lang === 'zh' ? '确认删除' : 'Confirm deletion')}</button>
                         </div>
                     </div>
                 </div>

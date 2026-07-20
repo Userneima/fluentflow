@@ -7,6 +7,7 @@ from backend.core.server_helpers.
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,15 +16,35 @@ from fastapi.staticfiles import StaticFiles
 from backend.core.server_helpers import (
     FRONTEND_DIST_DIR,
     beta_access_middleware,
+    _run_account_retention_maintenance,
     _startup_resume_queue,
 )
 from backend.core.desktop_sync_client import flush_desktop_sync_outbox
+
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _startup_resume_queue()
     asyncio.create_task(asyncio.to_thread(flush_desktop_sync_outbox))
-    yield
+    retention_task = asyncio.create_task(_account_retention_loop())
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _account_retention_loop() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_run_account_retention_maintenance)
+        except Exception:
+            logger.exception("Account retention maintenance failed")
+        await asyncio.sleep(60 * 60)
 
 app = FastAPI(title="FluentFlow", lifespan=lifespan)
 

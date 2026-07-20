@@ -10,6 +10,8 @@ const AccessGate = ({children}) => {
     const [allowSignups, setAllowSignups] = useState(false);
     const [bootstrapRequired, setBootstrapRequired] = useState(false);
     const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
+    const [accountDeletionRecovery, setAccountDeletionRecovery] = useState(false);
+    const [accountDeletion, setAccountDeletion] = useState(null);
     const [user, setUser] = useState(null);
     const [guestTrial, setGuestTrial] = useState(null);
     const [guestMode, setGuestMode] = useState(false);
@@ -35,6 +37,8 @@ const AccessGate = ({children}) => {
             setAllowSignups(!!data.allow_signups);
             setBootstrapRequired(!!data.bootstrap_required);
             setGoogleOAuthEnabled(!!data.google_oauth_enabled);
+            setAccountDeletionRecovery(!!data.account_deletion_recovery);
+            setAccountDeletion(data.account_deletion || null);
             setUser(data.user || null);
             setGuestTrial(nextGuestTrial);
             setGuestMode(nextGuestAllowed);
@@ -47,6 +51,8 @@ const AccessGate = ({children}) => {
             setGuestTrial(null);
             setGuestMode(false);
             setGoogleOAuthEnabled(false);
+            setAccountDeletionRecovery(false);
+            setAccountDeletion(null);
         } finally {
             setChecking(false);
         }
@@ -154,6 +160,24 @@ const AccessGate = ({children}) => {
         }
     };
 
+    const cancelAccountDeletion = async () => {
+        setError('');
+        setSubmitting(true);
+        try {
+            const r = await apiFetch(`${API_BASE}/account/deletion/cancel`, {method: 'POST'});
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || (lang === 'zh' ? '无法取消删除请求' : 'Unable to cancel account deletion'));
+            setAccountDeletionRecovery(false);
+            setAccountDeletion(null);
+            await refreshStatus();
+            window.history.replaceState({}, '', '/media-text');
+        } catch (err) {
+            setError(err.message || (lang === 'zh' ? '无法取消删除请求' : 'Unable to cancel account deletion'));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     if (checking) {
         return (
             <div className="flex min-h-dvh items-center justify-center bg-[#f8f7fb] px-6 text-sm font-semibold text-[#676970] dark:bg-[#101010] dark:text-white/55">
@@ -162,6 +186,31 @@ const AccessGate = ({children}) => {
                     {lang === 'zh' ? '正在打开 FluentFlow…' : 'Opening FluentFlow…'}
                 </div>
             </div>
+        );
+    }
+    if (accountDeletionRecovery) {
+        return (
+            <main className="flex min-h-dvh items-center justify-center bg-[#f8f7fb] px-5 py-8 text-[#111111] dark:bg-[#101010] dark:text-white/[0.92]">
+                <section className="w-full max-w-[480px] overflow-hidden rounded-[24px] border border-[#dedada] bg-white shadow-[0_26px_80px_-54px_rgba(17,17,17,.65)] dark:border-white/[0.12] dark:bg-white/[0.06]">
+                    <div className="border-b border-[#ece8e8] px-6 py-6 dark:border-white/[0.10]">
+                        <p className="text-sm font-extrabold">FluentFlow</p>
+                        <h1 className="mt-5 font-headline text-[26px] font-extrabold leading-tight text-[#111111] dark:text-white">
+                            {lang === 'zh' ? '账号删除等待确认' : 'Account deletion is pending'}
+                        </h1>
+                        <p className="mt-2 text-sm font-semibold leading-relaxed text-[#676970] dark:text-white/58">
+                            {lang === 'zh'
+                                ? `已验证当前 Google 身份。数据将在 ${accountDeletion?.purge_after_at || '7 天后'} 删除。取消后，你需要重新连接桌面设备和接口凭证。`
+                                : `Your Google identity is verified. Data will be deleted after ${accountDeletion?.purge_after_at || 'the grace period'}. Cancelling requires reconnecting desktop devices and API keys.`}
+                        </p>
+                    </div>
+                    <div className="px-6 py-5">
+                        {error && <p className="mb-4 rounded-[14px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">{error}</p>}
+                        <button type="button" onClick={cancelAccountDeletion} disabled={submitting} className="h-12 w-full rounded-[15px] bg-[#111111] px-5 text-sm font-extrabold text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-[#111111]">
+                            {submitting ? (lang === 'zh' ? '处理中' : 'Working') : (lang === 'zh' ? '取消删除，恢复账号' : 'Cancel deletion and restore account')}
+                        </button>
+                    </div>
+                </section>
+            </main>
         );
     }
     const canRegister = allowSignups || bootstrapRequired;

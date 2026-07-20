@@ -583,3 +583,75 @@ def get_desktop_sync_task_for_device(
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         return _owned_task(conn, task_id, device_auth)
+
+
+def purge_expired_desktop_sync_tasks(
+    *,
+    now: datetime | None = None,
+    db_path: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Remove cloud projections whose seven-day result window has elapsed.
+
+    The original media remains on the originating desktop. This only removes
+    synchronized transcript/note projections and idempotency operation rows.
+    """
+    path = _db_path(db_path)
+    ensure_desktop_sync_db(path)
+    cutoff = (now or _now()).isoformat(timespec="seconds")
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT * FROM desktop_sync_tasks
+            WHERE result_expires_at IS NOT NULL AND result_expires_at <= ?
+            ORDER BY result_expires_at ASC
+            """,
+            (cutoff,),
+        ).fetchall()
+        tasks = [task for row in rows if (task := _row_to_task(row))]
+    for task in tasks:
+        job_store.delete_jobs([task["task_id"]], db_path=path, client_id=f"user:{task['owner_user_id']}")
+    task_ids = [task["task_id"] for task in tasks]
+    if task_ids:
+        with sqlite3.connect(path) as conn:
+            placeholders = ",".join("?" for _ in task_ids)
+            conn.execute(
+                f"DELETE FROM desktop_sync_operations WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            conn.execute(
+                f"DELETE FROM desktop_sync_tasks WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+    return tasks
+
+
+def purge_desktop_sync_tasks_for_user(
+    user_id: str,
+    *,
+    db_path: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    account_id = str(user_id or "").strip()
+    if not account_id:
+        return []
+    path = _db_path(db_path)
+    ensure_desktop_sync_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM desktop_sync_tasks WHERE owner_user_id = ?",
+            (account_id,),
+        ).fetchall()
+        tasks = [task for row in rows if (task := _row_to_task(row))]
+        task_ids = [task["task_id"] for task in tasks]
+        if task_ids:
+            placeholders = ",".join("?" for _ in task_ids)
+            conn.execute(
+                f"DELETE FROM desktop_sync_operations WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            conn.execute(
+                f"DELETE FROM desktop_sync_tasks WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+    return tasks

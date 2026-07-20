@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 
 import backend.main as main
-from backend.core import google_oauth
+from backend.core import account_lifecycle, google_oauth
 from backend.core.account_store import get_oauth_identity
 import backend.core.server_helpers as _H
 
@@ -126,3 +126,36 @@ def test_google_oauth_rejects_new_account_when_signups_closed(monkeypatch, tmp_p
     assert "auth_error=" in callback.headers["location"]
     assert status.json()["authenticated"] is False
     assert get_oauth_identity("google", "new-sub", db_path=tmp_path / "accounts.sqlite") is None
+
+
+def test_google_oauth_can_recover_a_pending_account_deletion(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    _patch_google_user(monkeypatch, sub="recover-sub", email="owner@example.com")
+
+    with TestClient(main.app) as client:
+        first_state = _start_state(client)
+        first = client.get(
+            "/auth/google/callback",
+            params={"code": "first-code", "state": first_state},
+            follow_redirects=False,
+        )
+        user_id = client.get("/auth/status").json()["user"]["id"]
+        account_lifecycle.request_deletion(user_id, account_db_path=tmp_path / "accounts.sqlite")
+        client.post("/auth/logout")
+
+        recovery_state = _start_state(client)
+        recovery = client.get(
+            "/auth/google/callback",
+            params={"code": "recovery-code", "state": recovery_state},
+            follow_redirects=False,
+        )
+        pending = client.get("/auth/status")
+        cancelled = client.post("/account/deletion/cancel")
+        restored = client.get("/auth/status")
+
+    assert first.status_code == 303
+    assert recovery.headers["location"] == "/?account_deletion=recover"
+    assert pending.json()["authenticated"] is False
+    assert pending.json()["account_deletion_recovery"] is True
+    assert cancelled.status_code == 200
+    assert restored.json()["authenticated"] is True

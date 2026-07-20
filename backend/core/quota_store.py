@@ -133,6 +133,17 @@ def get_balance(account_id: str, db_path: Path | str | None = None) -> int:
         return _balance_for_account(conn, account_id)
 
 
+def purge_account_quota(account_id: str, db_path: Path | str | None = None) -> int:
+    """Remove the local quota ledger when an account's deletion grace expires."""
+    account = (account_id or "").strip()
+    if not account:
+        return 0
+    ensure_quota_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        cursor = conn.execute("DELETE FROM balance_transactions WHERE account_id = ?", (account,))
+    return int(cursor.rowcount or 0)
+
+
 def _insert_transaction(
     conn: sqlite3.Connection,
     *,

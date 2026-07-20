@@ -329,6 +329,54 @@ def revoke_desktop_device(
     return _row_to_public_device(row)
 
 
+def revoke_desktop_devices_for_user(
+    user_id: str,
+    db_path: Path | str | None = None,
+) -> int:
+    """Revoke every desktop credential for an account without deleting audit rows."""
+    account_id = (user_id or "").strip()
+    if not account_id:
+        return 0
+    _ensure_desktop_device_db(db_path)
+    now = _now_iso()
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT id FROM desktop_devices WHERE user_id = ? AND revoked_at IS NULL",
+            (account_id,),
+        ).fetchall()
+        device_ids = [str(row[0]) for row in rows]
+        conn.execute(
+            "UPDATE desktop_devices SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ?",
+            (now, account_id),
+        )
+        if device_ids:
+            placeholders = ",".join("?" for _ in device_ids)
+            conn.execute(
+                f"UPDATE desktop_device_credentials SET revoked_at = COALESCE(revoked_at, ?) WHERE device_id IN ({placeholders})",
+                [now, *device_ids],
+            )
+    return len(device_ids)
+
+
+def purge_desktop_devices_for_user(
+    user_id: str,
+    db_path: Path | str | None = None,
+) -> int:
+    account_id = (user_id or "").strip()
+    if not account_id:
+        return 0
+    _ensure_desktop_device_db(db_path)
+    with sqlite3.connect(_db_path(db_path)) as conn:
+        device_ids = [str(row[0]) for row in conn.execute(
+            "SELECT id FROM desktop_devices WHERE user_id = ?", (account_id,)
+        ).fetchall()]
+        if device_ids:
+            placeholders = ",".join("?" for _ in device_ids)
+            conn.execute(f"DELETE FROM desktop_device_credentials WHERE device_id IN ({placeholders})", device_ids)
+        deleted = conn.execute("DELETE FROM desktop_devices WHERE user_id = ?", (account_id,))
+    return int(deleted.rowcount or 0)
+
+
 def authenticate_desktop_credential(
     credential: str | None,
     db_path: Path | str | None = None,
