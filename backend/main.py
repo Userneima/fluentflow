@@ -6,6 +6,7 @@ from backend.core.server_helpers.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,10 +17,12 @@ from backend.core.server_helpers import (
     beta_access_middleware,
     _startup_resume_queue,
 )
+from backend.core.desktop_sync_client import flush_desktop_sync_outbox
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _startup_resume_queue()
+    asyncio.create_task(asyncio.to_thread(flush_desktop_sync_outbox))
     yield
 
 app = FastAPI(title="FluentFlow", lifespan=lifespan)

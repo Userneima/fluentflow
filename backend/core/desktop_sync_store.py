@@ -164,6 +164,15 @@ def _validate_idempotency_key(value: Any) -> str:
     return key
 
 
+def _validate_requested_task_id(value: Any) -> str | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return uuid.UUID(str(value).strip()).hex
+    except (AttributeError, ValueError) as exc:
+        raise DesktopSyncError("task_id must be a UUID") from exc
+
+
 def _validate_operation_id(value: Any) -> str:
     operation_id = str(value or "").strip()
     if not operation_id or len(operation_id) > 128:
@@ -352,6 +361,7 @@ def create_desktop_sync_task(
     device_auth: dict[str, Any],
     idempotency_key: Any,
     source: Any,
+    task_id: Any = None,
     db_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], bool]:
     account_id = str(device_auth.get("user_id") or "").strip()
@@ -360,6 +370,7 @@ def create_desktop_sync_task(
         raise DesktopSyncPermissionError("A desktop device credential is required")
     key = _validate_idempotency_key(idempotency_key)
     source_data = _validate_source(source)
+    requested_task_id = _validate_requested_task_id(task_id)
     path = _db_path(db_path)
     ensure_desktop_sync_db(path)
 
@@ -380,7 +391,9 @@ def create_desktop_sync_task(
                 raise RuntimeError("desktop sync task is missing")
         else:
             now = _now_iso()
-            task_id = uuid.uuid4().hex
+            task_id_value = requested_task_id or uuid.uuid4().hex
+            if _get_task_row(conn, task_id_value) is not None:
+                raise DesktopSyncError("task_id is already in use")
             conn.execute(
                 """
                 INSERT INTO desktop_sync_tasks (
@@ -390,7 +403,7 @@ def create_desktop_sync_task(
                 ) VALUES (?, ?, ?, ?, ?, ?, 'local_desktop', 'local_only', ?, ?, ?, ?, 'queued', 'queued', 0, ?, ?)
                 """,
                 (
-                    task_id,
+                    task_id_value,
                     account_id,
                     device_id,
                     str(device_auth.get("display_name") or "Desktop"),
@@ -404,7 +417,7 @@ def create_desktop_sync_task(
                     now,
                 ),
             )
-            task = _row_to_task(_get_task_row(conn, task_id))
+            task = _row_to_task(_get_task_row(conn, task_id_value))
             created = True
     if not task:
         raise RuntimeError("created desktop sync task is missing")
@@ -556,3 +569,17 @@ def get_desktop_sync_task(
     if not task or task["owner_user_id"] != str(user_id or "").strip():
         return None
     return task
+
+
+def get_desktop_sync_task_for_device(
+    task_id: str,
+    *,
+    device_auth: dict[str, Any],
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Return the latest revision only to the desktop that owns writes."""
+    path = _db_path(db_path)
+    ensure_desktop_sync_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        return _owned_task(conn, task_id, device_auth)

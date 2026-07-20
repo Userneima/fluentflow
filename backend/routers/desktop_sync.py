@@ -12,6 +12,7 @@ from backend.core.desktop_sync_store import (
     DesktopSyncError,
     DesktopSyncPermissionError,
     create_desktop_sync_task,
+    get_desktop_sync_task_for_device,
     sync_desktop_task_result,
     sync_desktop_task_status,
 )
@@ -44,10 +45,20 @@ def create_task(request: Request, payload: dict[str, Any] = Body(default={})) ->
             device_auth=_desktop_auth(request),
             idempotency_key=payload.get("idempotency_key"),
             source=payload.get("source"),
+            task_id=payload.get("task_id"),
         )
     except DesktopSyncError as exc:
         _sync_error(exc)
     return {"ok": True, "created": created, "task": task}
+
+
+@router.get("/tasks/{task_id}")
+def get_task(request: Request, task_id: str) -> dict[str, Any]:
+    try:
+        task = get_desktop_sync_task_for_device(task_id, device_auth=_desktop_auth(request))
+    except DesktopSyncError as exc:
+        _sync_error(exc)
+    return {"ok": True, "task": task}
 
 
 @router.patch("/tasks/{task_id}/status")

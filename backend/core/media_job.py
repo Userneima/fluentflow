@@ -1482,7 +1482,14 @@ async def execute_media_job(ctx: MediaJobContext) -> None:
             {"stage": "error", "progress": 0, "error": str(exc)},
         )
     finally:
+        job = H.get_job(ctx.task_id_value)
         if not terminal_sent:
-            job = H.get_job(ctx.task_id_value)
             if job and job.get("status") in {"completed", "failed", "cancelled"}:
                 await H.JOB_EVENTS.publish(ctx.task_id_value, H.JobEventHub.event_from_job(job))
+        if job and job.get("status") in {"completed", "failed", "cancelled"}:
+            try:
+                from backend.core.desktop_sync_client import sync_terminal_local_job
+
+                await asyncio.to_thread(sync_terminal_local_job, job)
+            except Exception:  # pragma: no cover - local sync must never hide a completed task
+                H.logger.exception("Desktop result synchronization could not be queued for %s", ctx.task_id_value)

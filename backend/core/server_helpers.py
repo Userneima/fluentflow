@@ -2476,6 +2476,11 @@ def _run_queued_transcription(item: dict[str, Any]) -> None:
             media_preflight={"status": "passed", **media_preflight.as_metadata()},
         ),
     )
+    if stt_provider_value == "local":
+        from backend.core.desktop_sync_client import flush_desktop_sync_outbox, queue_desktop_status
+
+        if queue_desktop_status(task_id=task_id, status="running", stage="import", progress=0):
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(asyncio.to_thread(flush_desktop_sync_outbox)))
 
     td = tempfile.mkdtemp()
     ctx = MediaJobContext(

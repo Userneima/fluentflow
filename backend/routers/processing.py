@@ -18,6 +18,12 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
 from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
+from backend.core.desktop_sync_client import (
+    desktop_sync_connected,
+    flush_desktop_sync_outbox,
+    queue_desktop_status,
+    queue_desktop_task,
+)
 from backend.core.media_job import (
     _normalized_source_language,
     _is_english_source,
@@ -151,6 +157,11 @@ async def queue_process(
         prompt_preset=prompt_preset,
         prompt_preset_label=prompt_preset_label,
     )
+    local_desktop_sync = (
+        H._request_is_local_execution(request)
+        and H._normalize_stt_provider(base_options.get("stt_provider"), request) == "local"
+        and desktop_sync_connected()
+    )
     base_url = H._queue_base_url_from_request(request)
     prepared_sources: list[dict[str, Any]] = []
     total = len(files)
@@ -256,6 +267,17 @@ async def queue_process(
             source_file_size_mb=source_file_size_mb,
             metadata=metadata,
         )
+        if local_desktop_sync and source_type in {"audio", "video"}:
+            queue_desktop_task(
+                task_id=task_id_value,
+                source={
+                    "type": source_type,
+                    "filename": filename,
+                    "file_size_bytes": round(float(source_file_size_mb or 0) * 1024 * 1024),
+                    "duration_seconds": duration_estimate_sec,
+                },
+            )
+            asyncio.create_task(asyncio.to_thread(flush_desktop_sync_outbox))
         H._enqueue_transcription_job({
             "task_id": task_id_value,
             "source_path": str(source_path),
@@ -445,6 +467,24 @@ async def process_video(
     elevenlabs_key_value: str | None = None
     if elevenlabs_cloud_provider:
         elevenlabs_key_value = H.resolve_secret(elevenlabs_api_key, "elevenlabs_api_key")
+
+    if (
+        H._request_is_local_execution(request)
+        and stt_provider_value == "local"
+        and desktop_sync_connected()
+        and source_type in {"audio", "video"}
+    ):
+        queue_desktop_task(
+            task_id=task_id_value,
+            source={
+                "type": source_type,
+                "filename": source_filename,
+                "file_size_bytes": len(content),
+                "duration_seconds": duration_preflight_sec,
+            },
+        )
+        queue_desktop_status(task_id=task_id_value, status="running", stage="import", progress=0)
+        asyncio.create_task(asyncio.to_thread(flush_desktop_sync_outbox))
 
     account_user = H._request_account_user(request)
     ctx = MediaJobContext(

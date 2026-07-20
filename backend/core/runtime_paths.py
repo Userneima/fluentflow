@@ -59,6 +59,10 @@ def default_event_db_path() -> Path:
     return runtime_path("FLUENTFLOW_EVENT_DB_PATH", "fluentflow_events.sqlite")
 
 
+def default_desktop_sync_outbox_db_path() -> Path:
+    return runtime_path("FLUENTFLOW_DESKTOP_SYNC_OUTBOX_DB_PATH", "fluentflow_desktop_sync_outbox.sqlite")
+
+
 def default_source_dir() -> Path:
     return runtime_path("FLUENTFLOW_SOURCE_DIR", "sources")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import uuid
 
 from fastapi.testclient import TestClient
 
@@ -55,7 +56,9 @@ def test_desktop_sync_is_idempotent_conflict_safe_and_visible_to_its_account(mon
         credential = _register_device(client)
         client.post("/auth/logout")
 
+        supplied_task_id = uuid.uuid4().hex
         create_payload = {
+            "task_id": supplied_task_id,
             "idempotency_key": "desktop-run-001",
             "source": {
                 "type": "video",
@@ -67,6 +70,7 @@ def test_desktop_sync_is_idempotent_conflict_safe_and_visible_to_its_account(mon
         created = client.post("/desktop-sync/v1/tasks", headers=_sync_headers(credential), json=create_payload)
         duplicate = client.post("/desktop-sync/v1/tasks", headers=_sync_headers(credential), json=create_payload)
         task_id = created.json()["task"]["task_id"]
+        initial_read = client.get(f"/desktop-sync/v1/tasks/{task_id}", headers=_sync_headers(credential))
 
         generic_api_attempt = client.get(f"/jobs/{task_id}", headers=_sync_headers(credential))
         running = client.patch(
@@ -127,6 +131,9 @@ def test_desktop_sync_is_idempotent_conflict_safe_and_visible_to_its_account(mon
     assert duplicate.status_code == 200
     assert duplicate.json()["created"] is False
     assert duplicate.json()["task"]["task_id"] == task_id
+    assert task_id == supplied_task_id
+    assert initial_read.status_code == 200
+    assert initial_read.json()["task"]["result_revision"] == 0
     assert generic_api_attempt.status_code == 401
     assert job_store.list_job_steps(task_id=task_id, db_path=jobs_db) == []
     assert running.status_code == 200
@@ -169,6 +176,10 @@ def test_only_originating_device_and_owner_can_sync_a_desktop_task(monkeypatch, 
             headers=_sync_headers(second_credential),
             json={"operation_id": "other-device", "base_revision": 0, "status": "running"},
         )
+        other_device_read = client.get(
+            f"/desktop-sync/v1/tasks/{task['task_id']}",
+            headers=_sync_headers(second_credential),
+        )
         client.post("/auth/login", json={"email": "owner@example.com", "password": "secure-pass"})
         client.post("/auth/logout")
         _register(client, "other@example.com")
@@ -181,4 +192,5 @@ def test_only_originating_device_and_owner_can_sync_a_desktop_task(monkeypatch, 
         )
 
     assert other_device.status_code == 404
+    assert other_device_read.status_code == 404
     assert other_account.status_code == 404
