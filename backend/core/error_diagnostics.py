@@ -48,6 +48,15 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             detail="已上传的云端文件暂时无法下载到处理服务。",
             next_action="文件仍保留在云端，可以在处理记录中点击“重新处理”，无需再次上传。",
         )
+    if "99991679" in lowered or (
+        "docx:document" in lowered and "permission" in lowered
+    ):
+        return _diag(
+            code="feishu_document_permission_required",
+            title="飞书授权缺少文档权限",
+            detail="飞书账号已连接，但当前授权不能创建云文档。",
+            next_action="在飞书开放平台为 FluentFlow 应用启用文档创建权限后，重新连接飞书账号并确认授权。",
+        )
     if "queued transcript summary request failed" in lowered and (
         "401" in lowered or "login" in lowered or "auth" in lowered or "account" in lowered
     ):

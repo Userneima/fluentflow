@@ -87,7 +87,7 @@ def test_feishu_oauth_start_and_callback_store_connection(monkeypatch, tmp_path)
     assert start.status_code == 200
     assert "/open-apis/authen/v1/index" in start.json()["authorize_url"]
     assert params["app_id"] == ["cli_test"]
-    assert params["scope"] == ["offline_access"]
+    assert params["scope"] == ["offline_access docx:document docx:document:create"]
     # The callback redirects the browser back to the app instead of dumping JSON.
     assert callback.status_code == 303
     assert "/settings" in callback.headers["location"]
@@ -170,3 +170,29 @@ def test_export_lark_user_oauth_uses_account_connection(monkeypatch, tmp_path) -
     assert response.json()["auth_mode"] == "user_oauth"
     assert captured["user_access_token"] == "user-access-token"
     assert "user-access-token" not in str(response.json())
+
+
+def test_export_lark_user_oauth_explains_missing_document_permission(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    monkeypatch.setattr(H, "get_job", lambda task_id, client_id=None: None)
+    monkeypatch.setattr(H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(H, "get_valid_feishu_user_access_token", lambda user_id: "user-access-token")
+
+    def fail_export(*args, **kwargs) -> dict:
+        raise RuntimeError("Feishu create-doc HTTP 400: code 99991679 required docx:document:create permission")
+
+    monkeypatch.setattr(H, "export_markdown_to_lark", fail_export)
+
+    with TestClient(main.app) as client:
+        _register(client)
+        response = client.post(
+            "/export-lark",
+            data={
+                "markdown": "# Demo",
+                "title": "Demo",
+                "lark_export_route": "user_oauth",
+            },
+        )
+
+    assert response.status_code == 500
+    assert "飞书账号已连接，但当前授权不能创建云文档" in response.json()["detail"]

@@ -138,6 +138,8 @@ LARK_APP_SECRET=...
 LARK_OPEN_BASE_URL=https://open.feishu.cn
 # 生产回调 URL 要和飞书开放平台里配置的一致：
 FEISHU_OAUTH_REDIRECT_URI=https://your-domain.example/account/feishu/oauth/callback
+# 默认会请求离线续期与创建云文档权限；飞书应用后台也必须为该权限发布可用版本：
+FLUENTFLOW_FEISHU_OAUTH_SCOPES="offline_access docx:document docx:document:create"
 ```
 
 `LARK_APP_ID` / `LARK_APP_SECRET` 是 FluentFlow 自己的飞书 OAuth 应用凭证，不应该作为“维护者身份替所有用户创建文档”的正式商业默认路径。多用户上线时，用户需要先连接自己的飞书账号，后端保存账号级 Feishu connection，导出时使用该用户的 `user_access_token` 写入用户自己的飞书空间。
