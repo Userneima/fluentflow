@@ -246,6 +246,85 @@ def test_retry_job_from_stored_source_requeues_without_browser_upload(tmp_path, 
     assert Path(enqueued[0]["source_path"]).parent.name == new_task_id
 
 
+def test_retry_job_requeues_completed_oss_source_without_browser_upload(monkeypatch) -> None:
+    monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "list_jobs", lambda *args, **kwargs: [])
+    monkeypatch.setattr(_H, "_find_source_file", lambda task_id: None)
+    for name in [
+        "_enforce_submission_rate_limit",
+        "_enforce_active_job_limit",
+        "_enforce_global_active_job_limit",
+        "_enforce_daily_quota",
+        "_enforce_global_daily_quota",
+    ]:
+        monkeypatch.setattr(_H, name, lambda *args, **kwargs: None)
+
+    old_job = {
+        "task_id": "old-oss-task",
+        "status": "failed",
+        "client_id": "anonymous",
+        "source_type": "video",
+        "source_filename": "lesson.mp4",
+        "source_file_size_mb": 97.3,
+        "metadata": {
+            "source_storage": "oss",
+            "oss_upload_session_id": "session-1",
+            "queue_options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true"},
+        },
+    }
+    jobs: dict[str, dict] = {}
+    enqueued: list[dict] = []
+    session_scopes: list[str] = []
+
+    def fake_get_job(task_id, client_id=None):
+        if task_id == "old-oss-task":
+            return old_job if client_id == "anonymous" else None
+        return jobs.get(task_id)
+
+    def fake_session(session_id, *, owner_scope):
+        session_scopes.append(owner_scope)
+        assert session_id == "session-1"
+        return {
+            "session_id": session_id,
+            "status": "completed",
+            "object_key": "uploads/source/user-a/lesson.mp4",
+            "source_filename": "lesson.mp4",
+            "content_length": 97 * 1024 * 1024,
+        }
+
+    def fake_upsert_job(**kwargs):
+        jobs[kwargs["task_id"]] = kwargs
+
+    monkeypatch.setattr(_H, "get_job", fake_get_job)
+    monkeypatch.setattr(_H, "upsert_job", fake_upsert_job)
+    monkeypatch.setattr(_H, "_enqueue_oss_source_download", lambda item: enqueued.append(item))
+    monkeypatch.setattr(jobs_router, "get_oss_upload_session", fake_session)
+
+    with TestClient(main.app) as client:
+        response = client.post("/jobs/old-oss-task/retry")
+
+    assert response.status_code == 200
+    payload = response.json()
+    new_task_id = payload["task_id"]
+    assert new_task_id != "old-oss-task"
+    assert session_scopes == ["anonymous"]
+    assert payload["job"]["stage"] == "source_download"
+    assert jobs[new_task_id]["metadata"]["retry_source_task_id"] == "old-oss-task"
+    assert jobs[new_task_id]["metadata"]["source_storage"] == "oss"
+    assert enqueued == [{
+        "task_id": new_task_id,
+        "object_key": "uploads/source/user-a/lesson.mp4",
+        "expected_size_bytes": 97 * 1024 * 1024,
+        "filename": "lesson.mp4",
+        "options": {"stt_provider": "elevenlabs_scribe", "skip_summary": "true", "title": "lesson"},
+        "base_url": "http://testserver",
+        "client_id": "anonymous",
+        "oss_upload_session_id": "session-1",
+        "route": "/jobs/{task_id}/retry",
+    }]
+
+
 def test_main_processing_route_does_not_accept_or_forward_hotwords() -> None:
     assert "hotwords" not in inspect.signature(start_transcription_process).parameters
     assert "hotwords" not in _H._queue_options_from_mapping({"hotwords": "legacy term"})

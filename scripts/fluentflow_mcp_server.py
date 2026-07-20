@@ -174,6 +174,21 @@ def diagnose_task(
     return _agent_request("GET", f"/agent/v1/tasks/{task_id}/diagnosis", api_base=api_base, client_id=client_id)
 
 
+def retry_task(
+    task_id: str,
+    api_base: str | None = None,
+    client_id: str | None = None,
+) -> dict[str, Any]:
+    """Retry a failed task when FluentFlow still retains its source media."""
+    return _agent_request(
+        "POST",
+        f"/agent/v1/tasks/{task_id}/retry",
+        api_base=api_base,
+        client_id=client_id,
+        timeout=30,
+    )
+
+
 def regenerate_note(
     task_id: str,
     note_mode: str = "auto",
@@ -217,6 +232,7 @@ TOOL_FUNCTIONS = {
     "wait_task": wait_task,
     "get_task_package": get_task_package,
     "diagnose_task": diagnose_task,
+    "retry_task": retry_task,
     "regenerate_note": regenerate_note,
     "export_result": export_result,
 }
@@ -294,6 +310,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "diagnose_task",
         "description": "Explain task or note generation failure state in a machine-readable form.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}, "api_base": {"type": "string"}, "client_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "retry_task",
+        "description": "Retry a failed task from its retained source media when available.",
         "inputSchema": {
             "type": "object",
             "properties": {"task_id": {"type": "string"}, "api_base": {"type": "string"}, "client_id": {"type": "string"}},

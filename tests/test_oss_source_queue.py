@@ -121,3 +121,4 @@ def test_oss_download_step_failure_releases_any_reserved_quota(monkeypatch) -> N
     assert releases and releases[0]["task_id"] == "task-oss-release"
     assert releases[0]["metadata"]["route"] == "/oss-upload-sessions"
     assert updates and updates[0]["status"] == "failed"
+    assert "云端文件下载失败" in updates[0]["error_reason"]

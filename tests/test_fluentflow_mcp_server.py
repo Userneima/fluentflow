@@ -54,6 +54,7 @@ def test_task_tools_map_to_stable_agent_api(monkeypatch) -> None:
     server.wait_task("task-1", timeout_seconds=5, poll_interval_seconds=1)
     server.get_task_package("task-1")
     server.diagnose_task("task-1")
+    server.retry_task("task-1")
     server.regenerate_note("task-1", note_mode="high_fidelity")
     server.export_result("task-1", target="lark", title="Demo")
 
@@ -62,12 +63,13 @@ def test_task_tools_map_to_stable_agent_api(monkeypatch) -> None:
         ("POST", "/agent/v1/tasks/task-1/wait"),
         ("GET", "/agent/v1/tasks/task-1/package"),
         ("GET", "/agent/v1/tasks/task-1/diagnosis"),
+        ("POST", "/agent/v1/tasks/task-1/retry"),
         ("POST", "/agent/v1/tasks/task-1/note/regenerate"),
         ("POST", "/agent/v1/tasks/task-1/exports"),
     ]
     assert calls[1][2]["payload"] == {"timeout_seconds": 5, "poll_interval_seconds": 1}
-    assert calls[4][2]["payload"] == {"note_mode": "high_fidelity"}
-    assert calls[5][2]["payload"] == {"target": "lark", "title": "Demo"}
+    assert calls[5][2]["payload"] == {"note_mode": "high_fidelity"}
+    assert calls[6][2]["payload"] == {"target": "lark", "title": "Demo"}
 
 
 def test_agent_request_returns_structured_error(monkeypatch) -> None:
@@ -98,6 +100,7 @@ def test_jsonrpc_tools_list_exposes_product_level_actions() -> None:
         "wait_task",
         "get_task_package",
         "diagnose_task",
+        "retry_task",
         "regenerate_note",
         "export_result",
     ]

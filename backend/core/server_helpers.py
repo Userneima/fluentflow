@@ -44,6 +44,7 @@ from backend.core._env import (
     _request_is_internal_queue,
 )
 from backend.core.error_diagnostics import diagnose_error
+from backend.core.media_preflight import MediaPreflightError
 from backend.core.request_scope import (
     normalize_client_id as _normalize_client_id,
     request_client_id as _request_client_id,
@@ -2236,8 +2237,11 @@ def _handle_step_failure(step: dict[str, Any], exc: Exception) -> None:
     item = dict(step.get("input") or {})
     if not task_id:
         return
+    step_type = str(step.get("step_type") or "")
     friendly_error = _friendly_error_message(exc)
-    if str(step.get("step_type") or "") in {"oss_source_download", "transcription"}:
+    if step_type == "oss_source_download" and not isinstance(exc, MediaPreflightError):
+        friendly_error = "云端文件下载失败。请在处理记录中点击“重新处理”；如果仍失败，请重新上传。"
+    if step_type in {"oss_source_download", "transcription"}:
         _release_task_quota(
             client_id=_normalize_client_scope(str(item.get("client_id") or "")),
             task_id=task_id,
@@ -2252,7 +2256,7 @@ def _handle_step_failure(step: dict[str, Any], exc: Exception) -> None:
         task_id=task_id,
         status="failed",
         client_id=_normalize_client_scope(str(item.get("client_id") or "")),
-        stage=str(step.get("step_type") or "queued"),
+        stage=step_type or "queued",
         progress=0,
         error_reason=friendly_error,
     )

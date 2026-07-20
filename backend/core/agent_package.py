@@ -283,6 +283,18 @@ def _agent_visual_key_moments(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _next_actions(job: dict[str, Any], diagnosis: dict[str, Any]) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    if (
+        job.get("status") == "failed"
+        and metadata.get("source_storage") == "oss"
+        and _text(metadata.get("oss_upload_session_id"))
+    ):
+        actions.append({
+            "action": "retry_task",
+            "method": "POST",
+            "path": f"/agent/v1/tasks/{job.get('task_id')}/retry",
+            "reason": "已上传的云端文件可直接重新进入处理队列，无需再次上传。",
+        })
     if diagnosis.get("retryable") and diagnosis.get("code") != "note_completed":
         actions.append({
             "action": "regenerate_note",

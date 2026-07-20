@@ -528,7 +528,11 @@ def test_history_failed_video_link_records_can_be_retried_without_status_flicker
     assert "createVideoSourceJob" in source
     assert "const retryInputForJob = (job) => {" in source
     assert "metadata.video_source_input_preview" in source
-    assert "const canRetryJob = (job) => normalizeTaskState(job) === TASK_STATE_FAILED && !!retryInputForJob(job)" in source
+    assert "const hasReusableOssSource = (job) => {" in source
+    assert "metadata.source_storage === 'oss'" in source
+    assert "retryJob" in source
+    assert "await retryJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});" in source
+    assert "const canRetryJob = (job) => normalizeTaskState(job) === TASK_STATE_FAILED && (!!retryInputForJob(job) || hasReusableOssSource(job));" in source
     assert "const retryFailedJob = async (job) => {" in source
     assert "重新处理" in source
     assert "'live', lang === 'zh' ? '进行中' : 'Active', stats.live" in source

@@ -92,7 +92,7 @@ const Tasks = () => {
     // Read the shared task list and mutations from AppProvider; this page no
     // longer keeps a private jobs state or writes the cache (plan Stage 3b).
     const {currentJob, setLastResult, setCurrentJob, addToHistory, tasks: jobs, ingestJobs, markCancelled, revertCancelled, removeFromHistory, restoreTask} = useApp();
-    const {getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob} = useApi();
+    const {getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob, retryJob} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
     const [deletingTaskId, setDeletingTaskId] = useState('');
@@ -293,7 +293,12 @@ const Tasks = () => {
         };
     };
 
-    const canRetryJob = (job) => normalizeTaskState(job) === TASK_STATE_FAILED && !!retryInputForJob(job);
+    const hasReusableOssSource = (job) => {
+        const metadata = job?.metadata || {};
+        return metadata.source_storage === 'oss' && !!String(metadata.oss_upload_session_id || '').trim();
+    };
+
+    const canRetryJob = (job) => normalizeTaskState(job) === TASK_STATE_FAILED && (!!retryInputForJob(job) || hasReusableOssSource(job));
 
     const retryFailedJob = async (job) => {
         if (!canRetryJob(job)) return;
@@ -301,7 +306,9 @@ const Tasks = () => {
         setRetryingTaskId(taskId);
         try {
             const input = retryInputForJob(job);
-            const response = await createVideoSourceJob(input, retryOptionsForJob(job));
+            const response = input
+                ? await createVideoSourceJob(input, retryOptionsForJob(job))
+                : await retryJob(taskId, isLocalJob(job) ? {sttProvider: 'local'} : {});
             const nextJob = response?.job ? markBackendJob(response.job) : null;
             if (nextJob) {
                 ingestJobs([nextJob]);

@@ -41,6 +41,13 @@ def diagnose_error(error: Any) -> dict[str, Any]:
         )
     lowered = raw.lower()
 
+    if "云端文件下载失败" in raw:
+        return _diag(
+            code="oss_source_download_failed",
+            title="云端文件下载失败",
+            detail="已上传的云端文件暂时无法下载到处理服务。",
+            next_action="文件仍保留在云端，可以在处理记录中点击“重新处理”，无需再次上传。",
+        )
     if "queued transcript summary request failed" in lowered and (
         "401" in lowered or "login" in lowered or "auth" in lowered or "account" in lowered
     ):

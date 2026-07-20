@@ -198,6 +198,8 @@ STAGE_TO_STEP = {
     "downloading": "source_fetch",
     "saving": "source_fetch",
     "import": "source_fetch",
+    "source_download": "source_fetch",
+    "oss_source_download": "source_fetch",
     "queued": "transcription",
     "audio": "audio_prepare",
     "stt": "transcription",
@@ -228,6 +230,7 @@ STEP_ORDER = {
 
 RECORDED_STEP_MAP = {
     "video_source": "source_fetch",
+    "oss_source_download": "source_fetch",
     "transcription": "transcription",
 }
 
@@ -555,6 +558,9 @@ def _diagnosis(job: dict[str, Any], timeline: list[dict[str, Any]]) -> dict[str,
 
 
 def _next_action_for_failure(job: dict[str, Any], failed_step: dict[str, Any] | None) -> str:
+    metadata = _metadata(job)
+    if metadata.get("source_storage") == "oss" and _text(metadata.get("oss_upload_session_id")):
+        return "文件仍保留在云端，可以在处理记录中点击“重新处理”，无需再次上传。"
     error_text = _text(job.get("error_reason") or failed_step.get("error_reason")).lower() if failed_step else _text(job.get("error_reason")).lower()
     if any(token in error_text for token in ("401", "login", "auth", "account", "账号", "登录态", "未登录")):
         return "重新登录后重试；如果转录已保存，打开结果后重生笔记。"
@@ -618,7 +624,16 @@ def _actions(job: dict[str, Any], result: dict[str, Any], artifacts: list[dict[s
             "enabled": True,
             "tone": "danger",
         })
-    if status == "failed":
+    if status == "failed" and _is_oss_source_retryable(job):
+        actions.append({
+            "id": "retry",
+            "label": "重新处理",
+            "method": "POST",
+            "path": f"/jobs/{task_id}/retry",
+            "enabled": True,
+            "tone": "secondary",
+        })
+    elif status == "failed":
         actions.append({
             "id": "resubmit",
             "label": "重新提交",
@@ -628,6 +643,15 @@ def _actions(job: dict[str, Any], result: dict[str, Any], artifacts: list[dict[s
             "tone": "secondary",
         })
     return actions
+
+
+def _is_oss_source_retryable(job: dict[str, Any]) -> bool:
+    metadata = _metadata(job)
+    return (
+        _text(job.get("status")) == "failed"
+        and metadata.get("source_storage") == "oss"
+        and bool(_text(metadata.get("oss_upload_session_id")))
+    )
 
 
 def build_task_snapshot(

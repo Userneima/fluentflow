@@ -166,6 +166,32 @@ def test_task_detail_auth_failure_suggests_login_before_retry() -> None:
     assert detail["diagnosis"]["next_action"] == "重新登录后重试；如果转录已保存，打开结果后重生笔记。"
 
 
+def test_task_detail_surfaces_failed_oss_download_with_direct_retry() -> None:
+    job = {
+        "task_id": "task-oss-failed",
+        "status": "failed",
+        "stage": "oss_source_download",
+        "progress": 0,
+        "source_type": "video",
+        "source_filename": "lesson.mp4",
+        "error_reason": "云端文件下载失败。请在处理记录中点击“重新处理”；如果仍失败，请重新上传。",
+        "metadata": {"source_storage": "oss", "oss_upload_session_id": "session-1"},
+        "result": {},
+    }
+    detail = build_task_detail(job, job_steps=[{
+        "task_id": "task-oss-failed",
+        "step_type": "oss_source_download",
+        "status": "failed",
+        "error_reason": job["error_reason"],
+    }])
+    timeline = {step["id"]: step for step in detail["timeline"]}
+
+    assert timeline["source_fetch"]["status"] == "failed"
+    assert detail["diagnosis"]["next_action"] == "文件仍保留在云端，可以在处理记录中点击“重新处理”，无需再次上传。"
+    assert any(action["id"] == "retry" and action["path"] == "/jobs/task-oss-failed/retry" for action in detail["actions"])
+    assert detail["task_snapshot"]["current_step"] == "source_fetch"
+
+
 def test_task_snapshot_keeps_transcript_only_route_without_ai_requirement() -> None:
     job = {
         "task_id": "task-transcript-only",

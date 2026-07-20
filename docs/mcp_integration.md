@@ -60,6 +60,7 @@ npm run mcp:check:e2e
 | `wait_task` | Wait for completion or return the current running state. |
 | `get_task_package` | Read the stable Agent Task Package. |
 | `diagnose_task` | Explain task or note generation failure state. |
+| `retry_task` | Retry a failed task from retained source media when the task package exposes that action. |
 | `regenerate_note` | Regenerate a note from the stored transcript. |
 | `export_result` | Export the task note to a supported target such as Lark. |
 
@@ -70,7 +71,7 @@ npm run mcp:check:e2e
 3. Call `submit_video_link` or `submit_transcript`.
 4. Call `wait_task` until the task is done.
 5. Call `get_task_package` for transcript, note, artifacts, diagnosis, processing plan, and next actions.
-6. Use `regenerate_note`, `diagnose_task`, or `export_result` when the package indicates those actions are available.
+6. Use `retry_task`, `regenerate_note`, `diagnose_task`, or `export_result` when the package indicates those actions are available.
 
 ## Design Boundary
 

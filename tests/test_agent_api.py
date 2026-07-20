@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import backend.core.server_helpers as H
+import backend.routers.agent as agent_router
 from backend.main import app
 
 
@@ -229,6 +230,56 @@ def test_agent_task_package_explains_missing_note(monkeypatch) -> None:
     assert package["note"]["diagnosis"]["code"] == "transcript_only_mode"
     assert package["note"]["diagnosis"]["retryable"] is True
     assert package["next_actions"][0]["action"] == "regenerate_note"
+
+
+def test_agent_task_package_exposes_retry_for_failed_oss_source(monkeypatch) -> None:
+    monkeypatch.setattr(
+        H,
+        "get_job",
+        lambda task_id, client_id=None: {
+            "task_id": task_id,
+            "status": "failed",
+            "stage": "oss_source_download",
+            "progress": 0,
+            "source_type": "video",
+            "source_filename": "lesson.mp4",
+            "error_reason": "云端文件下载失败。",
+            "metadata": {"source_storage": "oss", "oss_upload_session_id": "session-1"},
+            "result": {},
+        },
+    )
+
+    response = TestClient(app).get("/agent/v1/tasks/task-oss/package")
+
+    assert response.status_code == 200
+    assert response.json()["next_actions"][0] == {
+        "action": "retry_task",
+        "method": "POST",
+        "path": "/agent/v1/tasks/task-oss/retry",
+        "reason": "已上传的云端文件可直接重新进入处理队列，无需再次上传。",
+    }
+
+
+def test_agent_task_retry_reuses_existing_retry_contract(monkeypatch) -> None:
+    retried_job = {
+        "task_id": "retried-task",
+        "status": "queued",
+        "stage": "source_download",
+        "source_type": "video",
+        "source_filename": "lesson.mp4",
+        "metadata": {"source_storage": "oss"},
+    }
+    monkeypatch.setattr(
+        agent_router,
+        "retry_job_from_stored_source",
+        lambda request, task_id: {"ok": True, "source_task_id": task_id, "task_id": "retried-task", "job": retried_job},
+    )
+
+    response = TestClient(app).post("/agent/v1/tasks/old-task/retry")
+
+    assert response.status_code == 200
+    assert response.json()["task_id"] == "retried-task"
+    assert response.json()["package_url"] == "/agent/v1/tasks/retried-task/package"
 
 
 def test_agent_task_package_returns_404_for_missing_job(monkeypatch) -> None:

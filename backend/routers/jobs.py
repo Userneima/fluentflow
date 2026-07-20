@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
 from backend.core.media_preflight import MediaPreflightError, preflight_media_file
+from backend.core.oss_upload_sessions import get_oss_upload_session
 from backend.core.task_detail import build_task_detail, build_task_snapshot
 
 router = APIRouter()
@@ -146,7 +147,7 @@ def retry_job_from_stored_source(request: Request, task_id: str) -> dict[str, An
 
     source = H._find_source_file(task_id)
     if not source:
-        raise HTTPException(status_code=404, detail="Original source file is no longer available")
+        return _retry_job_from_oss_source(request=request, task_id=task_id, job=job, client_id=client_id)
 
     H._enforce_submission_rate_limit(request, incoming=1)
     H._enforce_active_job_limit(client_id, incoming=1)
@@ -250,6 +251,109 @@ def retry_job_from_stored_source(request: Request, task_id: str) -> dict[str, An
         "metadata": next_metadata,
     }
     return {"ok": True, "source_task_id": task_id, "task_id": new_task_id, "job": {**queued_job, "task_snapshot": build_task_snapshot(queued_job)}}
+
+
+def _retry_job_from_oss_source(
+    *,
+    request: Request,
+    task_id: str,
+    job: dict[str, Any],
+    client_id: str,
+) -> dict[str, Any]:
+    """Queue a new task from the same-account completed OSS source object."""
+
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    session_id = str(metadata.get("oss_upload_session_id") or "").strip()
+    if metadata.get("source_storage") != "oss" or not session_id:
+        raise HTTPException(status_code=404, detail="Original source file is no longer available")
+
+    session = get_oss_upload_session(session_id, owner_scope=client_id)
+    if not session or session.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Original cloud source is no longer available")
+
+    H._enforce_submission_rate_limit(request, incoming=1)
+    H._enforce_active_job_limit(client_id, incoming=1)
+    H._enforce_global_active_job_limit(incoming=1)
+
+    filename = Path(str(session.get("source_filename") or job.get("source_filename") or "source.mp4")).name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in H.ALLOWED_SUFFIXES or suffix in H.TRANSCRIPT_SUFFIXES:
+        raise HTTPException(status_code=422, detail="Original cloud source has an unsupported file type")
+    try:
+        content_length = int(session.get("content_length") or 0)
+    except (TypeError, ValueError):
+        content_length = 0
+    if content_length <= 0:
+        raise HTTPException(status_code=404, detail="Original cloud source is no longer available")
+
+    source_file_size_mb = H._file_size_mb(content_length)
+    H._enforce_daily_quota(client_id, incoming_jobs=1, incoming_upload_mb=source_file_size_mb)
+    H._enforce_global_daily_quota(client_id=client_id, incoming_jobs=1, incoming_upload_mb=source_file_size_mb)
+
+    options = H._queue_options_from_mapping(
+        metadata.get("queue_options") if isinstance(metadata.get("queue_options"), dict) else metadata
+    )
+    if filename and "title" not in options:
+        options["title"] = Path(filename).stem
+    new_task_id = H._new_task_id()
+    source_type = H._source_type_for_suffix(suffix)
+    next_metadata = H._metadata(
+        route="/jobs/{task_id}/retry",
+        retry_source_task_id=task_id,
+        source_storage="oss",
+        oss_upload_session_id=session_id,
+        queue_options=options,
+        queue_position=1,
+        queue_total=1,
+    )
+    H.log_event(
+        task_id=new_task_id,
+        event_name="task_retried",
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        stage="source_download",
+        success=True,
+        metadata=next_metadata,
+    )
+    H.upsert_job(
+        task_id=new_task_id,
+        status="queued",
+        client_id=client_id,
+        stage="source_download",
+        progress=0,
+        source_type=source_type,
+        source_filename=filename,
+        source_file_size_mb=source_file_size_mb,
+        metadata=next_metadata,
+    )
+    H._enqueue_oss_source_download({
+        "task_id": new_task_id,
+        "object_key": session["object_key"],
+        "expected_size_bytes": content_length,
+        "filename": filename,
+        "options": options,
+        "base_url": H._queue_base_url_from_request(request),
+        "client_id": client_id,
+        "oss_upload_session_id": session_id,
+        "route": "/jobs/{task_id}/retry",
+    })
+    queued_job = H.get_job(new_task_id, client_id=client_id) or {
+        "task_id": new_task_id,
+        "status": "queued",
+        "stage": "source_download",
+        "progress": 0,
+        "source_type": source_type,
+        "source_filename": filename,
+        "source_file_size_mb": source_file_size_mb,
+        "metadata": next_metadata,
+    }
+    return {
+        "ok": True,
+        "source_task_id": task_id,
+        "task_id": new_task_id,
+        "job": {**queued_job, "task_snapshot": build_task_snapshot(queued_job)},
+    }
 
 
 

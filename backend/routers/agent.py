@@ -10,6 +10,7 @@ import backend.core.server_helpers as H
 from backend.core.agent_package import build_agent_task_package, note_generation_diagnosis
 from backend.core.agent_task_actions import AgentActionError, export_agent_note, regenerate_agent_note
 from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
+from backend.routers.jobs import retry_job_from_stored_source
 
 router = APIRouter(prefix="/agent/v1")
 
@@ -230,6 +231,21 @@ def get_agent_task_diagnosis(request: Request, task_id: str) -> dict[str, Any]:
         "ok": True,
         "task_id": task_id,
         "note": note_generation_diagnosis(job, result),
+    }
+
+
+@router.post("/tasks/{task_id}/retry")
+def retry_agent_task(request: Request, task_id: str) -> dict[str, Any]:
+    retried = retry_job_from_stored_source(request, task_id)
+    next_task_id = str(retried.get("task_id") or "")
+    job = retried.get("job") if isinstance(retried.get("job"), dict) else {}
+    return {
+        "ok": True,
+        "source_task_id": task_id,
+        "task_id": next_task_id,
+        "status": job.get("status") or "queued",
+        "package_url": f"/agent/v1/tasks/{next_task_id}/package",
+        "package": _task_package_response(job),
     }
 
 
