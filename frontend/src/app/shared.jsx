@@ -632,8 +632,34 @@ export const useApi = () => {
         if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
         return data.connection || {connected: false};
     };
+    const getDesktopSyncStatus = async () => {
+        const r = await apiFetch(`${API_BASE}/desktop-sync/local/status`);
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) {
+            const err = new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+            err.status = r.status;
+            throw err;
+        }
+        return data;
+    };
+    const startDesktopPairing = async (payload={}) => {
+        const r = await apiFetch(`${API_BASE}/desktop-sync/local/pairing/start`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
+    const flushDesktopSync = async () => {
+        const r = await apiFetch(`${API_BASE}/desktop-sync/local/flush`, {method: "POST"});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(apiErrorMessage(data, `HTTP ${r.status}`));
+        return data;
+    };
     const checkHealth = async () => { try{ const r = await apiFetch(`${API_BASE}/health`); return r.ok ? await r.json() : false;}catch(_){return false;} };
-    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, checkVideoCookies, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, retryJob, getJobs, getAccountQuota, getAdminUsers, getAdminCloudTranscriptionUsage, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, checkHealth};
+    return {processVideoSSE, enqueueProcessFiles, processGuestTrialFile, getGuestTrialStatus, getGuestTrialJob, subscribeGuestTrialJobEvents, cancelGuestTrialJob, fetchGuestTrialArtifactFile, createVideoSourceJob, checkVideoCookies, subscribeJobEvents, summarizeTranscriptFile, recordEvent, getJob, cancelJob, deleteJob, retryJob, getJobs, getAccountQuota, getAdminUsers, getAdminCloudTranscriptionUsage, adjustUserBalance, fetchJobSourceFile, fetchJobArtifactFile, uploadJobPlaybackAudio, downloadJobArtifact, saveTranscriptEdit, saveSummaryEdit, translateJobSegments, getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, getFeishuConnection, startFeishuOAuth, disconnectFeishu, getDesktopSyncStatus, startDesktopPairing, flushDesktopSync, checkHealth};
 };
 
 export const useSettings = () => {

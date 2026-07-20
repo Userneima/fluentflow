@@ -116,6 +116,31 @@ def desktop_sync_connected(config_path: Path | str | None = None) -> bool:
     return _sync_config(config_path) is not None
 
 
+def desktop_sync_outbox_status(outbox_path: Path | str | None = None) -> dict[str, Any]:
+    """Return safe local retry metadata for the desktop settings surface."""
+    with _connection(outbox_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS pending_count, MIN(next_attempt_at) AS next_attempt_at
+            FROM desktop_sync_outbox
+            WHERE completed_at IS NULL
+            """
+        ).fetchone()
+        latest_error = conn.execute(
+            """
+            SELECT last_error FROM desktop_sync_outbox
+            WHERE completed_at IS NULL AND last_error IS NOT NULL
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    return {
+        "pending_count": int(row["pending_count"] or 0),
+        "next_attempt_at": row["next_attempt_at"],
+        "last_error": latest_error["last_error"] if latest_error else None,
+    }
+
+
 def _safe_source(source: dict[str, Any]) -> dict[str, Any]:
     source_type = str(source.get("type") or "").strip().lower()
     filename = " ".join(str(source.get("filename") or "").split())

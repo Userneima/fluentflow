@@ -54,7 +54,7 @@ const Settings = () => {
     const {t, lang} = useI18n();
     const {loadSettings, saveSettings} = useSettings();
     const {clearHistory, history, larkExports, runtimeConfig} = useApp();
-    const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkVideoCookies} = useApi();
+    const {getCredentialsStatus, saveCredentials, getSpeakerDiarizationStatus, checkVideoCookies, getDesktopSyncStatus, startDesktopPairing, flushDesktopSync} = useApi();
     const [settings, setSettings] = useState(() => loadSettings());
     const [cleared, setCleared] = useState(false);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -66,6 +66,22 @@ const Settings = () => {
     const [pyannoteTokenEditing, setPyannoteTokenEditing] = useState(false);
     const [secretSaving, setSecretSaving] = useState(false);
     const [secretFeedback, setSecretFeedback] = useState(null);
+    const [desktopSync, setDesktopSync] = useState(undefined);
+    const [desktopSyncCloudUrl, setDesktopSyncCloudUrl] = useState('');
+    const [desktopSyncBusy, setDesktopSyncBusy] = useState(false);
+    const [desktopSyncFeedback, setDesktopSyncFeedback] = useState(null);
+
+    const refreshDesktopSync = async () => {
+        try {
+            const next = await getDesktopSyncStatus();
+            setDesktopSync(next);
+            setDesktopSyncCloudUrl((current) => current || next?.sync?.cloud_url || next?.default_cloud_url || '');
+            return next;
+        } catch (_) {
+            setDesktopSync((current) => current || null);
+            return null;
+        }
+    };
 
     const credentialConfigured = (status, key) => {
         if (key === 'dashscope_api_key' || key === 'qwen_api_key') {
@@ -89,7 +105,14 @@ const Settings = () => {
         }
         getCredentialsStatus().then(setCredentialStatus).catch(() => {});
         getSpeakerDiarizationStatus().then(setDiarizationStatus).catch(() => {});
+        refreshDesktopSync();
     }, []);
+
+    useEffect(() => {
+        if (!desktopSync?.sync?.pairing_pending) return undefined;
+        const poll = window.setInterval(() => { refreshDesktopSync(); }, 2000);
+        return () => window.clearInterval(poll);
+    }, [desktopSync?.sync?.pairing_pending]);
 
     const updateSettingNow = (patch) => {
         setSettings((s) => {
@@ -168,6 +191,46 @@ const Settings = () => {
         setTimeout(() => setCleared(false), 2000);
     };
 
+    const connectDesktopSync = async () => {
+        const cloudUrl = desktopSyncCloudUrl.trim();
+        if (!cloudUrl) {
+            setDesktopSyncFeedback({ok: false, message: lang === 'zh' ? '填写云端地址后再连接。' : 'Enter the cloud address first.'});
+            return;
+        }
+        const pairWindow = window.open('', 'fluentflow-desktop-pair', 'popup,width=560,height=720');
+        setDesktopSyncBusy(true);
+        setDesktopSyncFeedback(null);
+        try {
+            const next = await startDesktopPairing({cloud_url: cloudUrl});
+            setDesktopSync({sync: next, outbox: desktopSync?.outbox || {pending_count: 0}});
+            if (pairWindow) {
+                try { pairWindow.opener = null; } catch (_) {}
+                pairWindow.location.assign(next.pair_url);
+            } else {
+                window.open(next.pair_url, '_blank', 'noopener,noreferrer');
+            }
+        } catch (err) {
+            pairWindow?.close();
+            setDesktopSyncFeedback({ok: false, message: err.message || String(err)});
+        } finally {
+            setDesktopSyncBusy(false);
+        }
+    };
+
+    const retryDesktopSync = async () => {
+        setDesktopSyncBusy(true);
+        setDesktopSyncFeedback(null);
+        try {
+            const next = await flushDesktopSync();
+            setDesktopSync(next);
+            setDesktopSyncFeedback({ok: true, message: lang === 'zh' ? '已检查待同步内容。' : 'Checked pending sync items.'});
+        } catch (err) {
+            setDesktopSyncFeedback({ok: false, message: err.message || String(err)});
+        } finally {
+            setDesktopSyncBusy(false);
+        }
+    };
+
 
     const inputClass = 'w-full rounded-[14px] border border-[#dedada] bg-[#fbfbfb] px-4 py-3 text-sm font-semibold text-[#111111] outline-none transition placeholder:text-[#aaa] focus:border-[#111111] focus:bg-white dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/30 dark:focus:border-white/40';
     const fieldLabelClass = 'text-[11px] font-extrabold uppercase tracking-wider text-[#676970] dark:text-white/50';
@@ -202,6 +265,8 @@ const Settings = () => {
     const pyannoteTokenConfigured = !!(credentialStatus?.pyannote_auth_token_configured || diarizationStatus?.auth_configured);
     const showPyannoteTokenInput = !pyannoteTokenConfigured || pyannoteTokenEditing;
     const showMaintainerSettings = runtimeConfig.showMaintainerSettings;
+    const desktopSyncConnected = !!desktopSync?.sync?.connected;
+    const desktopSyncPendingCount = Number(desktopSync?.outbox?.pending_count || 0);
 
     const routeButtonClass = (active, disabled) => [
         'flex min-h-[74px] flex-1 items-start gap-3 rounded-[14px] border px-4 py-3 text-left transition',
@@ -436,6 +501,47 @@ const Settings = () => {
                             )}
                         </div>
                     </Section>
+
+                    {desktopSync && (
+                        <Section
+                            id="desktop-sync"
+                            title={lang === 'zh' ? '设备与云端' : 'Device and cloud'}
+                            description={lang === 'zh' ? '本机转录的字幕和笔记会同步到同一账号；原视频保留在这台设备。' : 'Local transcripts and notes sync to the same account. Source videos stay on this device.'}
+                        >
+                            <div className="m-5 space-y-3">
+                                {desktopSyncConnected ? (
+                                    <div className={`${cellBase} flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between`}>
+                                        <div className="flex min-w-0 items-start gap-3">
+                                            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary"><SvgIcon name="cloud_done" className="text-lg"/></span>
+                                            <div className="min-w-0">
+                                                <h3 className="text-sm font-bold">{lang === 'zh' ? '云端账号已连接' : 'Cloud account connected'}</h3>
+                                                <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
+                                                    {desktopSyncPendingCount > 0
+                                                        ? (lang === 'zh' ? `${desktopSyncPendingCount} 项等待同步` : `${desktopSyncPendingCount} item${desktopSyncPendingCount === 1 ? '' : 's'} pending`)
+                                                        : (lang === 'zh' ? '当前没有待同步内容' : 'No pending sync items')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button type="button" aria-label={lang === 'zh' ? '立即重试同步' : 'Retry sync now'} title={lang === 'zh' ? '立即重试同步' : 'Retry sync now'} disabled={desktopSyncBusy || desktopSyncPendingCount === 0} onClick={retryDesktopSync} className="inline-flex size-10 shrink-0 items-center justify-center rounded-[12px] border border-outline-variant text-on-surface transition hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-40">
+                                            <SvgIcon name="refresh" className={`text-base ${desktopSyncBusy ? 'animate-spin' : ''}`}/>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className={`${cellBase} space-y-3`}>
+                                        <label className={`${fieldLabelClass} block`} htmlFor="desktopSyncCloudUrl">{lang === 'zh' ? '云端地址' : 'Cloud address'}</label>
+                                        <div className="flex flex-col gap-2 sm:flex-row">
+                                            <input id="desktopSyncCloudUrl" className={inputClass} value={desktopSyncCloudUrl} onChange={e=>setDesktopSyncCloudUrl(e.target.value)} placeholder="https://" inputMode="url" autoComplete="url"/>
+                                            <button type="button" disabled={desktopSyncBusy} onClick={connectDesktopSync} className="inline-flex h-[46px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-primary px-4 text-sm font-extrabold text-on-primary transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+                                                <SvgIcon name={desktopSyncBusy ? 'sync' : 'cloud_upload'} className={`text-base ${desktopSyncBusy ? 'animate-spin' : ''}`}/>
+                                                {desktopSync?.sync?.pairing_pending ? (lang === 'zh' ? '等待浏览器完成' : 'Waiting for browser') : (lang === 'zh' ? '连接云端账号' : 'Connect cloud account')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {desktopSyncFeedback && <p className={`text-xs font-semibold ${desktopSyncFeedback.ok ? 'text-primary' : 'text-error'}`}>{desktopSyncFeedback.message}</p>}
+                            </div>
+                        </Section>
+                    )}
 
                     <Section id="data" title={lang === 'zh' ? '数据' : 'Data'} description={lang === 'zh' ? '本机保存的记录。' : 'Records stored on this device.'}>
                         <div className={`m-5 grid gap-4 ${cellBase} md:grid-cols-[minmax(0,1fr)_auto] md:items-center`}>

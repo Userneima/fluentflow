@@ -1698,6 +1698,7 @@ def test_settings_page_stays_focused_on_real_settings() -> None:
     assert 'id="notes"' in source
     assert 'id="export"' in source
     assert 'id="data"' in source
+    assert 'id="desktop-sync"' in source
     assert 'id="advanced"' in source
     assert "高级 · 模型密钥" in source
     # The one-item "本机转录高级选项" fold and the model blurb were removed;
@@ -1712,8 +1713,23 @@ def test_settings_page_stays_focused_on_real_settings() -> None:
     assert "清除当前浏览器保存的本地历史记录，不会删除服务器任务" in source
     assert "当前是线上云端环境，本地转录不可用" in source
     assert "云端与本地转录二选一" in source
+    assert "设备与云端" in source
+    assert "原视频保留在这台设备" in source
+    assert "连接云端账号" in source
     assert "Agent 会根据内容自动选用最匹配的" not in source
     assert "Agent auto-selects the best match" not in source
+
+
+def test_desktop_sync_settings_only_calls_loopback_device_endpoints() -> None:
+    settings = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
+    shared = Path("frontend/src/app/shared.jsx").read_text(encoding="utf-8")
+
+    assert "getDesktopSyncStatus" in settings
+    assert "startDesktopPairing" in settings
+    assert "flushDesktopSync" in settings
+    assert "desktop-sync/local/status" in shared
+    assert "desktop-sync/local/pairing/start" in shared
+    assert "desktop-sync/local/flush" in shared
 
 
 def test_settings_clear_history_requires_confirmation_dialog() -> None:

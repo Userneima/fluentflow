@@ -15,9 +15,11 @@ from backend.core.desktop_pairing import (
     DesktopPairingError,
     _validate_callback_url,
     complete_desktop_pairing,
+    desktop_sync_default_cloud_url,
     desktop_sync_status,
     start_desktop_pairing,
 )
+from backend.core.desktop_sync_client import desktop_sync_outbox_status, flush_desktop_sync_outbox
 
 
 cloud_router = APIRouter()
@@ -58,7 +60,12 @@ def claim_desktop_pair(
 @local_router.get("/status")
 def local_pairing_status(request: Request) -> dict[str, Any]:
     _require_loopback(request)
-    return {"ok": True, "sync": desktop_sync_status()}
+    return {
+        "ok": True,
+        "sync": desktop_sync_status(),
+        "outbox": desktop_sync_outbox_status(),
+        "default_cloud_url": desktop_sync_default_cloud_url(),
+    }
 
 
 @local_router.post("/pairing/start")
@@ -75,6 +82,17 @@ def start_local_pairing(request: Request, payload: dict[str, Any] = Body(default
     except DesktopPairingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": True, **result}
+
+
+@local_router.post("/flush")
+def flush_local_desktop_sync(request: Request) -> dict[str, Any]:
+    _require_loopback(request)
+    last_flush = flush_desktop_sync_outbox()
+    return {
+        "ok": True,
+        "sync": desktop_sync_status(),
+        "outbox": {**desktop_sync_outbox_status(), "last_flush": last_flush},
+    }
 
 
 @local_router.get("/pairing/callback")

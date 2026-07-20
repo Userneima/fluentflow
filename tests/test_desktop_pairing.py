@@ -15,6 +15,7 @@ def _enable_account_auth(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("FLUENTFLOW_ACCOUNT_AUTH", "1")
     monkeypatch.setenv("FLUENTFLOW_ACCOUNT_DB_PATH", str(tmp_path / "accounts.sqlite"))
     monkeypatch.setenv("FLUENTFLOW_CONFIG_PATH", str(tmp_path / "local-config.json"))
+    monkeypatch.setenv("FLUENTFLOW_DATA_DIR", str(tmp_path / "runtime"))
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("FLUENTFLOW_ACCESS_TOKENS", raising=False)
     monkeypatch.setattr(_H, "_resume_queued_transcription_jobs", lambda *args, **kwargs: None)
@@ -67,6 +68,23 @@ def test_desktop_pairing_claims_only_a_hash_and_returns_to_local_callback(monkey
     save_sensitive_settings({"deepseek_api_key": "example-key"})
     preserved = json.loads((tmp_path / "local-config.json").read_text(encoding="utf-8"))
     assert preserved["desktop_sync"]["device_id"] == status.json()["sync"]["device_id"]
+
+
+def test_local_desktop_status_exposes_safe_retry_summary_and_launcher_default(monkeypatch, tmp_path) -> None:
+    _enable_account_auth(monkeypatch, tmp_path)
+    monkeypatch.setenv("FLUENTFLOW_DESKTOP_SYNC_CLOUD_URL", "https://cloud.example.com")
+
+    with TestClient(main.app, base_url="http://127.0.0.1:8000") as client:
+        status = client.get("/desktop-sync/local/status")
+        retried = client.post("/desktop-sync/local/flush")
+
+    assert status.status_code == 200
+    assert status.json()["sync"]["connected"] is False
+    assert status.json()["default_cloud_url"] == "https://cloud.example.com"
+    assert status.json()["outbox"] == {"pending_count": 0, "next_attempt_at": None, "last_error": None}
+    assert retried.status_code == 200
+    assert retried.json()["outbox"]["pending_count"] == 0
+    assert retried.json()["outbox"]["last_flush"] == {"sent": 0, "pending": 0, "skipped": 1}
 
 
 def test_cloud_pairing_rejects_non_loopback_callback_before_creating_device(monkeypatch, tmp_path) -> None:

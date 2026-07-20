@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import platform as system_platform
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 
 from backend.core.desktop_device_store import DESKTOP_CREDENTIAL_PREFIX
-from backend.core.local_config import config_path, load_config
+from backend.core.local_config import config_path, load_config, load_project_env
 
 
 PAIRING_TTL_MINUTES = 10
@@ -95,6 +96,18 @@ def desktop_sync_status(path: Path | str | None = None) -> dict[str, Any]:
         "connected_at": sync.get("connected_at") or None,
         "pairing_pending": bool(pending),
     }
+
+
+def desktop_sync_default_cloud_url() -> str | None:
+    """Return the launcher-provided cloud address without hard-coding a deployment."""
+    load_project_env()
+    configured = (os.environ.get("FLUENTFLOW_DESKTOP_SYNC_CLOUD_URL") or "").strip()
+    if not configured:
+        return None
+    try:
+        return _normalize_cloud_url(configured)
+    except DesktopPairingError:
+        return None
 
 
 def start_desktop_pairing(
