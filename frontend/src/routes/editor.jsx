@@ -61,6 +61,7 @@ import {
     isLikelyVideoFile,
     isVideoResultSource,
     localSourceFileMatchesResult,
+    shouldKeepVideoReviewMounted,
     summaryFailureNextStep,
     formatElapsedMinuteSecond,
     formatSttOriginalRatio,
@@ -525,6 +526,7 @@ const Editor = () => {
     const canShowVideoReview = isVideoResultSource(result, matchedLocalSourceFile);
     const canUseVideoReview = canShowVideoReview && mediaKind === 'video' && !!mediaUrl && segments.length > 0;
     const activeReviewMode = canUseVideoReview ? transcriptReviewMode : 'text';
+    const shouldShowVideoReview = shouldKeepVideoReviewMounted({activeReviewMode});
     const activeSegmentIndex = visibleTranscriptSegments.length > 0
         ? (() => {
             const found = visibleTranscriptSegments.findIndex((seg, index) => {
@@ -536,7 +538,6 @@ const Editor = () => {
             return found >= 0 ? found : -1;
         })()
         : -1;
-    const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;
     const updateMediaCurrentTime = useCallback((time, options={}) => {
         const next = Math.max(0, Number(time) || 0);
         setMediaCurrentTime(next);
@@ -580,6 +581,19 @@ const Editor = () => {
         if (follow) setFollowPlayback(true);
     }, [playbackDuration, updateMediaCurrentTime]);
 
+    const persistMediaPosition = useCallback(() => {
+        const media = mediaRef.current;
+        if (!media || !playbackMemoryKey) return;
+        const next = Math.max(0, Number(media.currentTime) || 0);
+        try {
+            localStorage.setItem(playbackMemoryKey, JSON.stringify({
+                time: next,
+                duration: Number(media.duration) || playbackDuration || 0,
+                updatedAt: Date.now(),
+            }));
+        } catch(_) {}
+    }, [playbackDuration, playbackMemoryKey]);
+
     useEffect(() => {
         const followIndex = activeSegmentIndex;
         if (!followPlayback || followIndex < 0 || !mediaPlaying) return;
@@ -593,9 +607,19 @@ const Editor = () => {
         root.querySelectorAll('textarea[data-transcript-segment="true"]').forEach(autoSizeTextarea);
     }, [segments]);
 
-    useEffect(() => () => {
-        if (mediaUrl) URL.revokeObjectURL(mediaUrl);
-    }, [mediaUrl]);
+    useEffect(() => {
+        const persistBeforeBackground = () => {
+            if (document.visibilityState === 'hidden') persistMediaPosition();
+        };
+        window.addEventListener('pagehide', persistMediaPosition);
+        document.addEventListener('visibilitychange', persistBeforeBackground);
+        return () => {
+            persistMediaPosition();
+            window.removeEventListener('pagehide', persistMediaPosition);
+            document.removeEventListener('visibilitychange', persistBeforeBackground);
+            if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+        };
+    }, [mediaUrl, persistMediaPosition]);
 
     useEffect(() => {
         if (!result?.task_id || !transcriptUnsaved) return;
@@ -1350,7 +1374,7 @@ const Editor = () => {
                                                 <div className="inline-flex h-9 items-center gap-1 rounded-[13px] border border-[#e4e0e0] bg-[#f8f7fb] p-0.5 dark:border-white/[0.12] dark:bg-white/[0.06]">
                                                     <button
                                                         type="button"
-                                                        onClick={()=>setTranscriptReviewMode('text')}
+                                                        onClick={()=>{ persistMediaPosition(); setTranscriptReviewMode('text'); }}
                                                         className={`inline-flex h-full items-center justify-center rounded-[10px] px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                                                             activeReviewMode === 'text'
                                                                 ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
@@ -1361,7 +1385,7 @@ const Editor = () => {
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={()=>canUseVideoReview && setTranscriptReviewMode('video')}
+                                                        onClick={()=>{ if (canUseVideoReview) { persistMediaPosition(); setTranscriptReviewMode('video'); } }}
                                                         disabled={!canUseVideoReview}
                                                         title={!canUseVideoReview ? (lang === 'zh' ? '选择原视频并保留时间戳后可用' : 'Available after choosing source video with timestamps') : undefined}
                                                         className={`inline-flex h-full items-center justify-center rounded-[10px] px-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:text-[#9a9a9a] disabled:hover:bg-transparent disabled:hover:text-[#9a9a9a] dark:disabled:text-white/28 dark:disabled:hover:text-white/28 ${
@@ -1430,7 +1454,7 @@ const Editor = () => {
                                         </div>
                                     </div>
                                 </div>
-                        {activeReviewMode === 'video' && currentVideoSegment ? (
+                        {shouldShowVideoReview ? (
                             <div className="min-h-0 flex-1 overflow-hidden p-4">
                                 <div className="flex h-full min-h-0 flex-col gap-3">
                                     <video
@@ -1440,6 +1464,7 @@ const Editor = () => {
                                         className="max-h-[min(38vh,330px)] w-full shrink-0 rounded-[18px] bg-black object-contain"
                                         onTimeUpdate={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration})}
                                         onLoadedMetadata={(e)=>restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)}
+                                        onSeeked={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true})}
                                         onPlay={()=>setMediaPlaying(true)}
                                             onPause={(e)=>{ updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true}); setMediaPlaying(false); }}
                                             onEnded={()=>setMediaPlaying(false)}
@@ -1606,6 +1631,7 @@ const Editor = () => {
                                             className="hidden"
                                             onTimeUpdate={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration})}
                                             onLoadedMetadata={(e)=>restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)}
+                                            onSeeked={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true})}
                                             onPlay={()=>setMediaPlaying(true)}
                                             onPause={(e)=>{ updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true}); setMediaPlaying(false); }}
                                             onEnded={()=>setMediaPlaying(false)}

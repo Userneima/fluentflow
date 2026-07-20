@@ -25,6 +25,8 @@ export const isVideoResultSource = (result, sourceFile) => {
     return ['video', 'video_link', 'youtube', 'douyin'].includes(source);
 };
 
+export const shouldKeepVideoReviewMounted = ({activeReviewMode}) => activeReviewMode === 'video';
+
 export const localSourceFileMatchesResult = (file, result) => {
     if (!file || !result) return false;
     const fingerprint = result.source_fingerprint || {};

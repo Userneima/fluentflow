@@ -1096,7 +1096,9 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 px-1 py-2" in source
     assert "visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (" in source
     assert "key={`video-review-bilingual-${i}`}" in source
-    assert "const currentVideoSegment = activeSegmentIndex >= 0 ? visibleTranscriptSegments[activeSegmentIndex] : null;" in source
+    assert "const shouldShowVideoReview = shouldKeepVideoReviewMounted({activeReviewMode});" in source
+    assert "{shouldShowVideoReview ? (" in source
+    assert "activeReviewMode === 'video' && currentVideoSegment" not in source
     assert "const followIndex = activeSegmentIndex;" in source
     assert "activeRawSegmentIndex" not in source
     assert "segments.map((seg,i) => (" in source
@@ -1113,7 +1115,8 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "inline-flex h-9 items-center gap-1 rounded-[13px]" in source
     assert "inline-flex h-full items-center justify-center rounded-[10px]" in source
     assert "disabled:hover:bg-transparent" in source
-    assert "currentVideoSegment" in source
+    assert "window.addEventListener('pagehide', persistMediaPosition);" in source
+    assert "document.addEventListener('visibilitychange', persistBeforeBackground);" in source
     assert "当前字幕" not in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
     assert "max-h-[min(42vh,360px)]" not in source
