@@ -170,7 +170,12 @@ ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插
 
 ## 4. 备份与恢复
 
-上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 ElevenLabs、DeepSeek 等密钥写进备份包。
+上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 ElevenLabs、DeepSeek 等密钥写进备份包。日常部署默认保留最近两份归档，并要求至少保留 4GB 可用空间；可按服务器容量覆盖：
+
+```bash
+FLUENTFLOW_BACKUP_RETENTION_COUNT=2
+FLUENTFLOW_BACKUP_MIN_FREE_MB=4096
+```
 
 ```bash
 cd /opt/fluentflow
@@ -194,7 +199,7 @@ systemctl start fluentflow
 建议加一个每天凌晨的 cron：
 
 ```bash
-0 3 * * * cd /opt/fluentflow && /opt/fluentflow/venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env >/var/log/fluentflow-backup.log 2>&1
+0 3 * * * cd /opt/fluentflow && /opt/fluentflow/venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env --retain-count 2 >/var/log/fluentflow-backup.log 2>&1
 ```
 
 ## 5. 部署前自检

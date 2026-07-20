@@ -76,6 +76,23 @@ def _default_output_dir() -> Path:
     return _path_from_env("FLUENTFLOW_BACKUP_DIR", Path("/var/backups/fluentflow"))
 
 
+def prune_backups(*, output_dir: Path, retain_count: int) -> list[Path]:
+    """Keep the newest server-state archives and remove older copies."""
+    if retain_count < 1:
+        raise ValueError("retain_count must be at least 1")
+    if not output_dir.exists():
+        return []
+    archives = sorted(
+        output_dir.glob("fluentflow-backup-*.tar.gz"),
+        key=lambda path: (path.stat().st_mtime_ns, path.name),
+        reverse=True,
+    )
+    removed = archives[retain_count:]
+    for archive in removed:
+        archive.unlink()
+    return removed
+
+
 def build_backup(*, output_dir: Path, env_file: Path | None, include_env: bool) -> Path:
     if env_file:
         _load_env_file(env_file)
@@ -137,13 +154,40 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--env-file", type=Path, default=Path("/etc/fluentflow/fluentflow.env"))
     parser.add_argument("--include-env", action="store_true", help="Include the env file with secrets. Off by default.")
+    parser.add_argument("--retain-count", type=int, default=None, help="Keep this many newest backup archives.")
+    parser.add_argument("--prune-only", action="store_true", help="Only prune old archives; do not create a backup.")
     args = parser.parse_args()
 
     if args.env_file:
         _load_env_file(args.env_file)
     output_dir = args.output_dir or _default_output_dir()
+    if args.retain_count is not None and args.retain_count < 1:
+        parser.error("--retain-count must be at least 1")
+    pruned_before = (
+        prune_backups(output_dir=output_dir, retain_count=args.retain_count)
+        if args.retain_count is not None
+        else []
+    )
+    if args.prune_only:
+        print(json.dumps({"ok": True, "archive": None, "pruned": [str(path) for path in pruned_before]}, ensure_ascii=False, indent=2))
+        return 0
     archive = build_backup(output_dir=output_dir, env_file=args.env_file, include_env=args.include_env)
-    print(json.dumps({"ok": True, "archive": str(archive)}, ensure_ascii=False, indent=2))
+    pruned_after = (
+        prune_backups(output_dir=output_dir, retain_count=args.retain_count)
+        if args.retain_count is not None
+        else []
+    )
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "archive": str(archive),
+                "pruned": [str(path) for path in [*pruned_before, *pruned_after]],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

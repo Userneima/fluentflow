@@ -314,11 +314,11 @@ sqlite3 "$HOME/Library/Application Support/FluentFlow/fluentflow_events.sqlite" 
 
 备份文件可能包含文件名、任务状态、错误原因和飞书 URL，不要公开上传。
 
-服务器数据备份：
+服务器数据备份。生产环境默认只保留最新两份整库备份；脚本会在创建前先清理更早副本，避免备份本身填满系统盘：
 
 ```bash
 cd /opt/fluentflow
-./venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env
+./venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env --retain-count 2
 ```
 
 默认不备份 `/etc/fluentflow/fluentflow.env`，避免密钥进入备份包。
@@ -338,6 +338,8 @@ cd /opt/fluentflow
 ./venv/bin/python scripts/restore_server_state.py /var/backups/fluentflow/fluentflow-backup-YYYYMMDDTHHMMSSZ.tar.gz --env-file /etc/fluentflow/fluentflow.env --apply
 sudo systemctl start fluentflow
 ```
+
+如果磁盘空间低于部署要求，不要跳过备份直接重启。先检查 `/var/backups/fluentflow`，确认最近恢复点可用后再清理更早的备份副本；任务数据库、字幕、笔记和上传源文件不属于这项清理范围。
 
 ## 8. 常见故障处理
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import tarfile
 from pathlib import Path
 
-from scripts.backup_server_state import build_backup
+from scripts.backup_server_state import build_backup, prune_backups
 from scripts.restore_server_state import restore_backup
 
 
@@ -44,3 +45,21 @@ def test_backup_and_restore_server_state_roundtrip(tmp_path: Path, monkeypatch) 
     with sqlite3.connect(restored_root / "jobs.sqlite") as conn:
         row = conn.execute("SELECT task_id FROM jobs").fetchone()
     assert row == ("task-1",)
+
+
+def test_prune_backups_keeps_newest_archives(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    archives = []
+    for index in range(3):
+        archive = backup_dir / f"fluentflow-backup-20260720T1430{index}0Z.tar.gz"
+        archive.write_bytes(b"backup")
+        os.utime(archive, (1_700_000_000 + index, 1_700_000_000 + index))
+        archives.append(archive)
+
+    removed = prune_backups(output_dir=backup_dir, retain_count=2)
+
+    assert removed == [archives[0]]
+    assert not archives[0].exists()
+    assert archives[1].exists()
+    assert archives[2].exists()
