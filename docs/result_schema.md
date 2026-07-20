@@ -138,6 +138,18 @@ The Job Payload wraps a result with task execution metadata:
 | `metadata` | Worker/runtime metadata. |
 | `result` | Result Payload v2. |
 
+桌面本地执行同步任务会在 `metadata.desktop_sync` 维护一份只读投影，供既有列表、任务详情和 Agent
+Task Package 使用；幂等操作回执、设备归属和 revision 的权威记录保存在独立同步表中，不能由客户端
+metadata 覆盖。投影字段包括：
+
+| `metadata.desktop_sync` 字段 | 含义 |
+| --- | --- |
+| `execution_location` | 当前为 `local_desktop`，不等同于 STT provider。 |
+| `source_availability` | 当前为 `local_only`；云端结果可读，但原视频不能跨设备播放。 |
+| `origin_device` | 处理设备的用户可见标签和平台，不包含本地路径或设备硬件标识。 |
+| `result_revision` | 云端结果版本，用于阻止旧桌面副本覆盖新结果。 |
+| `result_expires_at` | 服务端生成的云端结果到期时间；第一版不因查看或编辑延长。 |
+
 Link-source jobs may include `metadata.asset_strategy`:
 
 | Field | Meaning |

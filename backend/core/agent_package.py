@@ -435,6 +435,15 @@ def build_agent_task_package(job: dict[str, Any], *, artifact_root: Path | None 
         },
     }
     package["processing_plan"] = result.get("processing_plan") or build_processing_plan(result, job=job, metadata=metadata)
+    desktop_sync = metadata.get("desktop_sync") if isinstance(metadata.get("desktop_sync"), dict) else None
+    if desktop_sync:
+        package["execution"] = {
+            "location": desktop_sync.get("execution_location"),
+            "source_availability": desktop_sync.get("source_availability"),
+            "origin_device": desktop_sync.get("origin_device"),
+            "result_revision": desktop_sync.get("result_revision"),
+            "result_expires_at": desktop_sync.get("result_expires_at"),
+        }
     package["tool_trace"] = build_tool_trace(result, job=job)
     package["decision_log"] = build_decision_log(result, job=job, metadata=metadata)
     package["next_actions"] = _next_actions(job, diagnosis)

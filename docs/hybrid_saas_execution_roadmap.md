@@ -1,9 +1,9 @@
 # FluentFlow 混合执行与正式 SaaS 路线图
 
-状态：提案，2026-07-16
+状态：阶段 1 进行中，2026-07-20
 
-阶段 0 状态：进行中。实现契约见 `docs/hybrid_execution_sync_contract.md`；当前仅完成设计，尚未开始
-阶段 1 的代码改动。
+阶段 0 状态：已完成。实现契约见 `docs/hybrid_execution_sync_contract.md`；阶段 1 已完成 1A（桌面
+设备凭据）和 1B（幂等任务/结果同步存储），尚未开始桌面同步客户端、跨设备阅读 UI 或保留期清理。
 
 本路线图定义 FluentFlow 从单机 / 单台云服务器 Beta 演进为正式 SaaS 的路径。它不改变
 `docs/current_version_plan.md` 的当前版本范围，也不意味着立即启动新功能开发。

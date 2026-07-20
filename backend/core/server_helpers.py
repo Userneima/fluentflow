@@ -210,13 +210,17 @@ def _is_public_request(request: Request) -> bool:
     return not _is_api_route_path(path)
 
 
+def _is_desktop_sync_request(request: Request) -> bool:
+    return request.url.path.startswith("/desktop-sync/v1/")
+
+
 async def beta_access_middleware(request: Request, call_next):
     if _request_is_internal_queue(request):
         return await call_next(request)
     if _request_is_local_execution(request):
         return await call_next(request)
     if _account_auth_enabled():
-        if _is_public_request(request):
+        if _is_public_request(request) or _is_desktop_sync_request(request):
             return await call_next(request)
         user = _request_account_user(request)
         if user:

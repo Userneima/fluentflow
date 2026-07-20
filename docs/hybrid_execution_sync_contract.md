@@ -1,6 +1,6 @@
 # FluentFlow 本地执行结果云端同步契约
 
-状态：阶段 1A 已完成，2026-07-20
+状态：阶段 1B 已完成，2026-07-20
 
 关联路线图：`docs/hybrid_saas_execution_roadmap.md`。
 
@@ -181,7 +181,12 @@ sequenceDiagram
 外部 Agent 需要实际发起桌面同步。
 
 1A 的设备登记和撤销刻意不提供 Agent API 或 MCP 工具：它会签发或销毁长期桌面凭据，必须由已登录的
-账号会话直接确认。待 1B 开始产生可跨设备读取的任务字段时，再扩展 Agent Task Package 和 MCP 读取结果。
+账号会话直接确认。1B 开始产生可跨设备读取的任务字段时，才扩展 Agent Task Package；MCP 继续使用既有
+任务读取工具，无需新增可签发设备身份的工具。
+
+当前 1B 已使用专用 `/desktop-sync/v1` API：它只接受桌面设备凭据、只允许任务的 origin device 写入，
+并把 `execution.location`、`source_availability`、origin device 标签、`result_revision` 和
+`result_expires_at` 投影到 Agent Task Package。该 API 不会进入云端处理队列，也不接受原视频或本地路径。
 
 ## 十、迁移与兼容
 
@@ -198,7 +203,7 @@ sequenceDiagram
 | 工作单元 | 主要表面 | 结束条件 |
 | --- | --- | --- |
 | 1A. 云端设备凭据 | account auth、设备存储、撤销 API、测试 | 已完成：设备只能代表自己的账号，撤销后立即失效 |
-| 1B. 云端同步任务存储 | job schema / sync receipts、结果 schema、Agent Package、测试 | 重放同一操作不会创建重复任务或覆盖新 revision |
+| 1B. 云端同步任务存储 | job schema / sync receipts、结果 schema、Agent Package、测试 | 已完成：重放同一操作不会创建重复任务或覆盖新 revision |
 | 1C. 桌面同步客户端 | 本地配置、任务提交、离线重试、状态 UI | 本地任务在断网后可重试同步，且从不上传原视频 |
 | 1D. 跨设备阅读 | 任务列表、编辑器、source availability 文案、测试 | 第二台设备可阅读结果，并清楚看到原视频仅在处理设备 |
 | 1E. 7 天清理与账号删除 | 保留任务、删除 / 撤销 API、后台清理、运维测试 | 到期清理可重试；删除窗口内可撤销，期满不可恢复 |
