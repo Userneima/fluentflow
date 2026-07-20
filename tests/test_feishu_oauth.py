@@ -196,3 +196,29 @@ def test_export_lark_user_oauth_explains_missing_document_permission(monkeypatch
 
     assert response.status_code == 500
     assert "飞书账号已连接，但当前授权不能创建云文档" in response.json()["detail"]
+
+
+def test_lark_export_target_honors_explicit_routes() -> None:
+    assert H._lark_export_target("user_oauth", None) == "feishu_user_oauth"
+    assert H._lark_export_target("feishu_user_oauth", None) == "feishu_user_oauth"
+    assert H._lark_export_target("openapi", None) == "lark_openapi"
+    assert H._lark_export_target("lark_cli", None) == "lark_cli"
+    # explicit via_cli wins regardless of mode
+    assert H._lark_export_target(None, "true") == "lark_cli"
+
+
+def test_lark_export_target_default_prefers_user_oauth_in_account_mode(monkeypatch) -> None:
+    # Account mode: an unspecified route must NOT silently fall back to the
+    # maintainer app token (which can't write to other users' drives); it must
+    # default to the requester's own Feishu OAuth connection.
+    monkeypatch.setenv("FLUENTFLOW_ACCOUNT_AUTH", "1")
+    assert H._lark_export_target(None, None) == "feishu_user_oauth"
+    assert H._lark_export_target("", "false") == "feishu_user_oauth"
+
+
+def test_lark_export_target_default_stays_openapi_without_account_mode(monkeypatch) -> None:
+    # Local / access-code deployments (no account mode) keep the openapi default
+    # so maintainer/single-user export is not broken.
+    monkeypatch.delenv("FLUENTFLOW_ACCOUNT_AUTH", raising=False)
+    monkeypatch.delenv("FLUENTFLOW_AUTH_MODE", raising=False)
+    assert H._lark_export_target(None, None) == "lark_openapi"

@@ -1883,7 +1883,13 @@ def _lark_export_target(lark_export_route: Optional[str] = None, lark_via_cli: O
         return "feishu_user_oauth"
     if route in {"openapi", "lark_openapi"}:
         return "lark_openapi"
-    return "lark_cli" if _truthy_form(lark_via_cli) else "lark_openapi"
+    if _truthy_form(lark_via_cli):
+        return "lark_cli"
+    # No explicit route: in account mode, default to the requester's own Feishu
+    # OAuth connection (creates the doc in their drive), never silently fall back
+    # to the maintainer app token — that route can't write to other users'
+    # accounts. Local / access-code deployments keep the openapi default.
+    return "feishu_user_oauth" if _account_auth_enabled() else "lark_openapi"
 
 
 def _pipeline_mode(source_type: str | None) -> str | None:
