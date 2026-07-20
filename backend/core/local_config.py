@@ -85,7 +85,7 @@ def save_sensitive_settings(patch: dict[str, Any], path: Path | str | None = Non
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        json.dumps({"secrets": next_secrets}, ensure_ascii=False, indent=2, sort_keys=True),
+        json.dumps({**current, "secrets": next_secrets}, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
     try:

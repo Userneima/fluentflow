@@ -48,6 +48,7 @@ from backend.routers.config import router as config_router
 from backend.routers.events import router as events_router
 from backend.routers.agent import router as agent_router
 from backend.routers.desktop_sync import router as desktop_sync_router
+from backend.routers.desktop_pairing import cloud_router as desktop_pairing_cloud_router, local_router as desktop_pairing_local_router
 from backend.routers.spa import router as spa_router
 from backend.routers.misc import router as misc_router
 
@@ -63,6 +64,8 @@ app.include_router(config_router)
 app.include_router(events_router)
 app.include_router(agent_router)
 app.include_router(desktop_sync_router)
+app.include_router(desktop_pairing_cloud_router)
+app.include_router(desktop_pairing_local_router)
 app.include_router(misc_router)
 
 # ── Static Files (SPA fallback is handled by routers/spa.py) ───
