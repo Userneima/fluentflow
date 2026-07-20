@@ -1021,6 +1021,10 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "笔记正文" in source
     assert "summaryEditing ? (" in source
     assert "setSummaryEditing((value)=>!value)" in source
+    assert "contentEditable" in source
+    assert "editableHtmlToMarkdown" in source
+    assert "format_list_bulleted" in source
+    assert "<textarea\n                                                value={summary}" not in source
     assert "dangerouslySetInnerHTML={{__html: renderedSummary}}" in source
     assert "aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}" in source
     assert "fd.append('markdown', summary || '')" in source

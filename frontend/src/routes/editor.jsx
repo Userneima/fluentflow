@@ -68,6 +68,7 @@ import {
     normalizeVisualKeyMoments,
     downloadBrowserFile,
 } from './editor-helpers.js';
+import {editableHtmlToMarkdown, markdownToEditableHtml} from '../lib/richNoteEditor.js';
 
 
 const Editor = () => {
@@ -104,6 +105,7 @@ const Editor = () => {
     const transcriptSaveSeqRef = useRef(0);
     const summarySaveSeqRef = useRef(0);
     const summaryDraftResultKeyRef = useRef('');
+    const richNoteEditorRef = useRef(null);
     const playbackSaveRef = useRef(0);
 
     const initSettings = loadSettings();
@@ -350,6 +352,25 @@ const Editor = () => {
             summary_edited_at: new Date().toISOString(),
         });
     }, [isGuestResult, result, setLastResult]);
+
+    const syncRichNoteEditor = useCallback(() => {
+        const editor = richNoteEditorRef.current;
+        if (editor) handleSummaryChange(editableHtmlToMarkdown(editor.innerHTML));
+    }, [handleSummaryChange]);
+
+    const runRichNoteCommand = useCallback((command, value = null) => {
+        const editor = richNoteEditorRef.current;
+        if (!editor) return;
+        editor.focus();
+        document.execCommand(command, false, value);
+        syncRichNoteEditor();
+    }, [syncRichNoteEditor]);
+
+    useEffect(() => {
+        const editor = richNoteEditorRef.current;
+        if (!summaryEditing || !editor) return;
+        editor.innerHTML = markdownToEditableHtml(summary);
+    }, [summaryEditing, summaryResultKey]);
 
     const loadMediaFile = useCallback((file) => {
         if (!file) return;
@@ -1748,13 +1769,39 @@ const Editor = () => {
                                 {hasEditableSummary ? (
                                     summaryEditing ? (
                                         <>
-                                            <textarea
-                                                value={summary}
-                                                onChange={(event)=>handleSummaryChange(event.target.value)}
+                                            <div className="mb-3 flex h-9 items-center gap-1 rounded-[12px] border border-[#e4e0e0] bg-[#fbfbfb] px-1.5 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                                {[
+                                                    {command: 'formatBlock', value: '<h3>', icon: 'title', label: lang === 'zh' ? '二级标题' : 'Heading'},
+                                                    {command: 'bold', icon: 'format_bold', label: lang === 'zh' ? '加粗' : 'Bold'},
+                                                    {command: 'italic', icon: 'format_italic', label: lang === 'zh' ? '斜体' : 'Italic'},
+                                                    {command: 'insertUnorderedList', icon: 'format_list_bulleted', label: lang === 'zh' ? '项目列表' : 'Bullet list'},
+                                                    {command: 'insertOrderedList', icon: 'format_list_numbered', label: lang === 'zh' ? '编号列表' : 'Numbered list'},
+                                                    {command: 'undo', icon: 'undo', label: lang === 'zh' ? '撤销' : 'Undo'},
+                                                    {command: 'redo', icon: 'redo', label: lang === 'zh' ? '重做' : 'Redo'},
+                                                ].map(({command, value, icon, label}) => (
+                                                    <button
+                                                        key={`${command}-${value || ''}`}
+                                                        type="button"
+                                                        title={label}
+                                                        aria-label={label}
+                                                        onMouseDown={(event)=>event.preventDefault()}
+                                                        onClick={()=>runRichNoteCommand(command, value)}
+                                                        className="inline-flex size-7 items-center justify-center rounded-[8px] text-[#555] transition hover:bg-white hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                                                    >
+                                                        <SvgIcon name={icon} className="text-[16px]"/>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div
+                                                ref={richNoteEditorRef}
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                role="textbox"
+                                                aria-multiline="true"
                                                 aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}
                                                 spellCheck={false}
-                                                className="min-h-[520px] w-full resize-y rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-4 font-sans text-base font-semibold leading-8 text-[#111111] outline-none transition focus:border-[#111111]/45 focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white dark:focus:border-white/35 dark:focus:bg-white/[0.06] dark:focus:ring-white/[0.08]"
-                                                placeholder={lang === 'zh' ? '在这里修改生成的笔记正文...' : 'Edit the generated note here...'}
+                                                onInput={syncRichNoteEditor}
+                                                className="min-h-[520px] rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-5 py-4 text-base font-semibold leading-8 text-[#111111] outline-none transition focus:border-[#111111]/45 focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white dark:focus:border-white/35 dark:focus:bg-white/[0.06] dark:focus:ring-white/[0.08] [&_a]:text-primary [&_blockquote]:border-l-4 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-[#555] dark:[&_blockquote]:text-white/70 [&_h2]:mb-4 [&_h2]:mt-6 [&_h2]:font-headline [&_h2]:text-2xl [&_h2]:font-extrabold [&_h3]:mb-3 [&_h3]:mt-6 [&_h3]:font-headline [&_h3]:text-xl [&_h3]:font-extrabold [&_h4]:mb-2 [&_h4]:mt-5 [&_h4]:font-headline [&_h4]:text-lg [&_h4]:font-extrabold [&_li]:my-1.5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-3 [&_strong]:font-extrabold [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6"
                                             />
                                             <div
                                                 ref={summaryRef}

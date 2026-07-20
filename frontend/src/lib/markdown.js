@@ -62,7 +62,8 @@ export const simpleMd = (md, options={}) => {
     const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const renderInline = (s) => esc(s)
         .replace(/`([^`]+)`/g,'<code class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[0.92em]">$1</code>')
-        .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+        .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>');
 
     const lines = md.replace(/\r\n/g, '\n').split('\n');
     let html = '';
