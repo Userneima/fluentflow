@@ -840,10 +840,13 @@ def test_settings_page_uses_explicit_lark_export_routes() -> None:
     assert "getFeishuConnection" not in settings
     assert "larkExportRoute === LARK_EXPORT_ROUTE_OPENAPI" in settings
     assert "isUserOAuthLarkExportRoute(larkExportRoute)" in editor
+    assert "needsFeishuReauthorization" in editor
+    assert "飞书文档权限已更新，请重新连接并确认授权。" in editor
     assert "setFeishuExportPromptOpen(true)" in editor
     assert "飞书连接暂不可用" in editor
     assert "err?.status === 409" in editor
     assert "当前导出路线会写入你自己的飞书空间" in editor_dialogs
+    assert "重新连接飞书账号" in editor_dialogs
     assert 'to="/settings#export"' not in editor_dialogs
 
 

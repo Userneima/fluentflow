@@ -70,6 +70,14 @@ import {
 } from './editor-helpers.js';
 import {editableHtmlToMarkdown, markdownToEditableHtml} from '../lib/richNoteEditor.js';
 
+const needsFeishuReauthorization = (error) => {
+    const detail = [
+        error?.message,
+        error?.payload?.detail,
+        error?.payload?.detail?.detail,
+    ].filter(Boolean).join(' ');
+    return /99991679|飞书授权缺少文档权限|当前授权不能创建云文档|docx:document/i.test(detail);
+};
 
 const Editor = () => {
     const {t, lang} = useI18n();
@@ -97,6 +105,7 @@ const Editor = () => {
     const [retranscribeConfirmOpen, setRetranscribeConfirmOpen] = useState(false);
     const [feishuExportPromptOpen, setFeishuExportPromptOpen] = useState(false);
     const [feishuExportConnecting, setFeishuExportConnecting] = useState(false);
+    const [feishuReconnectRequired, setFeishuReconnectRequired] = useState(false);
     const [visualEvidenceVisible, setVisualEvidenceVisible] = useState(true);
     const summaryRef = useRef(null);
     const retranscribeInputRef = useRef(null);
@@ -843,6 +852,7 @@ const Editor = () => {
             if (isUserOAuthLarkExportRoute(larkExportRoute)) {
                 const connection = await getFeishuConnection();
                 if (!connection?.connected) {
+                    setFeishuReconnectRequired(false);
                     setFeishuExportPromptOpen(true);
                     showToast(lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间。' : 'Connect Feishu first so exports go to your own space.', false);
                     return;
@@ -877,9 +887,14 @@ const Editor = () => {
             if(exportUrl) addLarkExport({url:exportUrl, title: dispTitle, timestamp:Date.now()});
             showToast(t('edit.exportDone'));
         } catch(err) {
-            if (isUserOAuthLarkExportRoute(larkExportRoute) && err?.status === 409) {
+            const shouldReconnectFeishu = isUserOAuthLarkExportRoute(larkExportRoute)
+                && needsFeishuReauthorization(err);
+            if (isUserOAuthLarkExportRoute(larkExportRoute) && (err?.status === 409 || shouldReconnectFeishu)) {
+                setFeishuReconnectRequired(shouldReconnectFeishu);
                 setFeishuExportPromptOpen(true);
-                showToast(lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间。' : 'Connect Feishu first so exports go to your own space.', false);
+                showToast(shouldReconnectFeishu
+                    ? (lang === 'zh' ? '飞书文档权限已更新，请重新连接并确认授权。' : 'Feishu document permissions changed. Reconnect and approve them.')
+                    : (lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间。' : 'Connect Feishu first so exports go to your own space.'), false);
             } else {
                 showToast(t('edit.exportFail')+': '+err.message, false);
             }
@@ -1215,6 +1230,7 @@ const Editor = () => {
                 onCancel={()=>setFeishuExportPromptOpen(false)}
                 onConnect={connectFeishuForExport}
                 connecting={feishuExportConnecting}
+                reconnect={feishuReconnectRequired}
             />
         )}
         {regenerateConfirmOpen && (
