@@ -6,6 +6,8 @@ procedures in focused docs.
 
 ## Start Here
 
+- New execution conversations or cross-Agent handoffs: read
+  `docs/cross_agent_context.md` and `docs/context_index.md` first.
 - Broad or ambiguous work: read `docs/context_index.md` first.
 - Cross-file, workflow, backend state/queue/auth/Agent API, deployment, or
   contract-changing work: read `docs/agent_task_brief.md`.

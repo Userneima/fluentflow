@@ -8,6 +8,7 @@ are local runtime data rather than source.
 
 | Need | Read |
 | --- | --- |
+| Cross-agent product facts, precedence, and handoff protocol | `docs/cross_agent_context.md` |
 | Product goal, boundary, and non-goals | `docs/current_version_plan.md` |
 | Foundation stabilization: freeze scope, harden the 4 spines, parallel-work split | `docs/foundation_stabilization_plan.md` |
 | Future hybrid desktop / cloud execution and formal SaaS evolution | `docs/hybrid_saas_execution_roadmap.md`, `docs/hybrid_execution_sync_contract.md` |
