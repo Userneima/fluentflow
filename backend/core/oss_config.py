@@ -1,8 +1,8 @@
-"""Configuration boundary for the future direct-to-OSS multipart flow.
+"""Validated configuration for the optional direct-to-OSS multipart flow.
 
-This module deliberately does not create an OSS client or alter any upload
-route. The existing application-server upload path remains active until a
-later work unit adds the authenticated upload-session API and browser client.
+This module only reads non-secret settings. The authenticated upload-session
+API and browser client use those settings when enabled; existing application-
+server upload routes remain available as a fallback.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ _MAX_DIRECT_SOURCE_SIZE_MB = 50 * 1024
 
 @dataclass(frozen=True)
 class OssDirectUploadConfig:
-    """Validated, non-secret settings for a future direct OSS upload flow."""
+    """Validated, non-secret settings for the optional direct OSS upload flow."""
 
     enabled: bool
     region: str
@@ -75,7 +75,7 @@ def _normalise_prefix(value: str) -> str:
 
 
 def oss_direct_upload_config() -> OssDirectUploadConfig:
-    """Read direct-upload settings without enabling the upload path by default."""
+    """Read direct-upload settings; the path remains disabled by default."""
 
     enabled = _env_truthy("FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED")
     region = (os.environ.get("FLUENTFLOW_OSS_REGION") or "").strip().lower()

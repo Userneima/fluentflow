@@ -156,17 +156,17 @@ ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插
 
 如果暂时不想启用账号系统，也可以不配置 `FLUENTFLOW_AUTH_MODE`，让用户直接打开产品；此时后端仍会按设备、IP 和全站总量拦截异常提交，但任务历史无法跨设备找回。封闭 Beta 才需要额外设置 `FLUENTFLOW_ACCESS_TOKEN`。
 
-任务完成后，服务器会删除原始视频/上传源文件，只保留字幕、笔记和用于字幕校对的压缩 MP3。每个用户默认只保留最近 20 条历史，且历史产物最多保留 30 天；超过限制的旧任务会连同音频和产物一起清理。
+任务完成后，服务器会清理本地原始视频/上传源文件，只保留字幕、笔记和用于字幕校对的压缩 MP3。每个用户默认只保留最近 20 条历史，且历史产物最多保留 30 天；超过限制的旧任务会连同音频和产物一起清理。通过 OSS 直传的原始媒体不由这条本地清理规则删除，而是由 Bucket 生命周期管理；`uploads/source/` 应在最后修改后 7 天删除。在对象仍保留期间，同一账号的失败任务可以重新处理，无需再次上传。
 
-### 预留：OSS 直传配置
+### 可选：OSS 直传配置
 
-当前版本仍由 Nginx / FastAPI 接收上传；`FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED` 默认是 `0`，不会改变现有链路。服务端已具备上传会话、对象大小复核和从 OSS 分块落盘后接入现有队列的控制面；它始终使用 ECS RAM 临时凭证，不保留长期 AccessKey。
+`FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED` 默认是 `0`。启用后，已登录浏览器会直接把符合条件的媒体分片上传到私有 OSS；服务端用 ECS RAM 临时凭证复核对象大小、分块落盘、重跑媒体预检并进入既有转录队列，不保留长期 AccessKey。原有 Nginx / FastAPI 上传路径仍是回退路线。
 
 启用时必须区分两个地址：`FLUENTFLOW_OSS_PUBLIC_ENDPOINT` 用于生成浏览器直传分片的签名 URL，例如 `oss-cn-hongkong.aliyuncs.com`；`FLUENTFLOW_OSS_INTERNAL_ENDPOINT` 仅供同地域 ECS 发起创建、完成、校验、删除和下载，例如 `oss-cn-hongkong-internal.aliyuncs.com`。不要把内网地址提供给浏览器，也不要把公网地址复用为内网地址。旧的 `FLUENTFLOW_OSS_ENDPOINT` 只作为公网地址的兼容别名。直传源文件上限独立由 `FLUENTFLOW_OSS_MAX_SOURCE_MB` 控制，默认 4096 MB；它不会提高既有 Nginx / FastAPI 上传上限。
 
-浏览器接入已在代码中准备好，但必须先为**实际产品网页 Origin**配置 Bucket CORS，不能使用 `*`：只允许该 Origin 的 `PUT`、`GET`、`HEAD` 和 `OPTIONS`，允许前端实际发送的 `Content-Type` 与签名中的 `x-oss-*` 请求头，并在响应中暴露 `ETag`。浏览器需要读取每个分片的 `ETag` 才能提交完成请求。CORS 生效后，再将 `FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED=1` 作为最后一步；启用前先以一个小文件完成端到端验收。
+浏览器端已接入，但必须先为**实际产品网页 Origin**配置 Bucket CORS，不能使用 `*`：只允许该 Origin 的 `PUT`、`GET`、`HEAD` 和 `OPTIONS`，允许前端实际发送的 `Content-Type` 与签名中的 `x-oss-*` 请求头，并在响应中暴露 `ETag`。浏览器需要读取每个分片的 `ETag` 才能提交完成请求。CORS 生效后，再将 `FLUENTFLOW_OSS_DIRECT_UPLOAD_ENABLED=1` 作为最后一步；启用前先以一个小文件完成端到端验收。
 
-不要在 RAM 角色、浏览器端分片上传、精确 OSS CORS 规则和端到端验收均完成前把开关设为 `1`。Bucket 中 `uploads/source/` 应配置为最后修改后 7 天删除，未完成分片 1 天清理；这属于 OSS 配置，不写入仓库环境模板。上传会话目前不是 Agent API / MCP 工作流，也不应在未完成前端接入前向用户暴露。
+不要在 RAM 角色、浏览器端分片上传、精确 OSS CORS 规则和端到端验收均完成前把开关设为 `1`。Bucket 中 `uploads/source/` 应配置为最后修改后 7 天删除，未完成分片 1 天清理；这属于 OSS 配置，不写入仓库环境模板。Agent API / MCP 不暴露上传会话或分片控制，但任务包会在已保留 OSS 源文件的失败任务上提供重试动作。
 
 ## 4. 备份与恢复
 
