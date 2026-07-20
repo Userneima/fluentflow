@@ -76,7 +76,7 @@ const needsFeishuReauthorization = (error) => {
         error?.payload?.detail,
         error?.payload?.detail?.detail,
     ].filter(Boolean).join(' ');
-    return /99991679|飞书授权缺少文档权限|当前授权不能创建云文档|docx:document/i.test(detail);
+    return /99991679|飞书授权缺少(?:文档|知识库)权限|当前授权不能创建云文档|当前授权不能写入“我的文档库”|docx:document|wiki:/i.test(detail);
 };
 
 const Editor = () => {
@@ -893,7 +893,7 @@ const Editor = () => {
                 setFeishuReconnectRequired(shouldReconnectFeishu);
                 setFeishuExportPromptOpen(true);
                 showToast(shouldReconnectFeishu
-                    ? (lang === 'zh' ? '飞书文档权限已更新，请重新连接并确认授权。' : 'Feishu document permissions changed. Reconnect and approve them.')
+                    ? (lang === 'zh' ? '飞书导出权限已更新，请重新连接并确认授权。' : 'Feishu export permissions changed. Reconnect and approve them.')
                     : (lang === 'zh' ? '先连接飞书账号，导出会写入你自己的飞书空间。' : 'Connect Feishu first so exports go to your own space.'), false);
             } else {
                 showToast(t('edit.exportFail')+': '+err.message, false);

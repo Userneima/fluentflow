@@ -22,6 +22,7 @@ def test_error_diagnostics_classifies_common_failures() -> None:
         ("Error code: 401 - {'error': {'message': 'Incorrect API key provided.', 'code': 'invalid_api_key'}}", "invalid_api_key", "设置页"),
         ("Feishu 图片上传失败: storage error", "feishu_image_upload_failed", "Markdown"),
         ("Feishu create-doc HTTP 400: code 99991679 required docx:document:create permission", "feishu_document_permission_required", "重新连接飞书"),
+        ("Feishu wiki HTTP 400: code 99991679 required wiki:wiki permission", "feishu_wiki_permission_required", "重新连接飞书"),
     ]
 
     for raw, code, action_text in cases:

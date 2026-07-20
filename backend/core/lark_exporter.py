@@ -12,7 +12,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from dotenv import load_dotenv
 from backend.core.feishu_markdown import normalize_markdown_for_feishu
@@ -237,6 +237,104 @@ def _public_docx_url(doc_id: str, base_url: str) -> str:
     if "open.feishu.cn" in b or "feishu.cn" in b:
         return f"https://feishu.cn/docx/{doc_id}"
     return f"https://larksuite.com/docx/{doc_id}"
+
+
+def _public_wiki_url(node_token: str, base_url: str) -> str:
+    """Browser URL for a document created inside a Feishu knowledge library."""
+    b = (base_url or "").lower()
+    if "open.feishu.cn" in b or "feishu.cn" in b:
+        return f"https://feishu.cn/wiki/{node_token}"
+    return f"https://larksuite.com/wiki/{node_token}"
+
+
+def _wiki_request_with_token(
+    token: str,
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+    timeout: int = 15,
+) -> dict[str, Any]:
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        f"{base_url.rstrip('/')}{path}",
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Feishu wiki HTTP {exc.code}: {raw[:1200]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Feishu wiki request failed: {exc}") from exc
+    except ValueError as exc:
+        raise RuntimeError("Feishu wiki returned invalid JSON") from exc
+    if payload.get("code") != 0:
+        raise RuntimeError(f"Feishu wiki error: {payload}")
+    return payload.get("data") or {}
+
+
+def _find_my_library_space_id(token: str, base_url: str, timeout: int) -> str:
+    """Find the current user's single personal "My Library" wiki space."""
+    page_token: str | None = None
+    for _ in range(100):
+        query = {"page_size": "50"}
+        if page_token:
+            query["page_token"] = page_token
+        data = _wiki_request_with_token(
+            token,
+            base_url,
+            f"/open-apis/wiki/v2/spaces?{urlencode(query)}",
+            timeout=timeout,
+        )
+        items = data.get("items") or data.get("spaces") or []
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict) or item.get("space_type") != "my_library":
+                    continue
+                space_id = str(item.get("space_id") or "").strip()
+                if space_id:
+                    return space_id
+        if not data.get("has_more"):
+            break
+        next_page_token = str(data.get("page_token") or "").strip()
+        if not next_page_token or next_page_token == page_token:
+            break
+        page_token = next_page_token
+    raise RuntimeError("Feishu wiki personal library was not found for this account")
+
+
+def _create_doc_in_my_library(
+    token: str,
+    base_url: str,
+    title: str,
+    timeout: int,
+) -> dict[str, str]:
+    """Create a docx node at the root of the user's personal knowledge library."""
+    space_id = _find_my_library_space_id(token, base_url, timeout)
+    data = _wiki_request_with_token(
+        token,
+        base_url,
+        f"/open-apis/wiki/v2/spaces/{quote(space_id, safe='')}/nodes",
+        method="POST",
+        body={"obj_type": "docx", "node_type": "origin", "title": title},
+        timeout=timeout,
+    )
+    node = data.get("node") if isinstance(data.get("node"), dict) else data
+    if not isinstance(node, dict):
+        raise RuntimeError(f"Feishu wiki create-node response is invalid: {data}")
+    doc_token = str(node.get("obj_token") or node.get("document_id") or "").strip()
+    node_token = str(node.get("node_token") or "").strip()
+    if not doc_token or not node_token:
+        raise RuntimeError(f"Feishu wiki create-node response is missing document or node token: {data}")
+    return {"space_id": space_id, "node_token": node_token, "doc_token": doc_token}
 
 
 def _create_empty_doc_with_token(
@@ -721,7 +819,14 @@ class LarkExporter:
 
         if self.user_access_token:
             token = self.user_access_token
-            doc_id = _create_empty_doc_with_token(token, self.base_url, title, folder_token, self.timeout)
+            if folder_token:
+                doc_id = _create_empty_doc_with_token(token, self.base_url, title, folder_token, self.timeout)
+                export_destination = "drive_folder"
+                wiki_location: dict[str, str] = {}
+            else:
+                wiki_location = _create_doc_in_my_library(token, self.base_url, title, self.timeout)
+                doc_id = wiki_location["doc_token"]
+                export_destination = "my_library"
             auth_mode = "user_oauth"
         else:
             doc_id = self._create_empty_doc(title, folder_token)
@@ -729,6 +834,8 @@ class LarkExporter:
                 self.app_id, self.app_secret, self.base_url, self.timeout
             )
             auth_mode = "tenant_token"
+            export_destination = "drive_folder" if folder_token else "drive_root"
+            wiki_location = {}
         conv_timeout = max(self.timeout, 90)
         disable_convert = (
             os.environ.get("FLUENTFLOW_LARK_DISABLE_OPENAPI_CONVERT", "").strip().lower()
@@ -793,7 +900,7 @@ class LarkExporter:
                 "摘要内容未能解析为飞书文档块（0 块）。请检查 Markdown 是否为空或仅含不支持的语法。"
             )
 
-        return {
+        response = {
             "ok": True,
             "doc_token": doc_id,
             "block_count": block_count,
@@ -802,8 +909,16 @@ class LarkExporter:
             "via": "openapi_convert" if used_convert else "legacy_markdown",
             "markdown_format": "feishu_normalized",
             "auth_mode": auth_mode,
-            "url": _public_docx_url(doc_id, self.base_url),
+            "export_destination": export_destination,
+            "url": _public_wiki_url(wiki_location["node_token"], self.base_url)
+            if wiki_location else _public_docx_url(doc_id, self.base_url),
         }
+        if wiki_location:
+            response.update({
+                "wiki_space_id": wiki_location["space_id"],
+                "wiki_node_token": wiki_location["node_token"],
+            })
+        return response
 
 
 def export_markdown_to_lark(

@@ -87,7 +87,7 @@ def test_feishu_oauth_start_and_callback_store_connection(monkeypatch, tmp_path)
     assert start.status_code == 200
     assert "/open-apis/authen/v1/index" in start.json()["authorize_url"]
     assert params["app_id"] == ["cli_test"]
-    assert params["scope"] == ["offline_access docx:document docx:document:create"]
+    assert params["scope"] == ["offline_access docx:document docx:document:create wiki:wiki"]
     # The callback redirects the browser back to the app instead of dumping JSON.
     assert callback.status_code == 303
     assert "/settings" in callback.headers["location"]

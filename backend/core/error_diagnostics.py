@@ -48,6 +48,22 @@ def diagnose_error(error: Any) -> dict[str, Any]:
             detail="已上传的云端文件暂时无法下载到处理服务。",
             next_action="文件仍保留在云端，可以在处理记录中点击“重新处理”，无需再次上传。",
         )
+    if ("wiki:" in lowered or "知识库" in raw) and (
+        "99991679" in lowered or "permission" in lowered or "unauthorized" in lowered
+    ):
+        return _diag(
+            code="feishu_wiki_permission_required",
+            title="飞书授权缺少知识库权限",
+            detail="飞书账号已连接，但当前授权不能写入“我的文档库”。",
+            next_action="在飞书开放平台为 FluentFlow 应用启用知识库权限后，重新连接飞书账号并确认授权。",
+        )
+    if "feishu wiki personal library was not found" in lowered:
+        return _diag(
+            code="feishu_my_library_unavailable",
+            title="未找到飞书我的文档库",
+            detail="当前飞书账号没有可写入的“我的文档库”。",
+            next_action="先在飞书中创建或启用“我的文档库”，然后重新导出。",
+        )
     if "99991679" in lowered or (
         "docx:document" in lowered and "permission" in lowered
     ):

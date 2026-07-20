@@ -9,7 +9,9 @@ from unittest.mock import patch, MagicMock
 
 from backend.core.lark_exporter import (
     LarkExporter,
+    _create_doc_in_my_library,
     _convert_data_to_descendant_payload,
+    _find_my_library_space_id,
     export_markdown_to_lark,
     markdown_contains_table,
     markdown_to_feishu_blocks,
@@ -47,7 +49,11 @@ class TestLarkExporter(unittest.TestCase):
         self.assertTrue(out.get("dry_run"))
 
     def test_export_markdown_to_lark_can_use_user_access_token_without_tenant_token(self) -> None:
-        with patch("backend.core.lark_exporter._create_empty_doc_with_token", return_value="doc_user") as mock_create, \
+        with patch("backend.core.lark_exporter._create_doc_in_my_library", return_value={
+            "space_id": "space_my_library",
+            "node_token": "wiki_node_user",
+            "doc_token": "doc_user",
+        }) as mock_create, \
              patch("backend.core.lark_exporter._get_tenant_token") as mock_tenant, \
              patch("backend.core.lark_exporter._post_block_children", return_value={
                  "code": 0,
@@ -65,6 +71,82 @@ class TestLarkExporter(unittest.TestCase):
         mock_write.assert_called()
         self.assertEqual(out["auth_mode"], "user_oauth")
         self.assertEqual(out["doc_token"], "doc_user")
+        self.assertEqual(out["export_destination"], "my_library")
+        self.assertEqual(out["wiki_space_id"], "space_my_library")
+        self.assertEqual(out["wiki_node_token"], "wiki_node_user")
+
+    def test_user_oauth_keeps_explicit_drive_folder_destination(self) -> None:
+        with patch(
+            "backend.core.lark_exporter._create_empty_doc_with_token",
+            return_value="doc_user",
+        ) as mock_create, patch(
+            "backend.core.lark_exporter._create_doc_in_my_library"
+        ) as mock_my_library, patch(
+            "backend.core.lark_exporter._get_tenant_token"
+        ) as mock_tenant, patch(
+            "backend.core.lark_exporter._post_block_children",
+            return_value={"code": 0, "data": {"children": [{"block_id": "block_1"}]}},
+        ):
+            out = export_markdown_to_lark(
+                self.title,
+                self.md,
+                folder_token="drive-folder-token",
+                user_access_token="user-token",
+            )
+
+        mock_create.assert_called_once()
+        self.assertEqual(mock_create.call_args.args[0], "user-token")
+        self.assertEqual(mock_create.call_args.args[3], "drive-folder-token")
+        mock_my_library.assert_not_called()
+        mock_tenant.assert_not_called()
+        self.assertEqual(out["export_destination"], "drive_folder")
+        self.assertNotIn("wiki_node_token", out)
+
+    def test_find_my_library_space_paginates_until_personal_space(self) -> None:
+        with patch(
+            "backend.core.lark_exporter._wiki_request_with_token",
+            side_effect=[
+                {
+                    "items": [{"space_id": "team_space", "space_type": "team"}],
+                    "has_more": True,
+                    "page_token": "page_2",
+                },
+                {
+                    "items": [{"space_id": "personal_space", "space_type": "my_library"}],
+                    "has_more": False,
+                },
+            ],
+        ) as mock_request:
+            space_id = _find_my_library_space_id("user-token", "https://open.feishu.cn", 15)
+
+        self.assertEqual(space_id, "personal_space")
+        self.assertIn("page_token=page_2", mock_request.call_args_list[1].args[2])
+
+    def test_create_doc_in_my_library_creates_root_wiki_node(self) -> None:
+        with patch(
+            "backend.core.lark_exporter._find_my_library_space_id",
+            return_value="personal_space",
+        ), patch(
+            "backend.core.lark_exporter._wiki_request_with_token",
+            return_value={
+                "node": {"node_token": "wiki_node", "obj_token": "doc_token"}
+            },
+        ) as mock_request:
+            result = _create_doc_in_my_library(
+                "user-token", "https://open.feishu.cn", self.title, 15
+            )
+
+        self.assertEqual(result, {
+            "space_id": "personal_space",
+            "node_token": "wiki_node",
+            "doc_token": "doc_token",
+        })
+        self.assertEqual(mock_request.call_args.args[2], "/open-apis/wiki/v2/spaces/personal_space/nodes")
+        self.assertEqual(mock_request.call_args.kwargs["method"], "POST")
+        self.assertEqual(
+            mock_request.call_args.kwargs["body"],
+            {"obj_type": "docx", "node_type": "origin", "title": self.title},
+        )
 
     def test_markdown_blocks_use_current_docx_block_types(self) -> None:
         blocks = markdown_to_feishu_blocks(

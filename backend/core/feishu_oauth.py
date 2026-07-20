@@ -28,7 +28,7 @@ from backend.core.account_store import (
 )
 from backend.core.lark_exporter import DEFAULT_BASE_URL
 
-DEFAULT_FEISHU_OAUTH_SCOPES = "offline_access docx:document docx:document:create"
+DEFAULT_FEISHU_OAUTH_SCOPES = "offline_access docx:document docx:document:create wiki:wiki"
 
 
 class FeishuOAuthError(RuntimeError):

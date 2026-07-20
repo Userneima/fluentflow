@@ -22,8 +22,8 @@ export const FeishuExportPrompt = ({onCancel, onConnect, connecting, reconnect =
                         <p className="mt-2 text-sm font-medium leading-relaxed text-[#666] dark:text-white/60">
                             {reconnect
                                 ? (lang === 'zh'
-                                    ? '飞书应用已更新文档权限。重新确认一次授权后，之后导出仍会直接写入你的飞书空间。'
-                                    : 'Feishu document permissions were updated. Approve once more, then future exports will continue going straight to your space.')
+                                    ? '飞书应用已更新导出权限。重新确认一次授权后，之后导出仍会直接写入你的飞书空间。'
+                                    : 'Feishu export permissions were updated. Approve once more, then future exports will continue going straight to your space.')
                                 : (lang === 'zh'
                                 ? '当前导出路线会写入你自己的飞书空间。连接一次后，之后导出不需要填写 App ID、Secret 或 token。'
                                 : 'This export route writes to your own Feishu space. Connect once; future exports do not ask for app IDs, secrets, or tokens.')}
