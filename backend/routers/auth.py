@@ -9,6 +9,11 @@ from fastapi import APIRouter, Body, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 import backend.core.server_helpers as H
+from backend.core.desktop_device_store import (
+    list_desktop_devices,
+    register_desktop_device,
+    revoke_desktop_device,
+)
 
 router = APIRouter()
 
@@ -211,6 +216,47 @@ def google_oauth_callback(
 def account_quota(request: Request) -> dict[str, Any]:
     user = H._require_account_user(request)
     return H._account_quota_payload(user)
+
+
+@router.get("/account/devices")
+def account_devices(request: Request) -> dict[str, Any]:
+    """List the signed-in account's desktop sync devices."""
+    user = H._require_account_user(request)
+    return {"ok": True, "devices": list_desktop_devices(str(user["id"]))}
+
+
+@router.post("/account/devices")
+def register_account_device(
+    request: Request,
+    payload: dict[str, Any] = Body(default={}),
+) -> dict[str, Any]:
+    """Register one desktop and return its one-time sync credential."""
+    user = H._require_account_user(request)
+    try:
+        device = register_desktop_device(
+            user_id=str(user["id"]),
+            platform=str(payload.get("platform") or ""),
+            display_name=str(payload.get("display_name") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    credential = device.get("credential") or {}
+    one_time_credential = credential.pop("value", None)
+    return {"ok": True, "device": device, "one_time_credential": one_time_credential}
+
+
+@router.post("/account/devices/{device_id}/revoke")
+def revoke_account_device(request: Request, device_id: str) -> dict[str, Any]:
+    user = H._require_account_user(request)
+    device = revoke_desktop_device(device_id, user_id=str(user["id"]))
+    if not device:
+        raise HTTPException(status_code=404, detail="Desktop device not found")
+    return {"ok": True, "device": device}
+
+
+@router.delete("/account/devices/{device_id}")
+def delete_account_device(request: Request, device_id: str) -> dict[str, Any]:
+    return revoke_account_device(request, device_id)
 
 
 def _feishu_redirect_uri(request: Request, explicit: str | None = None) -> str:
