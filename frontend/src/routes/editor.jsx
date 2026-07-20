@@ -146,6 +146,11 @@ const Editor = () => {
 
     const result = lastResult;
     const isGuestResult = !!(guestMode && result?.task_id && result.task_id === getGuestTrialTaskId());
+    const desktopSync = result?.desktop_sync?.execution_location === 'local_desktop'
+        ? result.desktop_sync
+        : null;
+    const isDesktopSyncReadOnly = desktopSync?.source_availability === 'local_only';
+    const originDeviceLabel = String(desktopSync?.origin_device?.display_name || '').trim();
     const matchedLocalSourceFile = localSourceFileMatchesResult(lastSourceFile, result) ? lastSourceFile : null;
     const resultSegmentCount = pickTranscriptSegments(result).length;
     const resultTextLength = (result?.transcript_text || '').length;
@@ -231,7 +236,7 @@ const Editor = () => {
                 const fullDisplayCount = pickDisplayTranscriptSegments(full, fullSegments).length;
                 if (fullSegments.length > currentSegments.length || fullText.length > currentText.length || fullDisplayCount > currentDisplayCount) {
                     const fullBaselineSegments = pickTranscriptBaselineSegments(full);
-                    setLastResult(full);
+                    setLastResult({...full, desktop_sync: result.desktop_sync});
                     setEditedSegments(fullSegments.map((seg) => ({...seg})));
                     setEditedTranscript(composeTranscriptText(fullSegments, fullText));
                     setBaselineSegments((prev) => {
@@ -853,6 +858,10 @@ const Editor = () => {
 
     const handleRegenerate = async () => {
         setRegenerateConfirmOpen(false);
+        if (isDesktopSyncReadOnly) {
+            showToast(lang === 'zh' ? '请在处理这条视频的原设备上修改笔记。' : 'Edit this note on the device that processed the video.', false);
+            return;
+        }
         if(!transcript || regenerating) return;
         if(isGuestResult) {
             showToast(lang === 'zh' ? '访客试用暂不支持重生笔记，请重新上传一个文件试用。' : 'Guest trial cannot regenerate notes. Upload a new file to try again.', false);
@@ -1008,6 +1017,10 @@ const Editor = () => {
     };
 
     const handleRetranscribe = () => {
+        if (isDesktopSyncReadOnly) {
+            showToast(lang === 'zh' ? '请在处理这条视频的原设备上重新转录。' : 'Retranscribe this result on the device that processed the video.', false);
+            return;
+        }
         setRetranscribeConfirmOpen(true);
     };
 
@@ -1061,6 +1074,10 @@ const Editor = () => {
         if (!file) return;
         setLastSourceFile(file);
         loadMediaFile(file);
+        if (isDesktopSyncReadOnly) {
+            showToast(lang === 'zh' ? '已仅在当前浏览器打开所选文件，不会写入这条跨设备结果。' : 'The selected file is open only in this browser and will not change this synced result.');
+            return;
+        }
         if (!result?.task_id || isGuestResult) return;
         try {
             const data = await uploadJobPlaybackAudio(result.task_id, file);
@@ -1216,6 +1233,16 @@ const Editor = () => {
                                 {sttElapsedLabel}
                             </p>
                         )}
+                        {isDesktopSyncReadOnly && (
+                            <div className="mt-2 flex max-w-2xl items-start gap-2 rounded-[12px] border border-[#d6dcff] bg-[#eef2ff] px-3 py-2 text-xs font-semibold leading-relaxed text-[#46536f] dark:border-white/[0.12] dark:bg-white/[0.08] dark:text-white/72">
+                                <SvgIcon name="info" className="mt-0.5 shrink-0 text-[15px] text-primary"/>
+                                <p>
+                                    {lang === 'zh'
+                                        ? `这条结果由${originDeviceLabel || '原设备'}本地处理。字幕和笔记可在这里查看、下载和导出；原视频只保留在处理设备，本页为只读。`
+                                        : `This result was processed locally${originDeviceLabel ? ` on ${originDeviceLabel}` : ''}. You can read, download, and export the transcript and note here; the original video stays on the processing device, so this page is read-only.`}
+                                </p>
+                            </div>
+                        )}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                         <button
@@ -1229,7 +1256,7 @@ const Editor = () => {
                         <button
                             type="button"
                             onClick={()=>setRegenerateConfirmOpen(true)}
-                            disabled={isGuestResult||regenerating||!transcript}
+                            disabled={isGuestResult||isDesktopSyncReadOnly||regenerating||!transcript}
                             className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#111111] transition hover:bg-[#efeeee] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]"
                         >
                             <SvgIcon name={regenerating ? 'sync' : 'refresh'} className={`text-[17px] ${regenerating?'animate-spin':''}`}/>
@@ -1238,7 +1265,7 @@ const Editor = () => {
                         <button
                             type="button"
                             onClick={handleRetranscribe}
-                            disabled={isGuestResult||retranscribing||retranscribeBlockedByJob}
+                            disabled={isGuestResult||isDesktopSyncReadOnly||retranscribing||retranscribeBlockedByJob}
                             className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[14px] border border-[#e4e0e0] bg-white px-3 text-xs font-bold text-[#666] transition hover:bg-[#efeeee] hover:text-[#111111] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
                         >
                             <SvgIcon name={retranscribing ? 'sync' : 'record_voice_over'} className={`text-[17px] ${retranscribing?'animate-spin':''}`}/>
@@ -1459,6 +1486,7 @@ const Editor = () => {
                                                         value={seg.text || ''}
                                                         ref={(node)=>{ if(node) autoSizeTextarea(node); }}
                                                         onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
+                                                        readOnly={isDesktopSyncReadOnly}
                                                         onFocus={()=>setFollowPlayback(false)}
                                                         rows={1}
                                                         className="min-h-[1.45rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-semibold leading-snug text-[#111111] focus:ring-0 dark:text-white"
@@ -1513,7 +1541,8 @@ const Editor = () => {
                                             data-transcript-segment="true"
                                             value={seg.text || ''}
                                             ref={autoSizeTextarea}
-                                            onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
+                                                        onChange={(e)=>{ autoSizeTextarea(e.target); handleSegmentTextChange(i, e.target.value); }}
+                                                        readOnly={isDesktopSyncReadOnly}
                                             onFocus={()=>setFollowPlayback(false)}
                                             rows={1}
                                             className="min-h-[1.75rem] w-full resize-none overflow-hidden border-none bg-transparent p-0 text-sm font-medium leading-snug text-[#111111] focus:ring-0 dark:text-white"
@@ -1563,6 +1592,7 @@ const Editor = () => {
                                     <textarea
                                         value={transcript}
                                         onChange={(e)=>handlePlainTranscriptChange(e.target.value)}
+                                        readOnly={isDesktopSyncReadOnly}
                                         onFocus={()=>setFollowPlayback(false)}
                                         className="min-h-[320px] w-full flex-1 resize-none whitespace-pre-wrap border-none bg-transparent p-0 text-sm font-medium leading-relaxed text-[#111111] focus:ring-0 dark:text-white"
                                     />
@@ -1634,7 +1664,7 @@ const Editor = () => {
                                         </span>
                                     )}
                                     <div className="flex shrink-0 items-center gap-2">
-                                        {hasEditableSummary && (
+                                        {hasEditableSummary && !isDesktopSyncReadOnly && (
                                             <button
                                                 type="button"
                                                 onClick={()=>setSummaryEditing((value)=>!value)}

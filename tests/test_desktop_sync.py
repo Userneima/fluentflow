@@ -125,6 +125,16 @@ def test_desktop_sync_is_idempotent_conflict_safe_and_visible_to_its_account(mon
         client.post("/auth/login", json={"email": "owner@example.com", "password": "secure-pass"})
         job = client.get(f"/jobs/{task_id}")
         package = client.get(f"/agent/v1/tasks/{task_id}/package")
+        blocked_transcript_edit = client.patch(
+            f"/jobs/{task_id}/transcript",
+            json={"transcript_text": "A changed transcript.", "segments": []},
+        )
+        blocked_summary_edit = client.patch(
+            f"/jobs/{task_id}/summary",
+            json={"summary_markdown": "# Changed note"},
+        )
+        blocked_retry = client.post(f"/jobs/{task_id}/retry")
+        blocked_delete = client.delete(f"/jobs/{task_id}")
 
     assert created.status_code == 200
     assert created.json()["created"] is True
@@ -156,6 +166,9 @@ def test_desktop_sync_is_idempotent_conflict_safe_and_visible_to_its_account(mon
     assert package.status_code == 200
     assert package.json()["execution"]["location"] == "local_desktop"
     assert package.json()["execution"]["source_availability"] == "local_only"
+    for response in (blocked_transcript_edit, blocked_summary_edit, blocked_retry, blocked_delete):
+        assert response.status_code == 409
+        assert "read-only" in response.json()["detail"]
 
 
 def test_only_originating_device_and_owner_can_sync_a_desktop_task(monkeypatch, tmp_path) -> None:

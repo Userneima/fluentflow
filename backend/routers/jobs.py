@@ -10,13 +10,15 @@ from pathlib import Path
 import os
 import tempfile
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
 from backend.core.media_preflight import MediaPreflightError, preflight_media_file
 from backend.core.oss_upload_sessions import get_oss_upload_session
 from backend.core.task_detail import build_task_detail, build_task_snapshot
+from backend.core.desktop_sync_client import sync_terminal_local_job
+from backend.core.desktop_sync_policy import desktop_sync_read_only_detail, is_local_desktop_sync_job
 
 router = APIRouter()
 
@@ -32,6 +34,20 @@ def _translation_ai_kwargs(ai_kwargs: dict[str, Any]) -> dict[str, Any]:
         for key, value in ai_kwargs.items()
         if key in {"api_key", "model", "provider"}
     }
+
+
+def _reject_cloud_write_to_desktop_sync_job(request: Request, job: dict[str, Any]) -> None:
+    if is_local_desktop_sync_job(job) and not H._request_is_local_execution(request):
+        raise HTTPException(status_code=409, detail=desktop_sync_read_only_detail(job))
+
+
+def _sync_local_desktop_result_after_write(
+    request: Request,
+    updated: dict[str, Any] | None,
+    background_tasks: BackgroundTasks,
+) -> None:
+    if updated and H._request_is_local_execution(request):
+        background_tasks.add_task(sync_terminal_local_job, updated)
 
 
 @router.get("/jobs/{task_id}")
@@ -58,6 +74,7 @@ async def cancel_job_detail(request: Request, task_id: str) -> dict[str, Any]:
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
     if job.get("status") in {"completed", "failed", "cancelled"}:
         raise HTTPException(status_code=409, detail=f"Job is already {job.get('status')}")
 
@@ -115,6 +132,7 @@ def _delete_job_for_request(request: Request, task_id: str) -> dict[str, Any]:
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
     if job.get("status") in {"queued", "running"}:
         raise HTTPException(status_code=409, detail="Cancel running jobs before deleting them")
     H._cleanup_task_all_files(task_id, job.get("metadata"))
@@ -142,6 +160,7 @@ def retry_job_from_stored_source(request: Request, task_id: str) -> dict[str, An
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
     if job.get("status") in {"queued", "running"}:
         raise HTTPException(status_code=409, detail="Cancel the active job before retrying it")
 
@@ -358,11 +377,17 @@ def _retry_job_from_oss_source(
 
 
 @router.patch("/jobs/{task_id}/transcript")
-def update_job_transcript(request: Request, task_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def update_job_transcript(
+    request: Request,
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
     client_id = H._request_client_scope(request)
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
     result = dict(job.get("result") or {})
     transcript = payload.get("transcript_text")
     if not isinstance(transcript, str):
@@ -407,15 +432,22 @@ def update_job_transcript(request: Request, task_id: str, payload: dict[str, Any
     updated = H.update_job_result(task_id, result, client_id=client_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Job not found")
+    _sync_local_desktop_result_after_write(request, updated, background_tasks)
     return {"ok": True, "job": updated, "result": updated.get("result")}
 
 
 @router.patch("/jobs/{task_id}/summary")
-def update_job_summary(request: Request, task_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def update_job_summary(
+    request: Request,
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
     client_id = H._request_client_scope(request)
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
     result = dict(job.get("result") or {})
     summary = payload.get("summary_markdown")
     if not isinstance(summary, str):
@@ -438,6 +470,7 @@ def update_job_summary(request: Request, task_id: str, payload: dict[str, Any] =
     updated = H.update_job_result(task_id, result, client_id=client_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Job not found")
+    _sync_local_desktop_result_after_write(request, updated, background_tasks)
     return {"ok": True, "job": updated, "result": updated.get("result")}
 
 
@@ -445,6 +478,7 @@ def update_job_summary(request: Request, task_id: str, payload: dict[str, Any] =
 async def generate_job_zh_translations(
     request: Request,
     task_id: str,
+    background_tasks: BackgroundTasks,
     payload: Optional[dict[str, Any]] = Body(None),
 ) -> dict[str, Any]:
     payload = payload or {}
@@ -452,6 +486,7 @@ async def generate_job_zh_translations(
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
 
     result = dict(job.get("result") or {})
     source_segments = (
@@ -510,6 +545,7 @@ async def generate_job_zh_translations(
     updated = H.update_job_result(task_id, result, client_id=client_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Job not found")
+    _sync_local_desktop_result_after_write(request, updated, background_tasks)
 
     H.log_event(
         task_id=task_id,
@@ -560,11 +596,17 @@ def download_job_source(request: Request, task_id: str) -> FileResponse:
 
 
 @router.post("/jobs/{task_id}/playback-audio")
-async def upload_job_playback_audio(request: Request, task_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+async def upload_job_playback_audio(
+    request: Request,
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
     client_id = H._request_client_scope(request)
     job = H.get_job(task_id, client_id=client_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _reject_cloud_write_to_desktop_sync_job(request, job)
     filename = Path(file.filename or "source_audio").name
     suffix = Path(filename).suffix.lower()
     allowed_suffixes = {
@@ -604,6 +646,7 @@ async def upload_job_playback_audio(request: Request, task_id: str, file: Upload
                 pass
     if not updated:
         raise HTTPException(status_code=404, detail="Job not found")
+    _sync_local_desktop_result_after_write(request, updated, background_tasks)
     return {"ok": True, "job": updated, "result": updated.get("result")}
 
 

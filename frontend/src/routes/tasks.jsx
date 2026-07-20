@@ -24,7 +24,6 @@ import {
     isSttProgressUnmeasured,
     jobToCurrentJob,
     jobDisplayTitle,
-    jobToHistoryEntry,
     sortJobsForHistoryView,
     timeAgo,
     useApi,
@@ -91,7 +90,7 @@ const Tasks = () => {
     const {t, lang} = useI18n();
     // Read the shared task list and mutations from AppProvider; this page no
     // longer keeps a private jobs state or writes the cache (plan Stage 3b).
-    const {currentJob, setLastResult, setCurrentJob, addToHistory, tasks: jobs, ingestJobs, markCancelled, revertCancelled, removeFromHistory, restoreTask} = useApp();
+    const {currentJob, setLastResult, setCurrentJob, tasks: jobs, ingestJobs, markCancelled, revertCancelled, removeFromHistory, restoreTask} = useApp();
     const {getJob, cancelJob, deleteJob, downloadJobArtifact, createVideoSourceJob, retryJob} = useApi();
     const navigate = useNavigate();
     const location = useLocation();
@@ -102,7 +101,13 @@ const Tasks = () => {
     const queueUploadJob = currentJob?.queueUpload ? currentJob : null;
     const isLiveJob = isLiveTask;
     const isDeletableJob = (job) => !isLiveJob(job) && (!!taskIdForJob(job) || isCachedOnlyTask(job));
-    const isLocalJob = (job) => String(job.client_id || '').startsWith('local-') || job.metadata?.stt_provider === 'local';
+    // A desktop-synced task was processed locally, but its record lives in the
+    // cloud. Treating it as a local task on every device prevents a second
+    // desktop from falling back to the readable cloud result.
+    const isDesktopSyncJob = (job) => job?.metadata?.desktop_sync?.execution_location === 'local_desktop';
+    const isLocalJob = (job) => !isDesktopSyncJob(job) && (
+        String(job.client_id || '').startsWith('local-') || job.metadata?.stt_provider === 'local'
+    );
     const [taskFilter, setTaskFilter] = useState('all');
     const stats = useMemo(() => ({
         live: jobs.filter(isLiveJob).length,
@@ -156,6 +161,17 @@ const Tasks = () => {
 
     const getJobWithFallback = async (job) => {
         const taskId = taskIdForJob(job);
+        if (isDesktopSyncJob(job)) {
+            try {
+                // The originating desktop still owns the editable local copy.
+                // A second desktop will receive 404 here and then read the
+                // cloud projection below.
+                return await getJob(taskId, {sttProvider: 'local'});
+            } catch (err) {
+                if (err.status !== 404) throw err;
+                return getJob(taskId);
+            }
+        }
         const primaryOptions = isLocalJob(job) ? {sttProvider: 'local'} : {};
         try {
             return await getJob(taskId, primaryOptions);
@@ -172,8 +188,10 @@ const Tasks = () => {
         }
         const taskId = taskIdForJob(job);
         const openResult = (sourceJob, result) => {
-            setLastResult(result);
-            addToHistory(jobToHistoryEntry({...sourceJob, result}));
+            const desktopSync = sourceJob?.metadata?.desktop_sync;
+            const presentedResult = desktopSync ? {...result, desktop_sync: desktopSync} : result;
+            setLastResult(presentedResult);
+            ingestJobs([{...sourceJob, result: presentedResult}]);
             navigate('/editor');
         };
         if (isCachedOnlyTask(job) && job.result) {

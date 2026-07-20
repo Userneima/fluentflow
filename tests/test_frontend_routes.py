@@ -1732,6 +1732,21 @@ def test_desktop_sync_settings_only_calls_loopback_device_endpoints() -> None:
     assert "desktop-sync/local/flush" in shared
 
 
+def test_desktop_sync_results_open_in_cloud_read_only_mode_on_other_devices() -> None:
+    tasks = Path("frontend/src/routes/tasks.jsx").read_text(encoding="utf-8")
+    editor = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
+
+    assert "const isDesktopSyncJob" in tasks
+    assert "return await getJob(taskId, {sttProvider: 'local'});" in tasks
+    assert "return getJob(taskId);" in tasks
+    assert "desktop_sync: desktopSync" in tasks
+    assert "isDesktopSyncReadOnly" in editor
+    assert "原视频只保留在处理设备，本页为只读。" in editor
+    assert "readOnly={isDesktopSyncReadOnly}" in editor
+    assert "disabled={isGuestResult||isDesktopSyncReadOnly||regenerating||!transcript}" in editor
+    assert "hasEditableSummary && !isDesktopSyncReadOnly" in editor
+
+
 def test_settings_clear_history_requires_confirmation_dialog() -> None:
     source = Path("frontend/src/routes/settings.jsx").read_text(encoding="utf-8")
 

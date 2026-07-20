@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import time
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import backend.core.server_helpers as H
@@ -23,7 +23,9 @@ from backend.core.desktop_sync_client import (
     flush_desktop_sync_outbox,
     queue_desktop_status,
     queue_desktop_task,
+    sync_terminal_local_job,
 )
+from backend.core.desktop_sync_policy import desktop_sync_read_only_detail, is_local_desktop_sync_job
 from backend.core.media_job import (
     _normalized_source_language,
     _is_english_source,
@@ -699,6 +701,7 @@ async def export_lark(
 @router.post("/regenerate-summary")
 async def regenerate_summary(
     request: Request,
+    background_tasks: BackgroundTasks,
     transcript: str = Form(...),
     deepseek_api_key: Optional[str] = Form(None),
     openai_api_key: Optional[str] = Form(None),
@@ -720,6 +723,8 @@ async def regenerate_summary(
     task_id_value = requested_task_id or H._new_task_id()
     client_id = H._request_client_scope(request)
     existing_job = H.get_job(task_id_value, client_id=client_id) if requested_task_id else None
+    if existing_job and is_local_desktop_sync_job(existing_job) and not H._request_is_local_execution(request):
+        raise HTTPException(status_code=409, detail=desktop_sync_read_only_detail(existing_job))
     regenerated_from_task_id = None
     if requested_task_id and not existing_job:
         regenerated_from_task_id = requested_task_id
@@ -814,6 +819,10 @@ async def regenerate_summary(
             summary_status="completed",
             result=result,
         )
+        if H._request_is_local_execution(request):
+            latest = H.get_job(task_id_value, client_id=client_id)
+            if latest:
+                background_tasks.add_task(sync_terminal_local_job, latest)
         return payload
     except Exception as exc:
         friendly_error = H._friendly_error_message(exc)

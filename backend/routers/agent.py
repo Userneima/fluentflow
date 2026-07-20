@@ -4,12 +4,14 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Request
 
 import backend.core.server_helpers as H
 from backend.core.agent_package import build_agent_task_package, note_generation_diagnosis
 from backend.core.agent_task_actions import AgentActionError, export_agent_note, regenerate_agent_note
 from backend.core.chapter_coverage import bind_chapter_coverage_time_ranges
+from backend.core.desktop_sync_client import sync_terminal_local_job
+from backend.core.desktop_sync_policy import desktop_sync_read_only_detail, is_local_desktop_sync_job
 from backend.routers.jobs import retry_job_from_stored_source
 
 router = APIRouter(prefix="/agent/v1")
@@ -250,14 +252,23 @@ def retry_agent_task(request: Request, task_id: str) -> dict[str, Any]:
 
 
 @router.post("/tasks/{task_id}/note/regenerate")
-async def regenerate_agent_task_note(request: Request, task_id: str, payload: Optional[dict[str, Any]] = Body(None)) -> dict[str, Any]:
+async def regenerate_agent_task_note(
+    request: Request,
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    payload: Optional[dict[str, Any]] = Body(None),
+) -> dict[str, Any]:
     payload = payload or {}
     client_id = H._request_client_scope(request)
     job = _job_for_request(request, task_id)
+    if is_local_desktop_sync_job(job) and not H._request_is_local_execution(request):
+        raise HTTPException(status_code=409, detail=desktop_sync_read_only_detail(job))
     try:
         updated = await regenerate_agent_note(task_id=task_id, client_id=client_id, job=job, payload=payload)
     except AgentActionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc.cause
+    if H._request_is_local_execution(request):
+        background_tasks.add_task(sync_terminal_local_job, updated)
     return {"ok": True, "task_id": task_id, "package": _task_package_response(updated)}
 
 
