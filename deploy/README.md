@@ -170,16 +170,21 @@ ElevenLabs 只负责语音转文字，不会读取视频画面。笔记自动插
 
 ## 4. 备份与恢复
 
-上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 ElevenLabs、DeepSeek 等密钥写进备份包。日常部署默认保留最近两份归档，并要求至少保留 4GB 可用空间；可按服务器容量覆盖：
+上线前先保证数据能恢复。默认备份不包含 `/etc/fluentflow/fluentflow.env`，避免把 ElevenLabs、DeepSeek 等密钥写进备份包。
+
+日常代码部署只创建账号、任务和事件数据库快照，不重复压缩用户视频和产物；快照保留 7 份，并要求至少 512MB 可用空间：
 
 ```bash
-FLUENTFLOW_BACKUP_RETENTION_COUNT=2
-FLUENTFLOW_BACKUP_MIN_FREE_MB=4096
+FLUENTFLOW_DEPLOY_BACKUP_DIR=/var/backups/fluentflow/deploy
+FLUENTFLOW_DEPLOY_BACKUP_RETENTION_COUNT=7
+FLUENTFLOW_DEPLOY_BACKUP_MIN_FREE_MB=512
 ```
+
+完整备份（含媒体与产物）用于定时运维或高风险迁移，建议单独保留最近两份：
 
 ```bash
 cd /opt/fluentflow
-./venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env
+./venv/bin/python scripts/backup_server_state.py --env-file /etc/fluentflow/fluentflow.env --retain-count 2
 ```
 
 恢复前先 dry-run 看会覆盖哪些路径：

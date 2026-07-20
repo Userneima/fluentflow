@@ -63,3 +63,30 @@ def test_prune_backups_keeps_newest_archives(tmp_path: Path) -> None:
     assert not archives[0].exists()
     assert archives[1].exists()
     assert archives[2].exists()
+
+
+def test_database_only_backup_omits_media_storage(tmp_path: Path, monkeypatch) -> None:
+    source_dir = tmp_path / "sources" / "task-1"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.mp4").write_bytes(b"video")
+    jobs_db = tmp_path / "state" / "jobs.sqlite"
+    jobs_db.parent.mkdir(parents=True)
+    with sqlite3.connect(jobs_db) as conn:
+        conn.execute("CREATE TABLE jobs (task_id TEXT PRIMARY KEY)")
+
+    monkeypatch.setenv("FLUENTFLOW_SOURCE_DIR", str(tmp_path / "sources"))
+    monkeypatch.setenv("FLUENTFLOW_JOB_DB_PATH", str(jobs_db))
+    monkeypatch.setenv("FLUENTFLOW_ACCOUNT_DB_PATH", str(tmp_path / "missing-accounts.sqlite"))
+    monkeypatch.setenv("FLUENTFLOW_EVENT_DB_PATH", str(tmp_path / "missing-events.sqlite"))
+
+    archive = build_backup(
+        output_dir=tmp_path / "backups",
+        env_file=None,
+        include_env=False,
+        include_storage=False,
+    )
+
+    with tarfile.open(archive, "r:gz") as handle:
+        names = handle.getnames()
+    assert "fluentflow-backup/databases/jobs.sqlite" in names
+    assert "fluentflow-backup/storage/sources/task-1/source.mp4" not in names

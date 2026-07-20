@@ -6,9 +6,10 @@ SERVICE_NAME="${FLUENTFLOW_SERVICE_NAME:-fluentflow}"
 ENV_FILE="${FLUENTFLOW_ENV_FILE:-/etc/fluentflow/fluentflow.env}"
 HEALTH_URL="${FLUENTFLOW_HEALTH_URL:-http://127.0.0.1:8000/health}"
 BRANCH="${FLUENTFLOW_DEPLOY_BRANCH:-main}"
-BACKUP_DIR="${FLUENTFLOW_BACKUP_DIR:-/var/backups/fluentflow}"
-BACKUP_RETENTION_COUNT="${FLUENTFLOW_BACKUP_RETENTION_COUNT:-2}"
-BACKUP_MIN_FREE_MB="${FLUENTFLOW_BACKUP_MIN_FREE_MB:-4096}"
+BACKUP_ROOT_DIR="${FLUENTFLOW_BACKUP_DIR:-/var/backups/fluentflow}"
+DEPLOY_BACKUP_DIR="${FLUENTFLOW_DEPLOY_BACKUP_DIR:-${BACKUP_ROOT_DIR}/deploy}"
+DEPLOY_BACKUP_RETENTION_COUNT="${FLUENTFLOW_DEPLOY_BACKUP_RETENTION_COUNT:-7}"
+DEPLOY_BACKUP_MIN_FREE_MB="${FLUENTFLOW_DEPLOY_BACKUP_MIN_FREE_MB:-512}"
 RELEASE_DIR="${FLUENTFLOW_RELEASE_DIR:-/var/lib/fluentflow/releases}"
 ALLOW_DIRTY="${FLUENTFLOW_DEPLOY_ALLOW_DIRTY:-0}"
 
@@ -25,27 +26,27 @@ run_readiness() {
 }
 
 prepare_backup_storage() {
-  if [[ ! "$BACKUP_RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]]; then
-    log "FLUENTFLOW_BACKUP_RETENTION_COUNT must be a positive integer"
+  if [[ ! "$DEPLOY_BACKUP_RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    log "FLUENTFLOW_DEPLOY_BACKUP_RETENTION_COUNT must be a positive integer"
     exit 2
   fi
-  if [[ ! "$BACKUP_MIN_FREE_MB" =~ ^[1-9][0-9]*$ ]]; then
-    log "FLUENTFLOW_BACKUP_MIN_FREE_MB must be a positive integer"
+  if [[ ! "$DEPLOY_BACKUP_MIN_FREE_MB" =~ ^[1-9][0-9]*$ ]]; then
+    log "FLUENTFLOW_DEPLOY_BACKUP_MIN_FREE_MB must be a positive integer"
     exit 2
   fi
 
-  mkdir -p "$BACKUP_DIR"
-  log "retaining the newest ${BACKUP_RETENTION_COUNT} backup archives"
+  mkdir -p "$DEPLOY_BACKUP_DIR"
+  log "retaining the newest ${DEPLOY_BACKUP_RETENTION_COUNT} deployment snapshots"
   "$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/scripts/backup_server_state.py" \
-    --output-dir "$BACKUP_DIR" \
-    --retain-count "$BACKUP_RETENTION_COUNT" \
+    --output-dir "$DEPLOY_BACKUP_DIR" \
+    --retain-count "$DEPLOY_BACKUP_RETENTION_COUNT" \
     --prune-only
 
   local available_kb minimum_kb
-  available_kb="$(df -Pk "$BACKUP_DIR" | awk 'NR == 2 {print $4}')"
-  minimum_kb=$((BACKUP_MIN_FREE_MB * 1024))
+  available_kb="$(df -Pk "$DEPLOY_BACKUP_DIR" | awk 'NR == 2 {print $4}')"
+  minimum_kb=$((DEPLOY_BACKUP_MIN_FREE_MB * 1024))
   if [[ ! "$available_kb" =~ ^[0-9]+$ ]] || (( available_kb < minimum_kb )); then
-    log "insufficient disk space for a backup: need at least ${BACKUP_MIN_FREE_MB} MB free"
+    log "insufficient disk space for a deployment snapshot: need at least ${DEPLOY_BACKUP_MIN_FREE_MB} MB free"
     exit 3
   fi
 }
@@ -87,12 +88,13 @@ main() {
   fi
 
   prepare_backup_storage
-  log "creating data backup"
+  log "creating database-only deployment snapshot"
   local backup_report backup_archive
   backup_report="$("$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/scripts/backup_server_state.py" \
     --env-file "$ENV_FILE" \
-    --output-dir "$BACKUP_DIR" \
-    --retain-count "$BACKUP_RETENTION_COUNT")"
+    --output-dir "$DEPLOY_BACKUP_DIR" \
+    --retain-count "$DEPLOY_BACKUP_RETENTION_COUNT" \
+    --database-only)"
   printf '%s\n' "$backup_report"
   backup_archive="$("$PROJECT_DIR/venv/bin/python" -c 'import json,sys; print(json.load(sys.stdin).get("archive",""))' <<<"$backup_report")"
 

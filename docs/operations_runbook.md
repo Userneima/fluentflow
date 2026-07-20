@@ -316,7 +316,7 @@ sqlite3 "$HOME/Library/Application Support/FluentFlow/fluentflow_events.sqlite" 
 
 备份文件可能包含文件名、任务状态、错误原因和飞书 URL，不要公开上传。
 
-服务器数据备份。生产环境默认只保留最新两份整库备份；脚本会在创建前先清理更早副本，避免备份本身填满系统盘：
+服务器完整数据备份（包含源视频、字幕和笔记）。它不应随每次代码发布重复执行；生产环境默认只保留最新两份整库备份：
 
 ```bash
 cd /opt/fluentflow
@@ -324,6 +324,8 @@ cd /opt/fluentflow
 ```
 
 默认不备份 `/etc/fluentflow/fluentflow.env`，避免密钥进入备份包。
+
+日常部署会自动在 `/var/backups/fluentflow/deploy/` 创建仅含账号、任务和事件数据库的轻量快照，默认保留 7 份。它用于代码回滚与数据结构排查，不包含媒体文件；完整恢复媒体和产物时使用上面的整库备份。
 
 恢复前先 dry-run：
 
@@ -341,7 +343,7 @@ cd /opt/fluentflow
 sudo systemctl start fluentflow
 ```
 
-如果磁盘空间低于部署要求，不要跳过备份直接重启。先检查 `/var/backups/fluentflow`，确认最近恢复点可用后再清理更早的备份副本；任务数据库、字幕、笔记和上传源文件不属于这项清理范围。
+如果磁盘空间低于部署要求，不要跳过快照直接重启。先检查 `/var/backups/fluentflow/deploy/` 与完整备份目录，确认最近恢复点可用后再清理更早的备份副本；任务数据库、字幕、笔记和上传源文件不属于这项清理范围。
 
 ## 8. 常见故障处理
 

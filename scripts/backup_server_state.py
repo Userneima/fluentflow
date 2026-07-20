@@ -93,7 +93,13 @@ def prune_backups(*, output_dir: Path, retain_count: int) -> list[Path]:
     return removed
 
 
-def build_backup(*, output_dir: Path, env_file: Path | None, include_env: bool) -> Path:
+def build_backup(
+    *,
+    output_dir: Path,
+    env_file: Path | None,
+    include_env: bool,
+    include_storage: bool = True,
+) -> Path:
     if env_file:
         _load_env_file(env_file)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -117,6 +123,7 @@ def build_backup(*, output_dir: Path, env_file: Path | None, include_env: bool) 
         "created_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "project_root": str(PROJECT_ROOT),
         "include_env": include_env,
+        "include_storage": include_storage,
         "paths": {name: str(path) for name, path in paths.items()},
         "databases": {name: str(path) for name, path in db_paths.items()},
         "included": [],
@@ -126,12 +133,13 @@ def build_backup(*, output_dir: Path, env_file: Path | None, include_env: bool) 
     with tempfile.TemporaryDirectory(prefix="fluentflow_backup_") as tmp:
         staging = Path(tmp) / "fluentflow-backup"
         staging.mkdir()
-        for name, path in paths.items():
-            target = staging / "storage" / name
-            if _copy_tree(path, target):
-                manifest["included"].append({"kind": "storage", "name": name, "source": str(path)})
-            else:
-                manifest["missing"].append({"kind": "storage", "name": name, "source": str(path)})
+        if include_storage:
+            for name, path in paths.items():
+                target = staging / "storage" / name
+                if _copy_tree(path, target):
+                    manifest["included"].append({"kind": "storage", "name": name, "source": str(path)})
+                else:
+                    manifest["missing"].append({"kind": "storage", "name": name, "source": str(path)})
         for name, path in db_paths.items():
             target = staging / "databases" / name
             if _copy_sqlite(path, target):
@@ -154,6 +162,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--env-file", type=Path, default=Path("/etc/fluentflow/fluentflow.env"))
     parser.add_argument("--include-env", action="store_true", help="Include the env file with secrets. Off by default.")
+    parser.add_argument("--database-only", action="store_true", help="Back up account, job, and event databases without media storage.")
     parser.add_argument("--retain-count", type=int, default=None, help="Keep this many newest backup archives.")
     parser.add_argument("--prune-only", action="store_true", help="Only prune old archives; do not create a backup.")
     args = parser.parse_args()
@@ -171,7 +180,12 @@ def main() -> int:
     if args.prune_only:
         print(json.dumps({"ok": True, "archive": None, "pruned": [str(path) for path in pruned_before]}, ensure_ascii=False, indent=2))
         return 0
-    archive = build_backup(output_dir=output_dir, env_file=args.env_file, include_env=args.include_env)
+    archive = build_backup(
+        output_dir=output_dir,
+        env_file=args.env_file,
+        include_env=args.include_env,
+        include_storage=not args.database_only,
+    )
     pruned_after = (
         prune_backups(output_dir=output_dir, retain_count=args.retain_count)
         if args.retain_count is not None
