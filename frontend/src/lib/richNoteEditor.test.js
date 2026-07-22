@@ -35,4 +35,22 @@ describe('rich note editor conversion', () => {
 
         expect(markdown).toBe('| 概念 | 说明 |\n| --- | --- |\n| 术语 | 解释 |');
     });
+
+    it('keeps the editor toolbar block styles exportable', () => {
+        const markdown = editableHtmlToMarkdown(`
+            <h2>一级标题</h2>
+            <h3>二级标题</h3>
+            <h4>三级标题</h4>
+            <blockquote>需要复查的结论</blockquote>
+            <pre><code>const ready = true;</code></pre>
+            <hr>
+        `);
+
+        expect(markdown).toContain('# 一级标题');
+        expect(markdown).toContain('## 二级标题');
+        expect(markdown).toContain('### 三级标题');
+        expect(markdown).toContain('> 需要复查的结论');
+        expect(markdown).toContain('```\nconst ready = true;\n```');
+        expect(markdown).toContain('---');
+    });
 });

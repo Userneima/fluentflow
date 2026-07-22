@@ -1022,11 +1022,17 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
 
     assert "转录原文" in source
     assert "笔记正文" in source
-    assert "summaryEditing ? (" in source
-    assert "setSummaryEditing((value)=>!value)" in source
+    assert "const canEditSummary = hasEditableSummary && !isDesktopSyncReadOnly;" in source
+    assert "summaryEditing ? (" not in source
+    assert "setSummaryEditing" not in source
     assert "contentEditable" in source
     assert "editableHtmlToMarkdown" in source
     assert "format_list_bulleted" in source
+    assert "<option value=\"h4\">" in source
+    assert "insertHorizontalRule" in source
+    assert "const richNoteSelectionRef = useRef(null);" in source
+    assert "onSelect={saveRichNoteSelection}" in source
+    assert "restoreRichNoteSelection();" in source
     assert "<textarea\n                                                value={summary}" not in source
     assert "dangerouslySetInnerHTML={{__html: renderedSummary}}" in source
     assert "aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}" in source

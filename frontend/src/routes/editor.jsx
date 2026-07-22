@@ -115,6 +115,8 @@ const Editor = () => {
     const summarySaveSeqRef = useRef(0);
     const summaryDraftResultKeyRef = useRef('');
     const richNoteEditorRef = useRef(null);
+    const richNoteSelectionRef = useRef(null);
+    const richNoteContentRef = useRef({key: '', markdown: null});
     const playbackSaveRef = useRef(0);
     const mediaObjectUrlRef = useRef('');
 
@@ -197,7 +199,6 @@ const Editor = () => {
     const [transcriptReviewMode, setTranscriptReviewMode] = useState('text');
     const [transcriptSaveStatus, setTranscriptSaveStatus] = useState('idle');
     const [summaryDraft, setSummaryDraft] = useState('');
-    const [summaryEditing, setSummaryEditing] = useState(false);
     const [summaryUnsaved, setSummaryUnsaved] = useState(false);
     const [summarySaveStatus, setSummarySaveStatus] = useState('idle');
     const [hydratingResult, setHydratingResult] = useState(false);
@@ -299,7 +300,6 @@ const Editor = () => {
     useEffect(() => {
         if (!result) {
             setSummaryDraft('');
-            setSummaryEditing(false);
             setSummaryUnsaved(false);
             setSummarySaveStatus('idle');
             summaryDraftResultKeyRef.current = 'empty_result';
@@ -308,7 +308,6 @@ const Editor = () => {
         if (summaryDraftResultKeyRef.current !== summaryResultKey) {
             summaryDraftResultKeyRef.current = summaryResultKey;
             setSummaryDraft(result.summary_markdown || '');
-            setSummaryEditing(false);
             setSummaryUnsaved(false);
             setSummarySaveStatus(result.summary_edited ? 'saved' : 'idle');
             return;
@@ -363,24 +362,56 @@ const Editor = () => {
         });
     }, [isGuestResult, result, setLastResult]);
 
+    const summaryMarkdownForEditor = summaryUnsaved
+        ? summaryDraft
+        : (summaryDraft || result?.summary_markdown || '');
+
     const syncRichNoteEditor = useCallback(() => {
         const editor = richNoteEditorRef.current;
-        if (editor) handleSummaryChange(editableHtmlToMarkdown(editor.innerHTML));
-    }, [handleSummaryChange]);
+        if (!editor) return;
+        const markdown = editableHtmlToMarkdown(editor.innerHTML);
+        richNoteContentRef.current = {key: summaryResultKey, markdown};
+        handleSummaryChange(markdown);
+    }, [handleSummaryChange, summaryResultKey]);
+
+    const saveRichNoteSelection = useCallback(() => {
+        const editor = richNoteEditorRef.current;
+        const selection = window.getSelection();
+        if (!editor || !selection?.rangeCount) return;
+        const range = selection.getRangeAt(0);
+        if (editor.contains(range.commonAncestorContainer)) {
+            richNoteSelectionRef.current = range.cloneRange();
+        }
+    }, []);
+
+    const restoreRichNoteSelection = useCallback(() => {
+        const editor = richNoteEditorRef.current;
+        const range = richNoteSelectionRef.current;
+        if (!editor || !range || !editor.contains(range.commonAncestorContainer)) return;
+        const selection = window.getSelection();
+        if (!selection) return;
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }, []);
 
     const runRichNoteCommand = useCallback((command, value = null) => {
         const editor = richNoteEditorRef.current;
         if (!editor) return;
-        editor.focus();
+        restoreRichNoteSelection();
+        editor.focus({preventScroll: true});
         document.execCommand(command, false, value);
+        saveRichNoteSelection();
         syncRichNoteEditor();
-    }, [syncRichNoteEditor]);
+    }, [restoreRichNoteSelection, saveRichNoteSelection, syncRichNoteEditor]);
 
     useEffect(() => {
         const editor = richNoteEditorRef.current;
-        if (!summaryEditing || !editor) return;
-        editor.innerHTML = markdownToEditableHtml(summary);
-    }, [summaryEditing, summaryResultKey]);
+        const current = richNoteContentRef.current;
+        if (isDesktopSyncReadOnly || summaryUnsaved || !editor) return;
+        if (current.key === summaryResultKey && current.markdown === summaryMarkdownForEditor) return;
+        editor.innerHTML = markdownToEditableHtml(summaryMarkdownForEditor);
+        richNoteContentRef.current = {key: summaryResultKey, markdown: summaryMarkdownForEditor};
+    }, [isDesktopSyncReadOnly, summaryMarkdownForEditor, summaryResultKey, summaryUnsaved]);
 
     const replaceMediaUrl = useCallback((nextUrl = '') => {
         const previousUrl = mediaObjectUrlRef.current;
@@ -481,14 +512,14 @@ const Editor = () => {
         }),
         [editRecords, segments],
     );
-    const storedSummary = result?.summary_markdown || '';
-    const summary = summaryUnsaved ? summaryDraft : (summaryDraft || storedSummary);
+    const summary = summaryMarkdownForEditor;
     const hasEditableSummary = !!result && (
         !!summary
         || summaryUnsaved
         || result?.summary_status === 'completed'
         || !!result?.summary_edited
     );
+    const canEditSummary = hasEditableSummary && !isDesktopSyncReadOnly;
     const summarySaveLabel = summarySaveStatus === 'saving'
         ? (lang === 'zh' ? '保存中' : 'Saving')
         : summarySaveStatus === 'saved'
@@ -1734,22 +1765,6 @@ const Editor = () => {
                                         </span>
                                     )}
                                     <div className="flex shrink-0 items-center gap-2">
-                                        {hasEditableSummary && !isDesktopSyncReadOnly && (
-                                            <button
-                                                type="button"
-                                                onClick={()=>setSummaryEditing((value)=>!value)}
-                                                className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-[13px] border px-3 text-xs font-bold transition ${
-                                                    summaryEditing
-                                                        ? 'border-[#111111] bg-[#111111] text-white hover:bg-[#2a2a2a] dark:border-white dark:bg-white dark:text-[#111111] dark:hover:bg-white/85'
-                                                        : 'border-[#e4e0e0] bg-white text-[#555] hover:bg-[#efeeee] dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white/70 dark:hover:bg-white/[0.08]'
-                                                }`}
-                                            >
-                                                <SvgIcon name="edit_note" className="text-sm"/>
-                                                {summaryEditing
-                                                    ? (lang === 'zh' ? '完成' : 'Done')
-                                                    : (lang === 'zh' ? '编辑' : 'Edit')}
-                                            </button>
-                                        )}
                                         {hasInlineVisualEvidence && (
                                             <button
                                                 type="button"
@@ -1788,33 +1803,56 @@ const Editor = () => {
                                         />
                                     </div>
                                 </div>
+                                {canEditSummary && (
+                                    <div className="flex flex-wrap items-center gap-1.5 border-b border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">
+                                        <label className="sr-only" htmlFor="note-block-style">{lang === 'zh' ? '文本样式' : 'Text style'}</label>
+                                        <select
+                                            id="note-block-style"
+                                            defaultValue=""
+                                            aria-label={lang === 'zh' ? '文本样式' : 'Text style'}
+                                            onChange={(event) => {
+                                                const value = event.target.value;
+                                                if (value) runRichNoteCommand('formatBlock', value);
+                                                event.currentTarget.value = '';
+                                            }}
+                                            className="h-8 rounded-[9px] border border-[#e4e0e0] bg-white px-2 text-xs font-bold text-[#555] outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/75"
+                                        >
+                                            <option value="">{lang === 'zh' ? '文本样式' : 'Style'}</option>
+                                            <option value="p">{lang === 'zh' ? '正文' : 'Paragraph'}</option>
+                                            <option value="h2">{lang === 'zh' ? '一级标题' : 'Heading 1'}</option>
+                                            <option value="h3">{lang === 'zh' ? '二级标题' : 'Heading 2'}</option>
+                                            <option value="h4">{lang === 'zh' ? '三级标题' : 'Heading 3'}</option>
+                                            <option value="blockquote">{lang === 'zh' ? '引用' : 'Quote'}</option>
+                                            <option value="pre">{lang === 'zh' ? '代码块' : 'Code block'}</option>
+                                        </select>
+                                        <span className="h-5 w-px bg-[#e4e0e0] dark:bg-white/[0.12]" aria-hidden="true"/>
+                                        {[
+                                            {command: 'bold', icon: 'format_bold', label: lang === 'zh' ? '加粗' : 'Bold'},
+                                            {command: 'italic', icon: 'format_italic', label: lang === 'zh' ? '斜体' : 'Italic'},
+                                            {command: 'insertUnorderedList', icon: 'format_list_bulleted', label: lang === 'zh' ? '项目列表' : 'Bullet list'},
+                                            {command: 'insertOrderedList', icon: 'format_list_numbered', label: lang === 'zh' ? '编号列表' : 'Numbered list'},
+                                            {command: 'insertHorizontalRule', icon: 'horizontal_rule', label: lang === 'zh' ? '分隔线' : 'Divider'},
+                                            {command: 'undo', icon: 'undo', label: lang === 'zh' ? '撤销' : 'Undo'},
+                                            {command: 'redo', icon: 'redo', label: lang === 'zh' ? '重做' : 'Redo'},
+                                        ].map(({command, icon, label}) => (
+                                            <button
+                                                key={command}
+                                                type="button"
+                                                title={label}
+                                                aria-label={label}
+                                                onMouseDown={(event)=>event.preventDefault()}
+                                                onClick={()=>runRichNoteCommand(command)}
+                                                className="inline-flex size-8 items-center justify-center rounded-[8px] text-[#555] transition hover:bg-white hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                                            >
+                                                <SvgIcon name={icon} className="text-[17px]"/>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                                 <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto p-6 text-[#111111] dark:text-white">
                                 {hasEditableSummary ? (
-                                    summaryEditing ? (
+                                    canEditSummary ? (
                                         <>
-                                            <div className="mb-3 flex h-9 items-center gap-1 rounded-[12px] border border-[#e4e0e0] bg-[#fbfbfb] px-1.5 dark:border-white/[0.12] dark:bg-white/[0.04]">
-                                                {[
-                                                    {command: 'formatBlock', value: '<h3>', icon: 'title', label: lang === 'zh' ? '二级标题' : 'Heading'},
-                                                    {command: 'bold', icon: 'format_bold', label: lang === 'zh' ? '加粗' : 'Bold'},
-                                                    {command: 'italic', icon: 'format_italic', label: lang === 'zh' ? '斜体' : 'Italic'},
-                                                    {command: 'insertUnorderedList', icon: 'format_list_bulleted', label: lang === 'zh' ? '项目列表' : 'Bullet list'},
-                                                    {command: 'insertOrderedList', icon: 'format_list_numbered', label: lang === 'zh' ? '编号列表' : 'Numbered list'},
-                                                    {command: 'undo', icon: 'undo', label: lang === 'zh' ? '撤销' : 'Undo'},
-                                                    {command: 'redo', icon: 'redo', label: lang === 'zh' ? '重做' : 'Redo'},
-                                                ].map(({command, value, icon, label}) => (
-                                                    <button
-                                                        key={`${command}-${value || ''}`}
-                                                        type="button"
-                                                        title={label}
-                                                        aria-label={label}
-                                                        onMouseDown={(event)=>event.preventDefault()}
-                                                        onClick={()=>runRichNoteCommand(command, value)}
-                                                        className="inline-flex size-7 items-center justify-center rounded-[8px] text-[#555] transition hover:bg-white hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:text-white/65 dark:hover:bg-white/[0.1] dark:hover:text-white"
-                                                    >
-                                                        <SvgIcon name={icon} className="text-[16px]"/>
-                                                    </button>
-                                                ))}
-                                            </div>
                                             <div
                                                 ref={richNoteEditorRef}
                                                 contentEditable
@@ -1824,6 +1862,9 @@ const Editor = () => {
                                                 aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}
                                                 spellCheck={false}
                                                 onInput={syncRichNoteEditor}
+                                                onSelect={saveRichNoteSelection}
+                                                onMouseUp={saveRichNoteSelection}
+                                                onKeyUp={saveRichNoteSelection}
                                                 className="min-h-[520px] rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-5 py-4 text-base font-semibold leading-8 text-[#111111] outline-none transition focus:border-[#111111]/45 focus:bg-white focus:ring-2 focus:ring-[#111111]/10 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white dark:focus:border-white/35 dark:focus:bg-white/[0.06] dark:focus:ring-white/[0.08] [&_a]:text-primary [&_blockquote]:border-l-4 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-[#555] dark:[&_blockquote]:text-white/70 [&_h2]:mb-4 [&_h2]:mt-6 [&_h2]:font-headline [&_h2]:text-2xl [&_h2]:font-extrabold [&_h3]:mb-3 [&_h3]:mt-6 [&_h3]:font-headline [&_h3]:text-xl [&_h3]:font-extrabold [&_h4]:mb-2 [&_h4]:mt-5 [&_h4]:font-headline [&_h4]:text-lg [&_h4]:font-extrabold [&_li]:my-1.5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-3 [&_strong]:font-extrabold [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6"
                                             />
                                             <div
