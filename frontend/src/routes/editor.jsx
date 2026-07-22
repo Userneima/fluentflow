@@ -1534,7 +1534,7 @@ const Editor = () => {
                                         ref={mediaRef}
                                         src={mediaUrl || undefined}
                                         controls
-                                        className="max-h-[min(38vh,330px)] w-full shrink-0 rounded-[18px] bg-black object-contain"
+                                        className="max-h-[min(58vh,36rem)] w-full shrink-0 rounded-[18px] bg-black object-contain"
                                         onTimeUpdate={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration})}
                                         onLoadedMetadata={(e)=>restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)}
                                         onSeeked={(e)=>updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true})}
@@ -1542,7 +1542,7 @@ const Editor = () => {
                                             onPause={(e)=>{ updateMediaCurrentTime(e.currentTarget.currentTime || 0, {duration: e.currentTarget.duration || playbackDuration, force: true}); setMediaPlaying(false); }}
                                             onEnded={()=>setMediaPlaying(false)}
                                         />
-                                    <div ref={transcriptScrollRef} className="hide-scrollbar min-h-0 flex-1 overflow-y-auto rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.05]">
+                                    <div ref={transcriptScrollRef} className="hide-scrollbar h-[min(24vh,12rem)] shrink-0 overflow-y-auto rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.05]">
                                         <div className="divide-y divide-[#e4e0e0] dark:divide-white/[0.08]">
                                             {visibleTranscriptView === 'bilingual' && bilingualTranscriptSegments.length > 0 ? bilingualTranscriptSegments.map((seg,i) => (
                                                 <div

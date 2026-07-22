@@ -1137,7 +1137,9 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "当前字幕" not in source
     assert "fetchJobSourceFile(result.task_id, result.filename || 'source', resultJobOptions)" in source
     assert "max-h-[min(42vh,360px)]" not in source
-    assert "max-h-[min(38vh,330px)]" in source
+    assert "max-h-[min(38vh,330px)]" not in source
+    assert "max-h-[min(58vh,36rem)]" in source
+    assert "h-[min(24vh,12rem)] shrink-0 overflow-y-auto" in source
     assert "min-w-0 flex-1 accent-primary" not in source
     assert "w-full accent-primary" in source
     assert "结果编辑页只承载复查、修改、下载和导出" in design_system
