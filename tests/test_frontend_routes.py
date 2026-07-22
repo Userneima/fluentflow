@@ -1092,6 +1092,11 @@ def test_editor_video_review_uses_dense_clickable_subtitle_list() -> None:
     assert "const isVideoResultSource = (result, sourceFile) => {" in helpers
     assert "const playbackMemoryKey = result ? `fluentflow_playback_position_${activeTaskId}` : ''" in source
     assert "localStorage.setItem(playbackMemoryKey" in source
+    assert "const mediaObjectUrlRef = useRef('');" in source
+    assert "const replaceMediaUrl = useCallback((nextUrl = '') => {" in source
+    assert "if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl);" in source
+    assert "replaceMediaUrl('');" in source
+    assert "if (mediaUrl) URL.revokeObjectURL(mediaUrl);" not in source
     assert "restoreMediaPosition(e.currentTarget, e.currentTarget.duration || durSec || 0)" in source
     assert "const visibleEditRecords = useMemo" in source
     assert "visibleEditRecords.length > 0" in source

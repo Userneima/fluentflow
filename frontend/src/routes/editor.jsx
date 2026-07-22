@@ -116,6 +116,7 @@ const Editor = () => {
     const summaryDraftResultKeyRef = useRef('');
     const richNoteEditorRef = useRef(null);
     const playbackSaveRef = useRef(0);
+    const mediaObjectUrlRef = useRef('');
 
     const initSettings = loadSettings();
     let initPk = initSettings.promptPreset || DEFAULT_PROMPT_PRESET;
@@ -381,24 +382,25 @@ const Editor = () => {
         editor.innerHTML = markdownToEditableHtml(summary);
     }, [summaryEditing, summaryResultKey]);
 
+    const replaceMediaUrl = useCallback((nextUrl = '') => {
+        const previousUrl = mediaObjectUrlRef.current;
+        if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl);
+        mediaObjectUrlRef.current = nextUrl;
+        setMediaUrl(nextUrl);
+    }, []);
+
     const loadMediaFile = useCallback((file) => {
         if (!file) return;
         const url = URL.createObjectURL(file);
         setMediaKind(isLikelyVideoFile(file) ? 'video' : 'audio');
-        setMediaUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return url;
-        });
+        replaceMediaUrl(url);
         setMediaError('');
         setMediaLoading(false);
-    }, []);
+    }, [replaceMediaUrl]);
 
     useEffect(() => {
         let cancelled = false;
-        setMediaUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return '';
-        });
+        replaceMediaUrl('');
         setMediaError('');
         setMediaLoading(false);
         setMediaKind('audio');
@@ -459,7 +461,7 @@ const Editor = () => {
             return () => { cancelled = true; };
         }
         return () => { cancelled = true; };
-    }, [mediaSourceKey, isGuestResult, resultJobOptions]);
+    }, [mediaSourceKey, isGuestResult, resultJobOptions, replaceMediaUrl]);
 
     const segments = editedSegments;
     const transcript = editedTranscript || result?.transcript_text || '';
@@ -647,9 +649,14 @@ const Editor = () => {
             persistMediaPosition();
             window.removeEventListener('pagehide', persistMediaPosition);
             document.removeEventListener('visibilitychange', persistBeforeBackground);
-            if (mediaUrl) URL.revokeObjectURL(mediaUrl);
         };
-    }, [mediaUrl, persistMediaPosition]);
+    }, [persistMediaPosition]);
+
+    useEffect(() => () => {
+        const activeUrl = mediaObjectUrlRef.current;
+        if (activeUrl) URL.revokeObjectURL(activeUrl);
+        mediaObjectUrlRef.current = '';
+    }, []);
 
     useEffect(() => {
         if (!result?.task_id || !transcriptUnsaved) return;
