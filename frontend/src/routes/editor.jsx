@@ -65,7 +65,6 @@ import {
     summaryFailureNextStep,
     formatElapsedMinuteSecond,
     formatSttOriginalRatio,
-    normalizeVisualKeyMoments,
     downloadBrowserFile,
 } from './editor-helpers.js';
 import {editableHtmlToMarkdown, markdownToEditableHtml} from '../lib/richNoteEditor.js';
@@ -535,7 +534,6 @@ const Editor = () => {
         () => simpleMd(summary, {renderImages: !hasInlineVisualEvidence || visualEvidenceVisible}),
         [summary, hasInlineVisualEvidence, visualEvidenceVisible]
     );
-    const visualKeyMoments = useMemo(() => normalizeVisualKeyMoments(result), [result]);
     const displayTranscriptSegments = pickDisplayTranscriptSegments(result, segments);
     const bilingualTranscriptSegments = displayTranscriptSegments
         .filter((seg) => String(seg.text_zh || '').trim());
@@ -1893,71 +1891,6 @@ const Editor = () => {
                                     </div>
                                 ) : (
                                     <p className="text-sm italic text-[#666] dark:text-white/60">{t('edit.summaryPending')}</p>
-                                )}
-                                {visualKeyMoments.length > 0 && (
-                                    <section className="mt-8 rounded-[18px] border border-[#d8ebe2] bg-[#f7fbf8] p-4 text-[#111111] dark:border-emerald-300/20 dark:bg-emerald-300/[0.06] dark:text-white">
-                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <h3 className="flex items-center gap-2 font-headline text-sm font-extrabold">
-                                                    <SvgIcon name="visibility" className="text-base text-emerald-700 dark:text-emerald-300"/>
-                                                    {lang === 'zh' ? '关键画面复查' : 'Key visual moments'}
-                                                </h3>
-                                                <p className="mt-1 text-xs font-semibold leading-relaxed text-[#5f6f67] dark:text-white/60">
-                                                    {lang === 'zh'
-                                                        ? '这些画面适合回看图表、代码、界面、公式或流程；正文只保留已插入笔记的高置信插图。'
-                                                        : 'Use these frames to revisit charts, code, UI, formulas, or flows. The note body only keeps high-confidence inline evidence.'}
-                                                </p>
-                                            </div>
-                                            <span className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:border-emerald-300/20 dark:bg-white/[0.06] dark:text-emerald-200">
-                                                {visualKeyMoments.length}
-                                            </span>
-                                        </div>
-                                        <div className="mt-4 grid gap-3">
-                                            {visualKeyMoments.map((moment, index) => {
-                                                const timeLabel = moment.timestamp == null ? '' : fmtTime(moment.timestamp);
-                                                const title = moment.caption || moment.noteSection || (lang === 'zh' ? `关键画面 ${index + 1}` : `Visual moment ${index + 1}`);
-                                                return (
-                                                    <article key={moment.id} className="grid gap-3 rounded-[16px] border border-[#dfe7e2] bg-white/80 p-3 shadow-[0_10px_28px_-24px_rgba(17,17,17,.45)] sm:grid-cols-[132px_minmax(0,1fr)] dark:border-white/[0.10] dark:bg-white/[0.05] dark:shadow-none">
-                                                        {moment.imageUrl ? (
-                                                            <img
-                                                                src={moment.imageUrl}
-                                                                alt={title}
-                                                                loading="lazy"
-                                                                className="h-[82px] w-full rounded-[12px] border border-black/5 object-cover sm:h-full dark:border-white/[0.08]"
-                                                            />
-                                                        ) : (
-                                                            <div className="flex h-[82px] items-center justify-center rounded-[12px] border border-dashed border-[#cbd9d0] bg-[#edf6f0] text-xs font-bold text-[#5f6f67] sm:h-full dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-white/50">
-                                                                {lang === 'zh' ? '无预览图' : 'No preview'}
-                                                            </div>
-                                                        )}
-                                                        <div className="min-w-0 space-y-2">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                {timeLabel && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={()=>seekMediaTo(moment.timestamp)}
-                                                                        className="inline-flex h-7 items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 font-mono text-[11px] font-bold text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-200 dark:hover:bg-emerald-300/15"
-                                                                        title={lang === 'zh' ? '跳到这个时间点' : 'Jump to this timestamp'}
-                                                                    >
-                                                                        {timeLabel}
-                                                                    </button>
-                                                                )}
-                                                                {moment.noteSection && (
-                                                                    <span className="min-w-0 truncate rounded-full border border-[#e4e0e0] bg-[#fbfbfb] px-2.5 py-1 text-[11px] font-bold text-[#666] dark:border-white/[0.10] dark:bg-white/[0.04] dark:text-white/60" title={moment.noteSection}>
-                                                                        {moment.noteSection}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <p className="text-sm font-extrabold leading-snug text-[#111111] dark:text-white">{title}</p>
-                                                            {moment.reason && (
-                                                                <p className="text-xs font-semibold leading-relaxed text-[#59635e] dark:text-white/60">{moment.reason}</p>
-                                                            )}
-                                                        </div>
-                                                    </article>
-                                                );
-                                            })}
-                                        </div>
-                                    </section>
                                 )}
                                 </div>
                                 <div className="flex justify-end border-t border-[#e4e0e0] bg-[#fbfbfb] px-4 py-2 dark:border-white/[0.12] dark:bg-white/[0.04]">

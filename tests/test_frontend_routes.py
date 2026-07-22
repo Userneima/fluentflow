@@ -1002,18 +1002,16 @@ def test_editor_visual_evidence_stays_inline_and_secondary() -> None:
     assert "[x] Add editor affordance to hide/show visual evidence if screenshots become distracting." in plan
 
 
-def test_editor_surfaces_visual_key_moments_without_raw_frames() -> None:
+def test_editor_does_not_render_a_separate_visual_key_moments_panel() -> None:
     source = Path("frontend/src/routes/editor.jsx").read_text(encoding="utf-8")
     helpers = Path("frontend/src/routes/editor-helpers.js").read_text(encoding="utf-8")
 
-    assert "normalizeVisualKeyMoments(result)" in source
-    assert "result?.visual_key_moments" in helpers
-    assert "result?.visual?.key_moments" in helpers
-    assert "confidence === 'low'" in helpers
-    assert "关键画面复查" in source
-    assert "Key visual moments" in source
-    assert "seekMediaTo(moment.timestamp)" in source
-    assert "frame_artifacts" not in source
+    assert "normalizeVisualKeyMoments" not in source
+    assert "visualKeyMoments" not in source
+    assert "关键画面复查" not in source
+    assert "Key visual moments" not in source
+    assert "normalizeVisualKeyMoments" not in helpers
+    assert "result?.visual_key_moments" not in helpers
 
 
 def test_editor_uses_compact_review_workbench_layout() -> None:
@@ -1045,10 +1043,7 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "formatElapsedMinuteSecond(sttElapsedSec)" in source
     assert "formatSttOriginalRatio(sttRealtimeFactor, lang)" in source
     assert "STT:" not in source
-    # NOTE: the "no h-[82px]" guard was dropped — that fixed height is now used
-    # by the legitimate "关键画面复查 / key visual moments" thumbnail cards, a
-    # separate feature (covered by the visual-key-moments tests), not the old
-    # compact-layout violation this test was originally written against.
+    assert "h-[82px]" not in source
     assert "w-[360px]" not in source
     assert "当前结果没有时间戳分段，只能按纯文本编辑" not in source
     assert "No timestamped segments. Retranscribe the source audio" in source
