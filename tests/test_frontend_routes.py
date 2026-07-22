@@ -1031,6 +1031,8 @@ def test_editor_uses_compact_review_workbench_layout() -> None:
     assert "const richNoteSelectionRef = useRef(null);" in source
     assert "onSelect={saveRichNoteSelection}" in source
     assert "restoreRichNoteSelection();" in source
+    assert "rounded-[18px] border border-[#e4e0e0] bg-[#fbfbfb] px-5 py-4" not in source
+    assert "focus-visible:ring-inset focus-visible:ring-primary/25" in source
     assert "<textarea\n                                                value={summary}" not in source
     assert "dangerouslySetInnerHTML={{__html: renderedSummary}}" in source
     assert "aria-label={lang === 'zh' ? '编辑笔记正文' : 'Edit note body'}" in source
