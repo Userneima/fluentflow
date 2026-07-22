@@ -1314,8 +1314,8 @@ const Editor = () => {
                 if(file) handleMediaFileSelected(file);
             }}
         />
-        <main className="h-dvh overflow-hidden px-8 pb-4 pt-5">
-            <div className="max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-3">
+        <main className="h-dvh overflow-hidden px-4 pb-4 pt-5 xl:px-5 2xl:px-6">
+            <div className="mx-auto h-full min-h-0 w-full flex flex-col gap-3">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
                     <div className="min-w-0 pr-2">
                         <h1
@@ -1408,7 +1408,7 @@ const Editor = () => {
                 />
 
                         <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                            <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                                 <div className="border-b border-[#e4e0e0] px-4 py-3 dark:border-white/[0.12]">
                                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="min-w-0">
@@ -1747,7 +1747,7 @@ const Editor = () => {
                         )}
                             </section>
 
-                            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                            <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] xl:w-[38rem] xl:flex-none 2xl:w-[42rem] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
                                 <div className="flex items-center justify-between gap-3 border-b border-[#e4e0e0] bg-[#fbfbfb] px-4 py-3 dark:border-white/[0.12] dark:bg-white/[0.04]">
                                     <h2 className="flex items-center gap-2 font-headline text-base font-extrabold text-[#111111] dark:text-white">
                                         <SvgIcon name="psychology" className="text-[#111111] dark:text-white"/>
