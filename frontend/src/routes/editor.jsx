@@ -1408,7 +1408,7 @@ const Editor = () => {
                 />
 
                         <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-                            <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none">
+                            <section className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[#e4e0e0] bg-white shadow-[0_18px_44px_-34px_rgba(17,17,17,.55)] dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-none ${shouldShowVideoReview ? 'self-start' : ''}`}>
                                 <div className="border-b border-[#e4e0e0] px-4 py-3 dark:border-white/[0.12]">
                                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="min-w-0">
