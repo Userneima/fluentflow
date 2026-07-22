@@ -251,11 +251,41 @@ def test_resolve_video_stops_bilibili_after_yt_dlp_failure(monkeypatch) -> None:
     def fail_if_called(url: str, timeout: float = 45) -> str:
         raise AssertionError(f"miuistore should not be called for Bilibili: {url}")
 
-    monkeypatch.setattr(video_source, "resolve_with_yt_dlp", lambda url, cookies_from_browser=None: None)
+    monkeypatch.setattr(video_source, "_resolve_with_yt_dlp_attempt", lambda url, cookies_from_browser=None: (None, "unavailable"))
     monkeypatch.setattr(video_source, "fetch_text", fail_if_called)
 
     with pytest.raises(RuntimeError, match="需要登录后才能下载"):
         video_source.resolve_video("https://www.bilibili.com/video/BVdemo/?p=2")
+
+
+def test_resolve_video_records_yt_dlp_fallback_to_miuistore(monkeypatch) -> None:
+    fallback = video_source.ResolvedVideo(
+        provider="miuistore",
+        source_url="https://v.douyin.com/demo/",
+        download_url="https://v.douyinvod.com/play/?mime_type=video_mp4",
+    )
+    monkeypatch.setattr(video_source, "_resolve_with_yt_dlp_attempt", lambda url, cookies_from_browser=None: (None, "unavailable"))
+    monkeypatch.setattr(video_source, "_resolve_with_miuistore_attempt", lambda input_text: (fallback, None))
+
+    resolved = video_source.resolve_video("https://v.douyin.com/demo/")
+
+    assert resolved.resolution_trace == [
+        {"provider": "yt-dlp", "status": "failed", "reason": "unavailable"},
+        {"provider": "miuistore", "status": "selected"},
+    ]
+
+
+def test_resolve_video_keeps_trace_when_all_resolvers_fail(monkeypatch) -> None:
+    monkeypatch.setattr(video_source, "_resolve_with_yt_dlp_attempt", lambda url, cookies_from_browser=None: (None, "rate_limited"))
+    monkeypatch.setattr(video_source, "_resolve_with_miuistore_attempt", lambda input_text: (None, "unavailable"))
+
+    with pytest.raises(video_source.VideoSourceResolutionError) as captured:
+        video_source.resolve_video("https://v.douyin.com/demo/")
+
+    assert captured.value.resolution_trace == [
+        {"provider": "yt-dlp", "status": "failed", "reason": "rate_limited"},
+        {"provider": "miuistore", "status": "failed", "reason": "unavailable"},
+    ]
 
 
 def test_video_source_pending_title_ignores_bilibili_tracking_query() -> None:
@@ -305,6 +335,7 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
         download_url="https://v.douyinvod.com/play/?video_id=demo123&mime_type=video_mp4",
         video_id="demo123",
         title="测试视频",
+        resolution_trace=[{"provider": "direct", "status": "selected"}],
     )
     monkeypatch.setattr(video_source, "resolve_video", lambda input_text, cookies_from_browser=None: resolved)
 
@@ -322,6 +353,7 @@ def test_download_video_source_writes_metadata_and_reuses_existing_file(tmp_path
     assert saved.title == "测试视频"
     assert Path(saved.file_path).is_file()
     assert Path(saved.metadata_path).is_file()
+    assert saved.resolution_trace == [{"provider": "direct", "status": "selected"}]
     assert (tmp_path / "视频链接相关信息.md").read_text(encoding="utf-8").strip()
 
 

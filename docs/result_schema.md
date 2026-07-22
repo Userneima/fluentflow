@@ -163,6 +163,8 @@ Link-source jobs may include `metadata.asset_strategy`:
 
 Different platforms may need different acquisition strategies. For example, YouTube links may complete the note path from captions while playback falls back to `external_url`; another platform may require media download or manual upload before transcription. UI and Agent surfaces should read `metadata.asset_strategy` instead of assuming all link-source jobs need the same assets.
 
+`metadata.video_source.resolution_trace` is an optional ordered diagnostic trail for link resolution. Each item contains a provider (`direct`, `yt-dlp`, or `miuistore`), a status (`selected` or `failed`), and, for failures, a stable category such as `timeout`, `rate_limited`, `forbidden`, `no_downloadable_media`, or `unavailable`. It never contains the submitted URL, resolved download URL, raw provider error, cookie, or credential. The same safe field is forwarded to `source.video_source` in the Agent Task Package; failed resolution jobs retain it in `metadata.video_source` when available.
+
 For link-source jobs, a missing local media file is not automatically a failed note task when the transcript and note outputs are available.
 
 `cached_only` is a frontend state, not a backend persistence state. It means the browser has enough cached result data to open a task even when the backend task row is unavailable.

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import backend.main as main
-from backend.core.video_source import SavedVideoSource
+from backend.core.video_source import SavedVideoSource, VideoSourceResolutionError
 import backend.core.server_helpers as _H
 
 
@@ -29,6 +29,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
         metadata_path=str(tmp_path / "downloaded.source.json"),
         size_bytes=source_file.stat().st_size,
         downloaded_at="2026-06-06T00:00:00+08:00",
+        resolution_trace=[{"provider": "direct", "status": "selected"}],
     )
     monkeypatch.setattr(_H, "download_video_source", lambda *args, **kwargs: saved)
     monkeypatch.setattr(_H, "log_event", lambda **kwargs: None)
@@ -60,6 +61,7 @@ def test_video_source_job_downloads_then_enqueues_transcription(tmp_path, monkey
     assert final_job["stage"] == "queued"
     assert final_job["source_type"] == "video"
     assert final_job["metadata"]["video_source"]["provider"] == "direct"
+    assert final_job["metadata"]["video_source"]["resolution_trace"] == [{"provider": "direct", "status": "selected"}]
     assert final_job["metadata"]["video_source"]["asset_strategy"] is None
     assert final_job["metadata"]["display_title"] == "测试视频"
     assert final_job["metadata"]["video_source"]["raw_title"] == "测试视频"
@@ -207,6 +209,34 @@ def test_video_source_job_publishes_resolving_progress(tmp_path, monkeypatch) ->
         "loaded_bytes": None,
         "total_bytes": None,
     }) in published
+
+
+def test_video_source_job_keeps_safe_resolution_trace_after_resolver_failure(monkeypatch) -> None:
+    trace = [
+        {"provider": "yt-dlp", "status": "failed", "reason": "unavailable"},
+        {"provider": "miuistore", "status": "failed", "reason": "timeout"},
+    ]
+    jobs: list[dict] = []
+    monkeypatch.setattr(
+        _H,
+        "download_video_source",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            VideoSourceResolutionError("cannot resolve", trace)
+        ),
+    )
+    monkeypatch.setattr(_H, "_release_task_quota", lambda **kwargs: None)
+    monkeypatch.setattr(_H, "upsert_job", lambda **kwargs: jobs.append(kwargs))
+    monkeypatch.setattr(_H, "_publish_job_event_from_thread", lambda *args, **kwargs: None)
+
+    _H._run_video_source_job({
+        "task_id": "task-link-failure",
+        "input": "https://v.douyin.com/demo/",
+        "options": {},
+    })
+
+    failed_job = jobs[-1]
+    assert failed_job["status"] == "failed"
+    assert failed_job["metadata"]["video_source"]["resolution_trace"] == trace
 
 
 def test_start_video_source_job_writes_persistent_step(monkeypatch) -> None:

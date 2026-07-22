@@ -2619,6 +2619,7 @@ def _public_video_source_metadata(saved: SavedVideoSource) -> dict[str, Any]:
         "size_bytes": saved.size_bytes,
         "downloaded_at": saved.downloaded_at,
         "asset_strategy": getattr(saved, "asset_strategy", None),
+        "resolution_trace": getattr(saved, "resolution_trace", None),
     }
 
 
@@ -2787,6 +2788,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
         logger.exception("Video source job failed for %s", task_id)
         friendly_error = _friendly_error_message(exc)
         failure_reason = video_source_failure_reason(exc)
+        resolution_trace = getattr(exc, "resolution_trace", None)
         _release_task_quota(
             client_id=client_id,
             task_id=task_id,
@@ -2806,6 +2808,7 @@ def _run_video_source_job(item: dict[str, Any]) -> None:
                 route="/video-sources/jobs",
                 queue_options=options,
                 raw_error=str(exc),
+                video_source={"resolution_trace": resolution_trace} if resolution_trace else None,
                 asset_strategy={
                     "transcript_asset": {"status": "unavailable"},
                     "playback_asset": {

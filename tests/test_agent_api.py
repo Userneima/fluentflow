@@ -32,6 +32,7 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
                     "url": "https://example.com/video",
                     "media_type": "video",
                     "file_ext": ".mp4",
+                    "resolution_trace": [{"provider": "yt-dlp", "status": "selected"}],
                 },
             },
             "result": {
@@ -166,6 +167,7 @@ def test_agent_task_package_returns_stable_agent_contract(monkeypatch) -> None:
     assert package["source"]["type"] == "video_link"
     assert package["source"]["video_source"]["provider"] == "youtube-yt-dlp"
     assert package["source"]["video_source"]["media_type"] == "video"
+    assert package["source"]["video_source"]["resolution_trace"] == [{"provider": "yt-dlp", "status": "selected"}]
     assert package["transcript"]["text"] == "Hello world"
     assert package["transcript"]["raw_segments"][0]["text"] == "Hello world"
     assert package["transcript"]["display_segments"][0]["text_zh"] == "你好世界"

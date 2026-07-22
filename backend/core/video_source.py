@@ -48,6 +48,7 @@ class ResolvedVideo:
     referer: str | None = None
     duration_seconds: float | None = None
     estimated_size_bytes: int | None = None
+    resolution_trace: list[dict[str, str]] | None = None
 
 
 @dataclass
@@ -72,12 +73,21 @@ class SavedVideoSource:
     estimated_size_bytes: int | None = None
     audio_url: str | None = None
     referer: str | None = None
+    resolution_trace: list[dict[str, str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 ProgressCallback = Callable[[VideoSourceProgress], None]
+
+
+class VideoSourceResolutionError(RuntimeError):
+    """A resolver failure with a safe, provider-level diagnostic trail."""
+
+    def __init__(self, message: str, resolution_trace: list[dict[str, str]]) -> None:
+        super().__init__(message)
+        self.resolution_trace = resolution_trace
 
 
 def max_video_bytes() -> int:
@@ -343,12 +353,20 @@ def estimate_yt_dlp_size_bytes(info: dict[str, Any]) -> int | None:
     return max(sizes) if sizes else None
 
 
-def resolve_with_yt_dlp(url: str, cookies_from_browser: str | None = None) -> ResolvedVideo | None:
+def _resolver_failure_reason(error: Exception) -> str:
+    reason = video_source_failure_reason(error)
+    return reason if reason != "unknown" else "unavailable"
+
+
+def _resolve_with_yt_dlp_attempt(
+    url: str,
+    cookies_from_browser: str | None = None,
+) -> tuple[ResolvedVideo | None, str | None]:
     try:
         info = run_yt_dlp(url, cookies_from_browser)
         download_url, audio_url = choose_yt_dlp_media(info)
         if not download_url:
-            return None
+            return None, "no_downloadable_media"
         return ResolvedVideo(
             provider="yt-dlp",
             source_url=info.get("webpage_url") or info.get("original_url") or url,
@@ -360,27 +378,32 @@ def resolve_with_yt_dlp(url: str, cookies_from_browser: str | None = None) -> Re
             referer="https://www.bilibili.com/" if is_bilibili_url(info.get("webpage_url") or url) else None,
             duration_seconds=_number_or_none(info.get("duration")),
             estimated_size_bytes=estimate_yt_dlp_size_bytes(info),
-        )
-    except Exception:
-        return None
+        ), None
+    except Exception as exc:
+        return None, _resolver_failure_reason(exc)
 
 
-def resolve_with_miuistore(input_text: str) -> ResolvedVideo | None:
+def resolve_with_yt_dlp(url: str, cookies_from_browser: str | None = None) -> ResolvedVideo | None:
+    resolved, _ = _resolve_with_yt_dlp_attempt(url, cookies_from_browser)
+    return resolved
+
+
+def _resolve_with_miuistore_attempt(input_text: str) -> tuple[ResolvedVideo | None, str | None]:
     try:
         check_url = f"{MIUISTORE_ORIGIN}/sph/public/dy-check?{urllib.parse.urlencode({'data': input_text})}"
         checked = json.loads(fetch_text(check_url))
         if checked.get("error") != 0 or not checked.get("url"):
-            return None
+            return None, "unavailable"
         query_url = urllib.parse.urljoin(MIUISTORE_ORIGIN, str(checked["url"]))
         encrypted_url = (urllib.parse.parse_qs(urllib.parse.urlparse(query_url).query).get("url") or [None])[0]
         if not encrypted_url:
-            return None
+            return None, "invalid_response"
         result_url = f"{MIUISTORE_ORIGIN}/sph/public/dy-r?{urllib.parse.urlencode({'url': encrypted_url})}"
         page_html = fetch_text(result_url)
         links = parse_miuistore_links(page_html)
         download_url = choose_miuistore_video_url(links)
         if not download_url:
-            return None
+            return None, "no_downloadable_media"
         return ResolvedVideo(
             provider="miuistore",
             source_url=extract_first_url(input_text) or query_url,
@@ -388,9 +411,14 @@ def resolve_with_miuistore(input_text: str) -> ResolvedVideo | None:
             video_id=parse_miuistore_field(page_html, "视频ID"),
             title=parse_miuistore_field(page_html, "视频标题"),
             thumbnail_url=next((href for href in links if "douyinpic.com" in href), None),
-        )
-    except Exception:
-        return None
+        ), None
+    except Exception as exc:
+        return None, _resolver_failure_reason(exc)
+
+
+def resolve_with_miuistore(input_text: str) -> ResolvedVideo | None:
+    resolved, _ = _resolve_with_miuistore_attempt(input_text)
+    return resolved
 
 
 def resolve_video(input_text: str, cookies_from_browser: str | None = None) -> ResolvedVideo:
@@ -398,15 +426,28 @@ def resolve_video(input_text: str, cookies_from_browser: str | None = None) -> R
     if not source_url:
         raise ValueError("没有识别到视频链接")
     parse_http_url(source_url)
-    resolved = resolve_direct_video(source_url) or resolve_with_yt_dlp(source_url, cookies_from_browser)
+    resolved = resolve_direct_video(source_url)
     if resolved:
+        resolved.resolution_trace = [{"provider": "direct", "status": "selected"}]
         return resolved
+    trace: list[dict[str, str]] = []
+    resolved, failure_reason = _resolve_with_yt_dlp_attempt(source_url, cookies_from_browser)
+    if resolved:
+        resolved.resolution_trace = [{"provider": "yt-dlp", "status": "selected"}]
+        return resolved
+    trace.append({"provider": "yt-dlp", "status": "failed", "reason": failure_reason or "unavailable"})
     if is_bilibili_url(source_url):
-        raise RuntimeError("这个 B 站链接需要登录后才能下载。请在设置里选择“用浏览器登录态下载高清”，或改为上传本地视频。")
-    resolved = resolve_with_miuistore(input_text)
+        raise VideoSourceResolutionError(
+            "这个 B 站链接需要登录后才能下载。请在设置里选择“用浏览器登录态下载高清”，或改为上传本地视频。",
+            trace,
+        )
+    resolved, failure_reason = _resolve_with_miuistore_attempt(input_text)
     if resolved:
+        trace.append({"provider": "miuistore", "status": "selected"})
+        resolved.resolution_trace = trace
         return resolved
-    raise RuntimeError("暂时无法自动解析这个视频链接，请上传视频文件")
+    trace.append({"provider": "miuistore", "status": "failed", "reason": failure_reason or "unavailable"})
+    raise VideoSourceResolutionError("暂时无法自动解析这个视频链接，请上传视频文件", trace)
 
 
 def download_referer_for_url(url: str, fallback: str | None = None) -> str:
@@ -913,6 +954,7 @@ def download_video_source(
         "downloaded_at": downloaded_at,
         "media_type": media_type,
         "asset_strategy": asset_strategy,
+        "resolution_trace": resolved.resolution_trace,
     }
     metadata_path = write_json_metadata(file_path, metadata)
     write_source_info(video_dir, display_title, resolved.source_url)
